@@ -281,8 +281,16 @@ trivy fs .
 - [🧷 偏好学习与披露](./docs/PREFERENCE_AND_DISCLOSURE.md) - 偏好API、披露阶段与覆盖关系
 - [📦 Skills 迁移](./docs/skills/MIGRATION_GUIDE.md) - 从插件到 Skills 的迁移说明
 - [🗂️ 历史插件样例说明](./docs/historical/PLUGINS_LEGACY.md) - 历史插件示例，仅供参考
-- [🧪 测试指南](./docs/TESTING.md) - 测试策略和规范
-- [📦 部署指南](./docs/DEPLOYMENT.md) - 生产环境部署
+- [🧪 测试文档目录](./docs/testing/README.md) - 完整的测试指南与场景
+  - 🔄 [集成测试场景](./docs/testing/INTEGRATION_SCENARIOS.md) - Node Agent与Hub集成测试
+  - 🎯 [M2.2 第二阶段测试](./docs/testing/M2.2_PHASE2_TESTING_GUIDE.md) - ABP协议迁移测试
+  - 🔌 [端到端测试](./docs/testing/E2E_SCENARIO_COMPANION_WORKER.md) - Companion与Worker端到端场景
+  - 🐛 [WebSocket故障排除](./docs/testing/WEBSOCKET_TROUBLESHOOTING.md) - WebSocket调试指南
+  - 📝 [测试结果汇总](./docs/testing/TEST_RESULTS_SUMMARY.md) - 测试执行结果记录
+- 📋 [功能测试指南](./docs/MEMORY_SERVICE_TEST_GUIDE.md) - 记忆服务测试
+- 🎛️ [管理后台测试](./docs/ADMIN_PANEL_TEST_GUIDE.md) - AdminPanel功能测试
+- 🧠 [RAG API测试](./docs/RAG_API_TEST_CASE.md) - RAG接口测试用例
+- 📦 [部署指南](./docs/DEPLOYMENT.md) - 生产环境部署
 
 ### 🌐 在线资源
 
