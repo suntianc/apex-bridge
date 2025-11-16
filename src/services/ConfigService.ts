@@ -6,7 +6,6 @@
 import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
-import { VCPConfig } from '../types';
 import { logger } from '../utils/logger';
 import { PathService } from './PathService';
 import { Mutex } from '../utils/Mutex';
@@ -222,10 +221,11 @@ export interface AdminConfig {
     };
   };
   protocol?: {
-    startMarker: string;
-    endMarker: string;
-    paramStartMarker: string;
-    paramEndMarker: string;
+    // 历史字段已弃用，保留为可选以兼容旧文件
+    startMarker?: string;
+    endMarker?: string;
+    paramStartMarker?: string;
+    paramEndMarker?: string;
   };
   plugins: {
     directory: string;

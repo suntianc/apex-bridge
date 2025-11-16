@@ -19,7 +19,7 @@ import {
 } from './variable/providers';
 // PluginRuntime removed in skills-only architecture
 import * as path from 'path';
-import { VCPConfig } from '../types';
+import type { AdminConfig } from '../services/ConfigService';
 import { logger } from '../utils/logger';
 import { DistributedService } from '../services/DistributedService';
 import { PathService } from '../services/PathService';
@@ -36,7 +36,7 @@ export class ProtocolEngine {
   // Skills 描述生成器绑定（通过 ToolDescriptionProvider）
   private toolDescProvider?: ToolDescriptionProvider;
   
-  constructor(private config: VCPConfig) {
+  constructor(private config: AdminConfig) {
     logger.info('🧠 Initializing Protocol Engine (ABP only)...');
     // 🔧 立即初始化核心组件，避免后续使用时为undefined
     this.initializeCore();

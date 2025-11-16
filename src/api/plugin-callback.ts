@@ -101,7 +101,6 @@ export function createPluginCallbackRouter(deps: PluginCallbackDependencies): Ro
         signature,
         {
           configService,
-          allowLegacyVCPKey: allowLegacyVcpKey,
           hmacWindowSeconds
         }
       );

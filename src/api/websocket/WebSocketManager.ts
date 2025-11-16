@@ -5,7 +5,7 @@
 
 import { Server } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
-import { VCPConfig } from '../../types';
+import type { AdminConfig } from '../../services/ConfigService';
 import { logger } from '../../utils/logger';
 import { DistributedServerChannel } from './channels/DistributedServerChannel';
 import { ABPLogChannel } from './channels/ABPLogChannel';
@@ -16,7 +16,7 @@ export class WebSocketManager {
   private abpLogChannel: ABPLogChannel;
   
   constructor(
-    private config: VCPConfig,
+    private config: AdminConfig,
     distributedServerChannel: DistributedServerChannel,
     abpLogChannel: ABPLogChannel
   ) {

@@ -9,7 +9,7 @@
  */
 
 import { ConfigService } from './ConfigService';
-import { } from '../types';
+import type { AdminConfig } from './ConfigService';
 import { logger } from '../utils/logger';
 import { LLMClient } from '../core/LLMClient';
 import { Mutex } from '../utils/Mutex';
@@ -158,7 +158,7 @@ export class RuntimeConfigService {
   /**
    * 获取当前配置（不重新加载）
    */
-  public getCurrentConfig(): VCPConfig | null {
+  public getCurrentConfig(): AdminConfig | null {
     return this.cachedConfig;
   }
 

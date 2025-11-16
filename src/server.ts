@@ -30,7 +30,7 @@ import { errorHandler } from './api/middleware/errorHandler';
 import { loadConfig, validateConfig } from './config';
 import { logger } from './utils/logger';
 import { createPluginCallbackRouter } from './api/plugin-callback';
-import { VCPConfig } from './types';
+import type { AdminConfig } from './services/ConfigService';
 import { ConversationRouter } from './core/conversation/ConversationRouter';
 import { ToolAuthorization } from './core/conversation/ToolAuthorization';
 // 独立WebSocket实现（不再依赖vcp-intellicore-sdk）
@@ -161,7 +161,7 @@ export class VCPIntelliCore {
       // 1. 加载和验证配置
       logger.info('📋 Loading configuration...');
       const config = loadConfig();
-      validateConfig(config);
+      validateConfig();
       logger.info('✅ Configuration loaded and validated');
       
       // 🆕 1.5 确保必要的目录存在
@@ -1087,7 +1087,7 @@ export class VCPIntelliCore {
   /**
    * 设置WebSocket服务器（使用独立实现）
    */
-  private setupWebSocket(config: VCPConfig): void {
+  private setupWebSocket(config: AdminConfig): void {
     logger.info('🌐 Setting up WebSocket server...');
     
     try {

@@ -4,7 +4,7 @@
  */
 
 import axios, { AxiosInstance } from 'axios';
-import { Message, ChatOptions, LLMResponse, VCPConfig, LLMProviderConfig } from '../types';
+import { Message, ChatOptions, LLMResponse, LLMProviderConfig, LLMConfig } from '../types';
 import { logger } from '../utils/logger';
 import { retry, RetryConfig } from '../utils/retry';
 
@@ -377,7 +377,7 @@ export class LLMClient {
   private adapters: Map<string, ILLMAdapter> = new Map();
   private defaultProvider: string | null = null;
   
-  constructor(config: VCPConfig['llm']) {
+  constructor(config: LLMConfig) {
     logger.info('🤖 Initializing LLM Client with multiple providers...');
     
     // 注册OpenAI

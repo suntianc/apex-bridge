@@ -76,6 +76,17 @@ export interface LLMQuotaConfig {
 }
 
 // ABP-only: 运行时直接使用 AdminConfig 作为配置源，移除 VCPConfig
+// 为了避免核心层依赖 services/ConfigService，这里定义独立的 LLMConfig 类型
+export interface LLMConfig {
+  defaultProvider?: string;
+  openai?: LLMProviderConfig;
+  deepseek?: LLMProviderConfig;
+  zhipu?: LLMProviderConfig & { mode?: 'default' | 'coding' };
+  claude?: LLMProviderConfig;
+  ollama?: Omit<LLMProviderConfig, 'apiKey'>; // 本地推理一般不需要 apiKey
+  custom?: LLMProviderConfig;
+  quota?: LLMQuotaConfig;
+}
 
 // ==================== WebSocket相关类型 ====================
 

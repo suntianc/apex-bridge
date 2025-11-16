@@ -5,7 +5,6 @@
 
 import { WebSocket } from 'ws';
 import { IncomingMessage } from 'http';
-import { VCPLogMessage } from '../../../types';
 import { logger } from '../../../utils/logger';
 
 export class ABPLogChannel {
@@ -40,13 +39,19 @@ export class ABPLogChannel {
       this.handleError(ws, error as any);
     });
 
-    this.sendToClient(ws, {
-      type: 'connection_ack',
-      data: {
-        message: 'Connected to ApexBridge ABPLog',
-        timestamp: Date.now(),
-      },
-    });
+    try {
+      ws.send(
+        JSON.stringify({
+          type: 'connection_ack',
+          data: {
+            message: 'Connected to ApexBridge ABPLog',
+            timestamp: Date.now(),
+          },
+        })
+      );
+    } catch (e) {
+      logger.warn('⚠️ Failed to send connection_ack to client:', (e as any)?.message || e);
+    }
 
     logger.info(`✅ ABPLog client ${clientId} connected (total: ${this.clients.size})`);
   }
@@ -116,7 +121,7 @@ export class ABPLogChannel {
     source?: string;
     metadata?: Record<string, any>;
   }): void {
-    const logData: VCPLogMessage = {
+    const logData = {
       type: 'abp_log',
       data: {
         log_type: 'tool_log',
