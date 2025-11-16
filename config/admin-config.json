@@ -415,10 +415,6 @@
     }
   },
   "protocol": {
-    "startMarker": "<<<[TOOL_REQUEST]>>>",
-    "endMarker": "<<<[END_TOOL_REQUEST]>>>",
-    "paramStartMarker": "「始」",
-    "paramEndMarker": "「末」",
     "security": {
       "rateLimit": {
         "enabled": true,

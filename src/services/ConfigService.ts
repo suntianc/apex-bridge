@@ -430,12 +430,7 @@ export class ConfigService {
           password: 'admin'
         }
       },
-      protocol: {
-        startMarker: '<<<[TOOL_REQUEST]>>>',
-        endMarker: '<<<[END_TOOL_REQUEST]>>>',
-        paramStartMarker: '「始」',
-        paramEndMarker: '「末」'
-      },
+      protocol: {},
       plugins: {
         directory: './plugins',
         autoLoad: true
@@ -899,12 +894,7 @@ export class ConfigService {
         // 🆕 将 ApiKeyInfo[] 转换为 string[]（VCPConfig 的 apiKeys 是 string[]）
         apiKeys: (adminConfig.auth.apiKeys || []).map(apiKey => apiKey.key)
       },
-      protocol: adminConfig.protocol || {
-        startMarker: '<<<[TOOL_REQUEST]>>>',
-        endMarker: '<<<[END_TOOL_REQUEST]>>>',
-        paramStartMarker: '「始」',
-        paramEndMarker: '「末」'
-      },
+      protocol: {},
       plugins: {
         directory: adminConfig.plugins.directory,
         autoLoad: adminConfig.plugins.autoLoad
