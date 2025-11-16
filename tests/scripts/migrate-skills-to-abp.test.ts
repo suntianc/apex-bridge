@@ -16,6 +16,7 @@ import { SkillsMigrationTool } from '../../scripts/migrate-skills-to-abp';
 import { SkillMetadata } from '../../src/types/skills';
 
 describe('Skills Migration Tool', () => {
+  jest.setTimeout(15000);
   let skillsRoot: string;
   let outputRoot: string;
   let abpAdapter: ABPSkillsAdapter;

@@ -1,5 +1,5 @@
 /**
- * VCP IntelliCore (智脑) - 日志系统
+ * ApexBridge (ABP-only) - 日志系统
  */
 
 import winston from 'winston';

@@ -169,7 +169,7 @@ export class MetadataLoader {
     const inputSchema = this.ensureObject(raw.input_schema ?? raw.inputSchema);
     const outputSchema = this.ensureObject(raw.output_schema ?? raw.outputSchema);
 
-    // 检测协议类型（ABP vs VCP）
+    // 检测协议类型（ABP-only）
     const detectedProtocol = this.detectProtocol(raw);
     // 提取ABP配置
     const abpConfig = this.extractABPConfig(raw, detectedProtocol);
@@ -216,7 +216,7 @@ export class MetadataLoader {
   }
 
   /**
-   * 检测协议类型（ABP vs VCP）
+   * 检测协议类型（ABP-only）
    */
   private detectProtocol(raw: Record<string, unknown>): 'vcp' | 'abp' {
     // 如果明确指定了protocol字段，使用该值

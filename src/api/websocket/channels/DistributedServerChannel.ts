@@ -1,5 +1,5 @@
 /**
- * VCP IntelliCore (智脑) - 分布式服务器WebSocket通道
+ * ApexBridge (ABP-only) - 分布式服务器WebSocket通道
  * 处理 /vcp-distributed-server 端点的连接和消息
  */
 
@@ -67,7 +67,7 @@ export class DistributedServerChannel extends EventEmitter {
       type: 'connection_ack',
       data: {
         serverId,
-        message: 'Connected to VCP IntelliCore',
+        message: 'Connected to ApexBridge Distributed Server',
         timestamp: Date.now()
       }
     });

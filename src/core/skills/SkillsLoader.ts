@@ -107,7 +107,7 @@ export class SkillsLoader {
   detectProtocol(skillName: string): 'vcp' | 'abp' {
     const metadata = this.skillsIndex.getMetadata(skillName);
     if (!metadata) {
-      return 'vcp'; // 默认使用VCP协议
+      return 'abp'; // ABP-only 默认协议
     }
 
     return this.abpAdapter.detectProtocol(metadata);

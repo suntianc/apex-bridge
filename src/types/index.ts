@@ -1,5 +1,5 @@
 /**
- * VCP IntelliCore (智脑) - TypeScript类型定义
+ * ApexBridge (ABP-only) - TypeScript类型定义
  */
 
 export interface Message {

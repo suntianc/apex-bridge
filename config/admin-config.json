@@ -136,7 +136,7 @@
         "id": "test-key-1",
         "key": "test-api-key-1",
         "name": "Test Key 1",
-        "createdAt": 1763292070279
+        "createdAt": 1763293367126
       }
     ],
     "admin": {
@@ -446,12 +446,6 @@
                 "methods": [
                   "POST"
                 ]
-              },
-              {
-                "prefix": "/v1/chat",
-                "methods": [
-                  "POST"
-                ]
               }
             ],
             "strategyOrder": [
@@ -574,12 +568,6 @@
             "burstMultiplier": 1.5,
             "priority": 10,
             "matchers": [
-              {
-                "prefix": "/v1/chat",
-                "methods": [
-                  "POST"
-                ]
-              },
               {
                 "prefix": "/v1/chat",
                 "methods": [
@@ -713,12 +701,6 @@
               "matchers": [
                 {
                   "prefix": "/v1/chat",
-                  "methods": [
-                    "POST"
-                  ]
-                },
-                {
-                  "prefix": "/v1/chatvcp",
                   "methods": [
                     "POST"
                   ]
@@ -858,12 +840,6 @@
             "matchers": [
               {
                 "prefix": "/v1/chat",
-                "methods": [
-                  "POST"
-                ]
-              },
-              {
-                "prefix": "/v1/chatvcp",
                 "methods": [
                   "POST"
                 ]
@@ -1819,12 +1795,6 @@
                 "methods": [
                   "POST"
                 ]
-              },
-              {
-                "prefix": "/v1/chatvcp",
-                "methods": [
-                  "POST"
-                ]
               }
             ],
             "strategyOrder": [
@@ -1918,70 +1888,6 @@
       "enabled": true,
       "windowMs": 60000,
       "max": 60,
-      "rules": [
-        {
-          "id": "test-log-rule",
-          "name": "Test Log Rule",
-          "windowMs": 60000,
-          "maxRequests": 1,
-          "mode": "sliding",
-          "burstMultiplier": 1,
-          "priority": 1,
-          "matchers": [
-            {
-              "path": "/test"
-            }
-          ],
-          "strategyOrder": [
-            "ip"
-          ],
-          "skipSuccessfulRequests": false,
-          "skipFailedRequests": false,
-          "responseHeaders": true
-        },
-        {
-          "id": "chat-api",
-          "name": "Chat Completions API",
-          "description": "限制聊天相关端点，优先按照 API Key 识别",
-          "windowMs": 60000,
-          "maxRequests": 60,
-          "mode": "sliding",
-          "burstMultiplier": 1.5,
-          "priority": 10,
-          "matchers": [
-            {
-              "prefix": "/v1/chat",
-              "methods": [
-                "POST"
-              ]
-            },
-            {
-              "prefix": "/v1/chatvcp",
-              "methods": [
-                "POST"
-              ]
-            }
-          ],
-          "strategyOrder": [
-            "apiKey",
-            "ip"
-          ],
-          "skipSuccessfulRequests": false,
-          "skipFailedRequests": false,
-          "responseHeaders": true
-        }
-      ],
-      "defaultStrategyOrder": [
-        "apiKey",
-        "ip"
-      ],
-      "whitelist": {
-        "ips": [],
-        "apiKeys": [
-          "test-api-key-1"
-        ],
-        "users": []
-      },
       "security": {
         "rateLimit": {
           "enabled": true,
@@ -2016,12 +1922,6 @@
               "matchers": [
                 {
                   "prefix": "/v1/chat",
-                  "methods": [
-                    "POST"
-                  ]
-                },
-                {
-                  "prefix": "/v1/chatvcp",
                   "methods": [
                     "POST"
                   ]
@@ -2389,7 +2289,9 @@
       ],
       "whitelist": {
         "ips": [],
-        "apiKeys": [],
+        "apiKeys": [
+          "test-api-key-1"
+        ],
         "users": [],
         "security": {
           "rateLimit": {
@@ -2523,11 +2425,33 @@
       },
       "rules": [
         {
-          "id": "chat-api",
-          "name": "Chat API",
+          "id": "test-log-rule",
+          "name": "Test Log Rule",
           "windowMs": 60000,
           "maxRequests": 1,
           "mode": "sliding",
+          "burstMultiplier": 1,
+          "priority": 1,
+          "matchers": [
+            {
+              "path": "/test"
+            }
+          ],
+          "strategyOrder": [
+            "ip"
+          ],
+          "skipSuccessfulRequests": false,
+          "skipFailedRequests": false,
+          "responseHeaders": true
+        },
+        {
+          "id": "chat-api",
+          "name": "Chat Completions API",
+          "description": "限制聊天相关端点，优先按照 API Key 识别",
+          "windowMs": 60000,
+          "maxRequests": 60,
+          "mode": "sliding",
+          "burstMultiplier": 1.5,
           "priority": 10,
           "matchers": [
             {
@@ -2541,6 +2465,8 @@
             "apiKey",
             "ip"
           ],
+          "skipSuccessfulRequests": false,
+          "skipFailedRequests": false,
           "responseHeaders": true
         }
       ],

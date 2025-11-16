@@ -1,5 +1,5 @@
 /**
- * VCP IntelliCore (智脑) - WebSocket管理器
+ * ApexBridge (ABP-only) - WebSocket管理器
  * 统一管理所有WebSocket连接和通道
  */
 

@@ -10,7 +10,7 @@ import { logger } from '../utils/logger';
 import { BaseDistributedServerChannel } from '../api/websocket/channels/BaseDistributedServerChannel';
 
 /**
- * 分布式执行器接口（VCP SDK需要的接口）
+ * 分布式执行器接口（独立实现，ABP-only）
  */
 export interface IDistributedExecutor {
   execute(serverId: string, toolName: string, toolArgs: Record<string, any>): Promise<any>;

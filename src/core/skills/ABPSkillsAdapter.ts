@@ -34,7 +34,7 @@ export class ABPSkillsAdapter {
     // VCP协议支持已移除，所有Skills都被视为ABP格式
     // 如果metadata中明确指定了protocol字段
     if (metadata.protocol === 'vcp') {
-      logger.warn(`[ABPSkillsAdapter] Skill ${metadata.name} specified VCP protocol, which is no longer supported. Treating as ABP.`);
+      logger.warn(`[ABPSkillsAdapter] Skill ${metadata.name} specified legacy protocol (removed). Treating as ABP.`);
     }
 
     // 如果存在abp配置，返回ABP

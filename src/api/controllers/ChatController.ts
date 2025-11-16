@@ -1,5 +1,5 @@
 /**
- * VCP IntelliCore (智脑) - 聊天控制器
+ * ApexBridge (ABP-only) - 聊天控制器
  * 处理HTTP聊天请求
  */
 

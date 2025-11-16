@@ -1,9 +1,9 @@
 /**
- * VCP IntelliCore (智脑) - VCP协议API认证中间件
+ * ApexBridge (ABP-only) - API认证中间件
  * 专门用于客户端API的认证（使用API Keys）
  * 
  * 注意：
- * - VCP Key 用于节点之间的认证（WebSocket）
+ * - API Key 用于节点之间的认证（WebSocket）
  * - API Keys 用于客户端连接服务器的认证（HTTP API）
  * - 管理后台API的认证已独立到 adminAuthMiddleware.ts
  */
@@ -88,7 +88,7 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
   if (req.path.startsWith('/admin') || 
       req.path.startsWith('/api/setup') || 
       req.path.startsWith('/api/admin')) {
-    logger.debug(`✅ Skipping VCP auth for admin/setup path: ${req.path}`);
+    logger.debug(`✅ Skipping protocol auth for admin/setup path: ${req.path}`);
     return next();
   }
   

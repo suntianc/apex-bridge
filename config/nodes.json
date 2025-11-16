@@ -1,11 +1,11 @@
 []  {
-    "id": "node-e2e-1763292074312",
+    "id": "node-e2e-1763293369649",
     "name": "Worker E2E",
     "type": "worker",
     "status": "online",
-    "registeredAt": 1763292074326,
-    "lastSeen": 1763292074326,
-    "lastHeartbeat": 1763292074326,
+    "registeredAt": 1763293369660,
+    "lastSeen": 1763293369660,
+    "lastHeartbeat": 1763293369660,
     "capabilities": [
       "vision"
     ],

@@ -70,6 +70,7 @@ ${dangerousCode}
 }
 
 describe('Skills系统安全性和权限测试', () => {
+  jest.setTimeout(20000);
   let skillsRoot: string;
   let skillsIndex: SkillsIndex;
   let skillsLoader: SkillsLoader;

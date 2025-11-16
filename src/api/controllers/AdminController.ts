@@ -237,7 +237,7 @@ export async function logout(req: Request, res: Response): Promise<void> {
 /**
  * 🆕 生成节点认证Key（节点之间的认证，原VCP Key，现改为API Key）
  * POST /api/admin/auth/generate-node-key
- * @deprecated 保留旧路由 /api/admin/auth/generate-vcp-key 用于向后兼容
+ * @deprecated 旧路由 /api/admin/auth/generate-vcp-key 已废弃
  */
 export async function generateVCPKey(req: Request, res: Response): Promise<void> {
   // 向后兼容：调用新的generateNodeKey
@@ -252,26 +252,26 @@ export async function generateNodeKey(req: Request, res: Response): Promise<void
   try {
     const crypto = require('crypto');
     
-    // 生成节点认证Key（原VCP Key格式，现改为API Key）
-    // 格式: sk-intellicore-{timestamp}-{random1}-{random2}
-    const prefix = 'sk-intellicore-';
+    // 生成节点认证Key
+    // 格式: sk-apexbridge-{timestamp}-{random1}-{random2}
+    const prefix = 'sk-apexbridge-';
     const timestamp = Date.now().toString(36); // 时间戳的36进制表示
     const randomPart1 = crypto.randomBytes(8).toString('base64url').slice(0, 12); // base64url编码的随机部分
     const randomPart2 = crypto.randomBytes(8).toString('hex').slice(0, 8); // hex编码的随机部分
     
     const generatedKey = `${prefix}${timestamp}-${randomPart1}-${randomPart2}`;
     
-    // 更新配置中的apiKey（原vcpKey）
+    // 更新配置中的 apiKey
     const config = configService.readConfig();
     const updatedAuth = {
       ...config.auth,
-      apiKey: generatedKey // 原vcpKey，现改为apiKey
+      apiKey: generatedKey
     };
     configService.updateConfig({
       auth: updatedAuth
     });
     
-    logger.info('✅ Node authentication key generated (replaces VCP Key)');
+    logger.info('✅ Node authentication key generated');
     
     res.json({
       success: true,

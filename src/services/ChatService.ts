@@ -448,7 +448,7 @@ export class ChatService {
         if (protocol === 'abp') {
           logger.debug(`   - ${req.name} [ABP] (id: ${req.abpCallId})`);
         } else {
-          logger.debug(`   - ${req.name} [VCP] ${req.archery ? '(archery)' : ''}`);
+          logger.debug(`   - ${req.name} ${req.archery ? '(archery)' : ''}`);
         }
       });
 

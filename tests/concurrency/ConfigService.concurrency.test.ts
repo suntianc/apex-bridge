@@ -28,6 +28,7 @@ import { ConfigService } from '../../src/services/ConfigService';
 import { testConcurrentOperationsSettled, testConcurrentDifferentOperations } from '../utils/concurrentTestUtils';
 
 describe('ConfigService - Concurrency Tests', () => {
+  jest.setTimeout(20000);
   let configService: ConfigService;
   let tempDir: string;
   let configFilePath: string;

@@ -13,10 +13,8 @@ export interface LoginResponse {
   };
 }
 
-export interface GenerateVCPKeyResponse {
-  success: boolean;
-  key: string;
-}
+// legacy key API 已废弃（保留类型占位，逐步移除）
+export type GenerateVCPKeyResponse = never;
 
 export interface GenerateNodeKeyResponse {
   success: boolean;
@@ -63,14 +61,7 @@ export const authApi = {
     await apiClient.post('/admin/auth/logout');
   },
 
-  /**
-   * 🆕 生成节点认证Key（节点之间的认证，原VCP Key）
-   * @deprecated 使用 generateNodeKey 替代
-   */
-  generateVCPKey: async (): Promise<GenerateVCPKeyResponse> => {
-    const response = await apiClient.post('/admin/auth/generate-vcp-key');
-    return response.data;
-  },
+  // 已废弃接口，不再提供
 
   /**
    * 🆕 生成节点认证Key（节点之间的认证，用于WebSocket连接）

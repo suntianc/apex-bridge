@@ -33,12 +33,13 @@ import { createPluginCallbackRouter } from './api/plugin-callback';
 import type { AdminConfig } from './services/ConfigService';
 import { ConversationRouter } from './core/conversation/ConversationRouter';
 import { ToolAuthorization } from './core/conversation/ToolAuthorization';
-// 独立WebSocket实现（不再依赖vcp-intellicore-sdk）
+// 独立WebSocket实现（不依赖外部旧版SDK）
 import { IndependentWebSocketManager } from './api/websocket/IndependentWebSocketManager';
 import { ABPLogChannel } from './api/websocket/channels/ABPLogChannel';
 // 其他频道暂时禁用（VCPInfo, ChromeObserver）
-// import { VCPInfoChannelSDK } from 'vcp-intellicore-sdk'; // 已禁用
-// import { ChromeObserverChannelSDK } from 'vcp-intellicore-sdk'; // 已禁用
+// 旧版SDK频道（已禁用）
+// import { VCPInfoChannelSDK } from 'legacy-sdk'; // disabled
+// import { ChromeObserverChannelSDK } from 'legacy-sdk'; // disabled
 // AdminPanel频道现在使用独立实现
 import { AdminPanelChannel } from './api/websocket/channels/AdminPanelChannel';
 import { NodeAwareDistributedServerChannel } from './api/websocket/channels/NodeAwareDistributedServerChannel';
@@ -117,7 +118,7 @@ export class VCPIntelliCore {
   private distributedServerChannel: NodeAwareDistributedServerChannel | null = null;
   private abpLogChannel: ABPLogChannel | null = null;
   // 其他频道暂时禁用
-  // private vcpInfoChannel: VCPInfoChannelSDK | null = null;
+  // private legacyInfoChannel: any | null = null;
   // private chromeObserverChannel: ChromeObserverChannelSDK | null = null;
   private adminPanelChannel: AdminPanelChannel | null = null; // 使用独立实现
   private distributedService: DistributedService | null = null;
@@ -273,11 +274,11 @@ export class VCPIntelliCore {
       await this.setupRoutes();
       
       // 🆕 7.5 启动插件热更新监听器 (暂时禁用)
-      // if (this.vcpEngine) {
+      // if (this.legacyEngine) {
       //   const enableHotReload = process.env.PLUGIN_HOT_RELOAD !== 'false';
       //   if (enableHotReload) {
       //     this.pluginWatcher = new PluginWatcher(
-      //       this.vcpEngine.pluginRuntime,
+      //       this.legacyEngine.pluginRuntime,
       //       config.plugins.directory
       //     );
       //     await this.pluginWatcher.start();
@@ -763,7 +764,7 @@ export class VCPIntelliCore {
         (req, res) => chatController.chatCompletions(req, res)
       );
       
-      // ABP-only：移除历史 /v1/chatvcp 兼容端点
+      // ABP-only：历史兼容端点已移除
       
       // 模型列表API（添加验证中间件）
       this.app.get('/v1/models',
@@ -1090,7 +1091,7 @@ export class VCPIntelliCore {
       this.distributedServerChannel = new NodeAwareDistributedServerChannel(this.nodeManager);
       this.adminPanelChannel = new AdminPanelChannel(); // 使用独立实现
       // 其他频道暂时禁用
-      // this.vcpInfoChannel = new VCPInfoChannelSDK();
+      // this.legacyInfoChannel = /* new LegacyInfoChannel() */ null;
       // this.chromeObserverChannel = new ChromeObserverChannelSDK();
       
       // 创建独立WebSocket管理器
@@ -1107,7 +1108,7 @@ export class VCPIntelliCore {
       this.websocketManager.registerChannel(this.distributedServerChannel);
       this.websocketManager.registerChannel(this.adminPanelChannel); // 注册AdminPanel频道
       // 其他频道暂时禁用
-      // this.websocketManager.registerChannel(this.vcpInfoChannel);
+      // this.websocketManager.registerChannel(this.legacyInfoChannel);
       // this.websocketManager.registerChannel(this.chromeObserverChannel);
       
       logger.info('✅ WebSocket server configured (independent implementation)');
@@ -1117,9 +1118,7 @@ export class VCPIntelliCore {
       logger.info(`   - /log/ABP_Key=${nodeKey.substring(0, 10)}...`);
       logger.info(`   - /abp-distributed-server/ABP_Key=${nodeKey.substring(0, 10)}...`);
       logger.info(`   - /distributed-server/ABP_Key=${nodeKey.substring(0, 10)}...`);
-      // logger.info(`   - /vcpinfo/VCP_Key=${nodeKey.substring(0, 10)}... (disabled)`);
-      // logger.info(`   - /vcp-chrome-observer/VCP_Key=${nodeKey.substring(0, 10)}... (disabled)`);
-      // logger.info(`   - /vcp-admin-panel/VCP_Key=${nodeKey.substring(0, 10)}... (disabled)`);
+      // logger.info(`   - legacy channels disabled`);
       
       // 🆕 创建DistributedService
       this.distributedService = new DistributedService(this.distributedServerChannel);

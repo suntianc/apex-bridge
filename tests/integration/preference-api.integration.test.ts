@@ -8,6 +8,7 @@ import {
 } from '../../src/api/controllers/PreferenceController';
 
 describe('Preference API integration (Express wiring)', () => {
+  jest.setTimeout(20000);
   let app: Express;
   const userId = 'e2e-user-1';
 

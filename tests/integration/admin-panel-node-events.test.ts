@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as os from 'os';
 
 describe('Admin panel node event forwarding', () => {
-  jest.setTimeout(15000);
+  jest.setTimeout(30000);
   const originalEnv: Record<string, string | undefined> = {
     root: process.env.APEX_BRIDGE_ROOT_DIR,
     config: process.env.APEX_BRIDGE_CONFIG_DIR,

@@ -1,5 +1,5 @@
 /**
- * VCP IntelliCore (智脑) - 统一错误处理中间件
+ * ApexBridge (ABP-only) - 统一错误处理中间件
  * 标准化错误响应格式和错误码
  */
 

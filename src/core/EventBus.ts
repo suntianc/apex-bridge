@@ -1,5 +1,5 @@
 /**
- * VCP IntelliCore (智脑) - 事件总线
+ * ApexBridge (ABP-only) - 事件总线
  * 用于解耦各层之间的通信
  */
 

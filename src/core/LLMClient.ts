@@ -1,5 +1,5 @@
 /**
- * VCP IntelliCore (智脑) - LLM客户端
+ * ApexBridge (ABP-only) - LLM客户端
  * 统一的LLM提供商抽象层，支持多提供商切换
  */
 

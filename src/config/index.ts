@@ -1,5 +1,5 @@
 /**
- * VCP IntelliCore (智脑) - 配置管理
+ * ApexBridge (ABP-only) - 配置管理
  * 
  * 注意：已完全取消.env配置读取，所有配置从JSON文件（config/admin-config.json）读取
  */

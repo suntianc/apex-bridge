@@ -1,5 +1,5 @@
 /**
- * VCP IntelliCore (智脑) - 管理后台认证中间件
+ * ApexBridge (ABP-only) - 管理后台认证中间件
  * 独立的管理后台认证逻辑，与VCP协议API认证分离
  */
 

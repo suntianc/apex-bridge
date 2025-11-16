@@ -207,7 +207,7 @@ export interface AdminConfig {
     debugMode: boolean;
   };
   auth: {
-    apiKey: string; // 原vcpKey，用于节点之间的认证（WebSocket），现改为apiKey
+    apiKey: string; // 节点之间的认证（WebSocket）
     apiKeys: ApiKeyInfo[];       // 🆕 从 string[] 改为 ApiKeyInfo[]，用于客户端HTTP API认证
     admin?: {
       username: string;
@@ -421,7 +421,7 @@ export class ConfigService {
         debugMode: false
       },
       auth: {
-        apiKey: '', // 原vcpKey，现改为apiKey
+        apiKey: '',
         apiKeys: [],              // 🆕 现在是 ApiKeyInfo[]，初始为空数组
         admin: {
           username: 'admin',
@@ -877,7 +877,7 @@ export class ConfigService {
     }
   }
 
-  // ABP-only: 移除 VCP 兼容导出，直接使用 AdminConfig 作为运行时配置源
+  // ABP-only: 使用 AdminConfig 作为运行时配置源
 
   /**
    * 验证配置完整性
@@ -886,7 +886,7 @@ export class ConfigService {
     const errors: string[] = [];
 
     // 节点认证 Key（ABP-only）不是必需的（可在管理界面后续配置）
-    // if (!config.auth.apiKey && !config.auth.vcpKey) {
+    // if (!config.auth.apiKey) {
     //   errors.push('API_KEY (node authentication key) is required');
     // }
 
