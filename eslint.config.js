@@ -2,6 +2,7 @@
 import js from '@eslint/js'
 import tseslint from 'typescript-eslint'
 import pluginImport from 'eslint-plugin-import'
+import reactHooks from 'eslint-plugin-react-hooks'
 
 export default [
   js.configs.recommended,
@@ -29,7 +30,8 @@ export default [
     },
     plugins: {
       import: pluginImport,
-      '@typescript-eslint': tseslint.plugin
+      '@typescript-eslint': tseslint.plugin,
+      'react-hooks': reactHooks
     },
     rules: {
       'import/no-unresolved': 'off',
@@ -37,6 +39,9 @@ export default [
       'no-unreachable': 'off',
       'no-undef': 'off',
       'no-unused-vars': 'off',
+      // React hooks rules - disable exhaustive-deps for now to avoid plugin errors
+      'react-hooks/rules-of-hooks': 'off',
+      'react-hooks/exhaustive-deps': 'off',
       // Disable typed rules that require type information for now
       '@typescript-eslint/no-floating-promises': 'off',
       '@typescript-eslint/await-thenable': 'off',
@@ -101,6 +106,7 @@ export default [
     ignores: [
       'dist/',
       'build/',
+      'admin/dist/',
       'node_modules/',
       'coverage/',
       '*.min.js',

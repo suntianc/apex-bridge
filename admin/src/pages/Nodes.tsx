@@ -731,7 +731,9 @@ export function Nodes() {
                             const ws: WebSocket | null = (wsRef as any).current || null;
                             ws?.close();
                             (wsRef as any).current = null;
-                          } catch {}
+                          } catch {
+                            /* noop */
+                          }
                         }}
                         className="btn btn-secondary"
                       >

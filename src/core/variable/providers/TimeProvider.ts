@@ -56,9 +56,11 @@ export class TimeProvider implements IVariableProvider {
 
       case 'DateTime':
         // 格式: 2025/10/27 14:30:45
-        const date = now.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' });
-        const time = now.toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai' });
-        return `${date} ${time}`;
+        {
+          const date = now.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' });
+          const time = now.toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai' });
+          return `${date} ${time}`;
+        }
 
       case 'Timestamp':
         // Unix时间戳（秒）
