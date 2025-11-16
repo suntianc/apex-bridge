@@ -55,7 +55,6 @@ export function createPluginCallbackRouter(deps: PluginCallbackDependencies): Ro
 
     try {
       const pluginCallbackConfig = loadPluginCallbackConfig();
-      const allowLegacyVcpKey = pluginCallbackConfig.allowLegacyVcpKey ?? false;
       const hmacWindowSeconds = pluginCallbackConfig.hmacWindowSeconds ?? DEFAULT_HMAC_WINDOW_SECONDS;
       const rateLimitConfig = {
         enabled: pluginCallbackConfig.rateLimit?.enabled !== false,

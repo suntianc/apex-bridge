@@ -267,10 +267,6 @@ export async function generateNodeKey(req: Request, res: Response): Promise<void
       ...config.auth,
       apiKey: generatedKey // 原vcpKey，现改为apiKey
     };
-    // 向后兼容：如果存在vcpKey字段（旧配置），也更新它（但优先使用apiKey）
-    if ((config.auth as any).vcpKey) {
-      (updatedAuth as any).vcpKey = generatedKey;
-    }
     configService.updateConfig({
       auth: updatedAuth
     });
@@ -326,7 +322,7 @@ export async function generateClientApiKey(req: Request, res: Response): Promise
       ownerId: undefined
     };
     
-    // 🆕 确保保留 auth 的所有字段（vcpKey, admin等）
+    // 保留 auth 的所有字段（admin 等）
     const updatedApiKeys = [...apiKeys, newApiKey];
     
     configService.updateConfig({

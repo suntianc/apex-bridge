@@ -37,9 +37,9 @@ export async function startRuntime(config: NodeAgentConfig, logger: Logger): Pro
 
   const connection = new ConnectionManager({
     url: config.hub.url,
-    headers: config.hub.vcpKey
+    headers: (config.hub as any).apiKey
       ? {
-          Authorization: `Bearer ${config.hub.vcpKey}`
+          Authorization: `Bearer ${(config.hub as any).apiKey}`
         }
       : undefined,
     logger

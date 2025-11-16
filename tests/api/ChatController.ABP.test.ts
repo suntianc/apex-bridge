@@ -10,7 +10,7 @@ import { LLMClient } from '../../src/core/LLMClient';
 import { ProtocolEngine } from '../../src/core/ProtocolEngine';
 import { ConversationRouter } from '../../src/core/conversation/ConversationRouter';
 import { EventBus } from '../../src/core/EventBus';
-import { VCPConfig } from '../../src/types';
+import type { AdminConfig } from '../../src/services/ConfigService';
 import { Request, Response } from 'express';
 
 describe('ChatController ABP Protocol Support', () => {
@@ -22,7 +22,7 @@ describe('ChatController ABP Protocol Support', () => {
   let mockResponse: Partial<Response>;
 
   beforeEach(() => {
-    const vcpConfig: VCPConfig = {
+    const vcpConfig: AdminConfig = {
       protocol: {
         startMarker: '<<<[TOOL_REQUEST]>>>',
         endMarker: '<<<[END_TOOL_REQUEST]>>>',

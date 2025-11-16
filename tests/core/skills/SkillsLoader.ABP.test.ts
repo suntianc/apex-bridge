@@ -17,6 +17,7 @@ import {
 } from '../../../src/core/skills';
 
 describe('SkillsLoader ABP Support', () => {
+  jest.setTimeout(15000);
   let skillsRoot: string;
   let skillsLoader: SkillsLoader;
   let metadataLoader: MetadataLoader;

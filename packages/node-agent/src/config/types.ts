@@ -19,7 +19,7 @@ const llmProviderSchema = z.object({
 export const nodeAgentConfigSchema = z.object({
   hub: z.object({
     url: z.string().url(),
-    vcpKey: z.string().min(1).optional()
+    apiKey: z.string().min(1).optional()
   }),
   node: z.object({
     id: z.string().min(1).optional(),

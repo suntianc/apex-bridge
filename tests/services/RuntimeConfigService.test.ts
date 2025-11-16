@@ -5,7 +5,7 @@
 import { RuntimeConfigService } from '../../src/services/RuntimeConfigService';
 import { LLMClient } from '../../src/core/LLMClient';
 import { ConfigService } from '../../src/services/ConfigService';
-import { VCPConfig } from '../../src/types';
+import type { AdminConfig } from '../../src/services/ConfigService';
 
 // Mock dependencies
 jest.mock('../../src/core/LLMClient');
@@ -67,7 +67,7 @@ describe('RuntimeConfigService', () => {
       }
     } as any;
 
-    const mockVCPConfig: VCPConfig = {
+    const mockVCPConfig: AdminConfig = {
       llm: {
         defaultProvider: 'openai',
         openai: {
@@ -75,10 +75,9 @@ describe('RuntimeConfigService', () => {
           baseURL: 'https://api.openai.com'
         }
       }
-    } as VCPConfig;
+    } as AdminConfig;
 
     mockConfigService.readConfig.mockReturnValue(mockAdminConfig);
-    mockConfigService.toVCPConfig.mockReturnValue(mockVCPConfig);
 
     runtimeConfig = RuntimeConfigService.getInstance();
   });
@@ -225,13 +224,14 @@ describe('RuntimeConfigService', () => {
 
   describe('getLLMClient - Normal Operation', () => {
     it('should return null when no LLM providers are configured', async () => {
-      const mockVCPConfig: VCPConfig = {
-        llm: {
-          defaultProvider: null
-        }
-      } as VCPConfig;
-
-      mockConfigService.toVCPConfig.mockReturnValue(mockVCPConfig);
+      const noProviderConfig: AdminConfig = {
+        setup_completed: true,
+        server: { port: 3000, host: 'localhost', nodeEnv: 'test', debugMode: false } as any,
+        auth: { apiKey: '', apiKeys: [] },
+        llm: { defaultProvider: null as any } as any,
+        plugins: { directory: '/plugins', autoLoad: true }
+      } as AdminConfig;
+      mockConfigService.readConfig.mockReturnValue(noProviderConfig);
 
       const result = await runtimeConfig.getLLMClient();
 

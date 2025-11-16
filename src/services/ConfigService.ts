@@ -112,8 +112,7 @@ const DEFAULT_RATE_LIMIT_SETTINGS: RateLimitSettings = {
       burstMultiplier: 1.5,
       priority: 10,
       matchers: [
-        { prefix: '/v1/chat', methods: ['POST'] },
-        { prefix: '/v1/chatvcp', methods: ['POST'] }
+        { prefix: '/v1/chat', methods: ['POST'] }
       ],
       strategyOrder: ['apiKey', 'ip'],
       skipSuccessfulRequests: false,
@@ -337,7 +336,6 @@ export interface AdminConfig {
   };
   redis?: RedisConfig;
   pluginCallback?: {
-    allowLegacyVcpKey?: boolean;
     hmacWindowSeconds?: number;
     rateLimit?: {
       enabled?: boolean;
@@ -493,7 +491,6 @@ export class ConfigService {
         ...DEFAULT_REDIS_CONFIG
       },
       pluginCallback: {
-        allowLegacyVcpKey: false,
         hmacWindowSeconds: 60,
         rateLimit: {
           enabled: true,

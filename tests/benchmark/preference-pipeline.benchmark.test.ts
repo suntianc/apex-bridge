@@ -1,5 +1,5 @@
 import { ProtocolEngine } from '../../src/core/ProtocolEngine';
-import { VCPConfig } from '../../src/types';
+import type { AdminConfig } from '../../src/services/ConfigService';
 import { SkillsToToolMapper } from '../../src/core/skills/SkillsToToolMapper';
 import { SkillsIndex } from '../../src/core/skills/SkillsIndex';
 import { SkillsCache } from '../../src/core/skills/SkillsCache';
@@ -11,7 +11,7 @@ import { PreferenceService } from '../../src/services/PreferenceService';
 
 describe('Benchmark: preference → defaults/disclosure → execute', () => {
   it('runs 200 iterations under threshold', async () => {
-    const vcpConfig: VCPConfig = {
+    const vcpConfig: AdminConfig = {
       protocol: {
         startMarker: '<<<[TOOL_REQUEST]>>>',
         endMarker: '<<<[END_TOOL_REQUEST]>>>',

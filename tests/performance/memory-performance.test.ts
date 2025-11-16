@@ -13,7 +13,7 @@ import { DefaultEpisodicMemoryService } from '../../src/services/memory/Episodic
 import { InMemorySemanticStore } from '../../src/services/memory/stores/InMemorySemanticStore';
 import { InMemoryEpisodicStore } from '../../src/services/memory/stores/InMemoryEpisodicStore';
 import { ProtocolEngine } from '../../src/core/ProtocolEngine';
-import { VCPConfig } from '../../src/types';
+import type { AdminConfig } from '../../src/services/ConfigService';
 
 describe('Memory Performance Tests', () => {
   describe('Memory Retrieval QPS', () => {
@@ -100,7 +100,7 @@ describe('Memory Performance Tests', () => {
 
   describe('Protocol Parsing Performance', () => {
     it('should parse ABP protocol in <10ms', () => {
-      const vcpConfig: VCPConfig = {
+      const vcpConfig: AdminConfig = {
         protocol: {
           startMarker: '<<<[TOOL_REQUEST]>>>',
           endMarker: '<<<[END_TOOL_REQUEST]>>>',
@@ -148,7 +148,7 @@ describe('Memory Performance Tests', () => {
     });
 
     it('should parse VCP protocol in <10ms', () => {
-      const vcpConfig: VCPConfig = {
+      const vcpConfig: AdminConfig = {
         protocol: {
           startMarker: '<<<[TOOL_REQUEST]>>>',
           endMarker: '<<<[END_TOOL_REQUEST]>>>',

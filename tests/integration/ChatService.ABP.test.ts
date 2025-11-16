@@ -9,7 +9,7 @@ import { ProtocolEngine } from '../../src/core/ProtocolEngine';
 import { LLMClient } from '../../src/core/LLMClient';
 import { PersonalityEngine } from '../../src/core/PersonalityEngine';
 import { EventBus } from '../../src/core/EventBus';
-import { VCPConfig } from '../../src/types';
+import type { AdminConfig } from '../../src/services/ConfigService';
 
 describe('ChatService ABP Support Integration', () => {
   let chatService: ChatService;
@@ -18,7 +18,7 @@ describe('ChatService ABP Support Integration', () => {
   let personalityEngine: PersonalityEngine;
 
   beforeEach(() => {
-    const vcpConfig: VCPConfig = {
+    const vcpConfig: AdminConfig = {
       protocol: {
         startMarker: '<<<[TOOL_REQUEST]>>>',
         endMarker: '<<<[END_TOOL_REQUEST]>>>',

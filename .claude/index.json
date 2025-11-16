@@ -1,0 +1,141 @@
+{
+  "timestamp": "2025-11-16T10:57:35.000Z",
+  "project": "ApexBridge",
+  "modules": [
+    {
+      "name": "ApexBridge主系统",
+      "path": "apex-bridge/",
+      "type": "main-system",
+      "language": "TypeScript",
+      "entry": "src/server.ts",
+      "description": "家庭AI系统中枢，集成多LLM支持、ABP协议、Skills体系",
+      "status": "active",
+      "dependencies": [
+        "ProtocolEngine",
+        "LLMClient",
+        "PersonalityEngine",
+        "EmotionEngine",
+        "NodeManager",
+        "Skills体系",
+        "记忆服务",
+        "WebSocket管理"
+      ],
+      "config_files": [
+        "package.json",
+        "tsconfig.json",
+        "env.template"
+      ],
+      "test_coverage": "partial",
+      "last_updated": "2025-11-16T10:57:35.000Z"
+    },
+    {
+      "name": "管理后台",
+      "path": "apex-bridge/admin/",
+      "type": "web-frontend",
+      "language": "TypeScript",
+      "entry": "src/main.tsx",
+      "description": "React管理界面，提供系统配置、节点管理、人格配置",
+      "status": "active",
+      "dependencies": [
+        "React 18",
+        "TypeScript",
+        "Vite",
+        "Tailwind CSS",
+        "Zustand",
+        "React Router",
+        "Axios"
+      ],
+      "config_files": [
+        "package.json",
+        "vite.config.ts",
+        "tsconfig.json"
+      ],
+      "test_coverage": "none",
+      "last_updated": "2025-11-16T10:57:35.000Z"
+    },
+    {
+      "name": "节点代理",
+      "path": "apex-bridge/packages/node-agent/",
+      "type": "node-runtime",
+      "language": "TypeScript",
+      "entry": "src/index.ts",
+      "description": "分布式节点运行时，支持Worker和Companion节点",
+      "status": "active",
+      "dependencies": [
+        "WebSocket",
+        "Commander",
+        "Winston",
+        "Zod",
+        "EventEmitter3"
+      ],
+      "config_files": [
+        "package.json",
+        "tsconfig.json",
+        "config.example.json"
+      ],
+      "test_coverage": "good",
+      "last_updated": "2025-11-16T10:57:35.000Z"
+    }
+  ],
+  "scan_statistics": {
+    "total_files": 350,
+    "scanned_files": 43,
+    "coverage_percentage": 12.3,
+    "large_files_skipped": [
+      "config/admin-config.json (2813行)"
+    ],
+    "binary_files_skipped": [
+      "package-lock.json",
+      "*.log",
+      "*.png",
+      "*.jpg"
+    ]
+  },
+  "architecture_highlights": {
+    "protocol": "ABP协议（独立实现）",
+    "llm_support": "多LLM适配器模式",
+    "memory_system": "双轨记忆（语义+情景）",
+    "skills_system": "三段渐进式披露",
+    "node_types": ["Hub", "Worker", "Companion"],
+    "authentication": "多层认证（API Key + 节点Key）",
+    "frontend": "React 18 + TypeScript + Vite"
+  },
+  "key_features": [
+    "多LLM提供商支持",
+    "ABP协议独立实现",
+    "Skills体系取代插件",
+    "人格引擎动态配置",
+    "情感引擎状态管理",
+    "RAG向量检索集成",
+    "分布式节点管理",
+    "WebSocket实时通信",
+    "React管理后台",
+    "多层安全认证"
+  ],
+  "scan_coverage": {
+    "core_engines": "partial",
+    "services": "minimal",
+    "api_controllers": "minimal",
+    "skills_system": "partial",
+    "memory_system": "minimal",
+    "websocket": "minimal",
+    "admin_frontend": "partial",
+    "node_agent": "partial",
+    "tests": "minimal",
+    "configs": "partial"
+  },
+  "next_scan_recommendations": [
+    "src/core/ProtocolEngine.ts - ABP协议核心实现",
+    "src/core/LLMClient.ts - 多LLM适配器模式",
+    "src/core/PersonalityEngine.ts - 人格系统实现",
+    "src/core/skills/ - Skills体系实现",
+    "src/services/memory/ - 记忆服务实现",
+    "src/api/websocket/ - WebSocket通信机制",
+    "admin/src/pages/ - 管理后台页面实现",
+    "packages/node-agent/src/runtime.ts - 节点运行时",
+    "tests/ - 测试覆盖分析"
+  ],
+  "estimated_deep_analysis_time": "4-5个工作日",
+  "truncated": false,
+  "notes": "项目初始化扫描完成，识别了3个主要模块和核心架构。建议下一步进行深度分析以完善文档覆盖。"
+}

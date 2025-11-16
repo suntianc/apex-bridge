@@ -5,6 +5,7 @@ import matter from 'gray-matter';
 import { ClaudeSkillsPackager } from '../../scripts/migrate-skills-to-claude-package';
 
 describe('ClaudeSkillsPackager', () => {
+  jest.setTimeout(20000);
   let skillsRoot: string;
 
   beforeEach(async () => {

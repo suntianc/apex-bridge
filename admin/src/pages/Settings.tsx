@@ -362,21 +362,21 @@ export function Settings() {
             </p>
           </div>
           
-          {/* 🆕 节点认证Key（原VCP Key，现改为API Key） */}
+          {/* 节点认证Key（ABP-only） */}
           <div>
             <label className="label flex items-center gap-2">
-              <span>节点认证Key（原VCP Key）</span>
+              <span>节点认证 Key</span>
               <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={() => {
-                   const nodeKey = localConfig.auth?.apiKey || (localConfig as any).auth?.vcpKey;
+                   const nodeKey = localConfig.auth?.apiKey;
                     if (nodeKey) {
                       copyToClipboard(nodeKey);
                     }
                   }}
                   className="text-xs btn btn-secondary py-1 px-3"
-                  disabled={!localConfig.auth?.apiKey && !(localConfig as any).auth?.vcpKey}
+                  disabled={!localConfig.auth?.apiKey}
                 >
                   复制
                 </button>
@@ -400,13 +400,9 @@ export function Settings() {
             </label>
             <input
               type="text"
-              value={localConfig.auth?.apiKey || (localConfig as any).auth?.vcpKey || ''}
+              value={localConfig.auth?.apiKey || ''}
               onChange={(e) => {
                 handleUpdate(['auth', 'apiKey'], e.target.value);
-                // 向后兼容：如果存在vcpKey字段，也更新它
-                if ((localConfig as any).auth?.vcpKey !== undefined) {
-                  handleUpdate(['auth', 'vcpKey'], e.target.value);
-                }
               }}
               className="input"
               placeholder="sk-intellicore-xxx"

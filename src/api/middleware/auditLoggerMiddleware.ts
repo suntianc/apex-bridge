@@ -283,7 +283,7 @@ function sanitizeRequestBody(body: any): any {
   }
 
   const sanitized = { ...body };
-  const sensitiveFields = ['password', 'apiKey', 'vcpKey', 'token', 'secret', 'key'];
+  const sensitiveFields = ['password', 'apiKey', 'token', 'secret', 'key'];
 
   for (const field of sensitiveFields) {
     if (sanitized[field]) {

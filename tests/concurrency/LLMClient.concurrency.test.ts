@@ -41,7 +41,6 @@ describe('LLMClient - Concurrency Tests', () => {
     // Mock ConfigService
     mockConfigService = {
       readConfig: jest.fn(),
-      toVCPConfig: jest.fn(),
       updateConfigAsync: jest.fn()
     } as any;
 
@@ -88,18 +87,7 @@ describe('LLMClient - Concurrency Tests', () => {
       }
     } as any;
 
-    const mockVCPConfig: any = {
-      llm: {
-        defaultProvider: 'openai',
-        openai: {
-          apiKey: 'test-key',
-          baseURL: 'https://api.openai.com'
-        }
-      }
-    };
-
     mockConfigService.readConfig.mockReturnValue(mockAdminConfig);
-    mockConfigService.toVCPConfig.mockReturnValue(mockVCPConfig);
 
     runtimeConfig = RuntimeConfigService.getInstance();
   });

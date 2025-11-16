@@ -22,7 +22,7 @@ import {
   CodeCache
 } from '../../src/core/skills';
 import { ProtocolEngine } from '../../src/core/ProtocolEngine';
-import { VCPConfig } from '../../src/types';
+import type { AdminConfig } from '../../src/services/ConfigService';
 import type { ExecutionRequest } from '../../src/types';
 
 /**
@@ -152,7 +152,7 @@ describe('SkillsExecutionManager ABP Support Integration', () => {
       }
     });
 
-    const vcpConfig: VCPConfig = {
+    const vcpConfig: AdminConfig = {
       protocol: {
         startMarker: '<<<[TOOL_REQUEST]>>>',
         endMarker: '<<<[END_TOOL_REQUEST]>>>',

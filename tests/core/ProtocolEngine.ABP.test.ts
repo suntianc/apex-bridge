@@ -6,13 +6,13 @@
  */
 
 import { ProtocolEngine } from '../../src/core/ProtocolEngine';
-import { VCPConfig } from '../../src/types';
+import type { AdminConfig } from '../../src/services/ConfigService';
 
 describe('ProtocolEngine ABP Support', () => {
   let protocolEngine: ProtocolEngine;
 
   beforeEach(() => {
-    const config: VCPConfig = {
+    const config: AdminConfig = {
       protocol: {
         startMarker: '<<<[TOOL_REQUEST]>>>',
         endMarker: '<<<[END_TOOL_REQUEST]>>>',

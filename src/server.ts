@@ -338,7 +338,7 @@ export class VCPIntelliCore {
       preventCommandInjection: true,
       preventPathTraversal: true,
       // 跳过敏感字段的清理（这些字段由验证中间件处理）
-      skipFields: ['password', 'apiKey', 'vcpKey', 'token']
+      skipFields: ['password', 'apiKey', 'token']
     }));
     
     // 安全日志中间件（记录安全相关事件）
@@ -763,12 +763,7 @@ export class VCPIntelliCore {
         (req, res) => chatController.chatCompletions(req, res)
       );
       
-      // 工具注入专用端点（保留兼容路径与策略说明）
-      // 与/v1/chat/completions行为一致，未来可以添加ShowVCP强制开启等特性
-      this.app.post('/v1/chatvcp/completions',
-        createValidationMiddleware(chatCompletionSchema),
-        (req, res) => chatController.chatCompletions(req, res)
-      );
+      // ABP-only：移除历史 /v1/chatvcp 兼容端点
       
       // 模型列表API（添加验证中间件）
       this.app.get('/v1/models',
@@ -1118,7 +1113,7 @@ export class VCPIntelliCore {
       
       logger.info('✅ WebSocket server configured (independent implementation)');
       logger.info(`📡 WebSocket endpoints (2 channels, backward compatible):`);
-      const nodeKey = config.auth.apiKey || (config.auth as any).vcpKey || '';
+      const nodeKey = config.auth.apiKey || '';
       logger.info(`   - /ABPlog/ABP_Key=${nodeKey.substring(0, 10)}...`);
       logger.info(`   - /log/ABP_Key=${nodeKey.substring(0, 10)}...`);
       logger.info(`   - /abp-distributed-server/ABP_Key=${nodeKey.substring(0, 10)}...`);

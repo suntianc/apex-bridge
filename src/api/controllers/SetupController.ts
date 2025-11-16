@@ -214,7 +214,7 @@ export async function migrateFromEnv(req: Request, res: Response): Promise<void>
     if (envKey) {
       // 从.env导入密钥到apiKey（节点认证密钥）
       adminConfig.auth.apiKey = envKey;
-      // 向后兼容：保留旧的vcpKey字段
+      // ABP-only：不再处理旧的 vcpKey 字段
       // 不再支持 VCP_KEY
     }
     // 🆕 读取 ABP_API_KEY 到新的 ApiKeyInfo[] 格式（ABP-only）

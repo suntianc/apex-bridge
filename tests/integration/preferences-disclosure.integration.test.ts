@@ -1,9 +1,9 @@
 import { ProtocolEngine } from '../../src/core/ProtocolEngine';
-import { VCPConfig } from '../../src/types';
+import type { AdminConfig } from '../../src/services/ConfigService';
 
 describe('Preference-driven disclosure integration', () => {
   it('should select brief phase when toolsDisclosure=brief', async () => {
-    const vcpConfig: VCPConfig = {
+    const vcpConfig: AdminConfig = {
       protocol: {
         startMarker: '<<<[TOOL_REQUEST]>>>',
         endMarker: '<<<[END_TOOL_REQUEST]>>>',

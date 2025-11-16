@@ -14,7 +14,7 @@ import { DefaultSemanticMemoryService } from '../../src/services/memory/Semantic
 import { DefaultEpisodicMemoryService } from '../../src/services/memory/EpisodicMemoryService';
 import { InMemorySemanticStore } from '../../src/services/memory/stores/InMemorySemanticStore';
 import { InMemoryEpisodicStore } from '../../src/services/memory/stores/InMemoryEpisodicStore';
-import { VCPConfig } from '../../src/types';
+import type { AdminConfig } from '../../src/services/ConfigService';
 import { Message } from '../../src/types';
 
 describe('Skills-Memory-Prompt Pipeline Integration', () => {
@@ -26,7 +26,7 @@ describe('Skills-Memory-Prompt Pipeline Integration', () => {
   let episodicMemoryService: DefaultEpisodicMemoryService;
 
   beforeEach(() => {
-    const vcpConfig: VCPConfig = {
+    const vcpConfig: AdminConfig = {
       protocol: {
         startMarker: '<<<[TOOL_REQUEST]>>>',
         endMarker: '<<<[END_TOOL_REQUEST]>>>',

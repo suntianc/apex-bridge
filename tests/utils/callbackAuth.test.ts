@@ -37,28 +37,7 @@ describe('callbackAuth security', () => {
     jest.clearAllMocks();
   });
 
-  it('rejects legacy VCP key when compatibility mode is disabled', () => {
-    const configService = createConfigService({ pluginCallback: { allowLegacyVcpKey: false } });
-    const result = verifyCallbackAuth('Bearer legacy-secret', {}, undefined, undefined, {
-      configService,
-      allowLegacyVCPKey: false
-    });
-
-    expect(result.valid).toBe(false);
-    expect(result.error).toBe('Legacy VCP key not allowed');
-  });
-
-  it('allows legacy VCP key when compatibility mode is enabled', () => {
-    const configService = createConfigService({ pluginCallback: { allowLegacyVcpKey: true } });
-    const result = verifyCallbackAuth('Bearer legacy-secret', {}, undefined, undefined, {
-      configService,
-      allowLegacyVCPKey: true
-    });
-
-    expect(result.valid).toBe(true);
-    // VCP协议已移除，方法名已更新为api_key（向后兼容VCP_KEY环境变量）
-    expect(result.method).toBe('api_key');
-  });
+  // ABP-only: 不再支持使用 legacy VCP key 直连鉴权，以下用例移除
 
   it('rejects stale HMAC signatures outside configured window', () => {
     const configService = createConfigService({ pluginCallback: { hmacWindowSeconds: 30 } });
@@ -79,7 +58,8 @@ describe('callbackAuth security', () => {
     const configService = createConfigService({ pluginCallback: { hmacWindowSeconds: 120 } });
     const header = 'Bearer hmac-client';
     const timestamp = Math.floor(Date.now() / 1000);
-    const signature = generateHMACSignature(header, { status: 'Succeed' }, timestamp, 'legacy-secret');
+    // 使用与服务端一致的secret：优先节点apiKey，否则第一个apiKeys.key（此处为 'api-key'）
+    const signature = generateHMACSignature(header, { status: 'Succeed' }, timestamp, 'api-key');
 
     const result = verifyCallbackAuth(header, { status: 'Succeed' }, timestamp.toString(), signature, {
       configService,
