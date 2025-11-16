@@ -42,12 +42,6 @@
                 "methods": [
                   "POST"
                 ]
-              },
-              {
-                "prefix": "/v1/chatvcp",
-                "methods": [
-                  "POST"
-                ]
               }
             ],
             "strategyOrder": [
@@ -142,7 +136,7 @@
         "id": "test-key-1",
         "key": "test-api-key-1",
         "name": "Test Key 1",
-        "createdAt": 1763291587231
+        "createdAt": 1763291809943
       }
     ],
     "admin": {
@@ -278,7 +272,6 @@
         "maxRetriesPerRequest": 2
       }
     },
-    "vcpKey": "test-vcp-key",
     "jwt": {
       "secret": "e55Ryz6dEO+dWk+14hUWFQVUDyzfl2BImuZa/FpiUNM=",
       "expiresIn": 604800,
@@ -412,7 +405,8 @@
       "connectTimeoutMs": 5000,
       "commandTimeoutMs": 3000,
       "maxRetriesPerRequest": 2
-    }
+    },
+    "vcpKey": "test-vcp-key"
   },
   "protocol": {
     "security": {
@@ -2118,7 +2112,6 @@
         "maxRetriesPerRequest": 2
       }
     },
-    "allowLegacyVcpKey": false,
     "security": {
       "rateLimit": {
         "enabled": true,
@@ -2530,11 +2523,33 @@
       },
       "rules": [
         {
-          "id": "chat-api",
-          "name": "Chat API",
+          "id": "test-log-rule",
+          "name": "Test Log Rule",
           "windowMs": 60000,
           "maxRequests": 1,
           "mode": "sliding",
+          "burstMultiplier": 1,
+          "priority": 1,
+          "matchers": [
+            {
+              "path": "/test"
+            }
+          ],
+          "strategyOrder": [
+            "ip"
+          ],
+          "skipSuccessfulRequests": false,
+          "skipFailedRequests": false,
+          "responseHeaders": true
+        },
+        {
+          "id": "chat-api",
+          "name": "Chat Completions API",
+          "description": "限制聊天相关端点，优先按照 API Key 识别",
+          "windowMs": 60000,
+          "maxRequests": 60,
+          "mode": "sliding",
+          "burstMultiplier": 1.5,
           "priority": 10,
           "matchers": [
             {
@@ -2548,6 +2563,8 @@
             "apiKey",
             "ip"
           ],
+          "skipSuccessfulRequests": false,
+          "skipFailedRequests": false,
           "responseHeaders": true
         }
       ],

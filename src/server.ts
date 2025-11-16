@@ -867,8 +867,7 @@ export class VCPIntelliCore {
     this.app.post('/api/admin/system/security-alerts/:id/acknowledge', adminController.acknowledgeSecurityAlert);
     this.app.post('/api/admin/auth/login', adminController.login);
     this.app.post('/api/admin/auth/logout', adminController.logout);
-    // 🆕 节点认证Key（原VCP Key，保留旧路由用于向后兼容）
-    this.app.post('/api/admin/auth/generate-vcp-key', adminController.generateVCPKey);
+    // 节点认证Key：仅保留 ABP API Key 生成端点
     this.app.post('/api/admin/auth/generate-node-key', adminController.generateNodeKey);
     // 🆕 客户端API Key 管理
     this.app.post('/api/admin/auth/api-keys', adminController.generateClientApiKey);
