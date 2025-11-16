@@ -1,0 +1,16 @@
+{
+  "id": "snapshot_1762708147273_jc5kjx6lh",
+  "approvalId": "approval_1762708147234_3qo9kb9ur",
+  "approvalTitle": "统一聊天调度改造提案",
+  "version": 1,
+  "timestamp": "2025-11-09T17:09:07.273Z",
+  "trigger": "initial",
+  "status": "pending",
+  "content": "## Why\r\n- 现有 `/v1/chat/completions` 仅能代表 Hub 自身人格，无法一站式路由到 Companion / Worker 节点，也缺乏群聊与 @ 机制。\r\n- 项目已经完成节点管理与人格模板管理，需要统一入口来承接“AI 联系人 / 群组 / 工具审批 / 记忆隔离”的新体验。\r\n\r\n## What Changes\r\n- 扩展 `/v1/chat/completions` 请求结构，引入 `apexMeta` 会话元信息（会话 ID、成员、@ 列表、等待策略等）。\r\n- 新增 ConversationRouter、ConversationContextStore、ToolAuthorization 等核心模块，统一调度 Hub / Companion / Worker。\r\n- 扩展节点与人格绑定：Hub 节点可绑定多个人格，其它节点限制单人格，并在路由时校验。\r\n- 实现群聊 @ 逻辑、AI 自主加入策略、工具调用审批流程，以及记忆/画像的 persona 命名空间。\r\n- 更新管理后台与 API，支持人格绑定管理与新路由所需的元数据。\r\n\r\n## Impact\r\n- Affected specs: conversation-management（新增统一会话调度能力）。\r\n- Affected code:\r\n  - `src/api/controllers/ChatController.ts`、`src/services/ChatService.ts`\r\n  - 新增 `src/core/ConversationRouter`、`ConversationContextStore`、`ToolAuthorization`\r\n  - `src/services/NodeService.ts`、`ConfigService.ts`（节点人格绑定字段）\r\n  - Admin Panel 节点管理视图、相关 API\r\n\r\n\r\n",
+  "fileStats": {
+    "size": 1364,
+    "lines": 21,
+    "lastModified": "2025-11-09T17:06:02.511Z"
+  },
+  "comments": []
+}

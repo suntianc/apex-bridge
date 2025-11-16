@@ -1,0 +1,45 @@
+---
+name: HealthCheck
+displayName: HealthCheck
+description: 基础健康检查
+version: 1.0.0
+type: service
+protocol: abp
+abp:
+  kind: validate
+  tools:
+    - name: HealthCheck
+      description: 基础健康检查
+      kind: validate
+      parameters: {}
+      returns:
+        type: any
+        description: 执行结果
+      version: 1.0.0
+      author: HealthCheck
+keywords:
+  - health
+domain: monitoring
+permissions:
+  network: false
+  filesystem: none
+cacheable: true
+ttl: 3600
+---
+# 健康检查服务
+
+## 描述
+
+提供系统健康检查的HTTP端点
+
+## 代码
+
+```typescript
+// 插件: HealthCheck
+// 类型: service
+
+export function execute(params: Record<string, unknown>): unknown {
+  // TODO: 实现插件逻辑
+  return {};
+}
+```

@@ -1,0 +1,253 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  NODE_VERSION: '18'
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      release_id: ${{ steps.create_release.outputs.id }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Extract version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+          echo "# Changelog" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "## Version ${{ steps.version.outputs.VERSION }}" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "### 📋 变更" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+
+          # 获取自上次发布以来的提交
+          if [ -n "$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null)" ]; then
+            PREV_TAG=$(git describe --tags --abbrev=0 HEAD~1)
+            echo "#### 🚀 新功能" >> $GITHUB_OUTPUT
+            git log ${PREV_TAG}..HEAD --grep="^feat:" --oneline --format="- %s" | sed 's/^feat: //' | head -10 >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_OUTPUT
+            echo "#### 🐛 Bug 修复" >> $GITHUB_OUTPUT
+            git log ${PREV_TAG}..HEAD --grep="^fix:" --oneline --format="- %s" | sed 's/^fix: //' | head -10 >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_OUTPUT
+            echo "#### 🔧 改进" >> $GITHUB_OUTPUT
+            git log ${PREV_TAG}..HEAD --grep="^refactor\|^perf\|^style:" --oneline --format="- %s" | sed 's/^[a-z]*: //' | head -5 >> $GITHUB_OUTPUT
+          else
+            echo "#### 🎉 初始发布" >> $GITHUB_OUTPUT
+            echo "这是 ApexBridge 的第一个稳定版本！" >> $GITHUB_OUTPUT
+          fi
+
+          echo "" >> $GITHUB_OUTPUT
+          echo "#### 📦 包版本" >> $GITHUB_OUTPUT
+          echo "- ApexBridge 主系统: ${{ steps.version.outputs.VERSION }}" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "#### 🙏 贡献者" >> $GITHUB_OUTPUT
+          git log --format="- %an" | sort | uniq -c | sort -nr | head -10 >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ steps.version.outputs.VERSION }}
+          body: ${{ steps.changelog.outputs.CHANGELOG }}
+          draft: false
+          prerelease: false
+
+  build-and-publish:
+    name: Build and Publish
+    needs: create-release
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        package: [apex-bridge]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: 'https://registry.npmjs.org'
+          scope: '@${{ github.repository_owner }}'
+
+      - name: Configure npm
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
+          echo "@${{ github.repository_owner }}:registry=https://registry.npmjs.org/" >> ~/.npmrc
+
+      - name: Install dependencies
+        run: |
+          cd ${{ matrix.package }}
+          npm ci
+
+      - name: Run tests
+        run: |
+          cd ${{ matrix.package }}
+          npm test
+
+      - name: Build package
+        run: |
+          cd ${{ matrix.package }}
+          npm run build
+
+      - name: Publish to npm
+        run: |
+          cd ${{ matrix.package }}
+          npm publish --access public
+
+      - name: Create GitHub Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ${{ matrix.package }}/dist/
+          asset_name: ${{ matrix.package }}-${{ github.ref_name }}.tar.gz
+          asset_content_type: application/gzip
+
+  update-docs:
+    name: Update Documentation
+    needs: build-and-publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Update package.json versions
+        run: |
+          # 无需更新已移除的 VCP 相关依赖，保持占位以便后续文档步骤
+
+      - name: Update README with published versions
+        run: |
+          # 更新 README 中的版本号徽章（仅 ApexBridge）
+          VERSION=${GITHUB_REF#refs/tags/v}
+
+          sed -i "s|Version-v[0-9]\+\.[0-9]\+\.[0-9]\+-blue|Version-v$VERSION-blue|g" README.md
+
+      - name: Commit and push updates
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .
+          git commit -m "docs: update package versions for release $VERSION" || true
+          git push
+
+  docker-build:
+    name: Build Docker Images
+    needs: create-release
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    strategy:
+      matrix:
+        service: [apex-bridge]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: ${{ secrets.DOCKER_USERNAME }}/${{ matrix.service }}
+          tags: |
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            latest
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: ${{ matrix.service }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-docs:
+    name: Deploy Documentation
+    needs: [create-release, update-docs]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs/build
+          cname: docs.apexbridge.dev
+
+  notify:
+    name: Notify Release
+    needs: [build-and-publish, docker-build, deploy-docs]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Notify on Success
+        if: needs.build-and-publish.result == 'success'
+        run: |
+          echo "🎉 Release ${{ github.ref_name }} published successfully!"
+          echo "📦 All packages published to npm"
+          echo "🐳 Docker images built and pushed"
+          echo "📚 Documentation updated"
+
+      - name: Notify on Failure
+        if: needs.build-and-publish.result == 'failure'
+        run: |
+          echo "❌ Release failed!"
+          echo "Please check the logs and fix the issues"
+          exit 1

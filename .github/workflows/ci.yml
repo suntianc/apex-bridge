@@ -1,0 +1,203 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  NODE_VERSION: '18'
+
+jobs:
+  lint-and-format:
+    name: Lint and Format Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: |
+            apex-bridge/package-lock.json
+            vcp-intellicore-rag/package-lock.json
+            vcp-intellicore-sdk/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd apex-bridge && npm ci
+          cd ../vcp-intellicore-rag && npm ci
+          cd ../vcp-intellicore-sdk && npm ci
+
+      - name: Run ESLint
+        run: |
+          cd apex-bridge && npm run lint
+          cd ../vcp-intellicore-rag && npm run lint
+          cd ../vcp-intellicore-sdk && npm run lint
+
+      - name: Check formatting
+        run: |
+          cd apex-bridge && npm run format:check
+          cd ../vcp-intellicore-rag && npm run format:check
+          cd ../vcp-intellicore-sdk && npm run format:check
+
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [16.x, 18.x, 20.x]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: |
+            apex-bridge/package-lock.json
+            vcp-intellicore-rag/package-lock.json
+            vcp-intellicore-sdk/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd apex-bridge && npm ci
+          cd ../vcp-intellicore-rag && npm ci
+          cd ../vcp-intellicore-sdk && npm ci
+
+      - name: Run tests for main project
+        run: |
+          cd apex-bridge
+          npm run test:coverage
+        env:
+          CI: true
+
+      - name: Run tests for RAG service
+        run: |
+          cd vcp-intellicore-rag
+          npm test
+        env:
+          CI: true
+
+      - name: Run tests for SDK
+        run: |
+          cd vcp-intellicore-sdk
+          npm test
+        env:
+          CI: true
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          directory: ./apex-bridge/coverage
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+
+  build:
+    name: Build Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: |
+            apex-bridge/package-lock.json
+            vcp-intellicore-rag/package-lock.json
+            vcp-intellicore-sdk/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd apex-bridge && npm ci
+          cd ../vcp-intellicore-rag && npm ci
+          cd ../vcp-intellicore-sdk && npm ci
+
+      - name: Build main project
+        run: |
+          cd apex-bridge
+          npm run build
+
+      - name: Build RAG service
+        run: |
+          cd vcp-intellicore-rag
+          npm run build
+
+      - name: Build SDK
+        run: |
+          cd vcp-intellicore-sdk
+          npm run build
+
+      - name: Check for build artifacts
+        run: |
+          test -d apex-bridge/dist && echo "✅ Main project built successfully"
+          test -d vcp-intellicore-rag/dist && echo "✅ RAG service built successfully"
+          test -d vcp-intellicore-sdk/dist && echo "✅ SDK built successfully"
+
+  documentation:
+    name: Documentation Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Check markdown files
+        uses: articulate/actions-markdownlint@v1
+        with:
+          files: '**/*.md'
+          config: .markdownlint.json
+
+      - name: Check README badges
+        run: |
+          node scripts/check-badges.js
+
+      - name: Generate API documentation
+        run: |
+          cd apex-bridge
+          npm run docs:generate || true
+
+  dependency-audit:
+    name: Dependency Security Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Run security audit
+        run: |
+          cd apex-bridge && npm audit --audit-level=moderate || true
+          cd ../vcp-intellicore-rag && npm audit --audit-level=moderate || true
+          cd ../vcp-intellicore-sdk && npm audit --audit-level=moderate || true
+
+      - name: Run Snyk security check
+        uses: snyk/actions/node@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high

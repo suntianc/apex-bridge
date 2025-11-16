@@ -1,0 +1,92 @@
+name: Security Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # 每天凌晨2点运行安全测试
+    - cron: '0 2 * * *'
+
+jobs:
+  security-tests:
+    name: Security Test Suite
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: apex-bridge/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./apex-bridge
+        run: npm ci
+
+      - name: Run security test suite
+        working-directory: ./apex-bridge
+        run: npm test -- --testPathPattern="security|rateLimit|validation|sanitization|audit|concurrency" --coverage --coveragePathIgnorePatterns="node_modules|dist"
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./apex-bridge/coverage/coverage-final.json
+          flags: security
+          name: security-tests
+          fail_ci_if_error: false
+
+      - name: Run rate limiting tests
+        working-directory: ./apex-bridge
+        run: npm test -- rateLimit
+
+      - name: Run validation tests
+        working-directory: ./apex-bridge
+        run: npm test -- validation
+
+      - name: Run sanitization tests
+        working-directory: ./apex-bridge
+        run: npm test -- sanitization
+
+      - name: Run audit logging tests
+        working-directory: ./apex-bridge
+        run: npm test -- auditLogger
+
+      - name: Run concurrency tests
+        working-directory: ./apex-bridge
+        run: npm test -- concurrency
+
+      - name: Check for security vulnerabilities
+        working-directory: ./apex-bridge
+        run: npm audit --audit-level=moderate || true
+
+  security-scan:
+    name: Security Vulnerability Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'

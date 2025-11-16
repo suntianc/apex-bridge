@@ -1,0 +1,14 @@
+{
+  "filePath": "openspec/changes/add-unified-conversation-router/proposal.md",
+  "currentVersion": 1,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2025-11-09T17:09:07.273Z",
+      "trigger": "initial",
+      "approvalId": "approval_1762708147234_3qo9kb9ur",
+      "approvalTitle": "统一聊天调度改造提案"
+    }
+  ]
+}

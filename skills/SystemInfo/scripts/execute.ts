@@ -1,0 +1,65 @@
+type SafeProcess = {
+  platform?: string;
+  version?: string;
+  pid?: number;
+  uptime?: () => number;
+  memoryUsage?: () => {
+    heapUsed?: number;
+    heapTotal?: number;
+    rss?: number;
+    external?: number;
+  };
+  env?: Record<string, string>;
+};
+
+interface SystemInfoPayload {
+  platform: string;
+  nodeVersion: string;
+  pid: number;
+  uptimeSeconds: number;
+  formattedUptime: string;
+  memory: {
+    heapUsedMB: number;
+    heapTotalMB: number;
+    rssMB: number;
+    externalMB: number;
+  };
+  environment: {
+    nodeEnv: string;
+  };
+  timestamp: string;
+}
+
+function bytesToMB(value: number): number {
+  return Number((value / 1024 / 1024).toFixed(2));
+}
+
+export function execute(): SystemInfoPayload {
+  const runtimeProcess = process as SafeProcess;
+  const uptimeFn = typeof runtimeProcess.uptime === 'function' ? runtimeProcess.uptime : () => 0;
+  const memoryUsageFn = typeof runtimeProcess.memoryUsage === 'function' ? runtimeProcess.memoryUsage : undefined;
+  const memoryUsage = memoryUsageFn
+    ? memoryUsageFn()
+    : { heapUsed: 0, heapTotal: 0, rss: 0, external: 0 };
+  const uptimeSeconds = Number(uptimeFn().toFixed(2));
+
+  const memory = {
+    heapUsedMB: bytesToMB(memoryUsage.heapUsed ?? 0),
+    heapTotalMB: bytesToMB(memoryUsage.heapTotal ?? 0),
+    rssMB: bytesToMB(memoryUsage.rss ?? 0),
+    externalMB: bytesToMB(memoryUsage.external ?? 0)
+  };
+
+  return {
+    platform: runtimeProcess.platform ?? 'unknown',
+    nodeVersion: runtimeProcess.version ?? 'unknown',
+    pid: typeof runtimeProcess.pid === 'number' ? runtimeProcess.pid : -1,
+    uptimeSeconds,
+    formattedUptime: `${Math.floor(uptimeSeconds / 60)}分${Math.floor(uptimeSeconds % 60)}秒`,
+    memory,
+    environment: {
+      nodeEnv: (runtimeProcess.env?.NODE_ENV as string) ?? 'development'
+    },
+    timestamp: new Date().toISOString()
+  };
+}

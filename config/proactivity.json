@@ -1,0 +1,15 @@
+{
+  "enabled": true,
+  "timezone": "Asia/Taipei",
+  "quietWindow": {
+    "start": "22:00",
+    "end": "08:00"
+  },
+  "workdayHours": {
+    "start": "09:00",
+    "end": "20:00"
+  },
+  "maxDailyMessages": 1,
+  "actionThreshold": 0.6,
+  "debounceMs": 1800000
+}

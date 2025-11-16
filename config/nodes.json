@@ -1,0 +1,20 @@
+[]  {
+    "id": "node-e2e-1763282054594",
+    "name": "Worker E2E",
+    "type": "worker",
+    "status": "online",
+    "registeredAt": 1763282054599,
+    "lastSeen": 1763282054599,
+    "lastHeartbeat": 1763282054599,
+    "capabilities": [
+      "vision"
+    ],
+    "stats": {
+      "totalTasks": 0,
+      "completedTasks": 0,
+      "failedTasks": 0,
+      "activeTasks": 0,
+      "averageResponseTime": 0
+    }
+  }
+]

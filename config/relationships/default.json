@@ -1,0 +1,24 @@
+{
+  "userId": "default",
+  "relationships": [
+    {
+      "id": "rel-1762446410733-9c64isl",
+      "userId": "default",
+      "type": "friend",
+      "name": "张三",
+      "birthday": "11-12",
+      "createdAt": 1762446410733,
+      "updatedAt": 1762448045744
+    },
+    {
+      "id": "rel-1762448060343-xkn6vvy",
+      "userId": "default",
+      "type": "friend",
+      "name": "李四",
+      "birthday": "11-10",
+      "createdAt": 1762448060343,
+      "updatedAt": 1762448060343
+    }
+  ],
+  "updatedAt": 1762701504181
+}

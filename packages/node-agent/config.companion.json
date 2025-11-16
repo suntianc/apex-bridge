@@ -1,0 +1,44 @@
+{
+  "hub": {
+    "url": "ws://localhost:8088/vcp-distributed-server/VCP_Key=sk-intellicore-mhiyz9jz-8MDG21BH6hU-75b93d2e",
+    "vcpKey": "sk-example"
+  },
+  "node": {
+    "name": "Example Companion",
+    "type": "companion",
+    "capabilities": ["companion"],
+    "tools": ["companion_conversation"]
+  },
+  "heartbeat": {
+    "intervalMs": 15000
+  },
+  "tasks": {
+    "maxConcurrent": 1,
+    "defaultTimeoutMs": 120000
+  },
+  "llm": {
+    "streamEnabled": true,
+    "localFallback": false,
+    "retry": { "attempts": 1, "delayMs": 1000 },
+    "defaultProvider": "deepseek",
+    "providers": {
+      "deepseek": {
+        "apiKey": "sk-intellicore-api-mhj8zkef-93bfK6zkbxQ-440d320a",
+        "baseURL": "https://api.deepseek.com/v1",
+        "model": "deepseek-chat",
+        "stream": true
+      }
+    }
+  },
+  "telemetry": {
+    "enabled": true,
+    "port": 8766
+  },
+  "logging": {
+    "level": "info",
+    "format": "pretty"
+  },
+  "plugins": {
+    "toolDirectory": "plugins"
+  }
+}
