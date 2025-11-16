@@ -27,7 +27,7 @@ export interface MemoryItem {
   timestamp?: number;
   similarity?: number;
   source?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -270,7 +270,7 @@ export class PromptBuilder {
     const episodicMemories = selectedMemories.filter((m) => m.metadata?.type === 'episodic');
 
     if (semanticMemories.length > 0) {
-      const topK = (config as any).semanticMemoryTopK ?? 3;
+      const topK = config.semanticMemoryTopK ?? 3;
       const semanticContent = this.formatMemoriesForInjection(
         semanticMemories.slice(0, topK),
         '语义记忆',
@@ -280,7 +280,7 @@ export class PromptBuilder {
     }
 
     if (episodicMemories.length > 0) {
-      const topK = (config as any).episodicMemoryTopK ?? 1;
+      const topK = config.episodicMemoryTopK ?? 1;
       const episodicContent = this.formatMemoriesForInjection(
         episodicMemories.slice(0, topK),
         '情景记忆',
@@ -290,8 +290,8 @@ export class PromptBuilder {
     }
 
     // 5. Session Memory (last N) - 不受 Token 限制影响（会话上下文）
-    if ((config as any).includeSessionMemory !== false) {
-      const sessionMessages = this.extractSessionMemory(messages, (config as any).sessionMemoryLimit || 50);
+    if (config.includeSessionMemory !== false) {
+      const sessionMessages = this.extractSessionMemory(messages, config.sessionMemoryLimit || 50);
       if (sessionMessages.length > 0) {
         const sessionContent = sessionMessages
           .map((msg, index) => {
@@ -380,8 +380,9 @@ export class PromptBuilder {
       // }));
       
       return [];
-    } catch (error: any) {
-      logger.warn(`[PromptBuilder] Semantic Memory search failed: ${error.message}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.warn(`[PromptBuilder] Semantic Memory search failed: ${message}`);
       return [];
     }
   }
@@ -402,7 +403,7 @@ export class PromptBuilder {
           userId: config.memoryFilter.userId,
           personaId: config.memoryFilter.personaId,
           householdId: config.memoryFilter.householdId,
-          topK: (config as any).episodicMemoryTopK ?? 1,
+          topK: config.episodicMemoryTopK ?? 1,
           window: {
             lastDays: 7 // 最近7天
           }
@@ -419,8 +420,9 @@ export class PromptBuilder {
         timestamp: event.timestamp,
         importance: event.importance
       }));
-    } catch (error: any) {
-      logger.warn(`[PromptBuilder] Episodic Memory query failed: ${error.message}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.warn(`[PromptBuilder] Episodic Memory query failed: ${message}`);
       return [];
     }
   }
