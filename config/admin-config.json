@@ -136,7 +136,7 @@
         "id": "test-key-1",
         "key": "test-api-key-1",
         "name": "Test Key 1",
-        "createdAt": 1763291809943
+        "createdAt": 1763292070279
       }
     ],
     "admin": {
@@ -181,7 +181,7 @@
                   ]
                 },
                 {
-                  "prefix": "/v1/chatvcp",
+                  "prefix": "/v1/chat",
                   "methods": [
                     "POST"
                   ]
@@ -316,7 +316,7 @@
                 ]
               },
               {
-                "prefix": "/v1/chatvcp",
+                "prefix": "/v1/chat",
                 "methods": [
                   "POST"
                 ]
@@ -448,7 +448,7 @@
                 ]
               },
               {
-                "prefix": "/v1/chatvcp",
+                "prefix": "/v1/chat",
                 "methods": [
                   "POST"
                 ]
@@ -581,7 +581,7 @@
                 ]
               },
               {
-                "prefix": "/v1/chatvcp",
+                "prefix": "/v1/chat",
                 "methods": [
                   "POST"
                 ]
@@ -2523,33 +2523,11 @@
       },
       "rules": [
         {
-          "id": "test-log-rule",
-          "name": "Test Log Rule",
+          "id": "chat-api",
+          "name": "Chat API",
           "windowMs": 60000,
           "maxRequests": 1,
           "mode": "sliding",
-          "burstMultiplier": 1,
-          "priority": 1,
-          "matchers": [
-            {
-              "path": "/test"
-            }
-          ],
-          "strategyOrder": [
-            "ip"
-          ],
-          "skipSuccessfulRequests": false,
-          "skipFailedRequests": false,
-          "responseHeaders": true
-        },
-        {
-          "id": "chat-api",
-          "name": "Chat Completions API",
-          "description": "限制聊天相关端点，优先按照 API Key 识别",
-          "windowMs": 60000,
-          "maxRequests": 60,
-          "mode": "sliding",
-          "burstMultiplier": 1.5,
           "priority": 10,
           "matchers": [
             {
@@ -2563,8 +2541,6 @@
             "apiKey",
             "ip"
           ],
-          "skipSuccessfulRequests": false,
-          "skipFailedRequests": false,
           "responseHeaders": true
         }
       ],
