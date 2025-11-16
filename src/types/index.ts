@@ -75,51 +75,7 @@ export interface LLMQuotaConfig {
   burstMultiplier?: number;
 }
 
-export interface VCPConfig {
-  server: {
-    port: number;
-    host: string;
-  };
-  auth: {
-    apiKey: string; // 原vcpKey，用于节点之间的认证（WebSocket）
-    apiKeys: string[]; // 客户端API Keys（HTTP API认证）
-  };
-  protocol: {
-    startMarker: string;
-    endMarker: string;
-    paramStartMarker: string;
-    paramEndMarker: string;
-  };
-  plugins: {
-    directory: string;
-    autoLoad: boolean;
-  };
-  llm: {
-    defaultProvider?: string; // 默认使用的提供商
-    openai?: LLMProviderConfig;
-    deepseek?: LLMProviderConfig;
-    zhipu?: LLMProviderConfig;
-    claude?: LLMProviderConfig;
-    ollama?: LLMProviderConfig;
-    custom?: LLMProviderConfig; // 自定义OpenAI兼容提供商
-    quota?: LLMQuotaConfig;
-  };
-  debugMode: boolean;
-  rag?: {
-    enabled?: boolean;
-    workDir?: string;
-    vectorizer?: {
-      provider?: string;
-      baseURL?: string;
-      apiKey: string;
-      model: string;
-      dimensions?: number;
-      dim?: number;  // 别名，兼容dim配置
-      batch?: number;
-      timeout?: number;
-    };
-  };
-}
+// ABP-only: 运行时直接使用 AdminConfig 作为配置源，移除 VCPConfig
 
 // ==================== WebSocket相关类型 ====================
 

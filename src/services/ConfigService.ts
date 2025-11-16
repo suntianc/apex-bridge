@@ -880,54 +880,7 @@ export class ConfigService {
     }
   }
 
-  /**
-   * 将AdminConfig转换为VCPConfig格式
-   */
-  public toVCPConfig(adminConfig: AdminConfig): VCPConfig {
-    const vcpConfig: VCPConfig = {
-      server: {
-        port: adminConfig.server.port,
-        host: adminConfig.server.host
-      },
-      auth: {
-        apiKey: adminConfig.auth.apiKey || (adminConfig.auth as any).vcpKey || '', // 支持向后兼容（vcpKey → apiKey）
-        // 🆕 将 ApiKeyInfo[] 转换为 string[]（VCPConfig 的 apiKeys 是 string[]）
-        apiKeys: (adminConfig.auth.apiKeys || []).map(apiKey => apiKey.key)
-      },
-      protocol: {},
-      plugins: {
-        directory: adminConfig.plugins.directory,
-        autoLoad: adminConfig.plugins.autoLoad
-      },
-      llm: {
-        defaultProvider: adminConfig.llm.defaultProvider,
-        openai: adminConfig.llm.openai,
-        deepseek: adminConfig.llm.deepseek,
-        zhipu: adminConfig.llm.zhipu,
-        claude: adminConfig.llm.claude,
-        ollama: adminConfig.llm.ollama,
-        custom: adminConfig.llm.custom,
-        quota: adminConfig.llm.quota
-      },
-      debugMode: adminConfig.server.debugMode,
-      rag: adminConfig.rag?.enabled ? {
-        enabled: adminConfig.rag.enabled,
-        workDir: adminConfig.rag.storagePath,
-        vectorizer: adminConfig.rag.vectorizer ? {
-          provider: adminConfig.rag.vectorizer.provider,
-          baseURL: adminConfig.rag.vectorizer.baseURL,
-          apiKey: adminConfig.rag.vectorizer.apiKey,
-          model: adminConfig.rag.vectorizer.model,
-          dimensions: adminConfig.rag.vectorizer.dimensions || adminConfig.rag.vectorizer.dim,
-          dim: adminConfig.rag.vectorizer.dim || adminConfig.rag.vectorizer.dimensions,
-          batch: adminConfig.rag.vectorizer.batch,
-          timeout: adminConfig.rag.vectorizer.timeout
-        } : undefined
-      } : undefined
-    };
-
-    return vcpConfig;
-  }
+  // ABP-only: 移除 VCP 兼容导出，直接使用 AdminConfig 作为运行时配置源
 
   /**
    * 验证配置完整性

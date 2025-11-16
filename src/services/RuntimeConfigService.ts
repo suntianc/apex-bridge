@@ -9,7 +9,7 @@
  */
 
 import { ConfigService } from './ConfigService';
-import { VCPConfig } from '../types';
+import { } from '../types';
 import { logger } from '../utils/logger';
 import { LLMClient } from '../core/LLMClient';
 import { Mutex } from '../utils/Mutex';
@@ -18,7 +18,7 @@ import { RaceDetector, createOperationId, createResourceId } from '../utils/Race
 export class RuntimeConfigService {
   private static instance: RuntimeConfigService;
   private configService: ConfigService;
-  private cachedConfig: VCPConfig | null = null;
+  private cachedConfig: any | null = null;
   private llmClient: LLMClient | null = null;
   private initializing: boolean = false;
   private initializationPromise: Promise<LLMClient> | null = null;
@@ -40,10 +40,10 @@ export class RuntimeConfigService {
   /**
    * 加载配置到内存（从JSON文件读取）
    */
-  public loadConfig(): VCPConfig {
+  public loadConfig(): any {
     if (!this.cachedConfig) {
       const adminConfig = this.configService.readConfig();
-      this.cachedConfig = this.configService.toVCPConfig(adminConfig);
+      this.cachedConfig = adminConfig;
       logger.debug('✅ Configuration loaded into memory');
     }
     return this.cachedConfig;
@@ -116,7 +116,7 @@ export class RuntimeConfigService {
   /**
    * 初始化 LLM 客户端
    */
-  private async initializeLLMClient(llmConfig: VCPConfig['llm']): Promise<LLMClient> {
+  private async initializeLLMClient(llmConfig: any): Promise<LLMClient> {
     logger.info('🔄 Initializing LLMClient...');
     const llmClient = new LLMClient(llmConfig);
     logger.info('✅ LLMClient initialized (lazy loading)');
@@ -126,7 +126,7 @@ export class RuntimeConfigService {
   /**
    * 重新加载配置（从JSON文件重新读取，清除缓存）
    */
-  public reloadConfig(): VCPConfig {
+  public reloadConfig(): any {
     this.cachedConfig = null;
     this.llmClient = null; // 清除LLMClient，下次获取时会重新初始化
     logger.info('🔄 Configuration reloaded from file');
@@ -137,7 +137,7 @@ export class RuntimeConfigService {
    * 更新配置（同步更新内存和JSON文件）
    * 使用异步更新方法，确保线程安全
    */
-  public async updateConfig(updates: any): Promise<VCPConfig> {
+  public async updateConfig(updates: any): Promise<any> {
     // 更新JSON文件（使用异步方法，确保线程安全）
     await this.configService.updateConfigAsync(updates);
     
