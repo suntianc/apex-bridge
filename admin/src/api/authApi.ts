@@ -13,9 +13,6 @@ export interface LoginResponse {
   };
 }
 
-// legacy key API 已废弃（保留类型占位，逐步移除）
-export type GenerateVCPKeyResponse = never;
-
 export interface GenerateNodeKeyResponse {
   success: boolean;
   key: string;

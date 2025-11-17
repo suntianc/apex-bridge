@@ -2,7 +2,7 @@
  * Placeholder Variable Provider
  * 
  * 提供静态占位符管理
- * 独立于vcp-intellicore-sdk的实现
+ 
  */
 
 import { IVariableProvider, VariableContext } from '../../../types/variable';

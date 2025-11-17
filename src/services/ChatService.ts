@@ -411,13 +411,7 @@ export class ChatService {
       logger.debug(`🔍 Parsed ${toolRequests.length} tool requests from AI response`);
       if (toolRequests.length > 0) {
         toolRequests.forEach((req: any, index: number) => {
-          const protocol = req.protocol || 'abp';
-          if (protocol === 'abp') {
-            logger.debug(`   Tool ${index + 1} [ABP]: name="${req.name}", parameters=${JSON.stringify(req.args)}, id=${req.abpCallId}`);
-          } else {
-            // 不再支持VCP协议，但保留日志兼容性
-            logger.debug(`   Tool ${index + 1} [${protocol.toUpperCase()}]: name="${req.name}", args=${JSON.stringify(req.args)}`);
-          }
+          logger.debug(`   Tool ${index + 1} [ABP]: name="${req.name}", parameters=${JSON.stringify(req.args)}, id=${req.abpCallId}`);
         });
       }
       
@@ -444,12 +438,7 @@ export class ChatService {
       
       logger.debug(`🔧 Detected ${toolRequests.length} tool calls`);
       toolRequests.forEach((req: any) => {
-        const protocol = req.protocol || 'vcp';
-        if (protocol === 'abp') {
-          logger.debug(`   - ${req.name} [ABP] (id: ${req.abpCallId})`);
-        } else {
-          logger.debug(`   - ${req.name} ${req.archery ? '(archery)' : ''}`);
-        }
+        logger.debug(`   - ${req.name} [ABP] (id: ${req.abpCallId})`);
       });
 
       const authorization = this.evaluateToolAuthorization(toolRequests, route);
@@ -511,7 +500,7 @@ export class ChatService {
       }
 
       allowedTools.forEach(({ tool, decision }) => {
-        const protocol = (tool as any).protocol || 'vcp';
+        const protocol = (tool as any).protocol || 'abp';
         const isArchery = (tool as any).archery || false; // ABP格式不支持archery，默认为false
         logger.debug(
           `   ✔ ${tool.name} [${protocol}] ${isArchery ? '(archery)' : ''} [origin=${decision.originType}${
@@ -830,7 +819,7 @@ export class ChatService {
   }
  
   /**
-   * 流式处理消息 - 支持工具调用循环（参考VCPToolBox chatCompletionHandler.js:446-861）
+   * 流式处理消息 - 支持工具调用循环（参考早期实现的聊天处理循环，已改为 ABP-only）
    */
   async *streamMessage(
     messages: Message[],
@@ -914,7 +903,7 @@ export class ChatService {
       const loopTimeout = options.loopTimeout || 300000; // 5分钟总超时
       const startTime = Date.now();
       
-      // 4. 主循环：工具调用循环（参考VCPToolBox while循环）
+        // 4. 主循环：工具调用循环（ABP-only 实现）
       while (recursionDepth < maxRecursion) {
         // 4.0 超时检查
         if (Date.now() - startTime > loopTimeout) {
@@ -993,8 +982,7 @@ export class ChatService {
           break;
         }
         
-        // 4.2 解析工具调用
-        // VCP协议已移除，仅使用ABP协议
+        // 4.2 解析工具调用（仅使用 ABP 协议）
         const toolRequests = this.protocolEngine.parseToolRequests(fullContent);
         
         if (toolRequests.length === 0) {
@@ -1599,7 +1587,7 @@ export class ChatService {
    * 解析消息中的变量
    * 
    * 使用SDK VariableEngine统一处理所有变量占位符：
-   * - {{VCPAllTools}} - 所有工具描述（ToolDescriptionProvider）
+   * - {{ABPAllTools}} - 所有工具描述（ToolDescriptionProvider）
    * - {{ToolName}} - 单个工具描述（ToolDescriptionProvider）
    * - {{Date}}, {{Time}}, {{Today}} - 时间变量（TimeProvider）
    * - {{TarXXX}}, {{VarXXX}} - 环境变量（EnvironmentProvider）

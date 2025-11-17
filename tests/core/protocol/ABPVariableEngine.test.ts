@@ -50,7 +50,6 @@ describe('ABPVariableEngine', () => {
     abpVariableEngine = new ABPVariableEngine(variableEngine, {
       cacheEnabled: true,
       cacheTTL: 1000, // 1秒，方便测试
-      reuseVCPProviders: true,
     });
   });
 
@@ -96,7 +95,6 @@ describe('ABPVariableEngine', () => {
     it('should not cache when cache is disabled', async () => {
       const engineNoCache = new ABPVariableEngine(variableEngine, {
         cacheEnabled: false,
-        reuseVCPProviders: true,
       });
 
       const provider = new MockVariableProvider('test', 'test');

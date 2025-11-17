@@ -2,7 +2,6 @@
  * Base Distributed Server Channel
  * 
  * 分布式服务器通道基类
- * 独立于vcp-intellicore-sdk的实现
  * 
  * @module api/websocket/channels
  */

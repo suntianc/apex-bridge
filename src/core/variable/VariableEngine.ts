@@ -2,7 +2,7 @@
  * Variable Engine
  * 
  * 变量占位符解析引擎，支持递归解析和循环依赖检测
- * 独立于vcp-intellicore-sdk的实现
+ 
  * 
  * @module core/variable
  */

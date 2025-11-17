@@ -33,6 +33,7 @@ npx ts-node src/index.ts start --config node-agent.config.json
 | `NODE_AGENT_TASKS_MAX_CONCURRENT` | 任务并发数 |
 | `NODE_AGENT_LLM_STREAM_ENABLED` | 是否启用 LLM 流式 |
 | `NODE_AGENT_LOGGING_LEVEL` | 日志级别（debug/info/warn/error） |
+| `NODE_AGENT_SKILLS_DIRECTORY` | Skills 目录路径 |
 
 更多变量见 `src/config/loader.ts`。
 
@@ -41,8 +42,8 @@ npx ts-node src/index.ts start --config node-agent.config.json
 ```jsonc
 {
   "hub": {
-    "url": "ws://localhost:3000/vcp-distributed-server/VCP_Key=xxx",
-    "vcpKey": "sk-example"
+    "url": "ws://localhost:8088/abp-distributed-server/ABP_Key=xxx",
+    "abpKey": "sk-example"
   },
   "node": {
     "name": "Example Worker",
@@ -62,8 +63,8 @@ npx ts-node src/index.ts start --config node-agent.config.json
     "port": 8765
   },
   "logging": { "level": "info", "format": "pretty" },
-  "plugins": {
-    "toolDirectory": "plugins"
+  "skills": {
+    "directory": "skills"
   }
 }
 ```
@@ -87,23 +88,64 @@ npx ts-node src/index.ts start --config node-agent.config.json
 
 可按需扩展自定义能力模块并注册到 `TaskOrchestrator`。
 
-### 工具插件（Tool Plugins）
+### Skills 体系
 
-- 配置项 `plugins.toolDirectory` 指定工具插件目录（默认 `plugins/`，相对运行目录）。
-- 目录下任意 `.js/.cjs/.mjs` 文件导出函数或 `{ register() }` 对象，即可在启动时自动加载：
+- 配置项 `skills.directory` 指定 Skills 目录（默认 `skills/`，相对运行目录）。
+- 每个 Skill 必须包含 `SKILL.md`（元数据 + 描述）和 `scripts/execute.ts`（执行脚本）。
+- 节点启动时自动扫描并加载所有有效的 Skills。
 
-```js
-// plugins/worker/calendar-task.js
-module.exports = async function register({ orchestrator, logger }) {
-  orchestrator.registerTool('calendar_task', async (ctx) => {
-    // ...your logic...
-    return { success: true };
-  });
-};
+#### Skills 目录结构
+
+```
+skills/
+  Echo/
+    SKILL.md          # 技能元数据（YAML frontmatter + Markdown 描述）
+    scripts/
+      execute.ts      # 执行脚本（导出 execute 函数）
 ```
 
-- 示例插件：`plugins/worker/calendar-task.js`、`plugins/worker/notify-user.js`（将执行记录写入 `runtime-data/*.jsonl`）。
-- 插件可引用 `dist/`（编译产物）或 `src/` 下的工具函数，便于复用官方实现。
+#### 示例 Skill
+
+```typescript
+// skills/Echo/scripts/execute.ts
+export function execute(parameters: { message?: string }): { echoed: any } {
+  return { echoed: parameters };
+}
+
+export default execute;
+```
+
+```yaml
+# skills/Echo/SKILL.md
+---
+name: Echo
+displayName: Echo
+description: Echo tool for testing
+version: 1.0.0
+type: direct
+input_schema:
+  type: object
+  properties:
+    message:
+      type: string
+output_schema:
+  type: object
+  properties:
+    echoed:
+      type: object
+security:
+  timeout_ms: 5000
+resources:
+  entry: ./scripts/execute.ts
+---
+# Echo Skill
+
+简单的回显工具，用于测试 Skills 系统。
+```
+
+- Skills 格式与主系统（Hub）保持一致，便于技能在 Hub 和节点间共享。
+- 支持输入/输出参数验证（基于 JSON Schema）、超时控制、结果缓存等特性。
+- 示例 Skill：`skills/Echo/`（已包含在项目中）。
 
 ## 日志
 
@@ -136,7 +178,7 @@ npx node-agent start --config config.worker.todo.json
 ```
 
 - 生成的待办、通知保存在 `runtime-data/` 目录（JSON Lines 格式）。
-- `config.worker.todo.json` 已指向 `plugins/worker/`，启动即加载 `calendar_task` 与 `notify_user` 插件。
+- 可通过 Skills 体系扩展自定义工具（如 `calendar_task`、`notify_user`）。
 - 可结合 Companion 节点输出的 `delegations` 自动触发。
 
 ### Companion 节点

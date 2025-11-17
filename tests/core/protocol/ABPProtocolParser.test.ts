@@ -16,7 +16,7 @@ describe('ABPProtocolParser', () => {
       jsonRepair: { enabled: true, strict: false },
       noiseStripping: { enabled: true, aggressive: false },
       boundaryValidation: { enabled: true, strict: false },
-      fallback: { enabled: true, toVCP: false, toPlainText: true },
+      fallback: { enabled: true, toPlainText: true },
     });
   });
 
@@ -254,7 +254,7 @@ describe('ABPProtocolParser', () => {
   describe('Fallback Mechanism', () => {
     it('should fallback to plain text when parsing fails', () => {
       const parserWithFallback = new ABPProtocolParser({
-        fallback: { enabled: true, toVCP: false, toPlainText: true },
+        fallback: { enabled: true, toPlainText: true },
       });
 
       const content = 'This is plain text without any ABP markers';
@@ -267,7 +267,7 @@ describe('ABPProtocolParser', () => {
 
     it('should return error result when fallback is disabled', () => {
       const parserNoFallback = new ABPProtocolParser({
-        fallback: { enabled: false, toVCP: false, toPlainText: false },
+        fallback: { enabled: false, toPlainText: false },
       });
 
       const content = 'Invalid content';

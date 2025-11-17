@@ -226,10 +226,6 @@ export interface AdminConfig {
     paramStartMarker?: string;
     paramEndMarker?: string;
   };
-  plugins: {
-    directory: string;
-    autoLoad: boolean;
-  };
   llm: {
     defaultProvider?: string;
     openai?: {
@@ -429,12 +425,8 @@ export class ConfigService {
         }
       },
       protocol: {},
-      plugins: {
-        directory: './plugins',
-        autoLoad: true
-      },
       llm: {
-        defaultProvider: 'openai',
+        defaultProvider: 'deepseek',
         // 各提供商配置为空，需要用户填写
         quota: {
           maxRequestsPerMinute: 30,
@@ -1004,32 +996,37 @@ export class ConfigService {
    * 深度合并配置对象
    */
   private mergeConfig(base: AdminConfig, updates: Partial<AdminConfig>): AdminConfig {
-    const merged = { ...base };
+    const merged = this.mergeObjects(base, updates) as AdminConfig;
+    return this.normalizeConfigShape(merged);
+  }
 
-    for (const key in updates) {
-      if (updates[key] !== undefined) {
-        // 🆕 特殊处理数组：对于数组类型（如 apiKeys），直接替换
-        if (Array.isArray(updates[key])) {
-          merged[key] = updates[key] as any;
-        }
-        // 深度合并对象
-        else if (
-          typeof updates[key] === 'object' &&
-          updates[key] !== null &&
-          typeof base[key] === 'object' &&
-          base[key] !== null &&
-          !Array.isArray(base[key])
-        ) {
-          merged[key] = this.mergeConfig(base[key] as AdminConfig, updates[key] as Partial<AdminConfig>) as any;
-        } 
-        // 其他类型直接替换
-        else {
-          merged[key] = updates[key] as any;
-        }
+  /**
+   * 深度合并对象，但不会在子对象上执行 normalize，以避免嵌套生成完整配置结构
+   */
+  private mergeObjects(base: any, updates: any): any {
+    const result: any = Array.isArray(base) ? base.slice() : { ...(base || {}) };
+
+    for (const key of Object.keys(updates || {})) {
+      const updateValue = updates[key];
+      if (updateValue === undefined) {
+        continue;
+      }
+
+      const baseValue = base ? base[key] : undefined;
+
+      if (Array.isArray(updateValue)) {
+        result[key] = updateValue.slice();
+      } else if (typeof updateValue === 'object' && updateValue !== null) {
+        result[key] = this.mergeObjects(
+          typeof baseValue === 'object' && baseValue !== null ? baseValue : {},
+          updateValue
+        );
+      } else {
+        result[key] = updateValue;
       }
     }
 
-    return this.normalizeConfigShape(merged);
+    return result;
   }
 }
 

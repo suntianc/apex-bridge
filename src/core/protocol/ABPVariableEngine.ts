@@ -1,9 +1,7 @@
 /**
  * ABP Variable Engine Adapter
  * 
- * ABP协议变量引擎适配器，复用VCP协议的VariableEngine和变量提供者
- * 
- * 设计决策：完全复用VCP变量格式和变量提供者，减少迁移工作量
+ * ABP协议变量引擎适配器（独立变量引擎）
  * 
  * @module core/protocol
  */
@@ -15,7 +13,7 @@ import { ABPProtocolConfig } from '../../types/abp';
 /**
  * ABP变量引擎适配器
  * 
- * 封装VCP协议的VariableEngine，提供ABP协议接口
+ * 封装通用 VariableEngine，提供 ABP 协议接口
  */
 export class ABPVariableEngine {
   private variableEngine: IVariableEngine;
@@ -27,14 +25,13 @@ export class ABPVariableEngine {
     this.config = config || {
       cacheEnabled: true,
       cacheTTL: 60000, // 1分钟
-      reuseVCPProviders: true,
     };
   }
 
   /**
    * 解析内容中的所有变量
    * 
-   * 复用VCP协议的变量解析逻辑
+   * 复用通用变量解析逻辑
    * 
    * @param content - 包含变量占位符的内容
    * @param context - 上下文信息
@@ -73,7 +70,7 @@ export class ABPVariableEngine {
   /**
    * 注册变量提供者
    * 
-   * 直接委托给VCP VariableEngine
+   * 直接委托给底层 VariableEngine
    * 
    * @param provider - 变量提供者
    */
@@ -85,7 +82,7 @@ export class ABPVariableEngine {
   /**
    * 移除变量提供者
    * 
-   * 直接委托给VCP VariableEngine
+   * 直接委托给底层 VariableEngine
    * 
    * @param providerName - 提供者名称
    */
@@ -97,7 +94,7 @@ export class ABPVariableEngine {
   /**
    * 获取所有已注册的提供者
    * 
-   * 直接委托给VCP VariableEngine
+   * 直接委托给底层 VariableEngine
    * 
    * @returns 提供者列表
    */
@@ -113,13 +110,6 @@ export class ABPVariableEngine {
    * @returns VariableEngine实例
    */
   getVariableEngine(): IVariableEngine {
-    return this.variableEngine;
-  }
-
-  /**
-   * @deprecated 使用 getVariableEngine() 替代
-   */
-  getVCPVariableEngine(): IVariableEngine {
     return this.variableEngine;
   }
 

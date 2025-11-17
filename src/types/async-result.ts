@@ -10,7 +10,7 @@
  * AsyncResultData Type
  * 
  * 异步结果数据类型定义
- * 独立于vcp-intellicore-sdk的实现
+ 
  */
 export interface AsyncResultData {
   /** 请求ID */

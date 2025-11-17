@@ -106,15 +106,13 @@ export async function completeSetup(req: Request, res: Response): Promise<void> 
       return;
     }
     
-    // 读取当前配置（如果存在）
-    const currentConfig = configService.readConfig();
+    // 在写入前重置为默认配置，避免叠加历史内容
+    configService.resetConfig();
     
-    // 合并新配置
-    const updatedConfig = {
-      ...currentConfig,
+    const updatedConfig = configService.updateConfig({
       ...config,
       setup_completed: true
-    };
+    });
     
     // 设置阶段的验证：只验证核心必需字段
     const setupValidation = validateSetupConfig(updatedConfig);
@@ -125,12 +123,6 @@ export async function completeSetup(req: Request, res: Response): Promise<void> 
       });
       return;
     }
-    
-    // 保存配置
-    configService.writeConfig(updatedConfig);
-    
-    // 清除配置缓存，确保下次读取时获取最新状态
-    configService.clearCache();
     
     logger.info('✅ Setup completed');
     
@@ -208,14 +200,13 @@ export async function migrateFromEnv(req: Request, res: Response): Promise<void>
       adminConfig.server.debugMode = envConfig.DEBUG_MODE === 'true';
     }
     
-    // 认证配置
-    // 读取 ABP_KEY（ABP-only）
+    // 认证配置（ABP-only）
+    // 读取 ABP_KEY
     const envKey = envConfig.ABP_KEY;
     if (envKey) {
       // 从.env导入密钥到apiKey（节点认证密钥）
       adminConfig.auth.apiKey = envKey;
-      // ABP-only：不再处理旧的 vcpKey 字段
-      // 不再支持 VCP_KEY
+      // 仅处理 ABP_KEY
     }
     // 🆕 读取 ABP_API_KEY 到新的 ApiKeyInfo[] 格式（ABP-only）
     const envApiKey = envConfig.ABP_API_KEY;

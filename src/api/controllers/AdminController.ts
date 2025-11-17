@@ -235,16 +235,6 @@ export async function logout(req: Request, res: Response): Promise<void> {
 }
 
 /**
- * 🆕 生成节点认证Key（节点之间的认证，原VCP Key，现改为API Key）
- * POST /api/admin/auth/generate-node-key
- * @deprecated 旧路由 /api/admin/auth/generate-vcp-key 已废弃
- */
-export async function generateVCPKey(req: Request, res: Response): Promise<void> {
-  // 向后兼容：调用新的generateNodeKey
-  return generateNodeKey(req, res);
-}
-
-/**
  * 🆕 生成节点认证Key（节点之间的认证，用于WebSocket连接）
  * POST /api/admin/auth/generate-node-key
  */

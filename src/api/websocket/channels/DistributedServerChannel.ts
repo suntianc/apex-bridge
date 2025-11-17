@@ -1,6 +1,6 @@
 /**
  * ApexBridge (ABP-only) - 分布式服务器WebSocket通道
- * 处理 /vcp-distributed-server 端点的连接和消息
+ * 处理 /abp-distributed-server 端点的连接和消息（端点名以服务端路由为准）
  */
 
 import { WebSocket } from 'ws';
@@ -152,7 +152,7 @@ export class DistributedServerChannel extends EventEmitter {
       // 异步工具结果：Archery工具主动推送，没有requestId
       logger.info(`🏹 Async tool result received from ${serverId}: ${data.plugin || 'Unknown'}`);
       
-      // 直接发射async_tool_result事件（转发到VCPLog）
+      // 直接发射 async_tool_result 事件（转发到 ABP 日志通道）
       this.emit('async_tool_result', {
         serverId,
         ...data

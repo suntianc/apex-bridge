@@ -1,10 +1,8 @@
 /**
  * Protocol Engine - 协议引擎核心
  * 统一封装协议解析、变量解析和插件管理功能
- * 仅支持ABP协议，不再支持VCP协议
  */
 
-// 独立实现 - 不再依赖vcp-intellicore-sdk
 import { createVariableEngine } from './variable';
 import {
   TimeProvider,
@@ -54,15 +52,15 @@ export class ProtocolEngine {
    * 初始化核心组件（不加载插件）
    */
   initializeCore(): void {
-    // 1. 初始化ABP协议解析器（仅支持ABP协议）
+  // 1. 初始化ABP协议解析器（仅支持ABP协议）
     const abpConfig: ABPProtocolConfig = {
       dualProtocolEnabled: false, // 不再支持双协议模式
       errorRecoveryEnabled: true,
       jsonRepair: { enabled: true, strict: false },
       noiseStripping: { enabled: true, aggressive: false },
       boundaryValidation: { enabled: true, strict: false },
-      fallback: { enabled: true, toVCP: false, toPlainText: true }, // 移除VCP fallback
-      variable: { cacheEnabled: true, cacheTTL: 60000, reuseVCPProviders: true },
+      fallback: { enabled: true, toPlainText: true }, // ABP-only，无 legacy 回退
+      variable: { cacheEnabled: true, cacheTTL: 60000 }, // 不复用任何 legacy 提供者
       ...(this.config as any).abp
     };
     this.abpParser = new ABPProtocolParser(abpConfig);
@@ -94,7 +92,7 @@ export class ProtocolEngine {
       }));
     }
     
-    // ABP解析失败，返回空数组（不再fallback到VCP）
+    // ABP 解析失败，返回空数组（不再提供其他协议回退）
     if (!abpResult.success) {
       logger.debug(`[ProtocolEngine] ABP protocol parsing failed: ${abpResult.error || 'Unknown error'}`);
       if (abpResult.fallback === 'plain-text') {
@@ -120,8 +118,8 @@ export class ProtocolEngine {
       if ((this.config as any).rag?.enabled) {
         try {
           // 使用require避免在未安装RAG包时触发TS编译期错误
-          // 优先级：abp-rag-sdk > @vcp/rag > vcp-intellicore-rag (向后兼容)
-           
+          // ABP-only：仅支持 abp-rag-sdk
+          
           let ragPkg: any;
           let ragRequireError: Error | undefined;
           try {
@@ -129,20 +127,6 @@ export class ProtocolEngine {
             logger.info('ℹ️ Using abp-rag-sdk');
           } catch (error: any) {
             ragRequireError = error;
-            try {
-              ragPkg = require('@vcp/rag');
-              logger.info('ℹ️ abp-rag-sdk not found, fallback to @vcp/rag');
-              ragRequireError = undefined;
-            } catch (fallbackError: any) {
-              ragRequireError = fallbackError;
-              try {
-                ragPkg = require('vcp-intellicore-rag');
-                logger.info('ℹ️ @vcp/rag not found, fallback to vcp-intellicore-rag (deprecated)');
-                ragRequireError = undefined;
-              } catch (legacyError: any) {
-                ragRequireError = legacyError;
-              }
-            }
           }
 
           if (!ragPkg) {
@@ -195,11 +179,9 @@ export class ProtocolEngine {
               debug: this.config.debugMode
             });
             logger.info('✅ RAG Service initialized');
-          } else {
-            logger.warn('⚠️ @vcp/rag package found but RAGService export missing, skip initialization');
-          }
+          } 
         } catch (error: any) {
-          logger.warn(`⚠️ @vcp/rag not available or initialization failed: ${error?.message || error}`);
+          logger.warn(`⚠️ abp-rag-sdk not available or initialization failed: ${error?.message || error}`);
         }
       }
       
@@ -279,7 +261,7 @@ export class ProtocolEngine {
       this.toolDescProvider = toolDescProvider;
       logger.debug('✅ [Layer3] ToolDescriptionProvider registered (priority: 90, namespace: tool)');
       
-      // AsyncResultProvider (priority: 95) - {{async:xxx}}（保留对 legacy {{VCP_ASYNC_RESULT::xxx}} 的兼容说明）
+      // AsyncResultProvider (priority: 95) - {{async:xxx}}
       const asyncResultDir = pathService.getAsyncResultDir();
       const asyncResultProvider = new AsyncResultProvider({
         asyncResultDirectory: asyncResultDir

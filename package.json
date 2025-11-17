@@ -32,7 +32,8 @@
     "format": "prettier -w .",
     "format:check": "prettier -c .",
     "build:admin": "cd admin && npm run build",
-    "build:all": "npm run build && npm run build:admin"
+    "build:all": "npm run build && npm run build:admin",
+    "config:reset": "ts-node scripts/reset-config.ts"
   },
   "keywords": [
     "ai",
@@ -68,7 +69,6 @@
     "redis": "^4.6.12",
     "tmp": "^0.2.5",
     "typescript": "^5.0.0",
-    "vcp-intellicore-rag": "^1.0.2",
     "vm2": "^3.9.19",
     "winston": "^3.11.0",
     "ws": "^8.17.0",

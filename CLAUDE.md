@@ -217,7 +217,7 @@ apex-bridge/
 
 ### 核心引擎理解路径
 1. **Protocol引擎** (`src/core/ProtocolEngine.ts`)
-   - 独立实现，不再依赖VCP SDK
+   - 独立实现，不再依赖任何外部SDK
    - 处理ABP协议解析和工具调用（经Skills映射执行）
    - 处理变量解析与三段渐进式工具描述
    - 集成RAG搜索和时间感知功能

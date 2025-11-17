@@ -4,7 +4,8 @@ import { TaskOrchestrator } from '../tasks/TaskOrchestrator';
 import { registerWorkerCapabilities } from './worker';
 import { registerCompanionCapabilities } from './companion';
 import { LLMProxy } from '../llm/LLMProxy';
-import { loadToolPlugins } from '../plugins/toolPluginLoader';
+import { SkillsLoader } from '../skills/SkillsLoader';
+import { NodeSkillsExecutor } from '../skills/NodeSkillsExecutor';
 
 export async function registerDefaultCapabilities(
   orchestrator: TaskOrchestrator,
@@ -18,6 +19,39 @@ export async function registerDefaultCapabilities(
     registerCompanionCapabilities(orchestrator, logger, llmProxy);
   }
 
-  await loadToolPlugins(config, logger, orchestrator, llmProxy);
+  // Load and register Skills
+  await loadAndRegisterSkills(orchestrator, config, logger);
+}
+
+async function loadAndRegisterSkills(
+  orchestrator: TaskOrchestrator,
+  config: NodeAgentConfig,
+  logger: Logger
+): Promise<void> {
+  const skillsDirectory = config.skills?.directory || 'skills';
+  const loader = new SkillsLoader({
+    directory: skillsDirectory,
+    logger
+  });
+
+  const skills = await loader.loadAll();
+  
+  if (skills.length === 0) {
+    logger.info('No skills loaded');
+    return;
+  }
+
+  const executor = new NodeSkillsExecutor({ logger });
+
+  for (const skill of skills) {
+    const handler = executor.createHandler(skill);
+    orchestrator.registerTool(skill.name, handler);
+    logger.info(`Registered skill: ${skill.name}`, {
+      skillPath: skill.skillPath,
+      executePath: skill.executePath
+    });
+  }
+
+  logger.info(`Registered ${skills.length} skill(s) from ${skillsDirectory}`);
 }
 

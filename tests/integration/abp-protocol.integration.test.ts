@@ -22,7 +22,7 @@ describe('ABP Protocol Integration Tests', () => {
       jsonRepair: { enabled: true, strict: false },
       noiseStripping: { enabled: true, aggressive: false },
       boundaryValidation: { enabled: true, strict: false },
-      fallback: { enabled: true, toVCP: false, toPlainText: true },
+      fallback: { enabled: true, toPlainText: true },
     });
 
     // Initialize Variable Engine (使用独立实现)
@@ -33,7 +33,6 @@ describe('ABP Protocol Integration Tests', () => {
     abpVariableEngine = new ABPVariableEngine(variableEngine, {
       cacheEnabled: true,
       cacheTTL: 60000,
-      reuseVCPProviders: true,
     });
   });
 

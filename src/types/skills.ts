@@ -52,8 +52,8 @@ export interface SkillMetadata {
   updatedAt?: number;
   path: string;
   loadedAt: number;
-  // ABP协议支持（可选，保持向后兼容）
-  protocol?: 'vcp' | 'abp';
+  // ABP协议支持（可选，ABP-only）
+  protocol?: 'abp';
   abp?: {
     kind?: 'action' | 'query' | 'transform' | 'validate' | 'stream' | 'schedule';
     tools?: Array<{

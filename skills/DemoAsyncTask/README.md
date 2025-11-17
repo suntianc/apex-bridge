@@ -2,7 +2,7 @@
 
 ## 📖 功能说明
 
-这是一个演示异步工具回调机制的示例插件，用于展示 VCP IntelliCore 的异步工具协议。
+这是一个演示异步工具回调机制的示例插件，用于展示异步工具协议。
 
 ### 工作流程
 
@@ -101,14 +101,14 @@ DemoAsyncTask「始」{ "taskName": "错误测试", "duration": 3, "shouldFail":
 
 ```bash
 # .env
-VCP_CALLBACK_URL=http://localhost:8088/plugin-callback  # 回调端点URL
-VCP_API_KEY=sk-your-api-key-here                        # API认证密钥
+ABP_CALLBACK_URL=http://localhost:8088/plugin-callback  # 回调端点URL
+ABP_API_KEY=sk-your-api-key-here                        # API认证密钥
 ```
 
 ## 📊 数据流程图
 
 ```
-用户 -> VCPChat -> IntelliCore -> DemoAsyncTask
+用户 -> 聊天 -> IntelliCore -> DemoAsyncTask
                                     |
                                     | (立即返回 TaskId)
                                     v
@@ -124,7 +124,7 @@ IntelliCore <- /plugin-callback <- AsyncResultProvider (保存结果)
     |
     | (WebSocket 推送)
     v
-VCPChat (显示通知)
+聊天界面 (显示通知)
 
 --- 后续对话 ---
 
@@ -151,13 +151,13 @@ async_results/
 
 ## 🧪 测试命令
 
-1. **启动 IntelliCore**:
+1. **启动主系统**:
    ```bash
-   cd vcp-intellicore
+   cd apex-bridge
    npm start
    ```
 
-2. **触发异步任务**（通过 VCPChat 或 API）:
+2. **触发异步任务**（通过聊天或 API）:
    ```json
    POST http://localhost:8088/v1/chat/completions
    {
@@ -193,7 +193,7 @@ async_results/
 **解决**:
 ```bash
 # 确保环境变量一致
-VCP_API_KEY=sk-your-api-key-here
+ABP_API_KEY=sk-your-api-key-here
 ```
 
 ### 问题2: 回调超时
@@ -203,7 +203,7 @@ VCP_API_KEY=sk-your-api-key-here
 **解决**:
 ```bash
 # 检查回调URL
-VCP_CALLBACK_URL=http://localhost:8088/plugin-callback
+ABP_CALLBACK_URL=http://localhost:8088/plugin-callback
 ```
 
 ### 问题3: 占位符未替换

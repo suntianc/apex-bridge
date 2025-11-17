@@ -2,7 +2,7 @@
  * Environment Variable Provider
  * 
  * 提供环境变量访问
- * 独立于vcp-intellicore-sdk的实现
+ 
  */
 
 import { IVariableProvider, VariableContext } from '../../../types/variable';

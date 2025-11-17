@@ -48,9 +48,10 @@ export function createSecurityHeadersMiddleware(config?: Partial<SecurityHeaders
       directives: {
         'default-src': ["'self'"],
         'script-src': ["'self'", "'unsafe-inline'", "'unsafe-eval'"], // 允许内联脚本（管理后台需要）
-        'style-src': ["'self'", "'unsafe-inline'"], // 允许内联样式
+        'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'], // 允许内联样式 + Google Fonts
+        'style-src-elem': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         'img-src': ["'self'", 'data:', 'https:'], // 允许图片
-        'font-src': ["'self'", 'data:'], // 允许字体
+        'font-src': ["'self'", 'data:', 'https://fonts.gstatic.com'], // 允许字体
         'connect-src': ["'self'", 'ws:', 'wss:'], // 允许 WebSocket 连接
         'frame-ancestors': ["'none'"], // 不允许嵌入
         'base-uri': ["'self'"], // 基础 URI

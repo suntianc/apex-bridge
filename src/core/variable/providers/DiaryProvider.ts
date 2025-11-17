@@ -2,7 +2,7 @@
  * Diary Variable Provider
  * 
  * 提供日记相关的变量
- * 独立于vcp-intellicore-sdk的实现
+ 
  */
 
 import { IVariableProvider, VariableContext } from '../../../types/variable';

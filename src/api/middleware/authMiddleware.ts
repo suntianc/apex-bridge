@@ -74,7 +74,7 @@ async function updateLastUsedTime(apiKeyId: string): Promise<void> {
 
 export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
   // 🆕 跳过某些路径的认证（公共API和静态资源）
-  const publicPaths = ['/health', '/metrics', '/vite.svg', '/favicon.ico'];
+  const publicPaths = ['/health', '/metrics', '/vite.svg', '/favicon.ico', '/'];
   if (publicPaths.includes(req.path)) {
     return next();
   }

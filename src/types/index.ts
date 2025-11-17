@@ -75,7 +75,7 @@ export interface LLMQuotaConfig {
   burstMultiplier?: number;
 }
 
-// ABP-only: 运行时直接使用 AdminConfig 作为配置源，移除 VCPConfig
+// ABP-only: 运行时直接使用 AdminConfig 作为配置源
 // 为了避免核心层依赖 services/ConfigService，这里定义独立的 LLMConfig 类型
 export interface LLMConfig {
   defaultProvider?: string;
@@ -95,16 +95,16 @@ export interface WebSocketMessage {
   data?: any;
 }
 
-export interface VCPLogMessage extends WebSocketMessage {
-  type: 'connection_ack' | 'vcp_log' | 'tool_result' | 'tool_error' | 'notification' | 'ai_stream' | 'heartbeat' | 'proactive_message';
+export interface ABPLogMessage extends WebSocketMessage {
+  type: 'connection_ack' | 'abp_log' | 'tool_result' | 'tool_error' | 'notification' | 'ai_stream' | 'heartbeat' | 'proactive_message';
   data?: any;
 }
 
-// VCP工具日志数据（兼容VCPToolBox格式）
-export interface VCPToolLogData {
+// ABP 工具日志数据
+export interface ABPToolLogData {
   tool_name: string;
   status: 'success' | 'error' | 'executing';
-  content?: string;  // VCPChat兼容：统一使用content字段
+  content?: string;  // 统一使用 content 字段
   source?: string;   // 可选：消息来源标识
   timestamp?: number;
 }

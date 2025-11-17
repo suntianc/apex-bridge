@@ -151,7 +151,7 @@ jobs:
 
       - name: Update package.json versions
         run: |
-          # 无需更新已移除的 VCP 相关依赖，保持占位以便后续文档步骤
+          # 无需更新已移除的旧依赖，保持占位以便后续文档步骤
 
       - name: Update README with published versions
         run: |

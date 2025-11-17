@@ -99,12 +99,12 @@ export class SkillsLoader {
   }
 
   /**
-   * 检测协议类型
+   * 检测协议类型（ABP-only）
    * 
    * @param skillName - Skill名称
-   * @returns 协议类型（'vcp' | 'abp'）
+   * @returns 协议类型（'abp'）
    */
-  detectProtocol(skillName: string): 'vcp' | 'abp' {
+  detectProtocol(skillName: string): 'abp' {
     const metadata = this.skillsIndex.getMetadata(skillName);
     if (!metadata) {
       return 'abp'; // ABP-only 默认协议

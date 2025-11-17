@@ -29,7 +29,7 @@ export interface SecurityLogEvent {
 
 export interface SecurityLoggerConfig {
   enabled: boolean;
-  logLevel?: 'info' | 'warn' | 'error' | 'debug';
+  logLevel?: 'info' | 'warn' | 'error' | 'debug' | 'off';
   logRateLimitViolations?: boolean;
   logSuspiciousRequests?: boolean;
   suspiciousPatterns?: Array<{
@@ -77,7 +77,7 @@ export function createSecurityLoggerMiddleware(config?: Partial<SecurityLoggerCo
   };
 
   // 如果禁用，返回空中间件
-  if (!securityConfig.enabled) {
+  if (!securityConfig.enabled || securityConfig.logLevel === 'off') {
     return (req: Request, res: Response, next: NextFunction) => {
       next();
     };

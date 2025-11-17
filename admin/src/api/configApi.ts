@@ -18,7 +18,7 @@ export interface AdminConfig {
     debugMode: boolean;
   };
   auth: {
-    apiKey: string; // 原vcpKey，用于节点之间的认证（WebSocket），现改为apiKey
+    apiKey: string; // ABP-only 节点认证密钥（WebSocket）
     apiKeys: ApiKeyInfo[];  // 🆕 从 string[] 改为 ApiKeyInfo[]，用于客户端HTTP API认证
     admin?: {
       username: string;

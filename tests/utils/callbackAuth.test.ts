@@ -4,7 +4,7 @@ import { ConfigService } from '../../src/services/ConfigService';
 describe('callbackAuth security', () => {
   const buildConfig = (overrides: Partial<ReturnType<ConfigService['readConfig']>> = {}) => ({
     auth: {
-      vcpKey: 'legacy-secret',
+      abpKey: 'legacy-secret',
       apiKeys: [
         {
           id: 'api-1',
@@ -19,7 +19,7 @@ describe('callbackAuth security', () => {
       }
     },
     pluginCallback: {
-      allowLegacyVcpKey: false,
+      // removed legacy flag
       hmacWindowSeconds: 60
     },
     ...overrides

@@ -14,27 +14,27 @@ import { logger } from '../../utils/logger';
  * ABP Skills适配器
  * 
  * 提供ABP格式Skills的处理能力：
- * - 格式检测（ABP only，不再支持VCP）
+ * - 格式检测（ABP-only）
  * - ABP工具定义生成
  * 
- * 注意：VCP协议支持已移除，不再提供VCP到ABP的转换功能
+ * 注意：仅支持 ABP 协议
  */
 export class ABPSkillsAdapter {
   constructor() {
-    // VCP协议支持已移除，不再需要转换器
+    // ABP-only：无需其他协议转换器
   }
 
   /**
    * 检测协议类型
    * 
    * @param metadata - Skill元数据
-   * @returns 协议类型（仅返回'abp'，VCP协议已移除）
+   * @returns 协议类型（仅返回 'abp'）
    */
   detectProtocol(metadata: SkillMetadata): 'abp' {
-    // VCP协议支持已移除，所有Skills都被视为ABP格式
-    // 如果metadata中明确指定了protocol字段
-    if (metadata.protocol === 'vcp') {
-      logger.warn(`[ABPSkillsAdapter] Skill ${metadata.name} specified legacy protocol (removed). Treating as ABP.`);
+    // ABP-only：所有 Skills 被视为 ABP 格式
+    // 如 metadata.protocol 非 'abp'，视为 ABP 并给出提示
+    if (metadata.protocol && metadata.protocol !== 'abp') {
+      logger.warn(`[ABPSkillsAdapter] Skill ${metadata.name} specified legacy/unsupported protocol. Treating as ABP.`);
     }
 
     // 如果存在abp配置，返回ABP
@@ -42,7 +42,7 @@ export class ABPSkillsAdapter {
       return 'abp';
     }
 
-    // 默认使用ABP协议（不再支持VCP）
+    // 默认使用 ABP 协议
     return 'abp';
   }
 

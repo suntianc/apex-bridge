@@ -1,7 +1,7 @@
 {
   "hub": {
-    "url": "ws://localhost:8088/vcp-distributed-server/VCP_Key=sk-intellicore-mhiyz9jz-8MDG21BH6hU-75b93d2e",
-    "vcpKey": "sk-example"
+    "url": "ws://localhost:8088/abp-distributed-server/ABP_Key=sk-abp-example-xxxxxxxx",
+    "abpKey": "sk-example"
   },
   "node": {
     "name": "Example Worker",
@@ -38,8 +38,8 @@
     "level": "info",
     "format": "pretty"
   },
-  "plugins": {
-    "toolDirectory": "plugins"
+  "skills": {
+    "directory": "skills"
   }
 }
 

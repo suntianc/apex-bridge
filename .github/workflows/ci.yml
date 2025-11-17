@@ -25,26 +25,22 @@ jobs:
           cache: 'npm'
           cache-dependency-path: |
             apex-bridge/package-lock.json
-            vcp-intellicore-rag/package-lock.json
-            vcp-intellicore-sdk/package-lock.json
+            abp-rag-sdk/package-lock.json
 
       - name: Install dependencies
         run: |
           cd apex-bridge && npm ci
-          cd ../vcp-intellicore-rag && npm ci
-          cd ../vcp-intellicore-sdk && npm ci
+          cd ../abp-rag-sdk && npm ci
 
       - name: Run ESLint
         run: |
           cd apex-bridge && npm run lint
-          cd ../vcp-intellicore-rag && npm run lint
-          cd ../vcp-intellicore-sdk && npm run lint
+          cd ../abp-rag-sdk && npm run lint
 
       - name: Check formatting
         run: |
           cd apex-bridge && npm run format:check
-          cd ../vcp-intellicore-rag && npm run format:check
-          cd ../vcp-intellicore-sdk && npm run format:check
+          cd ../abp-rag-sdk && npm run format:check
 
   test:
     name: Test Suite
@@ -64,14 +60,12 @@ jobs:
           cache: 'npm'
           cache-dependency-path: |
             apex-bridge/package-lock.json
-            vcp-intellicore-rag/package-lock.json
-            vcp-intellicore-sdk/package-lock.json
+            abp-rag-sdk/package-lock.json
 
       - name: Install dependencies
         run: |
           cd apex-bridge && npm ci
-          cd ../vcp-intellicore-rag && npm ci
-          cd ../vcp-intellicore-sdk && npm ci
+          cd ../abp-rag-sdk && npm ci
 
       - name: Run tests for main project
         run: |
@@ -80,16 +74,9 @@ jobs:
         env:
           CI: true
 
-      - name: Run tests for RAG service
+      - name: Run tests for ABP RAG SDK
         run: |
-          cd vcp-intellicore-rag
-          npm test
-        env:
-          CI: true
-
-      - name: Run tests for SDK
-        run: |
-          cd vcp-intellicore-sdk
+          cd abp-rag-sdk
           npm test
         env:
           CI: true
@@ -117,35 +104,27 @@ jobs:
           cache: 'npm'
           cache-dependency-path: |
             apex-bridge/package-lock.json
-            vcp-intellicore-rag/package-lock.json
-            vcp-intellicore-sdk/package-lock.json
+            abp-rag-sdk/package-lock.json
 
       - name: Install dependencies
         run: |
           cd apex-bridge && npm ci
-          cd ../vcp-intellicore-rag && npm ci
-          cd ../vcp-intellicore-sdk && npm ci
+          cd ../abp-rag-sdk && npm ci
 
       - name: Build main project
         run: |
           cd apex-bridge
           npm run build
 
-      - name: Build RAG service
+      - name: Build ABP RAG SDK
         run: |
-          cd vcp-intellicore-rag
-          npm run build
-
-      - name: Build SDK
-        run: |
-          cd vcp-intellicore-sdk
+          cd abp-rag-sdk
           npm run build
 
       - name: Check for build artifacts
         run: |
           test -d apex-bridge/dist && echo "✅ Main project built successfully"
-          test -d vcp-intellicore-rag/dist && echo "✅ RAG service built successfully"
-          test -d vcp-intellicore-sdk/dist && echo "✅ SDK built successfully"
+          test -d abp-rag-sdk/dist && echo "✅ ABP RAG SDK built successfully"
 
   documentation:
     name: Documentation Check
@@ -191,8 +170,7 @@ jobs:
       - name: Run security audit
         run: |
           cd apex-bridge && npm audit --audit-level=moderate || true
-          cd ../vcp-intellicore-rag && npm audit --audit-level=moderate || true
-          cd ../vcp-intellicore-sdk && npm audit --audit-level=moderate || true
+          cd ../abp-rag-sdk && npm audit --audit-level=moderate || true
 
       - name: Run Snyk security check
         uses: snyk/actions/node@master

@@ -144,7 +144,8 @@ export async function getNodes(req: Request, res: Response): Promise<void> {
  */
 export async function getNode(req: Request, res: Response): Promise<void> {
   try {
-    const { id } = req.params;
+    const { nodeId } = req.params as { nodeId: string };
+    const id = nodeId;
     let node: NodeInfo | null = null;
 
     if (nodeManager) {
@@ -240,7 +241,8 @@ export async function registerNode(req: Request, res: Response): Promise<void> {
  */
 export async function updateNode(req: Request, res: Response): Promise<void> {
   try {
-    const { id } = req.params;
+    const { nodeId } = req.params as { nodeId: string };
+    const id = nodeId;
     const updates: Partial<NodeInfo> = { ...req.body };
 
     const existingNode = nodeManager ? nodeManager.getNode(id) : nodeService.getNode(id);
@@ -315,7 +317,8 @@ export async function updateNode(req: Request, res: Response): Promise<void> {
  */
 export async function deleteNode(req: Request, res: Response): Promise<void> {
   try {
-    const { id } = req.params;
+    const { nodeId } = req.params as { nodeId: string };
+    const id = nodeId;
     let success = false;
 
     if (nodeManager) {
@@ -355,7 +358,8 @@ export async function getNodeStats(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    const { id } = req.params;
+    const { nodeId } = req.params as { nodeId: string };
+    const id = nodeId;
     const node = nodeManager.getNode(id);
     if (!node) {
       respondNodeNotFound(res);
@@ -397,7 +401,8 @@ export async function getNodeTasks(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    const { id } = req.params;
+    const { nodeId } = req.params as { nodeId: string };
+    const id = nodeId;
     const node = nodeManager.getNode(id);
     if (!node) {
       respondNodeNotFound(res);
@@ -430,7 +435,7 @@ export async function dispatchTaskToNode(req: Request, res: Response): Promise<v
     return;
   }
 
-  const { id: nodeId } = req.params;
+  const { nodeId } = req.params as { nodeId: string };
   const { toolName, capability, toolArgs, timeout, metadata, taskId, waitForResult } = req.body || {};
 
   if (!toolName || typeof toolName !== 'string' || toolName.trim().length === 0) {

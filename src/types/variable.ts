@@ -2,7 +2,7 @@
  * Variable Engine Types
  * 
  * 变量引擎相关的类型定义
- * 独立于vcp-intellicore-sdk的实现
+ 
  */
 
 /**

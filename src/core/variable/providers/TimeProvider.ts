@@ -2,7 +2,7 @@
  * Time Variable Provider
  * 
  * 提供时间相关的变量
- * 独立于vcp-intellicore-sdk的实现
+ 
  */
 
 import { IVariableProvider, VariableContext } from '../../../types/variable';

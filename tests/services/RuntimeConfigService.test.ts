@@ -48,7 +48,7 @@ describe('RuntimeConfigService', () => {
         debugMode: false
       },
       auth: {
-        vcpKey: 'test-vcp-key',
+        abpKey: 'test-abp-key',
         apiKeys: []
       },
       llm: {

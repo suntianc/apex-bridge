@@ -1,4 +1,3 @@
-// 独立实现 - 不再依赖vcp-intellicore-sdk
 import { BaseDistributedServerChannel } from './BaseDistributedServerChannel';
 import { WebSocket } from 'ws';
 import { IncomingMessage } from 'http';

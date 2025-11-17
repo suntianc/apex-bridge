@@ -1,0 +1,196 @@
+{
+  "setup_completed": false,
+  "server": {
+    "port": 8088,
+    "host": "0.0.0.0",
+    "nodeEnv": "development",
+    "debugMode": false
+  },
+  "auth": {
+    "apiKey": "",
+    "apiKeys": [],
+    "admin": {
+      "username": "admin",
+      "password": "admin"
+    }
+  },
+  "protocol": {},
+  "llm": {
+    "defaultProvider": "deepseek",
+    "quota": {
+      "maxRequestsPerMinute": 30,
+      "maxTokensPerDay": 200000,
+      "maxConcurrentStreams": 3,
+      "burstMultiplier": 2
+    }
+  },
+  "rag": {
+    "enabled": false,
+    "storagePath": "./vector_store",
+    "defaultMode": "basic",
+    "defaultK": 5,
+    "maxK": 20,
+    "maxMultiplier": 5,
+    "semanticWeight": 0.7,
+    "timeWeight": 0.3,
+    "similarityThreshold": 0.6,
+    "semanticGroup": {
+      "configPath": "./config/semantic_groups.json",
+      "weight": 0.5
+    },
+    "rerank": {
+      "enabled": false,
+      "baseURL": "",
+      "apiKey": "",
+      "model": "rerank-english-v2.0",
+      "multiplier": 2,
+      "timeout": 5000
+    },
+    "tagsConfig": "./config/rag_tags.json",
+    "diaryArchiveAfterDays": 0
+  },
+  "memory": {
+    "system": "rag",
+    "verifyMemoryService": false
+  },
+  "logging": {
+    "level": "info",
+    "file": "./logs/intellicore.log"
+  },
+  "performance": {
+    "workerPoolSize": 4,
+    "requestTimeout": 60000,
+    "maxRequestSize": "50mb"
+  },
+  "redis": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 6379,
+    "tls": false,
+    "keyPrefix": "apexbridge",
+    "connectTimeoutMs": 5000,
+    "commandTimeoutMs": 3000,
+    "maxRetriesPerRequest": 2
+  },
+  "pluginCallback": {
+    "hmacWindowSeconds": 60,
+    "rateLimit": {
+      "enabled": true,
+      "windowMs": 60000,
+      "max": 60
+    }
+  },
+  "security": {
+    "rateLimit": {
+      "enabled": true,
+      "provider": "auto",
+      "trustProxy": true,
+      "keyPrefix": "rate_limit",
+      "headers": {
+        "limit": "X-RateLimit-Limit",
+        "remaining": "X-RateLimit-Remaining",
+        "reset": "X-RateLimit-Reset",
+        "retryAfter": "Retry-After"
+      },
+      "defaultStrategyOrder": [
+        "apiKey",
+        "ip"
+      ],
+      "whitelist": {
+        "ips": [],
+        "apiKeys": [],
+        "users": []
+      },
+      "rules": [
+        {
+          "id": "chat-api",
+          "name": "Chat Completions API",
+          "description": "限制聊天相关端点，优先按照 API Key 识别",
+          "windowMs": 60000,
+          "maxRequests": 60,
+          "mode": "sliding",
+          "burstMultiplier": 1.5,
+          "priority": 10,
+          "matchers": [
+            {
+              "prefix": "/v1/chat",
+              "methods": [
+                "POST"
+              ]
+            }
+          ],
+          "strategyOrder": [
+            "apiKey",
+            "ip"
+          ],
+          "skipSuccessfulRequests": false,
+          "skipFailedRequests": false,
+          "responseHeaders": true
+        },
+        {
+          "id": "models-api",
+          "name": "Models Listing API",
+          "description": "限制模型列表端点，按 IP 区分",
+          "windowMs": 60000,
+          "maxRequests": 120,
+          "mode": "fixed",
+          "priority": 20,
+          "matchers": [
+            {
+              "path": "/v1/models",
+              "methods": [
+                "GET"
+              ]
+            }
+          ],
+          "strategyOrder": [
+            "ip"
+          ],
+          "skipSuccessfulRequests": true,
+          "responseHeaders": true
+        },
+        {
+          "id": "admin-api",
+          "name": "Admin Panel API",
+          "description": "保护管理后台接口，按用户ID或IP限流",
+          "windowMs": 60000,
+          "maxRequests": 120,
+          "mode": "fixed",
+          "priority": 5,
+          "matchers": [
+            {
+              "prefix": "/api/admin"
+            }
+          ],
+          "strategyOrder": [
+            "user",
+            "ip"
+          ],
+          "skipFailedRequests": true,
+          "responseHeaders": true
+        },
+        {
+          "id": "plugin-callback",
+          "name": "Plugin Callback Endpoint",
+          "description": "限制插件回调接口，按 API Key/IP 控制",
+          "windowMs": 60000,
+          "maxRequests": 90,
+          "mode": "sliding",
+          "priority": 15,
+          "matchers": [
+            {
+              "prefix": "/plugin-callback"
+            }
+          ],
+          "strategyOrder": [
+            "apiKey",
+            "ip"
+          ],
+          "skipSuccessfulRequests": false,
+          "skipFailedRequests": false,
+          "responseHeaders": true
+        }
+      ]
+    }
+  }
+}

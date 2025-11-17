@@ -67,12 +67,12 @@ export const nodeAgentConfigSchema = z.object({
     level: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
     format: z.enum(['json', 'pretty']).default('pretty')
   }).default({ level: 'info', format: 'pretty' }),
-  plugins: z
+  skills: z
     .object({
-      toolDirectory: z.string().default('plugins')
+      directory: z.string().default('skills')
     })
     .default({
-      toolDirectory: 'plugins'
+      directory: 'skills'
     })
 });
 

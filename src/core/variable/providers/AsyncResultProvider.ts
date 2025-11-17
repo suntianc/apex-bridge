@@ -2,11 +2,11 @@
  * Async Result Variable Provider
  * 
  * 提供异步结果变量解析
- * 独立于vcp-intellicore-sdk的实现
+ 
  */
 
 import { IVariableProvider, VariableContext } from '../../../types/variable';
-import { AsyncResultData } from '../../../types/async-result';
+import { AsyncResultData, CleanupStats } from '../../../types/async-result';
 import { logger } from '../../../utils/logger';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
@@ -115,6 +115,83 @@ export class AsyncResultProvider implements IVariableProvider {
       logger.error(`[AsyncResultProvider] Error saving async result:`, error);
       throw error;
     }
+  }
+
+  /**
+   * 清理过期的异步结果
+   * 
+   * @param maxAgeDays 最大保留天数
+   * @param strategy 清理策略：'directory' 按目录删除，'file' 按文件删除
+   * @returns 清理统计信息
+   */
+  async cleanupOldResults(maxAgeDays: number, strategy: 'directory' | 'file'): Promise<CleanupStats> {
+    const stats: CleanupStats = {
+      deletedDirs: 0,
+      deletedFiles: 0,
+      timestamp: Date.now()
+    };
+
+    try {
+      // 计算过期时间阈值（毫秒）
+      const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
+      const thresholdTime = Date.now() - maxAgeMs;
+
+      // 检查目录是否存在
+      try {
+        await fs.access(this.asyncResultDirectory);
+      } catch {
+        logger.debug(`[AsyncResultProvider] Async result directory does not exist: ${this.asyncResultDirectory}`);
+        return stats;
+      }
+
+      // 读取所有目录
+      const entries = await fs.readdir(this.asyncResultDirectory, { withFileTypes: true });
+      const directories = entries.filter(entry => entry.isDirectory());
+
+      logger.info(`[AsyncResultProvider] Starting cleanup: ${directories.length} directories to check, maxAge: ${maxAgeDays} days, strategy: ${strategy}`);
+
+      for (const dir of directories) {
+        const dirPath = path.join(this.asyncResultDirectory, dir.name);
+        
+        try {
+          if (strategy === 'directory') {
+            // 按目录策略：检查目录的修改时间
+            const dirStats = await fs.stat(dirPath);
+            if (dirStats.mtimeMs < thresholdTime) {
+              // 删除整个目录
+              await fs.rm(dirPath, { recursive: true, force: true });
+              stats.deletedDirs++;
+              logger.debug(`[AsyncResultProvider] Deleted old directory: ${dir.name}`);
+            }
+          } else {
+            // 按文件策略：检查 result.json 文件的修改时间
+            const resultFilePath = path.join(dirPath, 'result.json');
+            try {
+              const fileStats = await fs.stat(resultFilePath);
+              if (fileStats.mtimeMs < thresholdTime) {
+                // 只删除 result.json 文件，保留目录
+                await fs.unlink(resultFilePath);
+                stats.deletedFiles++;
+                logger.debug(`[AsyncResultProvider] Deleted old file: ${dir.name}/result.json`);
+              }
+            } catch (fileError) {
+              // 文件不存在，跳过
+              logger.debug(`[AsyncResultProvider] Result file not found: ${resultFilePath}`);
+            }
+          }
+        } catch (error) {
+          logger.warn(`[AsyncResultProvider] Error processing directory ${dir.name}:`, error);
+          // 继续处理其他目录
+        }
+      }
+
+      logger.info(`[AsyncResultProvider] Cleanup completed: deleted ${stats.deletedDirs} dirs, ${stats.deletedFiles} files`);
+    } catch (error) {
+      logger.error(`[AsyncResultProvider] Error during cleanup:`, error);
+      throw error;
+    }
+
+    return stats;
   }
 }
 

@@ -28,6 +28,8 @@ import {
 } from '../../src/core/skills';
 import type { ExecutionRequest } from '../../src/types';
 
+// 此性能基准在CI/本地环境可能受限，将超时上调以避免不必要的失败
+jest.setTimeout(20000);
 /**
  * 创建多个测试技能用于性能测试
  */

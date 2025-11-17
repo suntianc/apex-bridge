@@ -3,7 +3,7 @@
  * 
  * 解析ABP协议格式的工具请求和格式化工具结果
  * 
- * ABP (ApexBridge Protocol) 是一个独立的协议，用于替代VCP协议
+ * ABP (ApexBridge Protocol) 是一个独立的协议（ABP-only）
  * 解决协议合规问题（CC BY-NC-SA 4.0约束）
  * 
  * @module core/protocol
@@ -36,13 +36,11 @@ const DEFAULT_CONFIG: Required<ABPProtocolConfig> = {
   },
   fallback: {
     enabled: true,
-    toVCP: false,
     toPlainText: true,
   },
   variable: {
     cacheEnabled: true,
     cacheTTL: 60000, // 1分钟
-    reuseVCPProviders: true,
   },
 };
 
@@ -483,17 +481,7 @@ export class ABPProtocolParser {
    */
   private handleFallback(content: string, error?: string): ABPParseResult {
     if (this.config.fallback?.enabled) {
-      if (this.config.fallback.toVCP && this.config.dualProtocolEnabled) {
-        // Fallback到VCP协议（需要VCP解析器）
-        logger.debug('[ABPProtocolParser] ABP boundary validation failed');
-        return {
-          success: false,
-          toolCalls: [],
-          error: error || 'ABP parsing failed',
-          rawContent: content,
-          fallback: 'vcp',
-        };
-      } else if (this.config.fallback.toPlainText) {
+      if (this.config.fallback.toPlainText) {
         // Fallback到纯文本响应
         logger.debug('[ABPProtocolParser] Falling back to plain text response');
         return {

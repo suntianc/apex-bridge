@@ -1,6 +1,5 @@
 /**
  * ApexBridge (ABP-only) - 管理后台认证中间件
- * 独立的管理后台认证逻辑，与VCP协议API认证分离
  */
 
 import { Request, Response, NextFunction } from 'express';
@@ -63,7 +62,7 @@ function validateAdminToken(token: string): { valid: boolean; isLegacy?: boolean
 
 /**
  * 管理后台认证中间件
- * 只用于保护管理后台API（/api/admin/*），与VCP协议API认证完全独立
+ * 只用于保护管理后台API（/api/admin/*）
  * 
  * 注意：此中间件通过 app.use('/api/admin', adminAuthMiddleware) 应用
  * Express会自动移除路径前缀，所以 req.path 是相对于 /api/admin 的路径

@@ -22,7 +22,7 @@
 {{tool:RockPaperScissors}}
 ```
 
-### VCPChat中调用
+### 在聊天中调用
 
 **用户**: "我们来猜拳吧，我出石头"
 
@@ -144,12 +144,12 @@ player: scissors
 
 ---
 
-## 📡 VCPlog推送
+## 📡 工具日志推送
 
 ### 工具开始
 ```json
 {
-  "type": "vcp_log",
+  "type": "tool_log",
   "data": {
     "tool_name": "RockPaperScissors",
     "status": "executing",
@@ -162,7 +162,7 @@ player: scissors
 ### 工具完成
 ```json
 {
-  "type": "vcp_log",
+  "type": "tool_log",
   "data": {
     "tool_name": "RockPaperScissors",
     "status": "success",

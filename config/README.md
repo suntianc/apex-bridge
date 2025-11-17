@@ -26,9 +26,9 @@ cp config/admin-config.json.template config/admin-config.json
 
 ### admin-config.json
 
-主配置文件，包含以下敏感信息：
-- **auth.abpKey**: ABP 节点认证密钥（已取代 vcpKey，仍兼容读取旧字段）
-- **auth.apiKeys**: API 密钥列表
+主配置文件，包含以下敏感信息（ABP-only）：
+- **auth.apiKey**: ABP 节点认证密钥（WebSocket 节点间认证）
+- **auth.apiKeys**: 客户端 API 密钥列表（HTTP 认证）
 - **auth.admin**: 管理员用户名和密码
 - **auth.jwt.secret**: JWT 签名密钥
 - **llm.*.apiKey**: 各 LLM 提供商的 API 密钥

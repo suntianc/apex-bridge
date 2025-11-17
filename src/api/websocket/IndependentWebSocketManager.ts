@@ -2,7 +2,6 @@
  * Independent WebSocket Manager
  * 
  * 独立的WebSocket管理器，兼容SDK的WebSocketManager接口
- * 独立于vcp-intellicore-sdk的实现
  * 
  * @module api/websocket
  */

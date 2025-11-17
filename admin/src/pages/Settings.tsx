@@ -89,7 +89,7 @@ export function Settings() {
     }
   };
 
-  // 🆕 重新生成节点认证Key（原VCP Key，现改为API Key）
+  // 🆕 重新生成节点认证 Key（ABP API Key）
   const handleRegenerateNodeKey = async () => {
     if (!showRegenerateNodeKeyConfirm) {
       setShowRegenerateNodeKeyConfirm(true);
@@ -97,23 +97,12 @@ export function Settings() {
     }
     
     try {
-      // 优先使用新的generateNodeKey，fallback到generateVCPKey（向后兼容）
-      let response;
-      try {
-        response = await authApi.generateNodeKey();
-      } catch (err) {
-        // 如果新API不存在，使用旧API（向后兼容）
-        response = await authApi.generateVCPKey();
-      }
+      const response = await authApi.generateNodeKey();
       
       if (response.success) {
         handleUpdate(['auth', 'apiKey'], response.key);
-        // 向后兼容：如果存在vcpKey字段，也更新它
-        if ((localConfig as any).auth?.vcpKey !== undefined) {
-          handleUpdate(['auth', 'vcpKey'], response.key);
-        }
         setShowRegenerateNodeKeyConfirm(false);
-        alert('节点认证Key已重新生成（原VCP Key）');
+        alert('节点认证 Key 已重新生成');
       }
     } catch (err) {
       console.error('Failed to regenerate node authentication key:', err);
@@ -355,7 +344,7 @@ export function Settings() {
         <div className="space-y-6">
           <div className="p-4 bg-cream-50 rounded-lg border border-gray-200 mb-6">
             <p className="text-sm text-text-secondary mb-2">
-              <strong>节点认证Key（原VCP Key）</strong>：用于节点之间的认证（WebSocket 连接）。节点之间通信使用此 Key 进行认证。
+              <strong>节点认证 Key（ABP-only）</strong>：用于节点之间的认证（WebSocket 连接）。节点之间通信使用此 Key 进行认证。
             </p>
             <p className="text-sm text-text-secondary">
               <strong>客户端API Keys</strong>：用于客户端连接服务器的认证（HTTP API）。每个客户端可以使用不同的 API Key，支持多客户端访问、密钥轮换或权限分级。

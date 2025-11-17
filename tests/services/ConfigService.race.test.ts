@@ -57,7 +57,7 @@ describe('ConfigService - Race Condition Tests', () => {
         debugMode: false
       },
       auth: {
-        vcpKey: 'test-key',
+        abpKey: 'test-key',
         apiKeys: []
       },
       llm: {
@@ -160,7 +160,7 @@ describe('ConfigService - Race Condition Tests', () => {
 
       const update2 = configService.updateConfigAsync({
         auth: {
-          vcpKey: 'new-key',
+          abpKey: 'new-key',
           apiKeys: []
         },
         llm: {
@@ -405,7 +405,7 @@ describe('ConfigService - Race Condition Tests', () => {
           debugMode: false
         },
         auth: {
-          vcpKey: 'test',
+          abpKey: 'test',
           apiKeys: []
         },
         llm: {

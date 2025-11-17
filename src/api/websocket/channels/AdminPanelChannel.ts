@@ -2,7 +2,6 @@
  * Admin Panel WebSocket Channel
  * 
  * 管理后台WebSocket通道，用于推送节点事件和系统通知
- * 独立于vcp-intellicore-sdk的实现，兼容IWebSocketChannel接口
  */
 
 import { WebSocket } from 'ws';

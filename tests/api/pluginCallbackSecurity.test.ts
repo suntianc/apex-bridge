@@ -16,7 +16,7 @@ describe('plugin callback security router', () => {
   const createConfigService = (overrides: Partial<ReturnType<ConfigService['readConfig']>> = {}) => {
     const config = {
       auth: {
-        vcpKey: 'legacy-secret',
+        abpKey: 'legacy-secret',
         apiKeys: [
           {
             id: 'api-1',
@@ -31,7 +31,6 @@ describe('plugin callback security router', () => {
         }
       },
       pluginCallback: {
-        allowLegacyVcpKey: false,
         hmacWindowSeconds: 120,
         rateLimit: {
           enabled: true,

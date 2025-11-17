@@ -118,8 +118,29 @@ export class NodeService {
     }
 
     try {
-      const fileContent = fs.readFileSync(nodesFilePath, 'utf-8');
+      let fileContent = fs.readFileSync(nodesFilePath, 'utf-8');
+      
+      // 去除 BOM（字节顺序标记）
+      if (fileContent.charCodeAt(0) === 0xFEFF) {
+        fileContent = fileContent.slice(1);
+      }
+      
+      // 去除前导和尾随空白字符
+      fileContent = fileContent.trim();
+      
+      // 如果文件为空，创建空数组
+      if (!fileContent) {
+        logger.warn('⚠️ Nodes file is empty, initializing with empty array');
+        this.saveNodes();
+        return;
+      }
+      
       const nodesData = JSON.parse(fileContent) as NodeInfo[];
+      
+      // 验证数据是数组
+      if (!Array.isArray(nodesData)) {
+        throw new Error('Nodes data is not an array');
+      }
       
       this.nodes.clear();
       nodesData.forEach(rawNode => {
@@ -129,7 +150,27 @@ export class NodeService {
       
       logger.debug(`✅ Loaded ${this.nodes.size} nodes from file`);
     } catch (error: any) {
-      logger.error('❌ Failed to load nodes:', error);
+      logger.error(`❌ Failed to load nodes from ${nodesFilePath}:`, error);
+      
+      // 尝试备份损坏的文件
+      try {
+        const backupPath = `${nodesFilePath}.backup.${Date.now()}`;
+        if (fs.existsSync(nodesFilePath)) {
+          fs.copyFileSync(nodesFilePath, backupPath);
+          logger.warn(`⚠️ Backed up corrupted nodes file to: ${backupPath}`);
+        }
+      } catch (backupError) {
+        logger.warn('⚠️ Failed to backup corrupted nodes file:', backupError);
+      }
+      
+      // 创建新的空数组文件
+      try {
+        this.saveNodes();
+        logger.info('✅ Created new empty nodes file');
+      } catch (saveError) {
+        logger.error('❌ Failed to create new nodes file:', saveError);
+      }
+      
       this.nodes.clear();
     }
   }
@@ -149,8 +190,29 @@ export class NodeService {
     }
 
     try {
-      const fileContent = await fsPromises.readFile(nodesFilePath, 'utf-8');
+      let fileContent = await fsPromises.readFile(nodesFilePath, 'utf-8');
+      
+      // 去除 BOM（字节顺序标记）
+      if (fileContent.charCodeAt(0) === 0xFEFF) {
+        fileContent = fileContent.slice(1);
+      }
+      
+      // 去除前导和尾随空白字符
+      fileContent = fileContent.trim();
+      
+      // 如果文件为空，创建空数组
+      if (!fileContent) {
+        logger.warn('⚠️ Nodes file is empty, initializing with empty array');
+        await this.saveNodesAsync();
+        return;
+      }
+      
       const nodesData = JSON.parse(fileContent) as NodeInfo[];
+      
+      // 验证数据是数组
+      if (!Array.isArray(nodesData)) {
+        throw new Error('Nodes data is not an array');
+      }
       
       this.nodes.clear();
       nodesData.forEach(rawNode => {
@@ -160,7 +222,30 @@ export class NodeService {
       
       logger.debug(`✅ Loaded ${this.nodes.size} nodes from file`);
     } catch (error: any) {
-      logger.error('❌ Failed to load nodes:', error);
+      logger.error(`❌ Failed to load nodes from ${nodesFilePath}:`, error);
+      
+      // 尝试备份损坏的文件
+      try {
+        const backupPath = `${nodesFilePath}.backup.${Date.now()}`;
+        try {
+          await fsPromises.access(nodesFilePath);
+          await fsPromises.copyFile(nodesFilePath, backupPath);
+          logger.warn(`⚠️ Backed up corrupted nodes file to: ${backupPath}`);
+        } catch {
+          // 文件不存在或无法访问，跳过备份
+        }
+      } catch (backupError) {
+        logger.warn('⚠️ Failed to backup corrupted nodes file:', backupError);
+      }
+      
+      // 创建新的空数组文件
+      try {
+        await this.saveNodesAsync();
+        logger.info('✅ Created new empty nodes file');
+      } catch (saveError) {
+        logger.error('❌ Failed to create new nodes file:', saveError);
+      }
+      
       this.nodes.clear();
     }
   }

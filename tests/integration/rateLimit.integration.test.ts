@@ -108,7 +108,7 @@ describe('Rate Limit Integration Tests', () => {
         debugMode: false
       },
       auth: {
-        vcpKey: 'test-vcp-key',
+        abpKey: 'test-abp-key',
         apiKeys: apiKeys.length > 0 ? apiKeys : [
           {
             id: 'test-key-1',

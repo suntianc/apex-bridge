@@ -68,7 +68,7 @@ describe('LLMClient - Concurrency Tests', () => {
         debugMode: false
       },
       auth: {
-        vcpKey: 'test-key',
+        abpKey: 'test-key',
         apiKeys: []
       },
       llm: {

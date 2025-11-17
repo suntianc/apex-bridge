@@ -91,7 +91,7 @@ graph TD
 |------|------|--------|------|------|
 | **🚀 ApexBridge 主系统** | 家庭AI系统中枢，核心引擎和API | TypeScript + Node.js + Express | ✅ 稳定 | [📖 查看](./apex-bridge/README.md) |
 | **🎨 管理后台** | Web管理界面，配置和监控 | React 18 + TypeScript + Vite | ✅ 稳定 | [📖 查看](./apex-bridge/admin/README.md) |
-| **🔍 ABP RAG SDK** | 高性能RAG向量检索服务 | TypeScript + hnswlib-node | ✅ 稳定 | [📖 查看](./vcp-intellicore-rag/README.md) |
+| **🔍 ABP RAG SDK** | 高性能RAG向量检索服务 | TypeScript + hnswlib-node | ✅ 稳定 | [📖 查看](../abp-rag-sdk/README.md) |
 
 ## 🚀 快速开始
 

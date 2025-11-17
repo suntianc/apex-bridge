@@ -51,13 +51,13 @@ describe('Admin panel node event forwarding', () => {
   it('broadcasts node events via AdminPanel channel', async () => {
     await jest.isolateModulesAsync(async () => {
       const { EventBus } = await import('../../src/core/EventBus');
-      const { VCPIntelliCore } = await import('../../src/server');
+      const { ABPIntelliCore } = await import('../../src/server');
       const { AdminPanelChannel } = await import('../../src/api/websocket/channels/AdminPanelChannel');
 
       const bus = EventBus.getInstance();
       bus.removeAllListeners();
 
-      const core = new VCPIntelliCore();
+      const core = new ABPIntelliCore();
       
       // 创建AdminPanelChannel实例并设置mock
       const adminPanelChannel = new AdminPanelChannel();

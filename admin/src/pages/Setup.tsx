@@ -153,7 +153,7 @@ export function Setup() {
           debugMode: false,
         },
         auth: {
-          apiKey: '', // 原vcpKey，用于节点之间的认证（WebSocket），现改为apiKey
+          apiKey: '', // ABP-only 节点认证密钥（WebSocket）
           apiKeys: [],
           admin: {
             username: adminUsername,
@@ -200,23 +200,64 @@ export function Setup() {
 
       await setupApi.completeSetup(config);
       
-      // 更新设置状态
-      await checkSetupStatus();
+      // 本地立即标记为完成，避免 UI 空窗
+      useSetupStore.setState((state) => ({
+        ...state,
+        isSetupCompleted: true,
+      }));
       
-      // 如果已经登录，直接跳转到dashboard；否则跳转到登录页
+      // 更新设置状态
+      try {
+        await checkSetupStatus();
+      } catch (statusError) {
+        console.warn('[Setup] Failed to refresh setup status:', statusError);
+      }
+      
+      // 如果已经登录，直接跳转到dashboard；否则强制进入登录页
       if (isAuthenticated) {
         navigate('/dashboard');
-      } else {
-        navigate('/login');
+        return;
       }
+      
+      if (typeof window !== 'undefined') {
+        window.location.replace('/admin/login');
+        return;
+      }
+      
+      navigate('/login');
     } catch (err: any) {
+      console.error('[Setup] Complete setup failed:', err.response?.data || err);
       // 显示详细的验证错误信息
-      const errorMessage = err.response?.data?.error || '设置失败，请重试';
-      const errorDetails = err.response?.data?.errors || [];
-      if (errorDetails.length > 0) {
-        setError(`${errorMessage}:\n${errorDetails.join('\n')}`);
+      const rawError = err.response?.data?.error;
+      let formattedMessage = '设置失败，请重试';
+
+      if (typeof rawError === 'string') {
+        formattedMessage = rawError;
+      } else if (rawError && typeof rawError === 'object') {
+        const parts: string[] = [];
+        if (rawError.code) {
+          parts.push(`[${rawError.code}]`);
+        }
+        if (rawError.message) {
+          parts.push(rawError.message);
+        }
+        formattedMessage = parts.join(' ') || formattedMessage;
+      }
+
+      const errorDetails = err.response?.data?.errors;
+      if (Array.isArray(errorDetails) && errorDetails.length > 0) {
+        const detailMessages = errorDetails.map((detail: any) => {
+          if (typeof detail === 'string') {
+            return detail;
+          }
+          if (detail?.message) {
+            return detail.field ? `${detail.field}: ${detail.message}` : detail.message;
+          }
+          return JSON.stringify(detail);
+        });
+        setError(`${formattedMessage}:\n${detailMessages.join('\n')}`);
       } else {
-        setError(errorMessage);
+        setError(formattedMessage);
       }
     } finally {
       setLoading(false);

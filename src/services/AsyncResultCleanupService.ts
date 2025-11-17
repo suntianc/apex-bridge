@@ -100,7 +100,7 @@ export class AsyncResultCleanupService {
       const startTime = Date.now();
 
       // 调用 AsyncResultProvider 的 cleanupOldResults 方法
-      const stats = this.asyncResultProvider.cleanupOldResults(
+      const stats = await this.asyncResultProvider.cleanupOldResults(
         this.config.maxAgeDays,
         this.config.strategy
       );
@@ -131,7 +131,7 @@ export class AsyncResultCleanupService {
     logger.info('[AsyncCleanup] Manual cleanup triggered');
     
     const startTime = Date.now();
-    const stats = this.asyncResultProvider.cleanupOldResults(
+    const stats = await this.asyncResultProvider.cleanupOldResults(
       this.config.maxAgeDays,
       this.config.strategy
     );

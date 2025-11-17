@@ -609,59 +609,65 @@ export const preferenceUpdateSchema: ValidationSchema = {
 export const setupSchema: ValidationSchema = {
   body: {
     type: 'object',
-    required: ['auth', 'llm'],
+    required: ['config'],
     properties: {
-      auth: {
+      config: {
         type: 'object',
-        required: ['admin'],
+        required: ['auth', 'llm'],
         properties: {
-          admin: {
+          auth: {
             type: 'object',
-            required: ['username', 'password'],
+            required: ['admin'],
             properties: {
-              username: {
+              admin: {
+                type: 'object',
+                required: ['username', 'password'],
+                properties: {
+                  username: {
+                    type: 'string',
+                    minLength: 3,
+                    maxLength: 50
+                  },
+                  password: {
+                    type: 'string',
+                    minLength: 6,
+                    maxLength: 100
+                  }
+                }
+              }
+            }
+          },
+          llm: {
+            type: 'object',
+            required: ['defaultProvider'],
+            properties: {
+              defaultProvider: {
                 type: 'string',
-                minLength: 3,
-                maxLength: 50
+                enum: ['openai', 'deepseek', 'zhipu', 'claude', 'ollama', 'custom']
+              }
+            }
+          },
+          server: {
+            type: 'object',
+            properties: {
+              port: {
+                type: 'integer',
+                minimum: 1,
+                maximum: 65535
               },
-              password: {
+              host: {
                 type: 'string',
-                minLength: 6,
                 maxLength: 100
               }
             }
-          }
-        }
-      },
-      llm: {
-        type: 'object',
-        required: ['defaultProvider'],
-        properties: {
-          defaultProvider: {
-            type: 'string',
-            enum: ['openai', 'deepseek', 'zhipu', 'claude', 'ollama', 'custom']
-          }
-        }
-      },
-      server: {
-        type: 'object',
-        properties: {
-          port: {
-            type: 'integer',
-            minimum: 1,
-            maximum: 65535
           },
-          host: {
-            type: 'string',
-            maxLength: 100
-          }
-        }
-      },
-      rag: {
-        type: 'object',
-        properties: {
-          enabled: {
-            type: 'boolean'
+          rag: {
+            type: 'object',
+            properties: {
+              enabled: {
+                type: 'boolean'
+              }
+            }
           }
         }
       }

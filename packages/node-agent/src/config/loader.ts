@@ -63,11 +63,11 @@ function parseEnvOverrides(): Record<string, unknown> {
   const get = (key: string) => process.env[`${ENV_PREFIX}${key}`];
 
   const hubUrl = get('HUB_URL');
-  const hubVcpKey = get('HUB_VCP_KEY');
-  if (hubUrl || hubVcpKey) {
+  const hubAbpKey = get('HUB_ABP_KEY');
+  if (hubUrl || hubAbpKey) {
     const hubOverrides: Record<string, unknown> = {};
     if (hubUrl) hubOverrides.url = hubUrl;
-    if (hubVcpKey) hubOverrides.vcpKey = hubVcpKey;
+    if (hubAbpKey) hubOverrides.abpKey = hubAbpKey;
     overrides.hub = {
       ...((overrides.hub as Record<string, unknown> | undefined) ?? {}),
       ...hubOverrides
@@ -159,11 +159,11 @@ function parseEnvOverrides(): Record<string, unknown> {
     };
   }
 
-  const pluginsToolDir = get('PLUGINS_TOOL_DIRECTORY');
-  if (pluginsToolDir) {
-    overrides.plugins = {
-      ...((overrides.plugins as Record<string, unknown> | undefined) ?? {}),
-      toolDirectory: pluginsToolDir
+  const skillsDirectory = get('SKILLS_DIRECTORY');
+  if (skillsDirectory) {
+    overrides.skills = {
+      ...((overrides.skills as Record<string, unknown> | undefined) ?? {}),
+      directory: skillsDirectory
     };
   }
 
@@ -259,7 +259,7 @@ export async function loadConfig(options: LoadConfigOptions = {}): Promise<Loade
   const merged = mergeDeep(parsedFile, envOverrides);
 
   const config = nodeAgentConfigSchema.parse(merged);
-  const masked = maskSensitive(config, ['hub.vcpKey']);
+  const masked = maskSensitive(config, ['hub.abpKey']);
   const maskedLLM = masked.llm as Record<string, unknown> | undefined;
   if (maskedLLM && typeof maskedLLM === 'object' && !Array.isArray(maskedLLM)) {
     const providers = maskedLLM.providers as Record<string, any> | undefined;

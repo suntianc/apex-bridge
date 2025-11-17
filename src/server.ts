@@ -36,9 +36,9 @@ import { ToolAuthorization } from './core/conversation/ToolAuthorization';
 // 独立WebSocket实现（不依赖外部旧版SDK）
 import { IndependentWebSocketManager } from './api/websocket/IndependentWebSocketManager';
 import { ABPLogChannel } from './api/websocket/channels/ABPLogChannel';
-// 其他频道暂时禁用（VCPInfo, ChromeObserver）
+// 其他频道暂时禁用（历史Info, ChromeObserver）
 // 旧版SDK频道（已禁用）
-// import { VCPInfoChannelSDK } from 'legacy-sdk'; // disabled
+// import { LegacyInfoChannelSDK } from 'legacy-sdk'; // disabled
 // import { ChromeObserverChannelSDK } from 'legacy-sdk'; // disabled
 // AdminPanel频道现在使用独立实现
 import { AdminPanelChannel } from './api/websocket/channels/AdminPanelChannel';
@@ -105,7 +105,7 @@ import { createSecurityLoggerMiddleware } from './api/middleware/securityLoggerM
 // 审计日志中间件
 import { createAuditLoggerMiddleware } from './api/middleware/auditLoggerMiddleware';
 
-export class VCPIntelliCore {
+export class ABPIntelliCore {
   private app: express.Application;
   private server: Server;
   private wss: WebSocketServer | null = null;
@@ -188,7 +188,7 @@ export class VCPIntelliCore {
         this.protocolEngine.setExecutionCallback((event) => {
           logger.info(`🔔 SDK callback triggered: ${event.type} for ${event.pluginName}`);
           
-          // 🎯 转换SDK事件为VCPToolBox标准格式
+          // 🎯 转换SDK事件为 ABP 工具日志格式
           let status: 'executing' | 'success' | 'error';
           let content = '';
           
@@ -210,9 +210,9 @@ export class VCPIntelliCore {
               return;
           }
           
-          logger.info(`📡 Pushing to ABPlog: ${status} - ${event.pluginName}`);
+          logger.info(`📡 Pushing to ABPLog: ${status} - ${event.pluginName}`);
           
-          // 使用SDK的VCPLogChannelSDK API推送
+          // 使用 ABP 日志通道推送
           this.abpLogChannel?.pushToolLog({
             status: status,
             tool: event.pluginName,
@@ -220,9 +220,9 @@ export class VCPIntelliCore {
             source: 'sdk-callback'
           });
           
-          logger.info(`✅ ABPlog pushed successfully`);
+          logger.info(`✅ ABPLog pushed successfully`);
         });
-        logger.info('✅ SDK execution callback connected to ABPlog (before plugin loading)');
+        logger.info('✅ SDK execution callback connected to ABPLog (before plugin loading)');
       }
       
       // 4. 现在初始化协议引擎（会加载插件）
@@ -342,10 +342,19 @@ export class VCPIntelliCore {
       skipFields: ['password', 'apiKey', 'token']
     }));
     
+    const securityLogEnvLevel = (process.env.SECURITY_LOG_LEVEL || 'warn').toLowerCase();
+    const allowedLevels = new Set(['debug', 'info', 'warn', 'error', 'off']);
+    const normalizedLogLevel = allowedLevels.has(securityLogEnvLevel)
+      ? (securityLogEnvLevel as 'debug' | 'info' | 'warn' | 'error' | 'off')
+      : 'warn';
+    const securityLogEnabled = process.env.SECURITY_LOG_ENABLED !== 'false' && normalizedLogLevel !== 'off';
+
+    logger.info(`[SecurityLogger] enabled=${securityLogEnabled} level=${normalizedLogLevel}`);
+
     // 安全日志中间件（记录安全相关事件）
     this.app.use(createSecurityLoggerMiddleware({
-      enabled: true,
-      logLevel: 'info',
+      enabled: securityLogEnabled,
+      logLevel: normalizedLogLevel,
       logRateLimitViolations: true,
       logSuspiciousRequests: true
     }));
@@ -806,7 +815,7 @@ export class VCPIntelliCore {
     
     
     // ==================== 管理后台API路由 ====================
-    // 🆕 管理后台API使用独立的认证中间件（与VCP协议API认证完全分离）
+    // 🆕 管理后台API使用独立的认证中间件（与主系统协议API认证完全分离）
     
     // 设置向导API（无需认证，添加验证中间件）
     this.app.get('/api/setup/status', setupController.getSetupStatus);
@@ -831,19 +840,19 @@ export class VCPIntelliCore {
     
     // 节点管理API（添加验证中间件）
     this.app.get('/api/admin/nodes', nodeController.getNodes);
-    this.app.get('/api/admin/nodes/:id',
+    this.app.get('/api/admin/nodes/:nodeId',
       createValidationMiddleware(nodeIdSchema),
       nodeController.getNode
     );
-    this.app.get('/api/admin/nodes/:id/stats',
+    this.app.get('/api/admin/nodes/:nodeId/stats',
       createValidationMiddleware(nodeIdSchema),
       nodeController.getNodeStats
     );
-    this.app.get('/api/admin/nodes/:id/tasks',
+    this.app.get('/api/admin/nodes/:nodeId/tasks',
       createValidationMiddleware(nodeIdSchema),
       nodeController.getNodeTasks
     );
-    this.app.post('/api/admin/nodes/:id/tasks',
+    this.app.post('/api/admin/nodes/:nodeId/tasks',
       createValidationMiddleware(nodeIdSchema),
       nodeController.dispatchTaskToNode
     );
@@ -851,11 +860,11 @@ export class VCPIntelliCore {
       createValidationMiddleware(nodeRegistrationSchema),
       nodeController.registerNode
     );
-    this.app.put('/api/admin/nodes/:id',
+    this.app.put('/api/admin/nodes/:nodeId',
       createValidationMiddleware(nodeUpdateSchema),
       nodeController.updateNode
     );
-    this.app.delete('/api/admin/nodes/:id',
+    this.app.delete('/api/admin/nodes/:nodeId',
       createValidationMiddleware(nodeIdSchema),
       nodeController.deleteNode
     );
@@ -1024,6 +1033,18 @@ export class VCPIntelliCore {
       }
     });
     
+    // ==================== 根路径重定向 ====================
+    // 访问根路径时，重定向到管理后台
+    this.app.get('/', (req, res) => {
+      const setupCompleted = isSetupCompleted();
+      if (!setupCompleted) {
+        // 如果 setup 未完成，重定向到设置向导
+        return res.redirect('/admin/setup');
+      }
+      // 如果 setup 已完成，重定向到管理后台（前端路由会处理后续重定向）
+      return res.redirect('/admin/');
+    });
+    
     // ==================== 管理后台静态文件服务 ====================
     // 注意：静态文件服务应该在API路由之后，但要在错误处理之前
     const pathService = PathService.getInstance();
@@ -1138,7 +1159,7 @@ export class VCPIntelliCore {
       // 🆕 连接SDK频道事件：工具注销
       this.distributedServerChannel.on('tools_unregistered', ({ serverId, tools }) => {
         logger.info(`🔗 Unregistering tools from ${serverId}`);
-        // SDK频道内部已触发VCPPluginRuntime的unregisterAllDistributedTools
+        // SDK频道内部已触发插件运行时的注销逻辑
         // 这里无需额外操作
       });
       
@@ -1146,7 +1167,7 @@ export class VCPIntelliCore {
       this.distributedServerChannel.on('async_tool_result', (data) => {
         logger.info(`🏹 Async tool result received from ${data.serverId}`);
         
-        // 转发到VCPLog通道（使用SDK频道方法）
+        // 转发到 ABP 日志通道（使用 SDK 频道方法）
         if (this.abpLogChannel) {
           // 优先提取message字段，提供友好显示
           let friendlyContent: string;
@@ -1173,7 +1194,7 @@ export class VCPIntelliCore {
             friendlyContent = `插件执行完毕`;
           }
           
-          // 使用SDK频道的pushToolLog方法（自动使用VCPToolBox标准格式）
+          // 使用日志通道的 pushToolLog 方法（ABP 工具日志格式）
           this.abpLogChannel.pushToolLog({
             status: 'success',
             tool: data.plugin || 'Unknown',
@@ -1181,7 +1202,7 @@ export class VCPIntelliCore {
             source: 'async_tool_result'
           });
           
-          logger.info(`📡 Forwarded async tool result to VCPLog: ${data.plugin}`);
+          logger.info(`📡 Forwarded async tool result to ABPLog: ${data.plugin}`);
         }
       });
       
@@ -1191,7 +1212,7 @@ export class VCPIntelliCore {
       
       logger.info('✅ Distributed service integrated and events connected');
       
-      // VCPlog现在完全由SDK回调处理，ChatService不再需要手动推送
+      // ABP 日志由 SDK 回调处理，ChatService 不再需要手动推送
       
     } catch (error) {
       logger.error('❌ Failed to setup WebSocket server:', error);
@@ -1345,7 +1366,7 @@ export class VCPIntelliCore {
 // 启动服务器（ABP-only）
 const shouldAutostart = process.env.APEX_BRIDGE_AUTOSTART !== 'false';
 if (shouldAutostart) {
-  const server = new VCPIntelliCore();
+  const server = new ABPIntelliCore();
   server.initialize().catch(error => {
     logger.error('💥 Fatal error during initialization:', error);
     process.exit(1);

@@ -2,7 +2,7 @@
  * RAG Variable Provider
  * 
  * 提供RAG搜索相关的变量
- * 独立于vcp-intellicore-sdk的实现
+ 
  */
 
 import { IVariableProvider, VariableContext } from '../../../types/variable';

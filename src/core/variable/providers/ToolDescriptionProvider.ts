@@ -2,7 +2,7 @@
  * Tool Description Variable Provider
  * 
  * 提供工具描述变量解析
- * 独立于vcp-intellicore-sdk的实现
+ 
  */
 
 import { IVariableProvider, VariableContext } from '../../../types/variable';
@@ -12,7 +12,7 @@ import { logger } from '../../../utils/logger';
  * 工具描述提供者
  * 
  * 支持的变量：
- * - {{VCPAllTools}} / {{ABPAllTools}} - 所有工具描述列表
+ * - {{ABPAllTools}} - 所有工具描述列表
  * - {{ToolName}} - 单个工具描述（如 {{Calculator}}）
  */
 export class ToolDescriptionProvider implements IVariableProvider {
@@ -33,8 +33,8 @@ export class ToolDescriptionProvider implements IVariableProvider {
   async resolve(key: string, context?: VariableContext): Promise<string | null> {
     // 若提供了Skills生成器，则优先使用渐进式披露机制
     if (this.skillsGenerator) {
-      // 处理 {{ABPAllTools}} / {{VCPAllTools}}
-      if (key === 'VCPAllTools' || key === 'ABPAllTools') {
+      // 处理 {{ABPAllTools}}
+      if (key === 'ABPAllTools') {
         return this.resolveAllToolsViaSkills(context);
       }
       // 单个工具：按置信度阶段返回
@@ -92,7 +92,7 @@ export class ToolDescriptionProvider implements IVariableProvider {
   }
 
   getSupportedKeys(): string[] {
-    return ['VCPAllTools', 'ABPAllTools'];
+    return ['ABPAllTools'];
   }
 }
 

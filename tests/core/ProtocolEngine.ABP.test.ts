@@ -28,7 +28,7 @@ describe('ProtocolEngine ABP Support', () => {
         port: 3000
       },
       auth: {
-        vcpKey: 'test-key',
+        abpKey: 'test-key',
         apiKeys: []
       },
       llm: {
@@ -41,7 +41,7 @@ describe('ProtocolEngine ABP Support', () => {
         jsonRepair: { enabled: true, strict: false },
         noiseStripping: { enabled: true, aggressive: false },
         boundaryValidation: { enabled: true, strict: false },
-        fallback: { enabled: true, toVCP: false, toPlainText: true } // 不再支持VCP fallback
+        fallback: { enabled: true, toPlainText: true } // 不再支持 legacy fallback
       }
     } as any;
 

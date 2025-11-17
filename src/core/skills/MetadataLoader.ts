@@ -169,10 +169,10 @@ export class MetadataLoader {
     const inputSchema = this.ensureObject(raw.input_schema ?? raw.inputSchema);
     const outputSchema = this.ensureObject(raw.output_schema ?? raw.outputSchema);
 
-    // 检测协议类型（ABP-only）
+    // 协议固定为 ABP（ABP-only）
     const detectedProtocol = this.detectProtocol(raw);
     // 提取ABP配置
-    const abpConfig = this.extractABPConfig(raw, detectedProtocol);
+    const abpConfig = this.extractABPConfig(raw);
 
     const resolved: SkillMetadata = {
       name: this.ensureString(raw.name) ?? path.basename(skillPath),
@@ -218,36 +218,16 @@ export class MetadataLoader {
   /**
    * 检测协议类型（ABP-only）
    */
-  private detectProtocol(raw: Record<string, unknown>): 'vcp' | 'abp' {
-    // 如果明确指定了protocol字段，使用该值
-    const protocol = this.ensureString(raw.protocol);
-    if (protocol === 'abp') {
-      return 'abp';
-    }
-    if (protocol === 'vcp') {
-      return 'vcp';
-    }
-
-    // 如果存在abp字段，推断为ABP协议
-    if (raw.abp && typeof raw.abp === 'object') {
-      return 'abp';
-    }
-
-    // 默认使用VCP协议（向后兼容）
-    return 'vcp';
+  private detectProtocol(_raw: Record<string, unknown>): 'abp' {
+    return 'abp';
   }
 
   /**
    * 提取ABP配置
    */
   private extractABPConfig(
-    raw: Record<string, unknown>,
-    protocol: 'vcp' | 'abp'
+    raw: Record<string, unknown>
   ): SkillMetadata['abp'] | undefined {
-    // 如果不是ABP协议，不提取ABP配置
-    if (protocol !== 'abp') {
-      return undefined;
-    }
 
     const abpRaw = raw.abp;
     if (!abpRaw || typeof abpRaw !== 'object') {

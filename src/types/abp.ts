@@ -1,7 +1,7 @@
 /**
  * ABP (ApexBridge Protocol) Type Definitions
  * 
- * ABP协议类型定义，用于替代VCP协议，解决协议合规问题
+ * ABP协议类型定义（ABP-only）
  */
 
 /**
@@ -132,8 +132,8 @@ export interface ABPParseResult {
   error?: string;
   /** 原始内容 */
   rawContent?: string;
-  /** 是否使用了fallback */
-  fallback?: 'vcp' | 'plain-text';
+  /** 是否使用了fallback（仅支持 plain-text） */
+  fallback?: 'plain-text';
 }
 
 /**
@@ -162,7 +162,6 @@ export interface ABPProtocolConfig {
   /** Fallback配置 */
   fallback?: {
     enabled: boolean;
-    toVCP: boolean;
     toPlainText: boolean;
   };
   /** 变量系统配置 */
@@ -171,8 +170,6 @@ export interface ABPProtocolConfig {
     cacheEnabled?: boolean;
     /** 缓存过期时间（毫秒） */
     cacheTTL?: number;
-    /** 是否复用VCP变量提供者 */
-    reuseVCPProviders?: boolean;
   };
 }
 

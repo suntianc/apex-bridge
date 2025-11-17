@@ -59,7 +59,7 @@ describe('ConfigService - Concurrency Tests', () => {
         debugMode: false
       },
       auth: {
-        vcpKey: 'test-key',
+        abpKey: 'test-key',
         apiKeys: []
       },
       llm: {
@@ -158,7 +158,7 @@ describe('ConfigService - Concurrency Tests', () => {
         async () => {
           return await configService.updateConfigAsync({
             auth: {
-              vcpKey: 'new-key',
+              abpKey: 'new-key',
               apiKeys: []
             },
             llm: {

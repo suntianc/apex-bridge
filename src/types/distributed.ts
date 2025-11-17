@@ -2,7 +2,7 @@
  * Distributed Communication Types
  * 
  * 分布式通信相关的类型定义
- * 独立于vcp-intellicore-sdk的实现
+ 
  */
 
 import { WebSocket } from 'ws';

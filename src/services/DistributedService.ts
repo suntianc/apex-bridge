@@ -3,7 +3,7 @@
  * 
  * 负责执行分布式工具，管理与分布式节点的通信
  * 
- * 参考: VCPToolBox/WebSocketServer.js:401-444
+ * ABP-only 实现
  */
 
 import { logger } from '../utils/logger';
