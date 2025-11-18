@@ -1,29 +1,8 @@
-type AuthorizedToolCall = {
-  tool: ToolRequest;
-  decision: ToolAuthorizationDecision;
-};
+// AuthorizedToolCall 已移除，直接使用 ToolRequest
 
-interface PersonaMemoryInfo {
-  personaId: string;
-  userId: string;
-  conversationId?: string;
-  memoryUserId: string;
-  knowledgeBase: string;
-}
+// PersonaMemoryInfo 接口已移除（记忆服务已删除）
 
-type NodeConversationMessage = {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
-  name?: string;
-};
-
-interface NodeConversationResult {
-  content: string;
-  rawResult: any;
-  partialOutputs: Array<{ chunk: string; timestamp: number }>;
-  delegations?: any[];
-  usage?: any;
-}
+// NodeConversationMessage 和 NodeConversationResult 已移除（节点对话功能已删除）
 
 /**
  * ApexBridge - 聊天服务（ABP-only）
@@ -31,30 +10,18 @@ interface NodeConversationResult {
  */
 
 import { randomUUID } from 'crypto';
-import { Memory } from '../types/memory';
 import { ProtocolEngine } from '../core/ProtocolEngine';
-import { LLMClient } from '../core/LLMClient';
+import { LLMManager as LLMClient } from '../core/LLMManager'; // 向后兼容别名
 import { EventBus } from '../core/EventBus';
-import { PersonalityEngine } from '../core/PersonalityEngine';
-import { EmotionEngine } from '../core/EmotionEngine';
-import { NodeManager } from '../core/NodeManager';
-import { IMemoryService } from '../types/memory';
 import {
   Message,
   ChatOptions,
-  ToolRequest,
-  ToolAuthorizationDecision,
-  ToolApprovalRequest
+  ToolRequest
 } from '../types';
 import { ActiveRequest } from '../types/request-abort';
 import { logger } from '../utils/logger';
 import { generateRequestId } from '../utils/request-id';
-import { ToolAuthorization } from '../core/conversation/ToolAuthorization';
-import { RouteResolution } from '../core/conversation/ConversationRouter';
-import { conversationContextStore } from '../core/conversation/ConversationContextStore';
-import { PromptBuilder } from './memory/PromptBuilder';
-import { SemanticMemoryService } from './memory/SemanticMemoryService';
-import { EpisodicMemoryService } from './memory/EpisodicMemoryService';
+// ConversationRouter 和 ConversationContextStore 已移除（对话路由功能已删除）
 import { SkillsExecutionManager } from '../core/skills/SkillsExecutionManager';
 import { SkillsToToolMapper } from '../core/skills/SkillsToToolMapper';
 
@@ -64,14 +31,6 @@ export class ChatService {
   private activeRequests: Map<string, ActiveRequest> = new Map();
   private cleanupTimer: NodeJS.Timeout | null = null;
   private webSocketManager: any = null; // WebSocketManager 实例（可选）
-  private personalityEngine?: PersonalityEngine; // 🆕 人格引擎（可选）
-  private emotionEngine?: EmotionEngine; // 🆕 情感引擎（可选）
-  private memoryService?: IMemoryService; // 🆕 记忆服务（可选）
-  private semanticMemoryService?: SemanticMemoryService; // 🆕 语义记忆服务（可选）
-  private episodicMemoryService?: EpisodicMemoryService; // 🆕 情景记忆服务（可选）
-  private promptBuilder?: PromptBuilder; // 🆕 Prompt构建器（可选）
-  private toolAuthorization?: ToolAuthorization;
-  private nodeManager?: NodeManager;
   // 🆕 Skills 执行集成（可选，逐步替换 PluginRuntime）
   private skillsExecutionManager?: SkillsExecutionManager;
   private skillsMapper?: SkillsToToolMapper;
@@ -97,71 +56,7 @@ export class ChatService {
     logger.debug('[ChatService] SkillsExecutionManager attached');
   }
   
-  setToolAuthorization(authorization: ToolAuthorization): void {
-    this.toolAuthorization = authorization;
-    logger.debug('[ChatService] ToolAuthorization attached');
-    logger.debug('[ChatService] ToolAuthorization attached');
-  }
-  
-  setNodeManager(manager: NodeManager): void {
-    this.nodeManager = manager;
-    logger.debug('[ChatService] NodeManager attached');
-  }
-  
-  /**
-   * 🆕 设置PersonalityEngine（可选）
-   */
-  setPersonalityEngine(engine: PersonalityEngine): void {
-    this.personalityEngine = engine;
-    logger.debug('[ChatService] PersonalityEngine attached');
-  }
-  
-  /**
-   * 🆕 设置EmotionEngine（可选）
-   */
-  setEmotionEngine(engine: EmotionEngine): void {
-    this.emotionEngine = engine;
-    logger.debug('[ChatService] EmotionEngine attached');
-  }
-  
-  /**
-   * 🆕 设置MemoryService（可选）
-   */
-  setMemoryService(service: IMemoryService): void {
-    this.memoryService = service;
-    logger.debug('[ChatService] MemoryService attached');
-  }
-
-  /**
-   * 🆕 设置SemanticMemoryService（可选）
-   */
-  setSemanticMemoryService(service: SemanticMemoryService): void {
-    this.semanticMemoryService = service;
-    this.updatePromptBuilder();
-    logger.debug('[ChatService] SemanticMemoryService attached');
-  }
-
-  /**
-   * 🆕 设置EpisodicMemoryService（可选）
-   */
-  setEpisodicMemoryService(service: EpisodicMemoryService): void {
-    this.episodicMemoryService = service;
-    this.updatePromptBuilder();
-    logger.debug('[ChatService] EpisodicMemoryService attached');
-  }
-
-  /**
-   * 🆕 更新PromptBuilder实例（当记忆服务变更时）
-   */
-  private updatePromptBuilder(): void {
-    if (this.semanticMemoryService || this.episodicMemoryService) {
-      this.promptBuilder = new PromptBuilder(
-        this.semanticMemoryService,
-        this.episodicMemoryService
-      );
-      logger.debug('[ChatService] PromptBuilder updated');
-    }
-  }
+  // setToolAuthorization 和 setNodeManager 方法已移除（工具授权和节点管理已删除）
   
   /**
    * 🆕 设置 WebSocketManager（用于中断通知）
@@ -295,99 +190,71 @@ export class ChatService {
   }
   
   /**
+   * 🆕 WebSocket适配方法 - 创建聊天完成（兼容OpenAI格式）
+   */
+  async createChatCompletion(params: {
+    messages: Message[];
+    model?: string;
+    temperature?: number;
+    max_tokens?: number;
+    stream?: boolean;
+    userId?: string;
+    [key: string]: any;
+  }): Promise<any> {
+    const { messages, stream, ...options } = params;
+
+    if (stream) {
+      throw new Error('createChatCompletion不支持流式响应，请使用createStreamChatCompletion');
+    }
+
+    return this.processMessage(messages, options);
+  }
+
+  /**
+   * 🆕 WebSocket适配方法 - 创建流式聊天完成
+   */
+  async *createStreamChatCompletion(params: {
+    messages: Message[];
+    model?: string;
+    temperature?: number;
+    max_tokens?: number;
+    stream?: boolean;
+    userId?: string;
+    [key: string]: any;
+  }): AsyncIterableIterator<any> {
+    const { messages, ...options } = params;
+
+    // 将streamMessage转换为兼容格式
+    for await (const chunk of this.streamMessage(messages, options)) {
+      yield {
+        type: 'stream_chunk',
+        payload: {
+          choices: [{
+            delta: {
+              content: chunk
+            }
+          }]
+        }
+      };
+    }
+
+    // 发送完成信号
+    yield {
+      type: 'stream_done'
+    };
+  }
+
+  /**
    * 处理聊天消息
    */
-  async processMessage(messages: Message[], options: ChatOptions = {}, route?: RouteResolution): Promise<any> {
+  async processMessage(messages: Message[], options: ChatOptions = {}): Promise<any> {
     try {
-      const personaInfo = this.resolvePersonaMemoryInfo(route, options);
-      const lastUserMessage = [...messages].reverse().find((msg) => msg.role === 'user');
-      await this.recallPersonaMemories(lastUserMessage, route, personaInfo);
+      // 记忆服务已移除（清理变更）
 
       logger.debug(`📨 Processing chat message, ${messages.length} messages`);
       
-      // 🆕 0. 注入人格（如果有agentId和PersonalityEngine）
+      // PersonalityEngine、EmotionEngine 和 MemoryService 已移除（根据系统精简要求）
       let processedMessages = messages;
-      let detectedEmotion = null;
-      let personality = null;
-      
-      if (options.agentId && this.personalityEngine) {
-        personality = this.personalityEngine.loadPersonality(options.agentId);
-        processedMessages = this.personalityEngine.injectIntoMessages(messages, personality, options.agentId);
-        logger.debug(`🎭 Injected personality: ${options.agentId}`);
-      }
-      
-      // 🆕 0.5 识别用户情感（在LLM调用前）
-      if (this.emotionEngine && processedMessages.length > 0) {
-        // 找到最后一条用户消息
-        const userMessages = processedMessages.filter(msg => msg.role === 'user');
-        const lastUserMessage = userMessages.length > 0 ? userMessages[userMessages.length - 1] : null;
-        
-        if (lastUserMessage && lastUserMessage.content) {
-          try {
-            detectedEmotion = await this.emotionEngine.detectEmotion(lastUserMessage.content);
-            logger.debug(`💭 Detected emotion: ${detectedEmotion.type} (intensity: ${detectedEmotion.intensity.toFixed(2)})`);
-            
-            // 生成共情响应并注入到System Prompt（如果有情感且有人格）
-            if (detectedEmotion.type !== 'neutral' && personality) {
-              const empatheticResponse = this.emotionEngine.generateEmpatheticResponse(detectedEmotion, personality);
-              if (empatheticResponse) {
-                // 将共情响应添加到第一个system message（如果存在）
-                const systemMessages = processedMessages.filter(msg => msg.role === 'system');
-                if (systemMessages.length > 0) {
-                  systemMessages[0].content += `\n\n用户当前情绪：${detectedEmotion.type}。${empatheticResponse}`;
-                } else {
-                  // 如果没有system message，创建一个
-                  processedMessages.unshift({
-                    role: 'system',
-                    content: `用户当前情绪：${detectedEmotion.type}。${empatheticResponse}`
-                  });
-                }
-                logger.debug(`💝 Injected empathetic response for ${detectedEmotion.type}`);
-              }
-            }
-          } catch (error: any) {
-            logger.warn(`⚠️ Emotion detection failed, continuing without emotion adjustment: ${error.message}`);
-          }
-        }
-      }
-
-      // 🆕 0.6 注入记忆（在LLM调用前）
-      // 优先使用 PromptBuilder（如果可用），否则使用旧的记忆注入方法
-      if (personaInfo) {
-        try {
-          if (this.promptBuilder) {
-            // 使用 PromptBuilder 构建标准 Prompt 结构
-            const promptStructure = await this.promptBuilder.buildPrompt(processedMessages, {
-              includeUserProfile: true,
-              includeHouseholdProfile: true,
-              includeSessionMemory: true,
-              sessionMemoryLimit: 50,
-              semanticMemoryTopK: 3,
-              episodicMemoryTopK: 1,
-              includeToolInstr: true, // 包含 ABP 工具调用格式定义
-              memoryFilter: {
-                userId: personaInfo.userId,
-                personaId: personaInfo.personaId,
-                householdId: personaInfo.knowledgeBase
-              },
-              maxTokens: options.maxTokens // 如果指定了 Token 限制
-            });
-
-            // 将 Prompt 结构转换为消息数组
-            processedMessages = this.promptBuilder.toMessages(promptStructure);
-            logger.debug('[ChatService] Memory injection completed using PromptBuilder');
-          } else if (this.memoryService) {
-            // Fallback 到旧的记忆注入方法
-            processedMessages = await this.injectMemoriesIntoMessages(
-              processedMessages,
-              personaInfo,
-              options
-            );
-          }
-        } catch (error: any) {
-          logger.warn(`⚠️ Memory injection failed, continuing without memory: ${error.message}`);
-        }
-      }
       
       // 1. 变量替换
       processedMessages = await this.resolveVariables(processedMessages);
@@ -419,17 +286,6 @@ export class ChatService {
         // 无工具调用，直接返回
         logger.debug('ℹ️  No tool calls detected');
         
-        // 🆕 记录用户情感
-        this.recordEmotionIfDetected(detectedEmotion, messages, personaInfo, route);
-        
-        // 🆕 记录记忆并发布事件（触发文档分析场景）
-        if (lastUserMessage && lastUserMessage.content) {
-          await this.recordMemoryAndPublishEvent(lastUserMessage.content, personaInfo, {
-            messageCount: messages.length,
-            hasEmotion: !!detectedEmotion
-          });
-        }
-        
         return {
           content: aiContent,
           toolCalls: []
@@ -441,106 +297,39 @@ export class ChatService {
         logger.debug(`   - ${req.name} [ABP] (id: ${req.abpCallId})`);
       });
 
-      const authorization = this.evaluateToolAuthorization(toolRequests, route);
-      const allowedTools = authorization.allowed;
-      const blockedTools = authorization.blocked;
-      if (blockedTools.length > 0) {
-        blockedTools.forEach(({ tool, decision }) => {
-          logger.warn(
-            `🚫 Tool "${tool.name}" blocked by authorization: status=${decision.status}, reason=${decision.reason}`
-          );
-        });
-      }
-
-      if (allowedTools.length === 0) {
-        if (blockedTools.length === 0) {
-          logger.debug('ℹ️  No executable tools after authorization');
-          this.recordEmotionIfDetected(detectedEmotion, messages, personaInfo, route);
-          return {
-            content: aiContent,
-            toolCalls: toolRequests,
-            toolResults: []
-          };
-        }
-
-        const blockedResults = blockedTools.map(({ tool, decision }) => ({
-          tool: tool.name,
-          error: this.buildAuthorizationError(decision)
-        }));
-
-        const toolResultTexts = this.formatToolResultEntries(blockedResults);
-        const combinedToolResults = toolResultTexts.join('\n\n');
-
-        const toolResultMessage: Message = {
-          role: 'user',
-          content: combinedToolResults
-        };
-
-        logger.debug(`📬 Tool authorization message: ${combinedToolResults.substring(0, 200)}...`);
-
-        const finalMessages: Message[] = [
-          ...preprocessedMessages,
-          { role: 'assistant', content: aiContent } as Message,
-          toolResultMessage
-        ];
-
-        logger.debug('🤖 Making second LLM call with authorization feedback...');
-        const llmFollowup = await this.requireLLMClient();
-        const finalResponse = await llmFollowup.chat(finalMessages, options);
-
-        logger.debug('✅ Second LLM call completed (authorization feedback)');
-
-        this.recordEmotionIfDetected(detectedEmotion, messages, personaInfo, route);
-
+      // 工具授权已移除，直接执行所有工具
+      if (toolRequests.length === 0) {
+        logger.debug('ℹ️  No tools to execute');
         return {
-          content: finalResponse.choices[0]?.message?.content || '',
+          content: aiContent,
           toolCalls: toolRequests,
-          toolResults: blockedResults
+          toolResults: []
         };
       }
-
-      allowedTools.forEach(({ tool, decision }) => {
-        const protocol = (tool as any).protocol || 'abp';
-        const isArchery = (tool as any).archery || false; // ABP格式不支持archery，默认为false
-        logger.debug(
-          `   ✔ ${tool.name} [${protocol}] ${isArchery ? '(archery)' : ''} [origin=${decision.originType}${
-            decision.originNodeId ? `:${decision.originNodeId}` : ''
-          }]`
-        );
-      });
 
       // ABP格式不支持archery，所有工具都是同步执行
-      const syncTools = allowedTools.filter(({ tool }) => !(tool as any).archery);
-      const asyncTools = allowedTools.filter(({ tool }) => (tool as any).archery);
+      const syncTools = toolRequests.filter((tool) => !(tool as any).archery);
+      const asyncTools = toolRequests.filter((tool) => (tool as any).archery);
 
       const executedResults = await Promise.all(
-        syncTools.map(async (call) => {
-          logger.debug(
-            `⚙️  Executing tool: ${call.tool.name} [origin=${call.decision.originType}${
-              call.decision.originNodeId ? `:${call.decision.originNodeId}` : ''
-            }]`
-          );
-          // 插件系统已移除，不再输出可用插件列表
-          const result = await this.executeAllowedTool(call, route);
+        syncTools.map(async (tool) => {
+          logger.debug(`⚙️  Executing tool: ${tool.name}`);
+          const result = await this.executeTool(tool);
           if (result.error) {
-            logger.error(`❌ Tool execution failed: ${call.tool.name} -> ${result.error}`);
+            logger.error(`❌ Tool execution failed: ${tool.name} -> ${result.error}`);
           } else {
-            logger.debug(`✅ Tool ${call.tool.name} executed successfully`);
+            logger.debug(`✅ Tool ${tool.name} executed successfully`);
             logger.debug(`   Result: ${JSON.stringify(result.result ?? '').substring(0, 100)}...`);
           }
           return result;
         })
       );
 
-      asyncTools.forEach((call) => {
-        this.executeAllowedArcheryTool(call, route);
+      asyncTools.forEach((tool) => {
+        this.executeArcheryTool(tool);
       });
 
-      const blockedResults = blockedTools.map(({ tool, decision }) => ({
-        tool: tool.name,
-        error: this.buildAuthorizationError(decision)
-      }));
-      const allResults = [...executedResults, ...blockedResults];
+      const allResults = executedResults;
 
       if (allResults.length > 0) {
         logger.debug(`📬 Preparing tool results for AI (${allResults.length} entries)`);
@@ -567,8 +356,6 @@ export class ChatService {
 
         logger.debug('✅ Second LLM call completed');
 
-        this.recordEmotionIfDetected(detectedEmotion, messages, personaInfo, route);
-
         return {
           content: finalResponse.choices[0]?.message?.content || '',
           toolCalls: toolRequests,
@@ -577,9 +364,6 @@ export class ChatService {
       }
       
       // 7. 只有异步工具，返回初始响应
-      // 🆕 记录用户情感
-      this.recordEmotionIfDetected(detectedEmotion, messages, personaInfo, route);
-      
       return {
         content: aiContent,
         toolCalls: toolRequests,
@@ -592,243 +376,17 @@ export class ChatService {
     }
   }
   
-  async processNodeConversation(
-    messages: Message[],
-    options: ChatOptions = {},
-    route: RouteResolution
-  ): Promise<NodeConversationResult> {
-    if (!route || !route.primaryTarget) {
-      throw new Error('会话路由信息缺失，无法派发节点对话');
-    }
-
-    const target = route.primaryTarget;
-    if (target.type === 'hub') {
-      throw new Error('Hub 人格无需节点对话处理');
-    }
-
-    if (!target.nodeId) {
-      throw new Error(`目标成员 ${target.memberId ?? target.personaId ?? 'unknown'} 未绑定节点`);
-    }
-
-    if (!this.nodeManager) {
-      throw new Error('NodeManager 未初始化，无法派发对话任务');
-    }
-
-    const supportedNodeTypes: Array<typeof target.type> = ['companion', 'worker'];
-    if (!supportedNodeTypes.includes(target.type)) {
-      throw new Error(`当前会话暂不支持 ${target.type} 类型节点直接回复`);
-    }
-
-    const personaInfo = this.resolvePersonaMemoryInfo(route, options);
-    const lastUserMessage = [...messages].reverse().find((msg) => msg.role === 'user');
-    if (lastUserMessage) {
-      await this.recallPersonaMemories(lastUserMessage, route, personaInfo);
-    }
-
-    logger.debug('[ChatService] Node raw options', {
-      model: options?.model ?? null,
-      keys: Object.keys(options ?? {})
-    });
-
-    let detectedEmotion: any = null;
-    if (this.emotionEngine && lastUserMessage?.content) {
-      try {
-        detectedEmotion = await this.emotionEngine.detectEmotion(lastUserMessage.content);
-      } catch (error: any) {
-        logger.warn(`⚠️ Emotion detection failed for node conversation: ${error?.message ?? error}`);
-      }
-    }
-
-    let nodeMessages = this.buildNodeConversationMessages(route, messages);
-    if (nodeMessages.length === 0) {
-      throw new Error('无法构建会话消息发送给节点');
-    }
-
-    if (this.personalityEngine && target.personaId) {
-      try {
-        const personality = this.personalityEngine.loadPersonality(target.personaId);
-        const injected = this.personalityEngine
-          .injectIntoMessages(nodeMessages, personality, target.personaId)
-          .filter(
-            (msg): msg is Message & { role: 'system' | 'user' | 'assistant' } =>
-              msg.role === 'system' || msg.role === 'user' || msg.role === 'assistant'
-          )
-          .map((msg) => {
-            const result: NodeConversationMessage = {
-              role: msg.role,
-              content: msg.content ?? ''
-            };
-            if (msg.name) {
-              result.name = msg.name;
-            }
-            return result;
-          });
-        if (injected.length > 0) {
-          nodeMessages = injected;
-        }
-        logger.debug(`[ChatService] Injected personality prompt for node conversation (${target.personaId})`);
-      } catch (error: any) {
-        logger.warn(
-          `[ChatService] Failed to inject personality for ${target.personaId}, continue without personality`,
-          error?.message ?? error
-        );
-      }
-    }
-
-    const llmPayload: Record<string, unknown> = {};
-    if (options.model) {
-      llmPayload.model = options.model;
-    }
-    if (typeof options.temperature === 'number') {
-      llmPayload.temperature = options.temperature;
-    }
-    if (typeof options.max_tokens === 'number') {
-      llmPayload.maxTokens = options.max_tokens;
-    }
-    llmPayload.stream = options.stream === true;
-
-    const personaState =
-      target.personaId && route.context.personaState
-        ? route.context.personaState[target.personaId]
-        : undefined;
-
-    const toolMetadata: Record<string, any> = {
-      sessionType: route.sessionType,
-      waitForResult: route.waitForResult,
-      personaId: target.personaId,
-      memberId: target.memberId,
-      mentions: route.mentions?.length ? route.mentions : undefined,
-      userId:
-        (options as any)?.userId ??
-        options.user ??
-        (options as any)?.user ??
-        personaInfo.userId ??
-        'default',
-      conversationMembers: route.context.members?.map((member) => ({
-        memberId: member.memberId,
-        personaId: member.personaId,
-        type: member.type,
-        nodeId: member.nodeId
-      })),
-      personaState,
-      detectedEmotion: detectedEmotion
-        ? {
-            type: detectedEmotion.type,
-            intensity: detectedEmotion.intensity,
-            confidence: detectedEmotion.confidence
-          }
-        : undefined
-    };
-    this.pruneEmptyFields(toolMetadata);
-
-    const toolArgs = {
-      conversationId: route.conversationId,
-      messages: nodeMessages,
-      llm: llmPayload,
-      metadata: toolMetadata
-    };
-
-    const capability = target.type === 'worker' ? 'worker' : 'companion';
-    const toolName = target.type === 'worker' ? 'worker_conversation' : 'companion_conversation';
-
-    logger.info('[ChatService] Dispatching node conversation', {
-      conversationId: route.conversationId,
-      memberId: target.memberId,
-      personaId: target.personaId,
-      model: llmPayload.model ?? null,
-      nodeType: target.type
-    });
-
-    const assignmentMetadata: Record<string, any> = {
-      conversationId: route.conversationId,
-      personaId: target.personaId,
-      memberId: target.memberId,
-      sessionType: route.sessionType,
-      mentions: route.mentions?.length ? route.mentions : undefined,
-      origin: 'chat_service'
-    };
-    this.pruneEmptyFields(assignmentMetadata);
-
-    let nodeResult: any;
-    try {
-      const { result } = this.nodeManager.dispatchTaskToNode(target.nodeId, {
-        capability,
-        toolName,
-        toolArgs,
-        metadata: assignmentMetadata
-      });
-      nodeResult = await result;
-    } catch (error: any) {
-      logger.error(`[ChatService] Node conversation dispatch failed (node=${target.nodeId}):`, error);
-      throw new Error(error?.message || '节点对话执行失败');
-    }
-
-    const partialOutputs = Array.isArray(nodeResult?.partialOutputs)
-      ? nodeResult.partialOutputs
-          .filter(
-            (chunk: any) =>
-              chunk &&
-              typeof chunk === 'object' &&
-              typeof chunk.chunk === 'string' &&
-              chunk.chunk.length > 0
-          )
-          .map((chunk: any) => ({
-            chunk: chunk.chunk,
-            timestamp: typeof chunk.timestamp === 'number' ? chunk.timestamp : Date.now()
-          }))
-      : [];
-
-    const delegations = Array.isArray(nodeResult?.delegations)
-      ? nodeResult.delegations
-      : undefined;
-
-    let content = '';
-    const replyPayload = nodeResult?.reply;
-    if (typeof replyPayload === 'string') {
-      content = replyPayload;
-    } else if (replyPayload && typeof replyPayload === 'object') {
-      if (typeof replyPayload.text === 'string') {
-        content = replyPayload.text;
-      } else if (typeof replyPayload.content === 'string') {
-        content = replyPayload.content;
-      }
-    } else if (typeof nodeResult === 'string') {
-      content = nodeResult;
-    }
-
-    if (!content && partialOutputs.length > 0) {
-      content = partialOutputs.map((item) => item.chunk).join('');
-    }
-
-    this.recordEmotionIfDetected(detectedEmotion, messages, personaInfo, route);
-
-    if (lastUserMessage?.content) {
-      await this.recordMemoryAndPublishEvent(lastUserMessage.content, personaInfo, {
-        messageCount: messages.length,
-        hasEmotion: !!detectedEmotion
-      });
-    }
-
-    return {
-      content: content ?? '',
-      rawResult: nodeResult,
-      partialOutputs,
-      delegations,
-      usage: nodeResult?.usage
-    };
-  }
+  // processNodeConversation 方法已移除（节点对话功能已删除）
+  // 如果类型为 companion 或 worker，应该使用普通的 processMessage 方法
  
   /**
    * 流式处理消息 - 支持工具调用循环（参考早期实现的聊天处理循环，已改为 ABP-only）
    */
   async *streamMessage(
     messages: Message[],
-    options: ChatOptions = {},
-    route?: RouteResolution
+    options: ChatOptions = {}
   ): AsyncIterableIterator<string> {
-    const personaInfo = this.resolvePersonaMemoryInfo(route, options);
-    const lastUserMessage = [...messages].reverse().find((msg) => msg.role === 'user');
-    await this.recallPersonaMemories(lastUserMessage, route, personaInfo);
+    // 记忆服务已移除（清理变更）
 
     // 🆕 0. 生成请求ID和中断控制器
     const requestId = generateRequestId();
@@ -844,51 +402,8 @@ export class ChatService {
     yield `__META__:${JSON.stringify({type:'requestId',value:requestId})}`;
     
     try {
-      // 🆕 0. 注入人格（如果有agentId和PersonalityEngine）
+      // PersonalityEngine、EmotionEngine 和 MemoryService 已移除（根据系统精简要求）
       let processedMessages = messages;
-      let detectedEmotion = null;
-      let personality = null;
-      
-      if (options.agentId && this.personalityEngine) {
-        personality = this.personalityEngine.loadPersonality(options.agentId);
-        processedMessages = this.personalityEngine.injectIntoMessages(messages, personality, options.agentId);
-        logger.debug(`🎭 Injected personality: ${options.agentId}`);
-      }
-      
-      // 🆕 0.5 识别用户情感（在LLM调用前，流式对话也需要）
-      if (this.emotionEngine && processedMessages.length > 0) {
-        // 找到最后一条用户消息
-        const userMessages = processedMessages.filter(msg => msg.role === 'user');
-        const lastUserMessage = userMessages.length > 0 ? userMessages[userMessages.length - 1] : null;
-        
-        if (lastUserMessage && lastUserMessage.content) {
-          try {
-            detectedEmotion = await this.emotionEngine.detectEmotion(lastUserMessage.content);
-            logger.debug(`💭 Detected emotion: ${detectedEmotion.type} (intensity: ${detectedEmotion.intensity.toFixed(2)})`);
-            
-            // 生成共情响应并注入到System Prompt（如果有情感且有人格）
-            if (detectedEmotion.type !== 'neutral' && personality) {
-              const empatheticResponse = this.emotionEngine.generateEmpatheticResponse(detectedEmotion, personality);
-              if (empatheticResponse) {
-                // 将共情响应添加到第一个system message（如果存在）
-                const systemMessages = processedMessages.filter(msg => msg.role === 'system');
-                if (systemMessages.length > 0) {
-                  systemMessages[0].content += `\n\n用户当前情绪：${detectedEmotion.type}。${empatheticResponse}`;
-                } else {
-                  // 如果没有system message，创建一个
-                  processedMessages.unshift({
-                    role: 'system',
-                    content: `用户当前情绪：${detectedEmotion.type}。${empatheticResponse}`
-                  });
-                }
-                logger.debug(`💝 Injected empathetic response for ${detectedEmotion.type}`);
-              }
-            }
-          } catch (error: any) {
-            logger.warn(`⚠️ Emotion detection failed, continuing without emotion adjustment: ${error.message}`);
-          }
-        }
-      }
       
       // 1. 变量替换
       processedMessages = await this.resolveVariables(processedMessages);
@@ -936,9 +451,9 @@ export class ChatService {
         // 懒加载LLMClient（如果还没有）
         let llmClient = this.llmClient;
         if (!llmClient) {
-          const { RuntimeConfigService } = await import('./RuntimeConfigService');
-          const runtimeConfig = RuntimeConfigService.getInstance();
-          llmClient = await runtimeConfig.getLLMClient();
+          // LLMManager 支持懒加载，从 SQLite 加载配置
+          const { LLMManager } = await import('../core/LLMManager');
+          llmClient = new LLMManager() as LLMClient;
           if (!llmClient) {
             throw new Error('LLMClient not available. Please configure LLM providers in admin panel.');
           }
@@ -995,61 +510,21 @@ export class ChatService {
         // 4.3 将AI响应添加到消息历史
         currentMessages.push({ role: 'assistant', content: fullContent });
 
-        const authorization = this.evaluateToolAuthorization(toolRequests, route);
-        const allowedTools = authorization.allowed;
-        const blockedTools = authorization.blocked;
-
-        if (blockedTools.length > 0) {
-          blockedTools.forEach(({ tool, decision }) => {
-            logger.warn(
-              `🚫 [Protocol Loop] Tool "${tool.name}" blocked: status=${decision.status}, reason=${decision.reason}`
-            );
-          });
+        // 工具授权已移除，直接执行所有工具
+        if (toolRequests.length === 0) {
+          logger.debug('🔄 [Protocol Loop] No tools to execute, exiting loop');
+          break;
         }
 
-        if (allowedTools.length === 0) {
-          if (blockedTools.length === 0) {
-            logger.debug('🔄 [Protocol Loop] No executable tools after authorization, exiting loop');
-            break;
-          }
-          const blockedResults = blockedTools.map(({ tool, decision }) => ({
-            tool: tool.name,
-            error: this.buildAuthorizationError(decision)
-          }));
-          const blockedText = this.formatToolResultEntries(blockedResults).join('\n\n');
-          currentMessages.push({ role: 'user', content: blockedText });
-          recursionDepth++;
-          continue;
-        }
-
-        allowedTools.forEach(({ tool, decision }) => {
-          logger.debug(
-            `   ✔ [Protocol Loop] ${tool.name} ${tool.archery ? '(archery)' : ''} [origin=${decision.originType}${
-              decision.originNodeId ? `:${decision.originNodeId}` : ''
-            }]`
-          );
-        });
-        
-        const syncTools = allowedTools.filter(({ tool }) => !tool.archery);
-        const asyncTools = allowedTools.filter(({ tool }) => tool.archery);
+        const syncTools = toolRequests.filter((tool) => !tool.archery);
+        const asyncTools = toolRequests.filter((tool) => tool.archery);
         
         if (asyncTools.length > 0) {
           logger.debug(`🏹 [Protocol Loop] Executing ${asyncTools.length} archery tools (fire-and-forget)`);
-          asyncTools.forEach((call) => this.executeAllowedArcheryTool(call, route));
+          asyncTools.forEach((tool) => this.executeArcheryTool(tool));
         }
-
-        const blockedResults = blockedTools.map(({ tool, decision }) => ({
-          tool: tool.name,
-          error: this.buildAuthorizationError(decision)
-        }));
         
         if (syncTools.length === 0) {
-          if (blockedResults.length > 0) {
-            const blockedText = this.formatToolResultEntries(blockedResults).join('\n\n');
-            currentMessages.push({ role: 'user', content: blockedText });
-            recursionDepth++;
-            continue;
-          }
           logger.debug('🔄 [Protocol Loop] Only archery tools found, exiting loop');
           break;
         }
@@ -1057,9 +532,9 @@ export class ChatService {
         logger.debug(`🔧 [Protocol Loop] Executing ${syncTools.length} sync tools in parallel...`);
         
         const executedResults = await Promise.all(
-          syncTools.map(async (call) => this.executeAllowedTool(call, route))
+          syncTools.map(async (tool) => this.executeTool(tool))
         );
-        const allResults = [...executedResults, ...blockedResults];
+        const allResults = executedResults;
 
         if (allResults.length > 0) {
           const toolResultTexts = this.formatToolResultEntries(allResults);
@@ -1076,9 +551,6 @@ export class ChatService {
       if (recursionDepth >= maxRecursion) {
         logger.warn(`⚠️  [Protocol Loop] Max recursion depth (${maxRecursion}) reached`);
       }
-      
-      // 🆕 记录用户情感（在正常完成时）
-      this.recordEmotionIfDetected(detectedEmotion, messages, personaInfo, route);
       
     } catch (error: any) {
       // 🆕 检查是否为中断错误
@@ -1097,55 +569,7 @@ export class ChatService {
     }
   }
   
-  private evaluateToolAuthorization(
-    toolRequests: ToolRequest[],
-    route?: RouteResolution
-  ): {
-    allowed: AuthorizedToolCall[];
-    blocked: Array<{ tool: ToolRequest; decision: ToolAuthorizationDecision }>;
-  } {
-    if (!this.toolAuthorization || toolRequests.length === 0 || !route) {
-      return {
-        allowed: toolRequests.map((tool) => ({
-          tool,
-          decision: {
-            toolName: tool.name,
-            status: 'allow',
-            originType: 'hub'
-          }
-        })),
-        blocked: []
-      };
-    }
-
-    const allowed: AuthorizedToolCall[] = [];
-    const blocked: Array<{ tool: ToolRequest; decision: ToolAuthorizationDecision }> = [];
-
-    for (const tool of toolRequests) {
-      const decision = this.toolAuthorization.authorize(tool, route!);
-      const resolved = this.resolveApprovalForDecision(tool, decision, route);
-      if (resolved.allowed) {
-        allowed.push(resolved.allowed);
-      } else if (resolved.blocked) {
-        blocked.push(resolved.blocked);
-      }
-    }
-
-    return { allowed, blocked };
-  }
-
-  private buildAuthorizationError(decision: ToolAuthorizationDecision): string {
-    if (decision.reason) {
-      return decision.reason;
-    }
-    if (decision.status === 'requires_approval') {
-      return '工具调用需要用户确认';
-    }
-    if (decision.status === 'deny') {
-      return '当前人格无权调用该工具';
-    }
-    return '工具当前不可用';
-  }
+  // evaluateToolAuthorization、buildAuthorizationError 方法已移除（工具授权已删除）
 
   private formatToolResultEntries(entries: Array<{ tool: string; result?: any; error?: string }>): string[] {
     return entries.map((entry) => {
@@ -1163,9 +587,9 @@ export class ChatService {
   private async requireLLMClient(): Promise<LLMClient> {
     let llmClient = this.llmClient;
     if (!llmClient) {
-      const { RuntimeConfigService } = await import('./RuntimeConfigService');
-      const runtimeConfig = RuntimeConfigService.getInstance();
-      llmClient = await runtimeConfig.getLLMClient();
+      // LLMManager 支持懒加载，从 SQLite 加载配置
+      const { LLMManager } = await import('../core/LLMManager');
+      llmClient = new LLMManager() as LLMClient;
       if (!llmClient) {
         throw new Error('LLMClient not available. Please configure LLM providers in admin panel.');
       }
@@ -1174,304 +598,15 @@ export class ChatService {
     return llmClient;
   }
 
-  private resolveApprovalForDecision(
-    tool: ToolRequest,
-    decision: ToolAuthorizationDecision,
-    route?: RouteResolution
-  ): {
-    allowed?: AuthorizedToolCall;
-    blocked?: { tool: ToolRequest; decision: ToolAuthorizationDecision };
-  } {
-    if (decision.status === 'allow') {
-      return { allowed: { tool, decision } };
-    }
+  // resolveApprovalForDecision、findMatchingApproval、ensureToolApprovalRequest 方法已移除（工具授权已删除）
 
-    if (!route || !route.context) {
-      return { blocked: { tool, decision } };
-    }
+  // resolvePersonaMemoryInfo 方法已移除（记忆服务已删除）
 
-    if (decision.status === 'deny') {
-      return { blocked: { tool, decision } };
-    }
-
-    const conversationId = route.conversationId;
-    const approvalMatch = this.findMatchingApproval(route, tool, decision);
-    const approvalResponse = route.approvalResponse;
-
-    if (approvalMatch && approvalMatch.status === 'approved') {
-      conversationContextStore.consumeToolApproval(conversationId, approvalMatch.id);
-      return {
-        allowed: {
-          tool,
-          decision: {
-            ...decision,
-            status: 'allow',
-            metadata: {
-              ...(decision.metadata ?? {}),
-              approvalRequestId: approvalMatch.id,
-              approvalStatus: approvalMatch.status
-            }
-          }
-        }
-      };
-    }
-
-    if (approvalMatch && approvalMatch.status === 'consumed') {
-      return {
-        allowed: {
-          tool,
-          decision: {
-            ...decision,
-            status: 'allow',
-            metadata: {
-              ...(decision.metadata ?? {}),
-              approvalRequestId: approvalMatch.id,
-              approvalStatus: approvalMatch.status
-            }
-          }
-        }
-      };
-    }
-
-    if (approvalMatch && approvalMatch.status === 'denied') {
-      return {
-        blocked: {
-          tool,
-          decision: {
-            ...decision,
-            status: 'requires_approval',
-            reason: approvalMatch.decisionReason || '工具审批已被拒绝',
-            metadata: {
-              ...(decision.metadata ?? {}),
-              approvalRequestId: approvalMatch.id,
-              approvalStatus: approvalMatch.status
-            }
-          }
-        }
-      };
-    }
-
-    const pendingRequest =
-      approvalMatch && approvalMatch.status === 'pending'
-        ? approvalMatch
-        : this.ensureToolApprovalRequest(route, tool, decision);
-
-    const reason =
-      approvalMatch && approvalMatch.status === 'pending'
-        ? `工具调用等待审批 (请求ID ${approvalMatch.id})`
-        : `工具调用需要用户确认 (请求ID ${pendingRequest.id})`;
-
-    if (approvalResponse && approvalResponse.requestId === pendingRequest.id) {
-      const refreshed = this.findMatchingApproval(route, tool, decision);
-      if (refreshed && refreshed.status === 'approved') {
-        conversationContextStore.consumeToolApproval(conversationId, refreshed.id);
-        this.eventBus.publish('tool_approval_completed', {
-          conversationId,
-          request: refreshed
-        });
-        return {
-          allowed: {
-            tool,
-            decision: {
-              ...decision,
-              status: 'allow',
-              metadata: {
-                ...(decision.metadata ?? {}),
-                approvalRequestId: refreshed.id,
-                approvalStatus: refreshed.status
-              }
-            }
-          }
-        };
-      }
-      if (refreshed && refreshed.status === 'denied') {
-        this.eventBus.publish('tool_approval_completed', {
-          conversationId,
-          request: refreshed
-        });
-        return {
-          blocked: {
-            tool,
-            decision: {
-              ...decision,
-              status: 'requires_approval',
-              reason: refreshed.decisionReason || '工具审批已被拒绝',
-              metadata: {
-                ...(decision.metadata ?? {}),
-                approvalRequestId: refreshed.id,
-                approvalStatus: refreshed.status
-              }
-            }
-          }
-        };
-      }
-    }
-
-    return {
-      blocked: {
-        tool,
-        decision: {
-          ...decision,
-          status: 'requires_approval',
-          reason,
-          metadata: {
-            ...(decision.metadata ?? {}),
-            approvalRequestId: pendingRequest.id,
-            approvalStatus: pendingRequest.status
-          }
-        }
-      }
-    };
-  }
-
-  private findMatchingApproval(
-    route: RouteResolution,
-    tool: ToolRequest,
-    decision: ToolAuthorizationDecision
-  ): ToolApprovalRequest | undefined {
-    const context = route.context;
-    if (!context.toolApprovals) {
-      return undefined;
-    }
-    const personaId = route.primaryTarget?.personaId;
-    const memberId = route.primaryTarget?.memberId;
-    return context.toolApprovals
-      .slice()
-      .reverse()
-      .find(
-        (item) =>
-          item.toolName === tool.name &&
-          item.originType === decision.originType &&
-          item.originNodeId === decision.originNodeId &&
-          item.requesterPersonaId === personaId &&
-          (item.requesterMemberId ? item.requesterMemberId === memberId : true) &&
-          item.status !== 'consumed'
-      );
-  }
-
-  private ensureToolApprovalRequest(
-    route: RouteResolution,
-    tool: ToolRequest,
-    decision: ToolAuthorizationDecision
-  ): ToolApprovalRequest {
-    const existing = this.findMatchingApproval(route, tool, decision);
-    if (existing && existing.status === 'pending') {
-      return existing;
-    }
-
-    const request: ToolApprovalRequest = {
-      id: randomUUID(),
-      toolName: tool.name,
-      args: tool.args ?? {},
-      requesterPersonaId: route.primaryTarget?.personaId ?? 'unknown',
-      requesterMemberId: route.primaryTarget?.memberId,
-      originType: decision.originType,
-      originNodeId: decision.originNodeId,
-      originNodeName: decision.originNodeName,
-      status: 'pending',
-      requestedAt: Date.now(),
-      metadata: {
-        ...(decision.metadata ?? {}),
-        pendingMessage: `等待用户确认是否允许调用 ${tool.name}`
-      }
-    };
-
-    conversationContextStore.addToolApprovalRequest(route.conversationId, request);
-    this.eventBus.publish('tool_approval_requested', {
-      conversationId: route.conversationId,
-      request
-    });
-
-    return request;
-  }
-
-  private resolvePersonaMemoryInfo(route?: RouteResolution, options?: ChatOptions): PersonaMemoryInfo {
-    const personaId = route?.primaryTarget?.personaId ?? options?.agentId ?? 'default';
-    const existingState =
-      personaId && route?.context?.personaState ? route.context.personaState[personaId] : undefined;
-    const normalizedOptionUser =
-      typeof options?.userId === 'string' && options.userId.trim().length > 0
-        ? options.userId.trim()
-        : typeof (options as any)?.user === 'string' && (options as any).user.trim().length > 0
-        ? (options as any).user.trim()
-        : undefined;
-    const userId =
-      normalizedOptionUser ??
-      (typeof existingState?.userId === 'string' ? (existingState.userId as string) : undefined) ??
-      'default';
-    const memoryUserId =
-      (typeof existingState?.memoryUserId === 'string'
-        ? (existingState.memoryUserId as string)
-        : undefined) ?? `${userId}::${personaId}`;
-    const knowledgeBase =
-      (typeof existingState?.knowledgeBase === 'string'
-        ? (existingState.knowledgeBase as string)
-        : undefined) ?? `${userId}-persona-${personaId}`;
-    const conversationId = route?.conversationId;
-
-    if (route && personaId) {
-      conversationContextStore.setPersonaState(route.conversationId, personaId, {
-        userId,
-        memoryUserId,
-        knowledgeBase,
-        lastUpdatedAt: Date.now()
-      });
-    }
-
-    return { personaId, userId, conversationId, memoryUserId, knowledgeBase };
-  }
-
-  private async executeAllowedTool(
-    call: AuthorizedToolCall,
-    route?: RouteResolution
+  private async executeTool(
+    tool: ToolRequest
   ): Promise<{ tool: string; result?: any; error?: string }> {
-    const { tool, decision } = call;
     try {
-      if (decision.originType === 'worker' || decision.originType === 'companion') {
-        if (!this.nodeManager) {
-          logger.error(`❌ 无法执行工具 ${tool.name}：NodeManager 未设置`);
-          return {
-            tool: tool.name,
-            error: 'NodeManager 未初始化，无法派发工具任务'
-          };
-        }
-        if (!decision.originNodeId) {
-          logger.warn(`⚠️ 工具 ${tool.name} 缺少 originNodeId，无法派发`);
-          return {
-            tool: tool.name,
-            error: '工具未绑定可用节点'
-          };
-        }
-        const capability = decision.originType === 'companion' ? 'companion' : 'worker';
-        const metadata: Record<string, any> = {
-          conversationId: route?.conversationId,
-          personaId: route?.primaryTarget.personaId,
-          memberId: route?.primaryTarget.memberId,
-          originType: decision.originType,
-          origin: 'chat_service'
-        };
-        if (route?.mentions?.length) {
-          metadata.mentions = route.mentions;
-        }
-        const { result } = this.nodeManager.dispatchTaskToNode(decision.originNodeId, {
-          capability,
-          toolName: tool.name,
-          toolArgs: tool.args ?? {},
-          metadata
-        });
-        const taskResult = await result;
-        if (taskResult && typeof taskResult === 'object' && taskResult.success === false) {
-          return {
-            tool: tool.name,
-            error: taskResult.error?.message ?? '节点执行失败',
-            result: taskResult
-          };
-        }
-        return {
-          tool: tool.name,
-          result: taskResult
-        };
-      }
+      // 节点派发逻辑已移除，所有工具在本地执行（通过 SkillsExecutionManager）
 
       // 仅走 Skills 执行通路（不再回退到插件系统）
       if (!this.skillsExecutionManager || !this.skillsMapper) {
@@ -1485,8 +620,8 @@ export class ChatService {
       if (this.preferenceService) {
         try {
           const prefsView = this.preferenceService.getView({
-            userId: route?.primaryTarget.memberId || 'default',
-            sessionId: route?.conversationId
+            userId: 'default',
+            sessionId: undefined
           });
           const prefs = Object.fromEntries(
             Object.entries(prefsView.merged).map(([k, v]) => [k, v.value])
@@ -1503,8 +638,6 @@ export class ChatService {
         skillName: execReq.skillName,
         parameters: execReq.parameters,
         context: {
-          conversationId: route?.conversationId,
-          userId: route?.primaryTarget.memberId,
           metadata: { origin: 'chat_service' }
         }
       } as any);
@@ -1522,64 +655,10 @@ export class ChatService {
     }
   }
 
-  private executeAllowedArcheryTool(call: AuthorizedToolCall, route?: RouteResolution): void {
-    const { tool, decision } = call;
-    logger.debug(`🏹 Async tool triggered: ${tool.name} (origin=${decision.originType})`);
+  private executeArcheryTool(tool: ToolRequest): void {
+    logger.debug(`🏹 Async tool triggered: ${tool.name}`);
 
-    if ((decision.originType === 'worker' || decision.originType === 'companion') && this.nodeManager) {
-      if (!decision.originNodeId) {
-        logger.warn(`⚠️ Archery 工具 ${tool.name} 缺少 originNodeId，跳过派发`);
-        return;
-      }
-      const capability = decision.originType === 'companion' ? 'companion' : 'worker';
-      const metadata: Record<string, any> = {
-        conversationId: route?.conversationId,
-        personaId: route?.primaryTarget.personaId,
-        memberId: route?.primaryTarget.memberId,
-        originType: decision.originType,
-        origin: 'chat_service',
-        archery: true
-      };
-      if (route?.mentions?.length) {
-        metadata.mentions = route.mentions;
-      }
-      try {
-        const { result } = this.nodeManager.dispatchTaskToNode(decision.originNodeId, {
-          capability,
-          toolName: tool.name,
-          toolArgs: tool.args ?? {},
-          metadata
-        });
-        result
-          .then((taskResult) => {
-            logger.debug(`✅ Archery tool completed via node: ${tool.name}`);
-            if (taskResult && typeof taskResult === 'object' && taskResult.success === false) {
-              this.eventBus.publish('tool_failed', {
-                plugin: tool.name,
-                error: taskResult.error?.message ?? '节点执行失败',
-                result: taskResult
-              });
-              return;
-            }
-            this.eventBus.publish('tool_completed', {
-              plugin: tool.name,
-              result: taskResult
-            });
-          })
-          .catch((err: any) => {
-            logger.error(`❌ Archery tool failed via node: ${tool.name}`, err);
-            this.eventBus.publish('tool_failed', {
-              plugin: tool.name,
-              error: err?.message ?? String(err)
-            });
-          });
-      } catch (error) {
-        logger.error(`❌ Archery 工具派发失败: ${tool.name}`, error);
-      }
-      return;
-    }
-
-    // 插件系统已移除：异步工具在 Skills 架构中不支持，记录告警
+    // 节点派发逻辑已移除，异步工具在 Skills 架构中不支持，记录告警
     logger.warn(`⚠️ Archery tool not supported in skills-only architecture: ${tool.name}`);
   }
 
@@ -1639,107 +718,8 @@ export class ChatService {
     this.preferenceService = service;
   }
 
-  private recordEmotionIfDetected(
-    detectedEmotion: any,
-    messages: Message[],
-    personaInfo: PersonaMemoryInfo,
-    _route?: RouteResolution
-  ): void {
-    if (detectedEmotion && this.memoryService) {
-      const userMessages = messages.filter(msg => msg.role === 'user');
-      const lastUserMessage = userMessages.length > 0 ? userMessages[userMessages.length - 1] : null;
-      const context = lastUserMessage ? lastUserMessage.content.substring(0, 200) : '';
-
-      const memory: Memory = {
-        content: context || `用户情绪：${detectedEmotion.type}`,
-        userId: personaInfo.memoryUserId,
-        timestamp: Date.now(),
-        metadata: {
-          source: 'emotion',
-          knowledgeBase: personaInfo.knowledgeBase,
-          personaId: personaInfo.personaId,
-          conversationId: personaInfo.conversationId,
-          emotion: {
-            type: detectedEmotion.type,
-            intensity: detectedEmotion.intensity,
-            confidence: detectedEmotion.confidence
-          },
-          tags: [`emotion:${detectedEmotion.type}`, `persona:${personaInfo.personaId}`]
-        }
-      };
-
-      this.memoryService.save(memory).catch((error: any) => {
-        logger.warn(`⚠️ Failed to record emotion, but continuing: ${error.message}`);
-      });
-    }
-    
-    if (detectedEmotion && detectedEmotion.type !== 'neutral' && detectedEmotion.intensity > 0.5) {
-      this.eventBus.publish('emotion:negative_detected', {
-        userId: personaInfo.userId,
-        personaId: personaInfo.personaId,
-        conversationId: personaInfo.conversationId,
-        emotion: detectedEmotion.type,
-        intensity: detectedEmotion.intensity,
-        context: messages.filter(msg => msg.role === 'user').pop()?.content || ''
-      });
-      logger.debug(`📡 Published emotion:negative_detected event for ${personaInfo.userId} (${detectedEmotion.type})`);
-    }
-  }
- 
-  private buildNodeConversationMessages(
-    route: RouteResolution,
-    fallbackMessages: Message[]
-  ): NodeConversationMessage[] {
-    const history = (route.context?.history ?? [])
-      .slice()
-      .sort((a, b) => a.timestamp - b.timestamp)
-      .map((record) => {
-        if (
-          record.role !== 'system' &&
-          record.role !== 'user' &&
-          record.role !== 'assistant'
-        ) {
-          return null;
-        }
-        if (typeof record.content !== 'string' || record.content.trim().length === 0) {
-          return null;
-        }
-        const message: NodeConversationMessage = {
-          role: record.role,
-          content: record.content
-        };
-        const name = record.metadata?.name;
-        if (typeof name === 'string' && name.trim().length > 0) {
-          message.name = name;
-        }
-        return message;
-      })
-      .filter((msg): msg is NodeConversationMessage => msg !== null);
-
-    if (history.length > 0) {
-      return history;
-    }
-
-    return fallbackMessages
-      .map((msg) => {
-        if (
-          (msg.role !== 'system' && msg.role !== 'user' && msg.role !== 'assistant') ||
-          typeof msg.content !== 'string' ||
-          msg.content.trim().length === 0
-        ) {
-          return null;
-        }
-        const message: NodeConversationMessage = {
-          role: msg.role as 'system' | 'user' | 'assistant',
-          content: msg.content
-        };
-        if (msg.name) {
-          message.name = msg.name;
-        }
-        return message;
-      })
-      .filter((msg): msg is NodeConversationMessage => msg !== null);
-  }
+  // recordEmotionIfDetected 方法已移除（MemoryService 已移除）
+  // buildNodeConversationMessages 方法已移除（节点对话功能已删除）
 
   private pruneEmptyFields(payload: Record<string, any>): Record<string, any> {
     Object.keys(payload).forEach((key) => {
@@ -1756,288 +736,10 @@ export class ChatService {
     return payload;
   }
   
-  /**
-   * 🆕 记录记忆并发布事件
-   */
-  private async recordMemoryAndPublishEvent(
-    content: string,
-    personaInfo: PersonaMemoryInfo,
-    metadata?: Record<string, unknown>
-  ): Promise<void> {
-    try {
-      const rawTags = (metadata as any)?.tags;
-      const baseTags: string[] = Array.isArray(rawTags)
-        ? rawTags.map((tag: unknown) => String(tag))
-        : rawTags !== undefined
-        ? [String(rawTags)]
-        : [];
-      const source =
-        typeof (metadata as any)?.source === 'string' ? ((metadata as any).source as string) : 'chat';
+  // recordMemoryAndPublishEvent 方法已移除（MemoryService 已移除）
 
-      const memory: Memory = {
-        content,
-        userId: personaInfo.memoryUserId,
-        timestamp: Date.now(),
-        metadata: {
-          ...(metadata ?? {}),
-          knowledgeBase: personaInfo.knowledgeBase,
-          personaId: personaInfo.personaId,
-          conversationId: personaInfo.conversationId,
-          source,
-          tags: Array.from(new Set([...baseTags, `persona:${personaInfo.personaId}`]))
-        }
-      };
-
-      if (this.memoryService) {
-        await this.memoryService.save(memory);
-      }
-
-      // 发布 memory:new_document 事件，触发文档分析场景
-      // 注意：记忆服务会自动记录，这里只需要发布事件
-      this.eventBus.publish('memory:new_document', {
-        userId: personaInfo.userId,
-        personaId: personaInfo.personaId,
-        conversationId: personaInfo.conversationId,
-        content: content.substring(0, 500), // 只发送前500字符
-        metadata: memory.metadata
-      });
-      logger.debug(`📡 Published memory:new_document event for ${personaInfo.userId}`);
-    } catch (error: any) {
-      logger.warn(`⚠️ Failed to publish memory:new_document event, but continuing: ${error.message}`);
-    }
-  }
-
-  private async recallPersonaMemories(
-    lastUserMessage: Message | undefined,
-    route: RouteResolution | undefined,
-    personaInfo: PersonaMemoryInfo
-  ): Promise<void> {
-    if (!this.memoryService || !route || !lastUserMessage || !lastUserMessage.content?.trim()) {
-      return;
-    }
-
-    try {
-      const query = lastUserMessage.content.substring(0, 500);
-      const results = await this.memoryService.recall(query, {
-        userId: personaInfo.memoryUserId,
-        knowledgeBase: personaInfo.knowledgeBase,
-        limit: 5
-      });
-
-      const summary = {
-        query,
-        recalledAt: Date.now(),
-        total: results.length,
-        samples: results.slice(0, 3).map((memory: Memory) => ({
-          id: memory.id,
-          content: memory.content.substring(0, 120),
-          score: (memory as any)?.metadata?.score ?? (memory as any)?.metadata?.similarity
-        }))
-      };
-
-      conversationContextStore.setPersonaState(route.conversationId, personaInfo.personaId, {
-        lastRecall: summary
-      });
-
-      if (results.length > 0) {
-        this.eventBus.publish('memory:persona_recall', {
-          conversationId: route.conversationId,
-          personaId: personaInfo.personaId,
-          userId: personaInfo.userId,
-          query,
-          total: results.length,
-          samples: summary.samples
-        });
-      }
-    } catch (error: any) {
-      logger.debug(`⚠️ Failed to recall persona memories: ${error.message}`);
-    }
-  }
-
-  /**
-   * 🆕 注入记忆到消息列表
-   * 按照Prompt结构规范注入UserProfile、HouseholdProfile和Session Memory
-   * 
-   * Prompt结构：
-   * [SYSTEM]
-   * - Persona prompt (已通过PersonalityEngine注入)
-   * - UserProfile (可选)
-   * - HouseholdProfile (可选)
-   * 
-   * [MEMORY]
-   * - Session Memory (最近N条消息)
-   * - Semantic Memory (第二阶段实现)
-   * - Episodic Memory (第二阶段实现)
-   * 
-   * [USER]
-   * - 当前用户消息
-   */
-  private async injectMemoriesIntoMessages(
-    messages: Message[],
-    personaInfo: PersonaMemoryInfo,
-    options?: ChatOptions,
-    config?: import('../types/memory').MemoryInjectionConfig
-  ): Promise<Message[]> {
-    if (!this.memoryService) {
-      return messages;
-    }
-
-    try {
-      const memorySections: string[] = [];
-
-      // 注入偏好（在记忆前），影响提示与工具默认值的呈现
-      try {
-        if (this.preferenceService) {
-          const sessionId = personaInfo.conversationId;
-          const view = this.preferenceService.getView({
-            userId: personaInfo.memoryUserId,
-            sessionId
-          });
-          const prefs = Object.fromEntries(
-            Object.entries(view.merged).map(([k, v]) => [k, v.value])
-          ) as Record<string, unknown>;
-          const prefLines: string[] = [];
-          if (prefs.lang) prefLines.push(`语言: ${String(prefs.lang)}`);
-          if (prefs.toolsDisclosure) prefLines.push(`工具披露: ${String(prefs.toolsDisclosure)}`);
-          // 可扩展更多偏好键
-          if (prefLines.length > 0) {
-            memorySections.push(`[偏好]\n${prefLines.join('\n')}`);
-          }
-        }
-      } catch (e) {
-        logger.debug(`[ChatService] Preference injection skipped: ${(e as Error).message}`);
-      }
-
-      const injectionConfig: import('../types/memory').MemoryInjectionConfig = {
-        includeUserProfile: config?.includeUserProfile !== false,
-        includeHouseholdProfile: config?.includeHouseholdProfile !== false,
-        includeSessionMemory: config?.includeSessionMemory !== false,
-        sessionMemoryLimit: config?.sessionMemoryLimit || 50,
-        reserveSemanticMemory: config?.reserveSemanticMemory !== false,
-        reserveEpisodicMemory: config?.reserveEpisodicMemory !== false
-      };
-
-      // 1. 获取UserProfile（如果有userId且启用）
-      if (injectionConfig.includeUserProfile && personaInfo.userId && personaInfo.userId !== 'default') {
-        try {
-          const userProfileMemories = await this.memoryService.recall('user profile', {
-            userId: personaInfo.userId,
-            knowledgeBase: personaInfo.knowledgeBase,
-            limit: 3,
-            tags: ['profile', 'user']
-          });
-
-          if (userProfileMemories && userProfileMemories.length > 0) {
-            const profileContent = userProfileMemories
-              .map((mem: Memory) => mem.content)
-              .join('\n');
-            if (profileContent.trim()) {
-              memorySections.push(`[用户资料]\n${profileContent}`);
-              logger.debug('[ChatService] Injected UserProfile', {
-                userId: personaInfo.userId,
-                count: userProfileMemories.length
-              });
-            }
-          }
-        } catch (error: any) {
-          logger.debug(`⚠️ Failed to retrieve UserProfile: ${error.message}`);
-        }
-      }
-
-      // 2. 获取HouseholdProfile（如果有householdId且启用，通过userId推断）
-      if (injectionConfig.includeHouseholdProfile && personaInfo.userId && personaInfo.userId !== 'default') {
-        try {
-          // 假设householdId可以从userId中推断（实际可能需要从配置中获取）
-          const householdProfileMemories = await this.memoryService.recall('household profile', {
-            userId: personaInfo.userId,
-            knowledgeBase: personaInfo.knowledgeBase,
-            limit: 3,
-            tags: ['profile', 'household']
-          });
-
-          if (householdProfileMemories && householdProfileMemories.length > 0) {
-            const profileContent = householdProfileMemories
-              .map((mem: Memory) => mem.content)
-              .join('\n');
-            if (profileContent.trim()) {
-              memorySections.push(`[家庭资料]\n${profileContent}`);
-              logger.debug('[ChatService] Injected HouseholdProfile', {
-                userId: personaInfo.userId,
-                count: householdProfileMemories.length
-              });
-            }
-          }
-        } catch (error: any) {
-          logger.debug(`⚠️ Failed to retrieve HouseholdProfile: ${error.message}`);
-        }
-      }
-
-      // 3. 获取Session Memory（最近N条消息，默认50条）
-      // 注意：这里我们从messages数组中提取，而不是从MemoryService获取
-      // 因为Session Memory是会话级别的，暂时不需要持久化
-      let sessionMessages: Message[] = [];
-      if (injectionConfig.includeSessionMemory) {
-        sessionMessages = this.extractSessionMemory(messages, injectionConfig.sessionMemoryLimit || 50);
-        if (sessionMessages.length > 0) {
-          const sessionContent = sessionMessages
-            .map((msg, _index) => {
-              const role = msg.role === 'user' ? '用户' : msg.role === 'assistant' ? '助手' : '系统';
-              return `${role}: ${msg.content}`;
-            })
-            .join('\n');
-          memorySections.push(`[会话历史]\n${sessionContent}`);
-          logger.debug('[ChatService] Injected Session Memory', {
-            count: sessionMessages.length
-          });
-        }
-      }
-
-      // 4. 预留Semantic和Episodic Memory位置（占位符，第二阶段实现）
-      // 注意：实际注入逻辑在第二阶段实现，这里只是预留结构
-      // 未来可以通过以下接口实现：
-      // - semanticMemories = await this.memoryService.searchSemanticMemories(query, options);
-      // - episodicMemories = await this.memoryService.searchEpisodicMemories(query, options);
-      
-      // 预留Semantic Memory位置（第二阶段实现）
-      // if (config?.reserveSemanticMemory !== false) {
-      //   memorySections.push('[语义记忆]\n（第二阶段实现：将根据查询自动检索相关语义记忆）');
-      // }
-
-      // 预留Episodic Memory位置（第二阶段实现）
-      // if (config?.reserveEpisodicMemory !== false) {
-      //   memorySections.push('[情景记忆]\n（第二阶段实现：将根据查询自动检索相关情景记忆）');
-      // }
-
-      // 5. 将记忆注入到system message
-      if (memorySections.length > 0) {
-        const memoryContent = `[记忆]\n${memorySections.join('\n\n')}`;
-        
-        // 找到第一个system message或创建新的
-        const systemMessages = messages.filter(msg => msg.role === 'system');
-        if (systemMessages.length > 0) {
-          // 追加到第一个system message
-          systemMessages[0].content += `\n\n${memoryContent}`;
-        } else {
-          // 创建新的system message
-          messages.unshift({
-            role: 'system',
-            content: memoryContent
-          });
-        }
-
-        logger.debug('[ChatService] Memory injection completed', {
-          sections: memorySections.length
-        });
-      }
-
-      return messages;
-    } catch (error: any) {
-      logger.error('[ChatService] Failed to inject memories', {
-        error: error.message
-      });
-      return messages; // 失败时返回原始消息
-    }
-  }
+  // recallPersonaMemories 方法已移除（记忆服务已删除）
+  // injectMemoriesIntoMessages 方法已移除（记忆服务已删除）
 
   /**
    * 🆕 提取Session Memory（最近N条消息）
@@ -2052,32 +754,6 @@ export class ChatService {
     return sessionMessages;
   }
 
-  /**
-   * 🆕 过滤记忆（基于userId和householdId）
-   */
-  private filterMemoryByContext(
-    memories: Memory[],
-    userId?: string,
-    householdId?: string
-  ): Memory[] {
-    return memories.filter((memory: Memory) => {
-      // 基于userId过滤
-      if (userId && memory.userId && memory.userId !== userId) {
-        // 检查是否是household级别的记忆
-        if (!householdId || memory.metadata?.ownerType !== 'household') {
-          return false;
-        }
-      }
-
-      // 基于householdId过滤（如果有）
-      if (householdId && memory.metadata?.ownerType === 'household') {
-        if (memory.metadata?.ownerId !== householdId) {
-          return false;
-        }
-      }
-
-      return true;
-    });
-  }
+  // filterMemoryByContext 方法已移除（记忆服务已删除）
 }
 

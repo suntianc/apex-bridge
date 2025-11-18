@@ -7,7 +7,7 @@ import {
   SkillContent,
   SkillResources
 } from '../../types';
-import { TTLCache } from '../../utils/TTLCache';
+import { Cache, createCache } from '../../utils/cache';
 
 const DEFAULT_CACHE_CONFIG: SkillsCacheConfig = {
   metadata: {
@@ -30,9 +30,9 @@ interface CacheHitMissCounter {
 }
 
 export class SkillsCache {
-  private readonly metadataCache: TTLCache<string, SkillMetadata>;
-  private readonly contentCache: TTLCache<string, SkillContent>;
-  private readonly resourceCache: TTLCache<string, SkillResources>;
+  private readonly metadataCache: Cache<SkillMetadata>;
+  private readonly contentCache: Cache<SkillContent>;
+  private readonly resourceCache: Cache<SkillResources>;
 
   private readonly metadataStats: CacheHitMissCounter = { hits: 0, misses: 0 };
   private readonly contentStats: CacheHitMissCounter = { hits: 0, misses: 0 };
@@ -42,14 +42,18 @@ export class SkillsCache {
   constructor(options: SkillsCacheOptions = {}) {
     this.config = this.mergeConfig(options.config);
 
-    this.metadataCache = new TTLCache<string, SkillMetadata>(
-      this.toTTLConfig(this.config.metadata)
+    // 使用统一的 Cache 类替代 TTLCache
+    this.metadataCache = createCache<SkillMetadata>(
+      this.config.metadata.ttl,
+      this.config.metadata.maxSize
     );
-    this.contentCache = new TTLCache<string, SkillContent>(
-      this.toTTLConfig(this.config.content)
+    this.contentCache = createCache<SkillContent>(
+      this.config.content.ttl,
+      this.config.content.maxSize
     );
-    this.resourceCache = new TTLCache<string, SkillResources>(
-      this.toTTLConfig(this.config.resources)
+    this.resourceCache = createCache<SkillResources>(
+      this.config.resources.ttl,
+      this.config.resources.maxSize
     );
   }
 
@@ -130,13 +134,6 @@ export class SkillsCache {
       metadata: { ...DEFAULT_CACHE_CONFIG.metadata, ...overrides.metadata },
       content: { ...DEFAULT_CACHE_CONFIG.content, ...overrides.content },
       resources: { ...DEFAULT_CACHE_CONFIG.resources, ...overrides.resources }
-    };
-  }
-
-  private toTTLConfig(config: CacheConfig) {
-    return {
-      maxSize: config.maxSize,
-      ttl: config.ttl
     };
   }
 

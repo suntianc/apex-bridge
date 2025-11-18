@@ -1,9 +1,5 @@
 export type SkillExecutionType =
   | 'direct'
-  | 'service'
-  | 'distributed'
-  | 'static'
-  | 'preprocessor'
   | 'internal';
 
 export type SkillLoadingPriority = 'low' | 'normal' | 'high';
@@ -47,6 +43,7 @@ export interface SkillMetadata {
   cacheable: boolean;
   ttl: number;
   priority?: SkillLoadingPriority;
+  sandboxExecution?: boolean; // 🆕 是否使用沙箱执行（默认 true，如果为 false 则直接执行）
   config?: Record<string, unknown>;
   createdAt?: number;
   updatedAt?: number;
@@ -315,10 +312,6 @@ export interface SkillExecutionOutcome {
   profilerMetrics?: CodeGenerationMetrics;
   tokenUsage?: number;
   warnings?: string[];
-  /** 记忆写入建议（可选） */
-  memoryWrites?: import('./memory').MemoryWriteSuggestion[];
-  /** 中间步骤追踪（可选，用于调试和可观测性） */
-  intermediateSteps?: import('./memory').StepTrace[];
 }
 
 export interface ExecutionMetadata {

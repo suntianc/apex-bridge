@@ -13,7 +13,6 @@ import {
   CompilationError
 } from './CodeGenerationErrors';
 import { DependencyManager } from './DependencyManager';
-import { CodeGenerationProfiler } from './CodeGenerationProfiler';
 import { ABPSkillsAdapter } from './ABPSkillsAdapter';
 
 export interface CodeGeneratorOptions {
@@ -22,7 +21,7 @@ export interface CodeGeneratorOptions {
 }
 
 export interface CodeGeneratorGenerateOptions {
-  profiler?: CodeGenerationProfiler;
+  profiler?: any; // CodeGenerationProfiler 已移除，保留接口兼容性
   metadata?: Record<string, unknown>;
   skillMetadata?: SkillMetadata; // 可选：Skill元数据，用于ABP协议支持
 }
@@ -81,7 +80,7 @@ export class CodeGenerator {
 
   private async extractTypeScript(
     skillContent: SkillContent,
-    profiler?: CodeGenerationProfiler,
+    profiler?: any, // CodeGenerationProfiler 已移除，保留接口兼容性
     skillMetadata?: SkillMetadata
   ): Promise<SkillCodeExtraction> {
     const tsBlocks = skillContent.codeBlocks.filter((block) => {

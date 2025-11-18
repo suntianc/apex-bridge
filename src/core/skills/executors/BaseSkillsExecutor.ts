@@ -14,7 +14,7 @@ import {
   SkillResultFormat,
   SkillResultStatus
 } from '../../../types';
-import { TTLCache } from '../../../utils/TTLCache';
+import { Cache, createCache } from '../../../utils/cache';
 import logger from '../../../utils/logger';
 import { ErrorWrapper } from '../CodeGenerationErrors';
 import type { Logger } from 'winston';
@@ -31,7 +31,7 @@ export interface BaseSkillsExecutorOptions {
 
 export abstract class BaseSkillsExecutor implements SkillsExecutor {
   protected readonly executionType: SkillExecutionType;
-  protected readonly cache?: TTLCache<string, CacheEntry>;
+  protected readonly cache?: Cache<CacheEntry>;
   protected readonly logger: Logger;
 
   constructor(options: BaseSkillsExecutorOptions) {
@@ -41,10 +41,11 @@ export abstract class BaseSkillsExecutor implements SkillsExecutor {
       : logger.child({ executor: this.constructor.name });
 
     if (options.cache) {
-      this.cache = new TTLCache<string, CacheEntry>({
-        maxSize: options.cache.maxSize,
-        ttl: options.cache.ttlMs
-      });
+      // 使用统一的 Cache 类替代 TTLCache
+      this.cache = createCache<CacheEntry>(
+        options.cache.ttlMs,
+        options.cache.maxSize
+      );
     }
   }
 

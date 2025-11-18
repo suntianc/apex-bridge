@@ -8,7 +8,6 @@ import { SkillsIndex } from './SkillsIndex';
 import { SkillsCache } from './SkillsCache';
 import { InstructionLoader } from './InstructionLoader';
 import { ResourceLoader } from './ResourceLoader';
-import { LoadingConcurrencyController } from './LoadingConcurrencyController';
 import { ABPSkillsAdapter } from './ABPSkillsAdapter';
 
 export interface SkillsLoaderOptions {
@@ -21,8 +20,9 @@ export class SkillsLoader {
   private readonly cache: SkillsCache;
   private readonly instructions: InstructionLoader;
   private readonly resources: ResourceLoader;
-  private readonly concurrency: LoadingConcurrencyController;
+  private readonly maxConcurrentLoads: number; // LoadingConcurrencyController 已移除，使用简单计数器
   private readonly abpAdapter: ABPSkillsAdapter;
+  private activeLoads: number = 0; // 当前活跃加载数
 
   constructor(
     skillsIndex: SkillsIndex,
@@ -47,7 +47,7 @@ export class SkillsLoader {
     }
 
     this.cache = cache ?? new SkillsCache();
-    this.concurrency = new LoadingConcurrencyController(resolvedOptions.maxConcurrentLoads ?? 5);
+    this.maxConcurrentLoads = resolvedOptions.maxConcurrentLoads ?? 5;
     this.abpAdapter = new ABPSkillsAdapter();
   }
 
@@ -64,25 +64,43 @@ export class SkillsLoader {
     const loaders: Array<Promise<void>> = [];
 
     if (options.includeContent) {
+      // 简单的并发控制：检查是否超过最大并发数
+      while (this.activeLoads >= this.maxConcurrentLoads) {
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      this.activeLoads++;
       loaders.push(
-        this.concurrency
-          .loadWithDeduplication(`content:${skillName}`, () => this.instructions.loadInstruction(skillName))
+        this.instructions.loadInstruction(skillName)
           .then((content) => {
+            this.activeLoads--;
             if (content) {
               result.content = content;
             }
+          })
+          .catch((err) => {
+            this.activeLoads--;
+            throw err;
           })
       );
     }
 
     if (options.includeResources) {
+      // 简单的并发控制：检查是否超过最大并发数
+      while (this.activeLoads >= this.maxConcurrentLoads) {
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      this.activeLoads++;
       loaders.push(
-        this.concurrency
-          .loadWithDeduplication(`resources:${skillName}`, () => this.resources.loadResources(skillName))
+        this.resources.loadResources(skillName)
           .then((resourceSet) => {
+            this.activeLoads--;
             if (resourceSet) {
               result.resources = resourceSet;
             }
+          })
+          .catch((err) => {
+            this.activeLoads--;
+            throw err;
           })
       );
     }

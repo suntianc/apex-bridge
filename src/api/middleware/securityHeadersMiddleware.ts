@@ -47,7 +47,7 @@ export function createSecurityHeadersMiddleware(config?: Partial<SecurityHeaders
       enabled: true,
       directives: {
         'default-src': ["'self'"],
-        'script-src': ["'self'", "'unsafe-inline'", "'unsafe-eval'"], // 允许内联脚本（管理后台需要）
+        'script-src': ["'self'", "'unsafe-inline'", "'unsafe-eval'"], // 允许内联脚本
         'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'], // 允许内联样式 + Google Fonts
         'style-src-elem': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         'img-src': ["'self'", 'data:', 'https:'], // 允许图片

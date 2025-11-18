@@ -6,18 +6,13 @@ import {
   SkillsExecutor,
   SkillSearchResult
 } from '../../types';
-import { IMemoryService } from '../../types/memory';
 import logger from '../../utils/logger';
 import { SkillsLoader } from './SkillsLoader';
-import { SkillsMetricsCollector } from './SkillsMetricsCollector';
-import { SkillUsageTracker } from './SkillUsageTracker';
 
 export interface SkillsExecutionManagerOptions {
   executors?: Partial<Record<SkillExecutionType, SkillsExecutor>>;
   fallbackChain?: Partial<Record<SkillExecutionType, SkillExecutionType[]>>;
   defaultExecutor?: SkillExecutionType;
-  usageTracker?: SkillUsageTracker; // 可选的使用跟踪器
-  memoryService?: IMemoryService; // 可选的记忆服务
 }
 
 export interface ExecuteByIntentOptions extends Omit<ExecutionRequest, 'skillName'> {
@@ -26,11 +21,7 @@ export interface ExecuteByIntentOptions extends Omit<ExecutionRequest, 'skillNam
 }
 
 const DEFAULT_FALLBACKS: Partial<Record<SkillExecutionType, SkillExecutionType[]>> = {
-  service: ['direct', 'internal'],
-  distributed: ['service', 'direct'],
   direct: ['internal'],
-  preprocessor: ['internal'],
-  static: ['direct'],
   internal: []
 };
 
@@ -39,16 +30,11 @@ export class SkillsExecutionManager {
   private readonly fallbackChain = new Map<SkillExecutionType, SkillExecutionType[]>();
   private readonly defaultExecutor: SkillExecutionType;
   private readonly logger = logger.child({ component: 'SkillsExecutionManager' });
-  private readonly metrics = new SkillsMetricsCollector();
-  private readonly usageTracker?: SkillUsageTracker;
-  private readonly memoryService?: IMemoryService;
 
   constructor(
     private readonly loader: SkillsLoader,
     options: SkillsExecutionManagerOptions = {}
   ) {
-    this.usageTracker = options.usageTracker;
-    this.memoryService = options.memoryService;
     if (options.executors) {
       for (const [type, executor] of Object.entries(options.executors)) {
         if (executor) {
@@ -73,9 +59,7 @@ export class SkillsExecutionManager {
     this.fallbackChain.set(type, fallbacks);
   }
 
-  getExecutionStats(): ExecutionStats {
-    return this.metrics.getStats();
-  }
+  // 执行统计已简化（OpenSpec Phase 4）
 
   async execute(request: ExecutionRequest): Promise<ExecutionResponse> {
     const skill = await this.loader.loadSkill(request.skillName);
@@ -140,35 +124,7 @@ export class SkillsExecutionManager {
     let response: ExecutionResponse;
     try {
       response = await executor.execute(request);
-      this.metrics.recordExecution(type, response);
-
-      // 记录使用情况（如果启用了使用跟踪）
-      if (this.usageTracker) {
-        const skill = await this.loader.loadSkill(request.skillName);
-        const requiresResources = Boolean(skill?.resources);
-        // 从响应中提取置信度（如果有）
-        const confidence = (response.metadata as any).confidence;
-        this.usageTracker.recordExecution(request.skillName, response, confidence, requiresResources);
-      }
-
-      // 收集memoryWrites和intermediateSteps（如果执行成功）
-      if (response.success && response.result?.data) {
-        const outcome = response.result.data as any;
-        const memoryWrites = outcome.memoryWrites;
-        const intermediateSteps = outcome.intermediateSteps;
-
-        // 处理memoryWrites：提交到IMemoryService
-        if (memoryWrites && Array.isArray(memoryWrites) && memoryWrites.length > 0 && this.memoryService) {
-          await this.processMemoryWrites(memoryWrites, request);
-        }
-
-        // 处理intermediateSteps：用于调试和监控
-        if (intermediateSteps && Array.isArray(intermediateSteps) && intermediateSteps.length > 0) {
-          this.processIntermediateSteps(intermediateSteps, request);
-        }
-      }
     } catch (error) {
-      this.metrics.recordFailure(type);
       throw error;
     }
 
@@ -201,152 +157,6 @@ export class SkillsExecutionManager {
     return response;
   }
 
-  /**
-   * 处理记忆写入建议
-   * 将memoryWrites提交到IMemoryService
-   */
-  private async processMemoryWrites(
-    memoryWrites: import('../../types/memory').MemoryWriteSuggestion[],
-    request: ExecutionRequest
-  ): Promise<void> {
-    if (!this.memoryService) {
-      this.logger.debug('[SkillsExecutionManager] MemoryService未配置，跳过memoryWrites处理');
-      return;
-    }
-
-    try {
-      for (const suggestion of memoryWrites) {
-        // 验证suggestion格式
-        if (!this.validateMemoryWriteSuggestion(suggestion)) {
-          this.logger.warn('[SkillsExecutionManager] 无效的memoryWrite建议，已跳过', {
-            suggestion,
-            skillName: request.skillName
-          });
-          continue;
-        }
-
-        // 转换为Memory格式
-        const memory: import('../../types/memory').Memory = {
-          content: suggestion.content,
-          userId: suggestion.ownerType === 'user' ? suggestion.ownerId : undefined,
-          timestamp: Date.now(),
-          metadata: {
-            source: 'skill',
-            sourceSkill: request.skillName,
-            ownerType: suggestion.ownerType,
-            ownerId: suggestion.ownerId,
-            type: suggestion.type,
-            importance: suggestion.importance / 5, // 转换为0-1范围
-            ...suggestion.metadata
-          }
-        };
-
-        // 提交到IMemoryService
-        await this.memoryService.save(memory);
-        this.logger.debug('[SkillsExecutionManager] 成功保存记忆', {
-          skillName: request.skillName,
-          ownerType: suggestion.ownerType,
-          ownerId: suggestion.ownerId,
-          type: suggestion.type
-        });
-      }
-    } catch (error) {
-      this.logger.error('[SkillsExecutionManager] 处理memoryWrites时出错', {
-        error: (error as Error).message,
-        skillName: request.skillName,
-        count: memoryWrites.length
-      });
-      // 不抛出错误，避免影响主流程
-    }
-  }
-
-  /**
-   * 验证memoryWrite建议的格式
-   */
-  private validateMemoryWriteSuggestion(
-    suggestion: import('../../types/memory').MemoryWriteSuggestion
-  ): boolean {
-    if (!suggestion.ownerType || !suggestion.ownerId || !suggestion.type || !suggestion.content) {
-      return false;
-    }
-    if (!['user', 'household', 'task', 'group'].includes(suggestion.ownerType)) {
-      return false;
-    }
-    if (!['preference', 'fact', 'event', 'summary'].includes(suggestion.type)) {
-      return false;
-    }
-    if (typeof suggestion.importance !== 'number' || suggestion.importance < 1 || suggestion.importance > 5) {
-      return false;
-    }
-    return true;
-  }
-
-  /**
-   * 处理中间步骤追踪
-   * 将intermediateSteps用于调试日志和可观测性监控
-   */
-  private processIntermediateSteps(
-    steps: import('../../types/memory').StepTrace[],
-    request: ExecutionRequest
-  ): void {
-    try {
-      // 记录调试日志
-      this.logger.debug('[SkillsExecutionManager] 技能执行中间步骤', {
-        skillName: request.skillName,
-        stepCount: steps.length,
-        steps: steps.map((step) => ({
-          stepId: step.stepId,
-          stepName: step.stepName,
-          duration: step.duration,
-          hasError: !!step.error
-        }))
-      });
-
-      // 记录详细步骤信息（仅在debug模式）
-      if (this.logger.level === 'debug') {
-        for (const step of steps) {
-          this.logger.debug(`[SkillsExecutionManager] 步骤: ${step.stepName}`, {
-            stepId: step.stepId,
-            duration: `${step.duration}ms`,
-            input: step.input,
-            output: step.output,
-            error: step.error?.message,
-            timestamp: step.timestamp ?? Date.now()
-          });
-        }
-      }
-
-      // 计算总耗时
-      const totalDuration = steps.reduce((sum, step) => sum + step.duration, 0);
-      if (totalDuration > 1000) {
-        this.logger.warn('[SkillsExecutionManager] 技能执行总耗时较长', {
-          skillName: request.skillName,
-          totalDuration: `${totalDuration}ms`,
-          stepCount: steps.length
-        });
-      }
-
-      // 检查是否有错误步骤
-      const errorSteps = steps.filter((step) => step.error);
-      if (errorSteps.length > 0) {
-        this.logger.warn('[SkillsExecutionManager] 技能执行过程中有错误步骤', {
-          skillName: request.skillName,
-          errorStepCount: errorSteps.length,
-          errors: errorSteps.map((step) => ({
-            stepId: step.stepId,
-            stepName: step.stepName,
-            error: step.error?.message
-          }))
-        });
-      }
-    } catch (error) {
-      this.logger.error('[SkillsExecutionManager] 处理intermediateSteps时出错', {
-        error: (error as Error).message,
-        skillName: request.skillName
-      });
-      // 不抛出错误，避免影响主流程
-    }
-  }
 
   private annotateResponseWithMatch(
     response: ExecutionResponse,

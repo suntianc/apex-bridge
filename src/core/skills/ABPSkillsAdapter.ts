@@ -136,7 +136,7 @@ export class ABPSkillsAdapter {
     // 根据Skill类型推断
     switch (metadata.type) {
       case 'direct':
-      case 'service': {
+      case 'internal': {
         // 检查关键词和描述
         const name = metadata.name.toLowerCase();
         const description = metadata.description.toLowerCase();
@@ -160,15 +160,6 @@ export class ABPSkillsAdapter {
         // 默认为action
         return 'action';
       }
-
-      case 'static':
-        return 'query';
-
-      case 'preprocessor':
-        return 'transform';
-
-      case 'internal':
-        return 'action';
 
       default:
         return 'action';

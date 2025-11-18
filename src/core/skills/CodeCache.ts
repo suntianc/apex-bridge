@@ -6,6 +6,7 @@ import {
   GeneratedSkillCode,
   SecurityReport
 } from '../../types';
+import { Cache, createCache } from '../../utils/cache';
 
 interface InternalCacheEntry extends CodeCacheEntry {
   expiresAt: number;
@@ -30,7 +31,7 @@ const cloneGeneratedCode = (code: GeneratedSkillCode): GeneratedSkillCode => ({
 
 export class CodeCache {
   private readonly options: Required<CodeCacheOptions>;
-  private readonly cache = new Map<string, InternalCacheEntry>();
+  private readonly cache: Cache<InternalCacheEntry>;
   private hits = 0;
   private misses = 0;
   private evictions = 0;
@@ -46,6 +47,12 @@ export class CodeCache {
     if (this.options.ttlMs <= 0) {
       throw new Error('[CodeCache] ttlMs must be greater than 0');
     }
+    
+    // 使用统一的 Cache 类替代 Map
+    this.cache = createCache<InternalCacheEntry>(
+      this.options.ttlMs,
+      this.options.maxSize
+    );
   }
 
   get(skillName: string, hash: string): CodeCacheEntry | undefined {
@@ -55,7 +62,8 @@ export class CodeCache {
       return undefined;
     }
 
-    if (entry.hash !== hash || this.isExpired(entry)) {
+    // 检查 hash 匹配（Cache 类已处理过期，无需手动检查）
+    if (entry.hash !== hash) {
       this.cache.delete(skillName);
       this.misses += 1;
       return undefined;
@@ -67,9 +75,8 @@ export class CodeCache {
     entry.hitCount += 1;
     entry.expiresAt = now + this.options.ttlMs;
 
-    // refresh LRU order
-    this.cache.delete(skillName);
-    this.cache.set(skillName, entry);
+    // 刷新 TTL（通过重新设置）
+    this.cache.set(skillName, entry, this.options.ttlMs);
 
     return this.cloneEntry(entry);
   }
@@ -102,13 +109,12 @@ export class CodeCache {
       expiresAt: now + this.options.ttlMs
     };
 
+    // Cache 类自动处理 LRU 淘汰，无需手动处理
+    // 如果已存在，先删除再设置（确保更新）
     if (this.cache.has(skillName)) {
       this.cache.delete(skillName);
-    } else if (this.cache.size >= this.options.maxSize) {
-      this.evictOldest();
     }
-
-    this.cache.set(skillName, entry);
+    this.cache.set(skillName, entry, this.options.ttlMs);
   }
 
   invalidate(skillName: string): void {
@@ -124,35 +130,26 @@ export class CodeCache {
 
   getStats(): CodeCacheStats {
     const entries: CodeCacheStats['entries'] = [];
-    for (const [, entry] of this.cache) {
-      entries.push({
-        hash: entry.hash,
-        compiledAt: entry.compiledAt,
-        lastUsed: entry.lastUsed,
-        hitCount: entry.hitCount
-      });
+    // Cache 类不提供 entries() 方法，需要通过 keys() 获取
+    for (const key of this.cache.keys()) {
+      const entry = this.cache.get(key);
+      if (entry) {
+        entries.push({
+          hash: entry.hash,
+          compiledAt: entry.compiledAt,
+          lastUsed: entry.lastUsed,
+          hitCount: entry.hitCount
+        });
+      }
     }
 
     return {
-      size: this.cache.size,
+      size: this.cache.size(),
       hits: this.hits,
       misses: this.misses,
       evictions: this.evictions,
       entries
     };
-  }
-
-  private isExpired(entry: InternalCacheEntry): boolean {
-    return entry.expiresAt <= Date.now();
-  }
-
-  private evictOldest(): void {
-    const iterator = this.cache.keys();
-    const oldestKey = iterator.next();
-    if (!oldestKey.done) {
-      this.cache.delete(oldestKey.value);
-      this.evictions += 1;
-    }
   }
 
   private cloneEntry(entry: InternalCacheEntry): CodeCacheEntry {

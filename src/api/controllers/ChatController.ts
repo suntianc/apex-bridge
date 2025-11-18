@@ -5,21 +5,18 @@
 
 import { Request, Response } from 'express';
 import { ChatService } from '../../services/ChatService';
-import { LLMClient } from '../../core/LLMClient';
+import { LLMManager as LLMClient } from '../../core/LLMManager'; // 向后兼容别名
 import { InterruptRequest, InterruptResponse } from '../../types/request-abort';
 import { logger } from '../../utils/logger';
-import { ConversationRequestPayload } from '../../types';
-import { ConversationRouter, ConversationRoutingError } from '../../core/conversation/ConversationRouter';
+// ConversationRouter 已移除（对话路由功能已删除）
 
 export class ChatController {
   private chatService: ChatService;
   private llmClient: LLMClient | null = null; // 改为可选，支持懒加载
-  private readonly conversationRouter: ConversationRouter;
   
-  constructor(chatService: ChatService, llmClient: LLMClient | null, conversationRouter: ConversationRouter) {
+  constructor(chatService: ChatService, llmClient: LLMClient | null) {
     this.chatService = chatService;
     this.llmClient = llmClient;
-    this.conversationRouter = conversationRouter;
   }
   
   /**
@@ -71,110 +68,7 @@ export class ChatController {
         options.userId = requestUserId;
       }
 
-      const conversationPayload: ConversationRequestPayload = {
-        messages,
-        options,
-        apexMeta: req.body?.apexMeta
-      };
-
-      let route;
-      try {
-        route = this.conversationRouter.resolveRoute(conversationPayload);
-      } catch (error) {
-        if (error instanceof ConversationRoutingError) {
-          res.status(error.statusCode).json({
-            error: {
-              message: error.message,
-              type: 'conversation_routing_error'
-            }
-          });
-          return;
-        }
-        throw error;
-      }
-      const primaryTarget = route.primaryTarget;
-      options.agentId = primaryTarget.personaId ?? options.agentId;
-
-      if (primaryTarget.type === 'companion' || primaryTarget.type === 'worker') {
-        if (options.stream) {
-          logger.warn(`[ChatController] Stream mode requested for ${primaryTarget.type} node; falling back to non-stream response`);
-          options.stream = false;
-        }
-        try {
-          const nodeConversation = await this.chatService.processNodeConversation(
-            messages,
-            options,
-            route
-          );
-
-          const responseModel =
-            options.model ||
-            (primaryTarget.type === 'companion' ? 'companion-proxy' : 'worker-proxy');
-
-          const response: any = {
-            id: `chatcmpl-${Date.now()}`,
-            object: 'chat.completion',
-            created: Math.floor(Date.now() / 1000),
-            model: responseModel,
-            choices: [
-              {
-                index: 0,
-                message: {
-                  role: 'assistant',
-                  content: nodeConversation.content ?? ''
-                },
-                finish_reason: 'stop'
-              }
-            ],
-            usage: {
-              prompt_tokens: 0,
-              completion_tokens: 0,
-              total_tokens: 0
-            },
-            node_result: nodeConversation.rawResult ?? null,
-            partial_outputs: nodeConversation.partialOutputs ?? []
-          };
-
-          const normalizedUsage = this.normalizeUsage(nodeConversation.usage);
-          if (normalizedUsage) {
-            response.usage = normalizedUsage;
-          }
-
-          if (nodeConversation.delegations && nodeConversation.delegations.length > 0) {
-            response.delegations = nodeConversation.delegations;
-          }
-
-          res.json(response);
-
-          if (nodeConversation.content) {
-            this.conversationRouter.recordAssistantMessage(route.conversationId, {
-              role: 'assistant',
-              content: nodeConversation.content,
-              personaId: primaryTarget.personaId,
-              memberId: primaryTarget.memberId
-            });
-          }
-        } catch (error: any) {
-          logger.error('❌ Node conversation failed:', error);
-          res.status(502).json({
-            error: {
-              message: error?.message || 'Node conversation failed',
-              type: 'node_conversation_failed'
-            }
-          });
-        }
-        return;
-      }
-
-      if (primaryTarget.type !== 'hub') {
-        res.status(501).json({
-          error: {
-            message: `Personas of type "${primaryTarget.type}" are not yet supported in the current routing phase.`,
-            type: 'unsupported_target'
-          }
-        });
-        return;
-      }
+      // 对话路由功能已移除，直接处理请求
       
       if (options.stream) {
         // 流式响应
@@ -188,7 +82,7 @@ export class ChatController {
         let aggregatedContent = '';
         
         try {
-          for await (const chunk of this.chatService.streamMessage(messages, options, route)) {
+          for await (const chunk of this.chatService.streamMessage(messages, options)) {
             // 🆕 处理元数据标记（不包装为delta，直接发送）
             if (chunk.startsWith('__META__:')) {
               const metaData = JSON.parse(chunk.substring(9));
@@ -229,14 +123,7 @@ export class ChatController {
           res.end();
           
           logger.info(`✅ Streamed ${chunkIndex} chunks for request ${responseId}`);
-          if (aggregatedContent.trim().length > 0) {
-            this.conversationRouter.recordAssistantMessage(route.conversationId, {
-              role: 'assistant',
-              content: aggregatedContent,
-              personaId: primaryTarget.personaId,
-              memberId: primaryTarget.memberId
-            });
-          }
+          // 对话上下文记录已移除（对话路由功能已删除）
           
         } catch (streamError: any) {
           logger.error('❌ Error during streaming:', streamError);
@@ -252,7 +139,7 @@ export class ChatController {
         
       } else {
         // 非流式响应
-        const result = await this.chatService.processMessage(messages, options, route);
+        const result = await this.chatService.processMessage(messages, options);
         
         const response = {
           id: `chatcmpl-${Date.now()}`,
@@ -276,14 +163,7 @@ export class ChatController {
         
         res.json(response);
         logger.info('✅ Completed non-stream chat request');
-        if (result?.content) {
-          this.conversationRouter.recordAssistantMessage(route.conversationId, {
-            role: 'assistant',
-            content: result.content,
-            personaId: primaryTarget.personaId,
-            memberId: primaryTarget.memberId
-          });
-        }
+        // 对话上下文记录已移除（对话路由功能已删除）
       }
       
     } catch (error: any) {
@@ -350,9 +230,9 @@ export class ChatController {
   async getModels(req: Request, res: Response): Promise<void> {
     // 懒加载LLMClient（线程安全）
     if (!this.llmClient) {
-      const { RuntimeConfigService } = require('../../services/RuntimeConfigService');
-      const runtimeConfig = RuntimeConfigService.getInstance();
-      this.llmClient = await runtimeConfig.getLLMClient();
+      // LLMManager 支持懒加载，从 SQLite 加载配置
+      const { LLMManager } = require('../../core/LLMManager');
+      this.llmClient = new LLMManager() as LLMClient;
     }
     
     if (!this.llmClient) {

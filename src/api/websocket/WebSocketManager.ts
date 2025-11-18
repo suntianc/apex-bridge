@@ -7,22 +7,18 @@ import { Server } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { AdminConfig } from '../../services/ConfigService';
 import { logger } from '../../utils/logger';
-import { DistributedServerChannel } from './channels/DistributedServerChannel';
-import { ABPLogChannel } from './channels/ABPLogChannel';
+import { ChatChannel } from './channels/ChatChannel';
 
 export class WebSocketManager {
   private wss!: WebSocketServer;
-  private distributedServerChannel: DistributedServerChannel;
-  private abpLogChannel: ABPLogChannel;
-  
+  private chatChannel: ChatChannel;
+
   constructor(
     private config: AdminConfig,
-    distributedServerChannel: DistributedServerChannel,
-    abpLogChannel: ABPLogChannel
+    chatChannel: ChatChannel
   ) {
-    this.distributedServerChannel = distributedServerChannel;
-    this.abpLogChannel = abpLogChannel;
-    
+    this.chatChannel = chatChannel;
+
     logger.info('🌐 Initializing WebSocket Manager...');
   }
   
@@ -55,41 +51,23 @@ export class WebSocketManager {
       logger.info(`📡 URL: ${url}`);
       logger.info(`📡 ========================================`);
       
-      // 1. 匹配 /abp-distributed-server 或 /distributed-server
-      const distServerMatch = url.match(/^\/(?:abp-distributed-server|distributed-server)\/ABP_Key=(.+)$/);
-      if (distServerMatch) {
-        const abpKey = distServerMatch[1];
-        logger.info(`🔑 Distributed Server: ABP_Key = ${abpKey.substring(0, 15)}...`);
-        const nodeKey = this.config.auth.apiKey || '';
-        logger.info(`🔑 Expected Key: ${nodeKey.substring(0, 15)}...`);
-        
-        if (this.validateABPKey(abpKey)) {
-          logger.info('✅ ABP_Key validated, accepting connection');
-          this.distributedServerChannel.handleConnection(ws, abpKey, request);
+      // 1. 匹配 /chat 或 /v1/chat
+      const chatMatch = url.match(/^\/(?:chat|v1\/chat)\/api_key=(.+)$/);
+      if (chatMatch) {
+        const apiKey = chatMatch[1];
+        logger.info(`🔑 Chat: API_Key = ${apiKey.substring(0, 15)}...`);
+
+        if (this.validateApiKey(apiKey)) {
+          logger.info('✅ API_Key validated, accepting chat connection');
+          this.chatChannel.handleConnection(ws, apiKey, request);
         } else {
-          logger.warn('⚠️  Distributed Server connection denied: Invalid ABP_Key');
-          ws.close(1008, 'Invalid ABP_Key');
+          logger.warn('⚠️  Chat connection denied: Invalid API_Key');
+          ws.close(1008, 'Invalid API key');
         }
         return;
       }
-      
-      // 2. 匹配 /ABPlog 或 /log
-      const abpLogMatch = url.match(/^\/(?:ABPlog|log)\/ABP_Key=(.+)$/);
-      if (abpLogMatch) {
-        const abpKey = abpLogMatch[1];
-        logger.info(`🔑 ABPLog: ABP_Key = ${abpKey.substring(0, 15)}...`);
-        
-        if (this.validateABPKey(abpKey)) {
-          logger.info('✅ ABP_Key validated, accepting connection');
-          this.abpLogChannel.handleConnection(ws, abpKey, request);
-        } else {
-          logger.warn('⚠️  ABPLog connection denied: Invalid ABP_Key');
-          ws.close(1008, 'Invalid ABP_Key');
-        }
-        return;
-      }
-      
-      // 3. 未匹配的路径
+
+      // 2. 未匹配的路径
       logger.warn(`⚠️  Unknown WebSocket path: ${url}`);
       ws.close(1003, 'Unknown path');
     });
@@ -98,15 +76,11 @@ export class WebSocketManager {
   }
   
   /**
-   * 验证 ABP Key（节点之间的认证）
+   * 验证 API Key
    */
-  private validateABPKey(providedKey: string): boolean {
-    const nodeKey = this.config.auth.apiKey || '';
-    if (nodeKey && providedKey === nodeKey) {
-      return true;
-    }
-    
-    return false;
+  private validateApiKey(apiKey: string): boolean {
+    const expectedKey = process.env.API_KEY || '';
+    return apiKey === expectedKey;
   }
   
   /**
@@ -116,8 +90,7 @@ export class WebSocketManager {
     logger.info('🛑 Shutting down WebSocket Manager...');
     
     // 关闭所有通道
-    await this.distributedServerChannel.shutdown();
-    await this.abpLogChannel.shutdown();
+    // 无需关闭通道，ChatChannel是无状态的
     
     // 关闭WebSocket服务器
     this.wss.close(() => {

@@ -47,32 +47,12 @@ export interface ToolResult {
   error?: string;
 }
 
-export interface DistributedNode {
-  id: string;
-  ws: any; // WebSocket
-  name: string;
-  tools: any[];
-  ips: {
-    localIPs: string[];
-    publicIP?: string;
-  };
-  status: 'connected' | 'disconnected';
-  lastHeartbeat: number;
-}
-
 export interface LLMProviderConfig {
   apiKey?: string;
   baseURL: string;
   defaultModel: string;
   timeout?: number;
   maxRetries?: number;
-}
-
-export interface LLMQuotaConfig {
-  maxRequestsPerMinute?: number;
-  maxTokensPerDay?: number;
-  maxConcurrentStreams?: number;
-  burstMultiplier?: number;
 }
 
 // ABP-only: 运行时直接使用 AdminConfig 作为配置源
@@ -85,7 +65,6 @@ export interface LLMConfig {
   claude?: LLMProviderConfig;
   ollama?: Omit<LLMProviderConfig, 'apiKey'>; // 本地推理一般不需要 apiKey
   custom?: LLMProviderConfig;
-  quota?: LLMQuotaConfig;
 }
 
 // ==================== WebSocket相关类型 ====================
@@ -100,59 +79,7 @@ export interface ABPLogMessage extends WebSocketMessage {
   data?: any;
 }
 
-// ABP 工具日志数据
-export interface ABPToolLogData {
-  tool_name: string;
-  status: 'success' | 'error' | 'executing';
-  content?: string;  // 统一使用 content 字段
-  source?: string;   // 可选：消息来源标识
-  timestamp?: number;
-}
-
-// AI流式输出日志
-export interface AIStreamLogData {
-  content: string;
-  chunk_index?: number;
-  is_tool_call?: boolean;
-}
-
-// 异步工具结果推送
-export interface AsyncToolResultData {
-  plugin: string;
-  result: any;
-  status: 'completed' | 'failed';
-  error?: string;
-  timestamp: number;
-}
-
-export interface DistributedServerMessage extends WebSocketMessage {
-  type: 'register_tools' | 'execute_tool' | 'tool_result' | 'report_ip' | 'update_static_placeholders';
-  data?: any;
-}
-
-export interface ToolExecutionRequest {
-  requestId: string;
-  toolName: string;
-  toolArgs: Record<string, any>;
-}
-
-export interface ToolExecutionResult {
-  requestId: string;
-  status: 'success' | 'error';
-  result?: any;
-  error?: string;
-  /** 记忆写入建议（可选） */
-  memoryWrites?: import('./memory').MemoryWriteSuggestion[];
-  /** 中间步骤追踪（可选，用于调试和可观测性） */
-  intermediateSteps?: import('./memory').StepTrace[];
-}
-
-export interface PendingRequest {
-  resolve: (value: any) => void;
-  reject: (error: Error) => void;
-  timeout: NodeJS.Timeout;
-}
-
-export * from './conversation';
 export * from './skills';
-export * from './memory';
+
+// 配置接口统一导出（可选，也可以直接从各模块导入）
+export * from './config';

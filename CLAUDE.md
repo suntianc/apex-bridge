@@ -17,64 +17,48 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
 <!-- OPENSPEC:END -->
 
-# ApexBridge - 家庭AI系统中枢
+# ApexBridge - 轻量级ABP聊天服务
 
-> **项目愿景**: 一个现代化的桥接应用项目，构建家庭AI系统中枢，集成多LLM支持、高级RAG搜索、人格引擎、情感引擎和节点管理功能。采用ABP协议，Skills体系，React管理后台。
+> **项目愿景**: 一个专注于ABP协议和LLM集成的轻量级聊天服务，支持多LLM提供商、Skills体系和实时流式对话。
 
 ## 🏗️ 架构总览
 
 ```mermaid
 graph TD
-    A["ApexBridge 主系统"] --> B["核心引擎"];
+    A["ApexBridge 轻量级服务"] --> B["核心引擎"];
     B --> C["Protocol引擎<br/>ABP协议处理"];
-    B --> D["LLM客户端<br/>多提供商适配"];
-    B --> E["人格引擎<br/>动态人格配置"];
-    B --> F["情感引擎<br/>情感状态管理"];
-    B --> G["节点管理器<br/>分布式节点"];
+    B --> D["LLM管理器<br/>多提供商适配"];
+    B --> E["变量引擎<br/>动态变量解析"];
 
-    A --> H["服务层"];
-    H --> I["聊天服务<br/>会话管理"];
-    H --> J["RAG记忆服务<br/>向量检索"];
-    H --> K["配置服务<br/>动态配置"];
-    H --> L["节点服务<br/>节点生命周期"];
-    H --> M["偏好服务<br/>个性化设置"];
-    H --> N["主动性调度<br/>场景触发"];
+    A --> F["服务层"];
+    F --> G["聊天服务<br/>对话管理"];
+    F --> H["配置服务<br/>动态配置"];
+    F --> I["偏好服务<br/>个性化设置"];
+    F --> J["LLM配置服务<br/>提供商管理"];
 
-    A --> O["API接口"];
-    O --> P["聊天控制器<br/>OpenAI兼容"];
-    O --> Q["节点控制器<br/>节点管理"];
-    O --> R["人格控制器<br/>人格配置"];
-    O --> S["偏好控制器<br/>偏好管理"];
-    O --> T["时间线控制器<br/>记忆时间线"];
-    O --> U["关系控制器<br/>关系管理"];
+    A --> K["API接口"];
+    K --> L["聊天控制器<br/>OpenAI兼容"];
+    K --> M["LLM控制器<br/>配置管理"];
+    K --> N["WebSocket管理<br/>实时通信"];
 
-    A --> V["Skills 能力体系"];
-    V --> W["指令与元数据<br/>SKILL.md"];
-    V --> X["执行脚本<br/>scripts/execute.ts"];
-    V --> Y["资源与引用<br/>references/"];
-
-    A --> Z["管理后台"];
-    Z --> AA["React前端<br/>Vite + TypeScript"];
-    Z --> AB["设置向导<br/>初始化配置"];
-    Z --> AC["仪表板<br/>系统监控"];
-
-    A --> AD["节点代理"];
-    AD --> AE["Worker节点<br/>任务执行"];
-    AD --> AF["Companion节点<br/>陪伴助手"];
+    A --> O["Skills 能力体系"];
+    O --> P["技能元数据<br/>SKILL.md"];
+    O --> Q["技能执行器<br/>Direct/Internal"];
+    O --> R["技能缓存<br/>性能优化"];
 
     click C "./src/core/ProtocolEngine.ts" "查看Protocol引擎实现"
-    click D "./src/core/LLMClient.ts" "查看LLM客户端实现"
-    click E "./src/core/PersonalityEngine.ts" "查看人格引擎实现"
-    click Z "./admin/CLAUDE.md" "查看管理后台文档"
+    click D "./src/core/LLMManager.ts" "查看LLM管理器实现"
+    click E "./src/core/variable/VariableEngine.ts" "查看变量引擎实现"
 ```
 
-## 📦 模块索引
+## 📦 核心模块
 
-| 模块 | 路径 | 职责 | 技术栈 | 状态 |
-|------|------|------|--------|------|
-| **ApexBridge主系统** | `apex-bridge/` | 家庭AI系统中枢，核心引擎和API | TypeScript + Node.js | ✅ [详细文档](./apex-bridge/CLAUDE.md) |
-| **管理后台** | `apex-bridge/admin/` | Web管理界面，配置和监控 | React 18 + TypeScript + Vite | ✅ [详细文档](./apex-bridge/admin/CLAUDE.md) |
-| **节点代理** | `apex-bridge/packages/node-agent/` | 分布式节点运行时 | TypeScript + WebSocket | ✅ [详细文档](./apex-bridge/packages/node-agent/CLAUDE.md) |
+| 模块 | 路径 | 职责 | 状态 |
+|------|------|------|------|
+| **核心引擎** | `src/core/` | ABP协议、LLM管理、变量引擎、Skills体系 | ✅ 活跃 |
+| **API层** | `src/api/` | 聊天接口、LLM配置、WebSocket通信 | ✅ 活跃 |
+| **服务层** | `src/services/` | 聊天服务、配置服务、偏好服务 | ✅ 活跃 |
+| **中间件** | `src/api/middleware/` | 认证、限流、安全、验证 | ✅ 活跃 |
 
 ## 🚀 运行与开发
 
@@ -101,9 +85,6 @@ cp apex-bridge/env.template .env
 
 # 5. 开发模式
 npm run dev
-
-# 6. 管理后台开发
-cd apex-bridge/admin && npm run dev  # 运行在 http://localhost:3000/admin
 ```
 
 ### 📦 依赖管理
@@ -120,39 +101,23 @@ npm run audit:all
 
 ## 🔧 核心架构特色
 
-### 🧠 协议引擎（ABP-only）
-- **独立实现**: 不再依赖外部SDK，完全自主的ABP协议处理
-- **Skills体系**: 取代传统插件，支持三段渐进式披露
-- **变量解析**: 支持时间、环境、占位符、代理等多种变量类型
+### 🧠 ABP协议引擎（ABP-only）
+- **独立实现**: 不再依赖任何外部SDK，完全自主的ABP协议处理
+- **Skills体系**: 取代传统插件，支持两段执行器（Direct/Internal）
+- **变量解析**: 支持时间、环境、占位符等多种变量类型
 - **工具描述**: 动态生成工具描述，支持偏好驱动的参数默认值
 
 ### 🎯 多LLM支持
 - **适配器模式**: 统一接口支持OpenAI、DeepSeek、智谱、Ollama等
+- **SQLite配置**: 从数据库加载配置，支持运行时热更新
 - **智能重试**: 自动重试机制，支持指数退避
 - **流式响应**: 支持流式聊天和实时中断
-- **参数过滤**: 根据厂商特性自动过滤不支持的参数
-
-### 🎭 人格与情感引擎
-- **动态人格**: 支持JSON和TXT格式的人格配置
-- **情感状态**: 情感识别、反应生成和状态管理
-- **记忆集成**: 与记忆服务深度集成，支持情感记录
-
-### 💾 记忆系统
-- **双轨记忆**: 支持语义记忆（向量检索）和情景记忆（时间序列）
-- **RAG集成**: 高性能向量检索，支持hnswlib-node
-- **记忆桥接**: 情景-语义桥接，自动同步和关联
-
-### 🌐 分布式节点
-- **节点类型**: Hub、Worker、Companion三种节点类型
-- **WebSocket通信**: 实时双向通信，支持节点状态同步
-- **任务调度**: 分布式任务分配和执行
-- **配额管理**: 细粒度的LLM配额控制
 
 ### 🔐 安全与监控
-- **多层认证**: API Key、节点Key、管理后台独立认证
+- **多层认证**: API Key认证机制
 - **速率限制**: 智能限流，支持IP和API Key双重策略
-- **安全中间件**: 输入清理、SQL注入防护、路径遍历防护
-- **审计日志**: 完整的操作审计和安全事件记录
+- **安全中间件**: 输入清理、路径遍历防护、安全日志记录
+- **实时通信**: WebSocket支持双向通信和请求中断
 
 ## 🧪 测试策略
 
@@ -175,11 +140,11 @@ npm test -- PersonalityEngine.test.ts
 ```
 
 ### 测试覆盖重点
-- 人格引擎配置加载和缓存机制
 - ABP协议变量解析与Skills执行
 - 多LLM提供商适配和切换
 - WebSocket连接和消息处理
 - Skills体系的安全性与隔离
+- 请求中断和流式响应机制
 
 ## 📋 编码规范
 
@@ -193,25 +158,23 @@ npm test -- PersonalityEngine.test.ts
 ```
 apex-bridge/
 ├── src/
-│   ├── core/           # 核心引擎（Protocol、LLM、人格、情感等）
+│   ├── core/           # 核心引擎（Protocol、LLM、变量、Skills等）
 │   ├── services/       # 业务逻辑服务
 │   ├── api/            # API接口和控制器
 │   ├── types/          # 类型定义
 │   ├── utils/          # 工具函数
 │   └── config/         # 配置管理
-├── admin/              # 管理后台（独立React应用）
-├── skills/             # Skills 能力（取代插件）
-├── packages/node-agent/# 节点代理包
+├── skills/             # Skills 能力（轻量级插件系统）
 ├── tests/              # 测试套件
 ├── config/             # 配置文件
 └── docs/               # 文档
 ```
 
 ### 命名约定
-- **类名**: PascalCase (如: `ProtocolEngine`, `PersonalityEngine`)
-- **函数和变量**: camelCase (如: `loadPersonality`, `systemPrompt`)
+- **类名**: PascalCase (如: `ProtocolEngine`, `LLMManager`)
+- **函数和变量**: camelCase (如: `loadConfig`, `systemPrompt`)
 - **常量**: UPPER_SNAKE_CASE (如: `DEFAULT_TIMEOUT`, `MAX_RETRIES`)
-- **文件和目录**: kebab-case (如: `personality-engine.ts`, `chat-controller.ts`)
+- **文件和目录**: kebab-case (如: `protocol-engine.ts`, `chat-controller.ts`)
 
 ## 🤖 AI 使用指引
 
@@ -219,23 +182,14 @@ apex-bridge/
 1. **Protocol引擎** (`src/core/ProtocolEngine.ts`)
    - 独立实现，不再依赖任何外部SDK
    - 处理ABP协议解析和工具调用（经Skills映射执行）
-   - 处理变量解析与三段渐进式工具描述
-   - 集成RAG搜索和时间感知功能
+   - 处理变量解析与工具描述生成
+   - 轻量级设计，专注于核心聊天功能
 
-2. **LLM客户端** (`src/core/LLMClient.ts`)
+2. **LLMManager** (`src/core/LLMManager.ts`)
    - 多提供商适配器模式
    - 支持OpenAI、DeepSeek、智谱、Ollama
    - 流式聊天和重试机制
-
-3. **人格引擎** (`src/core/PersonalityEngine.ts`)
-   - 动态加载人格配置
-   - 构建系统提示词
-   - 支持JSON和TXT格式
-
-4. **情感引擎** (`src/core/EmotionEngine.ts`)
-   - 处理情感状态管理
-   - 情感反应生成
-   - 与人格系统集成
+   - 与ProtocolEngine深度集成
 
 ### Skills 开发指南
 1. **目录结构**
@@ -243,16 +197,14 @@ apex-bridge/
    - `scripts/execute.ts`：技能执行入口（默认导出）
    - `references/`、`assets/`：参考资料与资源
 
-2. **三段渐进式披露**
-   - Metadata（名称/描述/工具签名）→ Brief（参数/约束）→ Full（完整指令与资源）
-   - 覆盖逻辑：若存在偏好`toolsDisclosure=metadata|brief|full`，则固定该阶段；否则基于置信度回退
-
-3. **偏好驱动的参数默认值**
+2. **偏好驱动的参数默认值**
    - 当工具参数缺省时，按"显式参数 > schema默认 > 偏好"的顺序补全
    - 相关实现：`SkillsToToolMapper.convertToolCallToExecutionRequestWithDefaults`、`ChatService.setPreferenceService`
 
-4. **迁移脚本**
-   - 使用`scripts/migrate-skills-to-claude-package.ts`将旧技能规范化
+3. **技能执行类型**
+   - **Direct（直接执行）**: 本地同步执行，默认类型
+   - **Internal（内部执行）**: 核心系统内置技能
+   - 简化的执行模型，专注于轻量级场景
 
 ### API扩展模式
 ```typescript
@@ -272,6 +224,39 @@ app.use('/api/new', newController.getRouter());
 
 ## 📊 变更记录 (Changelog)
 
+### 2025-11-19 - 架构简化与代码清理
+- ✅ **中间件简化**: 7个中间件文件简化，平均减少53.4%代码量
+  - rateLimitMiddleware: 673→374行 (-44.4%)
+  - validationMiddleware: 414→167行 (-59.4%)
+  - auditLoggerMiddleware: 250→67行 (-73.2%)
+  - sanitizationMiddleware: 302→134行 (-55.6%)
+  - securityLoggerMiddleware: 233→105行 (-54.9%)
+  - customValidators: 171→62行 (-63.7%)
+  - validationSchemas: 224→172行 (-23.2%)
+
+- ✅ **Services精简**: 移除4个过度设计的服务，简化ConfigService
+  - 删除: DiaryArchiveService, SecurityAlertService, SecurityStatsService
+  - 简化: ConfigService 1005→470行 (-53.2%)
+  - 删除: RaceDetector, TransactionManager, Mutex等并发工具
+  - 总计减少: ~1,300行代码
+
+- ✅ **Types优化**: 移除未使用的类型定义
+  - 删除: personality.ts (51行)
+  - 简化: index.ts 移除了LLMQuotaConfig等未使用类型
+  - 简化: skills.ts SkillExecutionType从6种减少到2种
+  - 总计减少: ~288行代码
+
+- ✅ **功能清理**: 移除非核心功能
+  - 删除: plugin-callback.ts (异步插件回调)
+  - 删除: AsyncResultProvider及相关服务
+  - 删除: DemoAsyncTask技能示例
+  - 总计减少: ~600行代码
+
+- ✅ **架构简化成果**:
+  - **总代码减少**: ~2,200+行（从复杂分布式系统简化为轻量级ABP聊天服务）
+  - **编译状态**: ✅ 全部通过
+  - **架构清晰**: 专注于核心聊天功能，去除过度工程化设计
+
 ### 2025-11-16 - 项目初始化扫描
 - ✅ 完成项目结构分析和模块识别
 - ✅ 分析核心架构：ABP协议引擎、Skills体系、多LLM支持
@@ -279,39 +264,32 @@ app.use('/api/new', newController.getRouter());
 - ✅ 建立模块文档体系框架
 - ✅ 生成架构图和模块索引
 
-### 扫描覆盖率
-- **总文件数**: 约350+个文件
-- **已扫描**: 23个核心文件
-- **主要模块**: 3个核心模块已识别
-- **下一步**: 深度分析各模块实现细节
+### 扫描覆盖率（简化后）
+- **总文件数**: ~150个文件（从350+精简）
+- **核心代码**: 结构清晰，模块职责明确
+- **架构状态**: 轻量级、专注、易维护
 
-## 🎯 下一步建议
+## 🎯 当前架构特点
 
-### 高优先级任务
-1. **核心引擎深度分析** - 详细分析ProtocolEngine、LLMClient、PersonalityEngine实现
-2. **Skills体系研究** - 深入理解Skills架构、执行机制、描述生成
-3. **记忆系统分析** - 研究RAG集成、双轨记忆、记忆桥接机制
+### ✅ 保留的核心功能
+1. **ProtocolEngine** - ABP协议处理核心
+2. **LLMManager** - 多LLM提供商支持
+3. **VariableEngine** - 变量解析系统
+4. **ChatService** - 聊天服务核心
+5. **Skills体系** - 简化的技能执行（Direct/Internal）
+6. **WebSocket** - 实时通信
+7. **PreferenceService** - 偏好管理
+8. **LLMConfigService** - LLM配置管理
 
-### 中等优先级任务
-4. **节点代理分析** - 研究分布式节点架构和通信机制
-5. **管理后台分析** - 分析React前端架构和功能模块
-6. **安全机制审计** - 审查认证授权、限流、安全中间件
+### ❌ 已移除的复杂功能
+- 人格引擎、情感引擎、记忆系统
+- 分布式节点、管理后台
+- 异步插件回调、复杂限流策略
+- 过度设计的并发控制和安全监控
 
-### 建议扫描重点
-- `src/core/ProtocolEngine.ts` - ABP协议核心实现
-- `src/core/LLMClient.ts` - 多LLM适配器模式
-- `src/core/PersonalityEngine.ts` - 人格系统实现
-- `src/core/skills/` - Skills体系实现
-- `src/services/memory/` - 记忆服务实现
-- `src/api/websocket/` - WebSocket通信机制
-- `admin/src/` - 管理后台前端实现
-- `packages/node-agent/src/` - 节点代理实现
-
-**预计深度分析时间**: 4-5个工作日
-**推荐续扫目录**:
-- `apex-bridge/src/core/` - 核心引擎实现
-- `apex-bridge/src/services/` - 业务服务层
-- `apex-bridge/src/core/skills/` - Skills体系
-- `apex-bridge/src/services/memory/` - 记忆服务
-- `apex-bridge/admin/src/` - 管理后台
-- `apex-bridge/packages/node-agent/src/` - 节点代理
+### 🎯 设计理念
+- **KISS原则**: 保持简单，专注于核心聊天功能
+- **YAGNI原则**: 移除当前不需要的复杂功能
+- **单一职责**: 每个模块职责清晰，便于维护
+- **类型安全**: 严格的TypeScript类型定义
+- **编译通过**: 所有简化都保证编译成功

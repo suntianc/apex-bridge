@@ -5,7 +5,6 @@
  * 注意：
  * - API Key 用于节点之间的认证（WebSocket）
  * - API Keys 用于客户端连接服务器的认证（HTTP API）
- * - 管理后台API的认证已独立到 adminAuthMiddleware.ts
  */
 
 import { Request, Response, NextFunction } from 'express';
@@ -81,14 +80,6 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
   
   // 🆕 跳过所有静态资源（.svg, .ico, .png, .jpg等）
   if (/\.(svg|ico|png|jpg|jpeg|gif|css|js|woff|woff2|ttf|eot)$/i.test(req.path)) {
-    return next();
-  }
-  
-  // 🆕 跳过管理后台相关的所有路径（由 adminAuthMiddleware 单独处理）
-  if (req.path.startsWith('/admin') || 
-      req.path.startsWith('/api/setup') || 
-      req.path.startsWith('/api/admin')) {
-    logger.debug(`✅ Skipping protocol auth for admin/setup path: ${req.path}`);
     return next();
   }
   
