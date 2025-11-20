@@ -7,7 +7,6 @@ import cors from 'cors';
 import { Server } from 'http';
 import { WebSocketServer } from 'ws';
 import { ProtocolEngine } from './core/ProtocolEngine';
-import { LLMManager } from './core/LLMManager';
 // 向后兼容
 import { LLMManager as LLMClient } from './core/LLMManager';
 import { EventBus } from './core/EventBus';
@@ -24,14 +23,7 @@ import { ChatChannel } from './api/websocket/channels/ChatChannel';
 import * as path from 'path';
 import { ConfigService } from './services/ConfigService';
 import { PathService } from './services/PathService';
-// Skills 集成
-import { SkillsIndex } from './core/skills/SkillsIndex';
-import { SkillsCache } from './core/skills/SkillsCache';
-import { InstructionLoader } from './core/skills/InstructionLoader';
-import { ResourceLoader } from './core/skills/ResourceLoader';
-import { SkillsLoader } from './core/skills/SkillsLoader';
-import { SkillsExecutionManager } from './core/skills/SkillsExecutionManager';
-import { SkillsToToolMapper } from './core/skills/SkillsToToolMapper';
+
 // 验证中间件
 import { initializeCustomValidators } from './api/middleware/customValidators';
 import { createValidationMiddleware } from './api/middleware/validationMiddleware';
@@ -105,8 +97,6 @@ export class ABPIntelliCore {
       await this.protocolEngine.initialize();
       logger.info(`✅ Protocol Engine initialized`);
       
-      // 异步结果清理服务已移除（简化架构）
-      
       // 5. 设置中间件
       this.setupMiddleware();
       
@@ -114,8 +104,10 @@ export class ABPIntelliCore {
       await this.setupRoutes();
       
       // 7. 启动HTTP服务器
-      this.server.listen(config.server.port, config.server.host, () => {
-        logger.info(`🚀 ApexBridge running on http://${config.server.host}:${config.server.port}`);
+      const apiHost = config.api.host || '0.0.0.0';
+      const apiPort = config.api.port || 8088;
+      this.server.listen(apiPort, apiHost, () => {
+        logger.info(`🚀 ApexBridge running on http://${apiHost}:${apiPort}`);
         logger.info(`📦 Loaded ${this.protocolEngine!.getPluginCount()} plugins`);
         logger.info(`🎯 Ready to accept connections`);
       });
@@ -194,24 +186,6 @@ export class ABPIntelliCore {
       null as any, // LLMClient采用懒加载
       this.eventBus
     );
-    
-    // Skills 体系装配
-    try {
-      const ps = PathService.getInstance();
-      const skillsRoot = path.join(ps.getRootDir(), 'skills');
-      const skillsIndex = new SkillsIndex({ skillsRoot });
-      await skillsIndex.buildIndex();
-      const skillsCache = new SkillsCache();
-      const instructionLoader = new InstructionLoader(skillsIndex, skillsCache);
-      const resourceLoader = new ResourceLoader(skillsIndex, skillsCache, {});
-      const skillsLoader = new SkillsLoader(skillsIndex, instructionLoader, resourceLoader, skillsCache);
-      const skillsExecManager = new SkillsExecutionManager(skillsLoader, {});
-      const skillsMapper = new SkillsToToolMapper(skillsIndex);
-      this.chatService.setSkillsExecution(skillsExecManager, skillsMapper);
-      logger.info('✅ SkillsExecutionManager wired into ChatService');
-    } catch (e: any) {
-      logger.warn(`⚠️ Failed to initialize Skills components: ${e?.message || e}`);
-    }
 
     // 注入 WebSocketManager（用于中断通知）
     if (this.websocketManager) {
@@ -222,25 +196,46 @@ export class ABPIntelliCore {
     if (this.chatService) {
       // 创建控制器（LLMClient采用懒加载）
       const chatController = new ChatController(this.chatService, null as any);
-      
+
       // 聊天API（添加验证中间件）
       this.app.post('/v1/chat/completions',
         createValidationMiddleware(chatCompletionSchema),
         (req, res) => chatController.chatCompletions(req, res)
       );
-      
       // 模型列表API（添加验证中间件）
       this.app.get('/v1/models',
         createValidationMiddleware(modelsListSchema),
         (req, res) => chatController.getModels(req, res)
       );
-      
+
       // 请求中断API（添加验证中间件）
       this.app.post('/v1/interrupt',
         createValidationMiddleware(interruptRequestSchema),
         (req, res) => chatController.interruptRequest(req, res)
       );
     }
+    
+    // LLM 配置管理 API（两级结构：提供商 + 模型）
+    const ProviderController = await import('./api/controllers/ProviderController');
+    const ModelController = await import('./api/controllers/ModelController');
+    
+    // 提供商管理
+    this.app.get('/api/llm/providers', ProviderController.listProviders);
+    this.app.get('/api/llm/providers/:id', ProviderController.getProvider);
+    this.app.post('/api/llm/providers', ProviderController.createProvider);
+    this.app.put('/api/llm/providers/:id', ProviderController.updateProvider);
+    this.app.delete('/api/llm/providers/:id', ProviderController.deleteProvider);
+    
+    // 模型管理
+    this.app.get('/api/llm/providers/:providerId/models', ModelController.listProviderModels);
+    this.app.get('/api/llm/providers/:providerId/models/:modelId', ModelController.getModel);
+    this.app.post('/api/llm/providers/:providerId/models', ModelController.createModel);
+    this.app.put('/api/llm/providers/:providerId/models/:modelId', ModelController.updateModel);
+    this.app.delete('/api/llm/providers/:providerId/models/:modelId', ModelController.deleteModel);
+    
+    // 模型查询（跨提供商）
+    this.app.get('/api/llm/models', ModelController.queryModels);
+    this.app.get('/api/llm/models/default', ModelController.getDefaultModel);
     
     // 健康检查
     this.app.get('/health', (req, res) => {
@@ -258,7 +253,7 @@ export class ABPIntelliCore {
     
     logger.info('✅ Routes configured');
   }
-  
+
   /**
    * 设置WebSocket服务器（使用独立实现）
    */
@@ -298,8 +293,6 @@ export class ABPIntelliCore {
         logger.info('✅ HTTP server closed');
       });
 
-      // 清理服务已移除（简化架构）
-      
       // 关闭WebSocket
       if (this.websocketManager) {
         await this.websocketManager.shutdown();

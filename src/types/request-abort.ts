@@ -29,7 +29,6 @@ export interface ActiveRequest {
   context?: {
     model?: string;
     messageCount?: number;
-    toolCount?: number;
   };
 }
 
@@ -62,9 +61,6 @@ export interface InterruptResponse {
   
   /** 部分生成的内容（如有） */
   partialContent?: string;
-  
-  /** 已执行的工具列表 */
-  executedTools?: string[];
   
   /** 错误信息（如失败） */
   error?: string;

@@ -72,6 +72,13 @@ async function updateLastUsedTime(apiKeyId: string): Promise<void> {
 }
 
 export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
+  // 检查是否启用认证
+  const config = configService.readConfig();
+  if (!config.auth?.enabled) {
+    // 认证未启用，直接放行
+    return next();
+  }
+  
   // 🆕 跳过某些路径的认证（公共API和静态资源）
   const publicPaths = ['/health', '/metrics', '/vite.svg', '/favicon.ico', '/'];
   if (publicPaths.includes(req.path)) {

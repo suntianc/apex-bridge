@@ -1,48 +1,30 @@
 /**
- * LLMConfigService - LLM配置管理服务
- * 负责LLM厂商配置的SQLite数据库存储和管理
+ * LLMConfigService - LLM 配置管理服务
+ * 
+ * 支持两级配置结构：提供商 + 模型
+ * 支持多模型类型：NLP, Embedding, Rerank 等
  */
 
 import Database from 'better-sqlite3';
 import * as path from 'path';
 import { logger } from '../utils/logger';
 import { PathService } from './PathService';
-import { LLMProviderConfig } from '../types';
+import {
+  LLMModelType,
+  LLMProviderV2,
+  LLMModelV2,
+  LLMModelFull,
+  CreateProviderInput,
+  UpdateProviderInput,
+  CreateModelInput,
+  UpdateModelInput,
+  ModelQueryParams,
+  ProviderBaseConfig,
+  ModelConfig
+} from '../types/llm-models';
 
 /**
- * LLM厂商配置记录
- */
-export interface LLMProviderRecord {
-  id: number;
-  provider: string;
-  name: string;
-  config: LLMProviderConfig;
-  enabled: boolean;
-  createdAt: number;
-  updatedAt: number;
-}
-
-/**
- * 创建厂商配置的输入
- */
-export interface CreateLLMProviderInput {
-  provider: string;
-  name: string;
-  config: LLMProviderConfig;
-  enabled?: boolean;
-}
-
-/**
- * 更新厂商配置的输入
- */
-export interface UpdateLLMProviderInput {
-  name?: string;
-  config?: LLMProviderConfig;
-  enabled?: boolean;
-}
-
-/**
- * LLM配置服务
+ * LLM 配置服务
  */
 export class LLMConfigService {
   private static instance: LLMConfigService;
@@ -62,8 +44,10 @@ export class LLMConfigService {
     this.dbPath = path.join(dataDir, 'llm_providers.db');
     this.db = new Database(this.dbPath);
     
-    // 启用WAL模式提升性能
+    // 启用 WAL 模式提升性能
     this.db.pragma('journal_mode = WAL');
+    // 启用外键约束
+    this.db.pragma('foreign_keys = ON');
     
     this.initializeDatabase();
     logger.info(`✅ LLMConfigService initialized (database: ${this.dbPath})`);
@@ -84,214 +68,151 @@ export class LLMConfigService {
    */
   private initializeDatabase(): void {
     this.db.exec(`
+      -- 提供商表
       CREATE TABLE IF NOT EXISTS llm_providers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         provider TEXT NOT NULL UNIQUE,
         name TEXT NOT NULL,
-        config_json TEXT NOT NULL,
+        description TEXT,
+        base_config TEXT NOT NULL,
         enabled INTEGER DEFAULT 1,
         created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        updated_at INTEGER NOT NULL,
+        CHECK(enabled IN (0, 1))
       );
 
+      -- 模型表
+      CREATE TABLE IF NOT EXISTS llm_models (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        provider_id INTEGER NOT NULL,
+        model_key TEXT NOT NULL,
+        model_name TEXT NOT NULL,
+        model_type TEXT NOT NULL,
+        model_config TEXT NOT NULL,
+        api_endpoint_suffix TEXT,
+        enabled INTEGER DEFAULT 1,
+        is_default INTEGER DEFAULT 0,
+        display_order INTEGER DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        FOREIGN KEY (provider_id) REFERENCES llm_providers(id) ON DELETE CASCADE,
+        UNIQUE(provider_id, model_key),
+        CHECK(enabled IN (0, 1)),
+        CHECK(is_default IN (0, 1)),
+        CHECK(model_type IN ('nlp', 'embedding', 'rerank', 'image', 'audio', 'other'))
+      );
+
+      -- 提供商索引
       CREATE INDEX IF NOT EXISTS idx_provider ON llm_providers(provider);
-      CREATE INDEX IF NOT EXISTS idx_enabled ON llm_providers(enabled);
+      CREATE INDEX IF NOT EXISTS idx_provider_enabled ON llm_providers(enabled);
+
+      -- 模型索引
+      CREATE INDEX IF NOT EXISTS idx_model_provider ON llm_models(provider_id);
+      CREATE INDEX IF NOT EXISTS idx_model_type ON llm_models(model_type);
+      CREATE INDEX IF NOT EXISTS idx_model_enabled ON llm_models(enabled);
+      CREATE INDEX IF NOT EXISTS idx_model_default ON llm_models(is_default);
+      CREATE INDEX IF NOT EXISTS idx_model_key ON llm_models(model_key);
+      CREATE INDEX IF NOT EXISTS idx_model_type_default ON llm_models(model_type, is_default);
     `);
     
-    logger.debug('✅ LLM providers table initialized');
+    logger.debug('✅ LLM v2 tables initialized');
   }
 
-  /**
-   * 验证配置格式
-   */
-  private validateConfig(config: LLMProviderConfig, provider: string): void {
-    if (!config.baseURL && provider !== 'claude') {
-      throw new Error(`baseURL is required for provider: ${provider}`);
-    }
-    
-    if (typeof config.timeout !== 'undefined' && config.timeout <= 0) {
-      throw new Error('timeout must be positive');
-    }
-    
-    if (config.maxRetries !== undefined && config.maxRetries < 0) {
-      throw new Error('maxRetries must be non-negative');
-    }
-  }
+  // ==================== 提供商管理 ====================
 
   /**
-   * 列出所有厂商配置
+   * 列出所有提供商
    */
-  public list(): LLMProviderRecord[] {
+  public listProviders(): LLMProviderV2[] {
     const rows = this.db.prepare(`
-      SELECT id, provider, name, config_json, enabled, created_at, updated_at
+      SELECT id, provider, name, description, base_config, enabled, created_at, updated_at
       FROM llm_providers
       ORDER BY id ASC
     `).all() as Array<{
       id: number;
       provider: string;
       name: string;
-      config_json: string;
+      description: string | null;
+      base_config: string;
       enabled: number;
       created_at: number;
       updated_at: number;
     }>;
 
-    return rows.map(row => ({
-      id: row.id,
-      provider: row.provider,
-      name: row.name,
-      config: JSON.parse(row.config_json) as LLMProviderConfig,
-      enabled: row.enabled === 1,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at
-    }));
+    return rows.map(row => this.mapProviderRow(row));
   }
 
   /**
-   * 获取启用的厂商配置
+   * 获取单个提供商
    */
-  public listEnabled(): LLMProviderRecord[] {
-    const rows = this.db.prepare(`
-      SELECT id, provider, name, config_json, enabled, created_at, updated_at
-      FROM llm_providers
-      WHERE enabled = 1
-      ORDER BY id ASC
-    `).all() as Array<{
-      id: number;
-      provider: string;
-      name: string;
-      config_json: string;
-      enabled: number;
-      created_at: number;
-      updated_at: number;
-    }>;
-
-    return rows.map(row => ({
-      id: row.id,
-      provider: row.provider,
-      name: row.name,
-      config: JSON.parse(row.config_json) as LLMProviderConfig,
-      enabled: row.enabled === 1,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at
-    }));
-  }
-
-  /**
-   * 根据ID获取厂商配置
-   */
-  public getById(id: number): LLMProviderRecord | null {
+  public getProvider(id: number): LLMProviderV2 | null {
     const row = this.db.prepare(`
-      SELECT id, provider, name, config_json, enabled, created_at, updated_at
+      SELECT id, provider, name, description, base_config, enabled, created_at, updated_at
       FROM llm_providers
       WHERE id = ?
-    `).get(id) as {
-      id: number;
-      provider: string;
-      name: string;
-      config_json: string;
-      enabled: number;
-      created_at: number;
-      updated_at: number;
-    } | undefined;
+    `).get(id) as any;
 
-    if (!row) {
-      return null;
-    }
-
-    return {
-      id: row.id,
-      provider: row.provider,
-      name: row.name,
-      config: JSON.parse(row.config_json) as LLMProviderConfig,
-      enabled: row.enabled === 1,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at
-    };
+    return row ? this.mapProviderRow(row) : null;
   }
 
   /**
-   * 根据provider名称获取厂商配置
+   * 根据标识获取提供商
    */
-  public getByProvider(provider: string): LLMProviderRecord | null {
+  public getProviderByKey(provider: string): LLMProviderV2 | null {
     const row = this.db.prepare(`
-      SELECT id, provider, name, config_json, enabled, created_at, updated_at
+      SELECT id, provider, name, description, base_config, enabled, created_at, updated_at
       FROM llm_providers
       WHERE provider = ?
-    `).get(provider) as {
-      id: number;
-      provider: string;
-      name: string;
-      config_json: string;
-      enabled: number;
-      created_at: number;
-      updated_at: number;
-    } | undefined;
+    `).get(provider) as any;
 
-    if (!row) {
-      return null;
-    }
-
-    return {
-      id: row.id,
-      provider: row.provider,
-      name: row.name,
-      config: JSON.parse(row.config_json) as LLMProviderConfig,
-      enabled: row.enabled === 1,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at
-    };
+    return row ? this.mapProviderRow(row) : null;
   }
 
   /**
-   * 创建厂商配置（仅用于初始化，不支持运行时添加）
+   * 创建提供商
    */
-  public create(input: CreateLLMProviderInput): LLMProviderRecord {
-    // 验证provider字段
-    const validProviders = ['openai', 'deepseek', 'zhipu', 'claude', 'ollama', 'custom'];
-    if (!validProviders.includes(input.provider)) {
-      throw new Error(`Invalid provider: ${input.provider}. Must be one of: ${validProviders.join(', ')}`);
-    }
-
-    // 验证配置
-    this.validateConfig(input.config, input.provider);
+  public createProvider(input: CreateProviderInput): LLMProviderV2 {
+    // 验证输入
+    this.validateProviderInput(input);
 
     // 检查是否已存在
-    const existing = this.getByProvider(input.provider);
+    const existing = this.getProviderByKey(input.provider);
     if (existing) {
-      throw new Error(`Provider ${input.provider} already exists`);
+      throw new Error(`Provider already exists: ${input.provider}`);
     }
 
     const now = Date.now();
-    const configJson = JSON.stringify(input.config);
-
     const result = this.db.prepare(`
-      INSERT INTO llm_providers (provider, name, config_json, enabled, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO llm_providers (provider, name, description, base_config, enabled, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(
       input.provider,
       input.name,
-      configJson,
+      input.description || null,
+      JSON.stringify(input.baseConfig),
       input.enabled !== false ? 1 : 0,
       now,
       now
     );
 
-    logger.info(`✅ Created LLM provider: ${input.provider} (id: ${result.lastInsertRowid})`);
+    const created = this.getProvider(result.lastInsertRowid as number);
+    if (!created) {
+      throw new Error('Failed to create provider');
+    }
 
-    return this.getById(Number(result.lastInsertRowid))!;
+    logger.info(`✅ Created provider: ${created.name} (${created.provider})`);
+    return created;
   }
 
   /**
-   * 更新厂商配置
+   * 更新提供商
    */
-  public update(id: number, input: UpdateLLMProviderInput): LLMProviderRecord {
-    const existing = this.getById(id);
+  public updateProvider(id: number, input: UpdateProviderInput): LLMProviderV2 {
+    const existing = this.getProvider(id);
     if (!existing) {
-      throw new Error(`Provider with id ${id} not found`);
+      throw new Error(`Provider not found: ${id}`);
     }
 
-    // 构建更新数据
     const updates: string[] = [];
     const values: any[] = [];
 
@@ -300,11 +221,19 @@ export class LLMConfigService {
       values.push(input.name);
     }
 
-    if (input.config !== undefined) {
-      // 验证配置
-      this.validateConfig(input.config, existing.provider);
-      updates.push('config_json = ?');
-      values.push(JSON.stringify(input.config));
+    if (input.description !== undefined) {
+      updates.push('description = ?');
+      values.push(input.description);
+    }
+
+    if (input.baseConfig !== undefined) {
+      // 合并配置
+      const mergedConfig = {
+        ...existing.baseConfig,
+        ...input.baseConfig
+      };
+      updates.push('base_config = ?');
+      values.push(JSON.stringify(mergedConfig));
     }
 
     if (input.enabled !== undefined) {
@@ -313,36 +242,406 @@ export class LLMConfigService {
     }
 
     if (updates.length === 0) {
-      // 没有要更新的字段
       return existing;
     }
 
-    // 添加updated_at
     updates.push('updated_at = ?');
     values.push(Date.now());
-
-    // 添加id到values末尾
     values.push(id);
 
-    const sql = `UPDATE llm_providers SET ${updates.join(', ')} WHERE id = ?`;
-    this.db.prepare(sql).run(...values);
+    this.db.prepare(`
+      UPDATE llm_providers
+      SET ${updates.join(', ')}
+      WHERE id = ?
+    `).run(...values);
 
-    logger.info(`✅ Updated LLM provider: ${existing.provider} (id: ${id})`);
-
-    return this.getById(id)!;
+    const updated = this.getProvider(id)!;
+    logger.info(`✅ Updated provider: ${updated.name} (id: ${id})`);
+    return updated;
   }
 
   /**
-   * 删除厂商配置（仅用于清理，不支持运行时删除）
+   * 删除提供商（级联删除所有模型）
    */
-  public delete(id: number): void {
-    const existing = this.getById(id);
+  public deleteProvider(id: number): void {
+    const existing = this.getProvider(id);
     if (!existing) {
-      throw new Error(`Provider with id ${id} not found`);
+      throw new Error(`Provider not found: ${id}`);
     }
 
+    // 检查关联的模型数量
+    const modelCount = this.db.prepare('SELECT COUNT(*) as count FROM llm_models WHERE provider_id = ?')
+      .get(id) as any;
+
     this.db.prepare('DELETE FROM llm_providers WHERE id = ?').run(id);
-    logger.info(`✅ Deleted LLM provider: ${existing.provider} (id: ${id})`);
+    
+    logger.info(`✅ Deleted provider: ${existing.name} (id: ${id}), cascaded ${modelCount.count} models`);
+  }
+
+  // ==================== 模型管理 ====================
+
+  /**
+   * 列出模型（支持多种筛选）
+   */
+  public listModels(params: ModelQueryParams = {}): LLMModelFull[] {
+    let sql = `
+      SELECT 
+        m.id, m.provider_id, m.model_key, m.model_name, m.model_type,
+        m.model_config, m.api_endpoint_suffix, m.enabled, m.is_default,
+        m.display_order, m.created_at, m.updated_at,
+        p.provider, p.name as provider_name, p.base_config, p.enabled as provider_enabled
+      FROM llm_models m
+      JOIN llm_providers p ON m.provider_id = p.id
+      WHERE 1=1
+    `;
+
+    const conditions: string[] = [];
+    const values: any[] = [];
+
+    if (params.providerId !== undefined) {
+      conditions.push('m.provider_id = ?');
+      values.push(params.providerId);
+    }
+
+    if (params.modelType !== undefined) {
+      conditions.push('m.model_type = ?');
+      values.push(params.modelType);
+    }
+
+    if (params.enabled !== undefined) {
+      conditions.push('m.enabled = ?');
+      values.push(params.enabled ? 1 : 0);
+    }
+
+    if (params.isDefault !== undefined) {
+      conditions.push('m.is_default = ?');
+      values.push(params.isDefault ? 1 : 0);
+    }
+
+    if (conditions.length > 0) {
+      sql += ' AND ' + conditions.join(' AND ');
+    }
+
+    sql += ' ORDER BY m.provider_id, m.model_type, m.display_order, m.id';
+
+    const rows = this.db.prepare(sql).all(...values) as any[];
+    return rows.map(row => this.mapModelFullRow(row));
+  }
+
+  /**
+   * 获取单个模型
+   */
+  public getModel(modelId: number): LLMModelFull | null {
+    const row = this.db.prepare(`
+      SELECT 
+        m.id, m.provider_id, m.model_key, m.model_name, m.model_type,
+        m.model_config, m.api_endpoint_suffix, m.enabled, m.is_default,
+        m.display_order, m.created_at, m.updated_at,
+        p.provider, p.name as provider_name, p.base_config, p.enabled as provider_enabled
+      FROM llm_models m
+      JOIN llm_providers p ON m.provider_id = p.id
+      WHERE m.id = ?
+    `).get(modelId) as any;
+
+    return row ? this.mapModelFullRow(row) : null;
+  }
+
+  /**
+   * 获取默认模型
+   */
+  public getDefaultModel(modelType: LLMModelType): LLMModelFull | null {
+    const row = this.db.prepare(`
+      SELECT 
+        m.id, m.provider_id, m.model_key, m.model_name, m.model_type,
+        m.model_config, m.api_endpoint_suffix, m.enabled, m.is_default,
+        m.display_order, m.created_at, m.updated_at,
+        p.provider, p.name as provider_name, p.base_config, p.enabled as provider_enabled
+      FROM llm_models m
+      JOIN llm_providers p ON m.provider_id = p.id
+      WHERE m.model_type = ?
+        AND m.is_default = 1
+        AND m.enabled = 1
+        AND p.enabled = 1
+      LIMIT 1
+    `).get(modelType) as any;
+
+    return row ? this.mapModelFullRow(row) : null;
+  }
+
+  /**
+   * 创建模型
+   */
+  public createModel(providerId: number, input: CreateModelInput): LLMModelV2 {
+    // 验证提供商存在
+    const provider = this.getProvider(providerId);
+    if (!provider) {
+      throw new Error(`Provider not found: ${providerId}`);
+    }
+
+    // 验证输入
+    this.validateModelInput(input);
+
+    // 检查是否已存在
+    const existing = this.db.prepare(`
+      SELECT id FROM llm_models WHERE provider_id = ? AND model_key = ?
+    `).get(providerId, input.modelKey);
+
+    if (existing) {
+      throw new Error(`Model already exists: ${input.modelKey}`);
+    }
+
+    // 如果设置为默认模型，先取消同类型的其他默认模型
+    if (input.isDefault) {
+      this.clearDefaultModel(input.modelType);
+    }
+
+    const now = Date.now();
+    const result = this.db.prepare(`
+      INSERT INTO llm_models (
+        provider_id, model_key, model_name, model_type,
+        model_config, api_endpoint_suffix, enabled, is_default,
+        display_order, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      providerId,
+      input.modelKey,
+      input.modelName,
+      input.modelType,
+      JSON.stringify(input.modelConfig || {}),
+      input.apiEndpointSuffix || null,
+      input.enabled !== false ? 1 : 0,
+      input.isDefault ? 1 : 0,
+      input.displayOrder || 0,
+      now,
+      now
+    );
+
+    const created = this.getModel(result.lastInsertRowid as number);
+    if (!created) {
+      throw new Error('Failed to create model');
+    }
+
+    logger.info(`✅ Created model: ${created.modelName} (${created.modelKey}) [${created.modelType}]`);
+    return created;
+  }
+
+  /**
+   * 更新模型
+   */
+  public updateModel(modelId: number, input: UpdateModelInput): LLMModelV2 {
+    const existing = this.getModel(modelId);
+    if (!existing) {
+      throw new Error(`Model not found: ${modelId}`);
+    }
+
+    const updates: string[] = [];
+    const values: any[] = [];
+
+    if (input.modelName !== undefined) {
+      updates.push('model_name = ?');
+      values.push(input.modelName);
+    }
+
+    if (input.modelConfig !== undefined) {
+      // 合并配置
+      const mergedConfig = {
+        ...existing.modelConfig,
+        ...input.modelConfig
+      };
+      updates.push('model_config = ?');
+      values.push(JSON.stringify(mergedConfig));
+    }
+
+    if (input.apiEndpointSuffix !== undefined) {
+      updates.push('api_endpoint_suffix = ?');
+      values.push(input.apiEndpointSuffix);
+    }
+
+    if (input.enabled !== undefined) {
+      updates.push('enabled = ?');
+      values.push(input.enabled ? 1 : 0);
+    }
+
+    if (input.isDefault !== undefined) {
+      if (input.isDefault) {
+        // 先取消同类型的其他默认模型
+        this.clearDefaultModel(existing.modelType);
+      }
+      updates.push('is_default = ?');
+      values.push(input.isDefault ? 1 : 0);
+    }
+
+    if (input.displayOrder !== undefined) {
+      updates.push('display_order = ?');
+      values.push(input.displayOrder);
+    }
+
+    if (updates.length === 0) {
+      return existing;
+    }
+
+    updates.push('updated_at = ?');
+    values.push(Date.now());
+    values.push(modelId);
+
+    this.db.prepare(`
+      UPDATE llm_models
+      SET ${updates.join(', ')}
+      WHERE id = ?
+    `).run(...values);
+
+    const updated = this.getModel(modelId)!;
+    logger.info(`✅ Updated model: ${updated.modelName} (id: ${modelId})`);
+    return updated;
+  }
+
+  /**
+   * 删除模型
+   */
+  public deleteModel(modelId: number): void {
+    const existing = this.getModel(modelId);
+    if (!existing) {
+      throw new Error(`Model not found: ${modelId}`);
+    }
+
+    this.db.prepare('DELETE FROM llm_models WHERE id = ?').run(modelId);
+    
+    logger.info(`✅ Deleted model: ${existing.modelName} (id: ${modelId})`);
+  }
+
+  // ==================== 查询方法 ====================
+
+  /**
+   * 获取提供商的所有模型
+   */
+  public getProviderModels(providerId: number): LLMModelV2[] {
+    return this.listModels({ providerId }).map(full => this.fullToModel(full));
+  }
+
+  /**
+   * 按类型获取所有模型
+   */
+  public getModelsByType(modelType: LLMModelType): LLMModelFull[] {
+    return this.listModels({ modelType, enabled: true });
+  }
+
+  /**
+   * 获取所有默认模型
+   */
+  public getAllDefaultModels(): Map<LLMModelType, LLMModelFull> {
+    const models = this.listModels({ isDefault: true, enabled: true });
+    const map = new Map<LLMModelType, LLMModelFull>();
+    
+    models.forEach(model => {
+      map.set(model.modelType as LLMModelType, model);
+    });
+    
+    return map;
+  }
+
+  // ==================== 辅助方法 ====================
+
+  /**
+   * 清除某类型的默认模型标记
+   */
+  private clearDefaultModel(modelType: LLMModelType): void {
+    this.db.prepare(`
+      UPDATE llm_models
+      SET is_default = 0, updated_at = ?
+      WHERE model_type = ? AND is_default = 1
+    `).run(Date.now(), modelType);
+  }
+
+  /**
+   * 验证提供商输入
+   */
+  private validateProviderInput(input: CreateProviderInput): void {
+    if (!input.provider || input.provider.trim().length === 0) {
+      throw new Error('provider is required');
+    }
+
+    if (!input.name || input.name.trim().length === 0) {
+      throw new Error('name is required');
+    }
+
+    if (!input.baseConfig || typeof input.baseConfig !== 'object') {
+      throw new Error('baseConfig is required and must be an object');
+    }
+
+    if (!input.baseConfig.baseURL) {
+      throw new Error('baseConfig.baseURL is required');
+    }
+  }
+
+  /**
+   * 验证模型输入
+   */
+  private validateModelInput(input: CreateModelInput): void {
+    if (!input.modelKey || input.modelKey.trim().length === 0) {
+      throw new Error('modelKey is required');
+    }
+
+    if (!input.modelName || input.modelName.trim().length === 0) {
+      throw new Error('modelName is required');
+    }
+
+    if (!input.modelType) {
+      throw new Error('modelType is required');
+    }
+
+    // 验证模型类型
+    const validTypes = Object.values(LLMModelType);
+    if (!validTypes.includes(input.modelType)) {
+      throw new Error(`Invalid modelType: ${input.modelType}`);
+    }
+  }
+
+  /**
+   * 映射提供商行数据
+   */
+  private mapProviderRow(row: any): LLMProviderV2 {
+    return {
+      id: row.id,
+      provider: row.provider,
+      name: row.name,
+      description: row.description,
+      baseConfig: JSON.parse(row.base_config),
+      enabled: row.enabled === 1,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    };
+  }
+
+  /**
+   * 映射完整模型行数据
+   */
+  private mapModelFullRow(row: any): LLMModelFull {
+    return {
+      id: row.id,
+      providerId: row.provider_id,
+      modelKey: row.model_key,
+      modelName: row.model_name,
+      modelType: row.model_type as LLMModelType,
+      modelConfig: JSON.parse(row.model_config),
+      apiEndpointSuffix: row.api_endpoint_suffix,
+      enabled: row.enabled === 1,
+      isDefault: row.is_default === 1,
+      displayOrder: row.display_order,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      provider: row.provider,
+      providerName: row.provider_name,
+      providerBaseConfig: JSON.parse(row.base_config),
+      providerEnabled: row.provider_enabled === 1
+    };
+  }
+
+  /**
+   * 从完整模型提取模型信息
+   */
+  private fullToModel(full: LLMModelFull): LLMModelV2 {
+    const { provider, providerName, providerBaseConfig, providerEnabled, ...model } = full;
+    return model;
   }
 
   /**
@@ -350,7 +649,6 @@ export class LLMConfigService {
    */
   public close(): void {
     this.db.close();
-    logger.info('✅ LLMConfigService database closed');
   }
 }
 

@@ -29,23 +29,13 @@ export const chatCompletionSchema: ValidationSchema = {
           properties: {
             role: {
               type: 'string',
-              enum: ['system', 'user', 'assistant', 'tool']
+              enum: ['system', 'user', 'assistant']
             },
             content: {
               type: 'string',
               maxLength: 100000
             },
             name: {
-              type: 'string',
-              maxLength: 100
-            },
-            tool_calls: {
-              type: 'array',
-              items: {
-                type: 'object'
-              }
-            },
-            tool_call_id: {
               type: 'string',
               maxLength: 100
             }

@@ -1,40 +1,29 @@
-// AuthorizedToolCall 已移除，直接使用 ToolRequest
-
-// PersonaMemoryInfo 接口已移除（记忆服务已删除）
-
-// NodeConversationMessage 和 NodeConversationResult 已移除（节点对话功能已删除）
-
 /**
  * ApexBridge - 聊天服务（ABP-only）
  * 处理聊天请求的完整生命周期
  */
 
-import { randomUUID } from 'crypto';
 import { ProtocolEngine } from '../core/ProtocolEngine';
 import { LLMManager as LLMClient } from '../core/LLMManager'; // 向后兼容别名
 import { EventBus } from '../core/EventBus';
 import {
   Message,
-  ChatOptions,
-  ToolRequest
+  ChatOptions
 } from '../types';
 import { ActiveRequest } from '../types/request-abort';
 import { logger } from '../utils/logger';
 import { generateRequestId } from '../utils/request-id';
-// ConversationRouter 和 ConversationContextStore 已移除（对话路由功能已删除）
-import { SkillsExecutionManager } from '../core/skills/SkillsExecutionManager';
-import { SkillsToToolMapper } from '../core/skills/SkillsToToolMapper';
+import { TaskEvaluator } from '../core/TaskEvaluator';
 
 export class ChatService {
-  
+
   // 🆕 活动请求追踪
   private activeRequests: Map<string, ActiveRequest> = new Map();
   private cleanupTimer: NodeJS.Timeout | null = null;
   private webSocketManager: any = null; // WebSocketManager 实例（可选）
-  // 🆕 Skills 执行集成（可选，逐步替换 PluginRuntime）
-  private skillsExecutionManager?: SkillsExecutionManager;
-  private skillsMapper?: SkillsToToolMapper;
-  
+  // 🆕 自我思考循环（ReAct模式）
+  private taskEvaluator?: TaskEvaluator;
+
   private llmClient: LLMClient | null = null; // 改为可选，支持懒加载
   
   constructor(
@@ -48,15 +37,6 @@ export class ChatService {
     // 🆕 启动定期清理任务（每60秒）
     this.startCleanupTimer();
   }
-  
-  // 🆕 注入 Skills 执行能力
-  setSkillsExecution(manager: SkillsExecutionManager, mapper: SkillsToToolMapper): void {
-    this.skillsExecutionManager = manager;
-    this.skillsMapper = mapper;
-    logger.debug('[ChatService] SkillsExecutionManager attached');
-  }
-  
-  // setToolAuthorization 和 setNodeManager 方法已移除（工具授权和节点管理已删除）
   
   /**
    * 🆕 设置 WebSocketManager（用于中断通知）
@@ -103,9 +83,8 @@ export class ChatService {
         const abpLogChannel = this.webSocketManager.getChannel?.('ABPLog');
         
         if (abpLogChannel) {
-          (abpLogChannel as any).pushToolLog?.({
+          (abpLogChannel as any).pushLog?.({
             status: 'interrupted',
-            tool: 'System',
             content: `请求已中断: ${requestId}`,
             source: 'request_interrupt',
             metadata: {
@@ -249,145 +228,142 @@ export class ChatService {
    */
   async processMessage(messages: Message[], options: ChatOptions = {}): Promise<any> {
     try {
-      // 记忆服务已移除（清理变更）
-
-      logger.debug(`📨 Processing chat message, ${messages.length} messages`);
-      
-      // PersonalityEngine、EmotionEngine 和 MemoryService 已移除（根据系统精简要求）
-      let processedMessages = messages;
-      
-      // 1. 变量替换
-      processedMessages = await this.resolveVariables(processedMessages);
-      
-      // 2. 消息预处理（移除对插件系统依赖，直接使用变量解析后的消息）
-      const preprocessedMessages = processedMessages;
-      
-      // 3. 调用LLM（懒加载LLMClient）
-      const llmClient = await this.requireLLMClient();
-      const llmResponse = await llmClient.chat(preprocessedMessages, options);
-      const aiContent = llmResponse.choices[0]?.message?.content || '';
-      
-      logger.debug(`🤖 LLM Response (first 200 chars): ${aiContent.substring(0, 200)}`);
-      
-      // 4. 解析工具调用（仅支持ABP协议）
-      logger.debug(`🔍 AI Response Content (first 500 chars): ${aiContent.substring(0, 500)}`);
-      
-      // 使用ProtocolEngine的统一解析方法（仅支持ABP协议）
-      const toolRequests = this.protocolEngine.parseToolRequests(aiContent);
-      
-      logger.debug(`🔍 Parsed ${toolRequests.length} tool requests from AI response`);
-      if (toolRequests.length > 0) {
-        toolRequests.forEach((req: any, index: number) => {
-          logger.debug(`   Tool ${index + 1} [ABP]: name="${req.name}", parameters=${JSON.stringify(req.args)}, id=${req.abpCallId}`);
-        });
-      }
-      
-      if (toolRequests.length === 0) {
-        // 无工具调用，直接返回
-        logger.debug('ℹ️  No tool calls detected');
-        
-        return {
-          content: aiContent,
-          toolCalls: []
-        };
-      }
-      
-      logger.debug(`🔧 Detected ${toolRequests.length} tool calls`);
-      toolRequests.forEach((req: any) => {
-        logger.debug(`   - ${req.name} [ABP] (id: ${req.abpCallId})`);
-      });
-
-      // 工具授权已移除，直接执行所有工具
-      if (toolRequests.length === 0) {
-        logger.debug('ℹ️  No tools to execute');
-        return {
-          content: aiContent,
-          toolCalls: toolRequests,
-          toolResults: []
-        };
+      // 🆕 检查是否启用自我思考循环（ReAct模式）
+      if (options.selfThinking?.enabled) {
+        return this.processMessageWithSelfThinking(messages, options);
       }
 
-      // ABP格式不支持archery，所有工具都是同步执行
-      const syncTools = toolRequests.filter((tool) => !(tool as any).archery);
-      const asyncTools = toolRequests.filter((tool) => (tool as any).archery);
+      // 原有的单次处理逻辑
+      return this.processSingleRound(messages, options);
 
-      const executedResults = await Promise.all(
-        syncTools.map(async (tool) => {
-          logger.debug(`⚙️  Executing tool: ${tool.name}`);
-          const result = await this.executeTool(tool);
-          if (result.error) {
-            logger.error(`❌ Tool execution failed: ${tool.name} -> ${result.error}`);
-          } else {
-            logger.debug(`✅ Tool ${tool.name} executed successfully`);
-            logger.debug(`   Result: ${JSON.stringify(result.result ?? '').substring(0, 100)}...`);
-          }
-          return result;
-        })
-      );
-
-      asyncTools.forEach((tool) => {
-        this.executeArcheryTool(tool);
-      });
-
-      const allResults = executedResults;
-
-      if (allResults.length > 0) {
-        logger.debug(`📬 Preparing tool results for AI (${allResults.length} entries)`);
-
-        const toolResultTexts = this.formatToolResultEntries(allResults);
-        const combinedToolResults = toolResultTexts.join('\n\n');
-
-        const toolResultMessage: Message = {
-          role: 'user',
-          content: combinedToolResults
-        };
-
-        logger.debug(`📬 Tool results message: ${combinedToolResults.substring(0, 200)}...`);
-
-        const finalMessages: Message[] = [
-          ...preprocessedMessages,
-          { role: 'assistant', content: aiContent } as Message,
-          toolResultMessage
-        ];
-
-        logger.debug('🤖 Making second LLM call with tool results...');
-        const llmFollowup = await this.requireLLMClient();
-        const finalResponse = await llmFollowup.chat(finalMessages, options);
-
-        logger.debug('✅ Second LLM call completed');
-
-        return {
-          content: finalResponse.choices[0]?.message?.content || '',
-          toolCalls: toolRequests,
-          toolResults: allResults
-        };
-      }
-      
-      // 7. 只有异步工具，返回初始响应
-      return {
-        content: aiContent,
-        toolCalls: toolRequests,
-        toolResults: []
-      };
-      
     } catch (error: any) {
       logger.error('❌ Error in ChatService.processMessage:', error);
       throw error;
     }
   }
-  
-  // processNodeConversation 方法已移除（节点对话功能已删除）
-  // 如果类型为 companion 或 worker，应该使用普通的 processMessage 方法
- 
+
   /**
-   * 流式处理消息 - 支持工具调用循环（参考早期实现的聊天处理循环，已改为 ABP-only）
+   * 单轮处理逻辑（原有实现）
+   */
+  private async processSingleRound(messages: Message[], options: ChatOptions = {}): Promise<any> {
+    logger.debug(`📨 Processing chat message, ${messages.length} messages`);
+
+    let processedMessages = messages;
+
+    // 1. 变量替换
+    processedMessages = await this.resolveVariables(processedMessages);
+
+    // 2. 消息预处理（移除对插件系统依赖，直接使用变量解析后的消息）
+    const preprocessedMessages = processedMessages;
+
+    // 3. 调用LLM（懒加载LLMClient）
+    const llmClient = await this.requireLLMClient();
+    const llmResponse = await llmClient.chat(preprocessedMessages, options);
+    const aiContent = llmResponse.choices[0]?.message?.content || '';
+
+    logger.debug(`🤖 LLM Response (first 200 chars): ${aiContent.substring(0, 200)}`);
+
+    return {
+      content: aiContent
+    };
+  }
+
+  /**
+   * 自我思考循环（ReAct模式）
+   *
+   * 循环执行：思考 → 行动 → 观察 → 评估 → 直到任务完成
+   */
+  private async processMessageWithSelfThinking(
+    messages: Message[],
+    options: ChatOptions
+  ): Promise<any> {
+    const startTime = Date.now();
+    const maxDuration = options.loopTimeout || 300000; // 5分钟
+    const maxIterations = options.selfThinking?.maxIterations || 5;
+    const enableTaskEvaluation = options.selfThinking?.enableTaskEvaluation ?? true;
+    const includeThoughtsInResponse = options.selfThinking?.includeThoughtsInResponse ?? true;
+
+    // 获取用户原始查询（第一条用户消息）
+    const userQuery = messages.find(msg => msg.role === 'user')?.content || '';
+
+    let iteration = 0;
+    let currentMessages = [...messages];
+    let finalResult: any = null;
+    const thinkingProcess: string[] = []; // 记录思考过程
+
+    // 初始化 TaskEvaluator
+    this.taskEvaluator = new TaskEvaluator({
+      maxIterations,
+      completionPrompt: options.selfThinking?.completionPrompt
+    });
+
+    logger.info(`🧠 Starting Self-Thinking Loop (max: ${maxIterations} iterations)`);
+
+    while (iteration < maxIterations) {
+      iteration++;
+
+      logger.info(`\n🔄 [Self-Thinking Loop Iteration ${iteration}/${maxIterations}]`);
+
+      // 检查超时
+      if (Date.now() - startTime > maxDuration) {
+        logger.warn(`⚠️ Self-thinking loop timeout (${maxDuration}ms) reached`);
+        thinkingProcess.push(`[系统警告] 达到最大超时时间，停止循环`);
+        break;
+      }
+
+      // 步骤 1: 调用 LLM
+      logger.debug('🤖 Calling LLM...');
+      const llmClient = await this.requireLLMClient();
+      const llmResponse = await llmClient.chat(currentMessages, options);
+      const aiContent = llmResponse.choices[0]?.message?.content || '';
+
+      logger.debug(`📝 LLM Response: ${aiContent.substring(0, 200)}...`);
+
+      // 记录思考过程
+      thinkingProcess.push(`\n[思考步骤 ${iteration}]`);
+      thinkingProcess.push(`AI分析: ${aiContent}`);
+
+      logger.debug('ℹ️ Task marked as complete');
+      finalResult = {
+        content: aiContent,
+        iterations: iteration,
+        thinkingProcess: includeThoughtsInResponse ? thinkingProcess.join('\n') : undefined
+      };
+      break;
+
+      // 清理：保持上下文大小可控
+      if (currentMessages.length > 50) {
+        logger.warn(`⚠️ 消息历史过长(${currentMessages.length}条)，可能影响性能`);
+      }
+    }
+
+    if (!finalResult) {
+      // 如果循环结束但没有生成结果，返回最后一条消息
+      logger.warn(`⚠️ Self-thinking loop ended without clear result`);
+
+      const llmClient = await this.requireLLMClient();
+      const llmResponse = await llmClient.chat(currentMessages, options);
+      const aiContent = llmResponse.choices[0]?.message?.content || '';
+
+      finalResult = {
+        content: aiContent,
+        iterations: iteration,
+        thinkingProcess: includeThoughtsInResponse ? thinkingProcess.join('\n') : undefined
+      };
+    }
+
+    logger.info(`✅ Self-thinking loop completed in ${iteration} iterations`);
+
+    return finalResult;
+  }
+  
+  /**
+   * 流式处理消息
    */
   async *streamMessage(
     messages: Message[],
     options: ChatOptions = {}
   ): AsyncIterableIterator<string> {
-    // 记忆服务已移除（清理变更）
-
     // 🆕 0. 生成请求ID和中断控制器
     const requestId = generateRequestId();
     const abortController = new AbortController();
@@ -402,154 +378,52 @@ export class ChatService {
     yield `__META__:${JSON.stringify({type:'requestId',value:requestId})}`;
     
     try {
-      // PersonalityEngine、EmotionEngine 和 MemoryService 已移除（根据系统精简要求）
       let processedMessages = messages;
       
       // 1. 变量替换
       processedMessages = await this.resolveVariables(processedMessages);
       
-      // 2. 消息预处理（移除对插件系统依赖，直接使用变量解析后的消息）
+      // 2. 消息预处理
       const preprocessedMessages = processedMessages;
       
-      // 3. 循环控制参数
-      const currentMessages = [...preprocessedMessages];
-      let recursionDepth = 0;
-      const maxRecursion = options.maxRecursion || 5; // 可配置的最大递归深度
-      const loopTimeout = options.loopTimeout || 300000; // 5分钟总超时
-      const startTime = Date.now();
-      
-        // 4. 主循环：工具调用循环（ABP-only 实现）
-      while (recursionDepth < maxRecursion) {
-        // 4.0 超时检查
-        if (Date.now() - startTime > loopTimeout) {
-          logger.warn(`⚠️  [Protocol Loop] Loop timeout (${loopTimeout}ms) reached, exiting`);
-          break;
-        }
-        
-        logger.debug(`🔄 [Protocol Loop] Iteration ${recursionDepth + 1}/${maxRecursion}`);
-        
-        // 🔍 4.0.1 上下文长度检查（防止400错误）
-        const totalChars = currentMessages.reduce((sum, msg) => sum + (msg.content?.length || 0), 0);
-        const estimatedTokens = Math.ceil(totalChars / 3); // 粗略估算：3字符≈1token
-        const maxContextTokens = 30000; // DeepSeek上下文限制（保守估计）
-        
-        if (estimatedTokens > maxContextTokens) {
-          logger.warn(`⚠️  [Protocol Loop] Context too long: ~${estimatedTokens} tokens (max: ${maxContextTokens})`);
-          logger.warn(`⚠️  [Protocol Loop] Stopping to prevent 400 error. Please start a new topic.`);
-          yield `\n\n⚠️ 上下文过长（约${estimatedTokens}个token），已停止循环。请新建话题继续对话。`;
-          break;
-        }
-        
-        // 🆕 4.0.5 检查中断信号
-        if (abortController.signal.aborted) {
-          logger.debug(`[ChatService] Request interrupted before LLM call: ${requestId}`);
-          yield `__META__:${JSON.stringify({type:'interrupted'})}`;
-          break;
-        }
-        
-        // 4.1 流式调用LLM（传递中断信号）
-        // 懒加载LLMClient（如果还没有）
-        let llmClient = this.llmClient;
+      // 3. 流式调用LLM（传递中断信号）
+      let llmClient = this.llmClient;
+      if (!llmClient) {
+        const { LLMManager } = await import('../core/LLMManager');
+        llmClient = new LLMManager() as LLMClient;
         if (!llmClient) {
-          // LLMManager 支持懒加载，从 SQLite 加载配置
-          const { LLMManager } = await import('../core/LLMManager');
-          llmClient = new LLMManager() as LLMClient;
-          if (!llmClient) {
-            throw new Error('LLMClient not available. Please configure LLM providers in admin panel.');
-          }
-          this.llmClient = llmClient;
+          throw new Error('LLMClient not available. Please configure LLM providers in admin panel.');
         }
-        
-        let fullContent = '';
-        try {
-          for await (const chunk of llmClient.streamChat(currentMessages, options, abortController.signal)) {
-            // 🆕 检查中断
-            if (abortController.signal.aborted) {
-              logger.debug(`[ChatService] Request interrupted during LLM streaming: ${requestId}`);
-              yield `\n\n[用户已中断请求]`;
-              yield `__META__:${JSON.stringify({type:'interrupted'})}`;
-              return; // 退出generator
-            }
-            
-            fullContent += chunk;
-            yield chunk;
-          }
-        } catch (error: any) {
-          // 🆕 捕获中断错误
-          if (error.name === 'AbortError' || error.code === 'ERR_CANCELED') {
-            logger.debug(`[ChatService] Request aborted: ${requestId}`);
+        this.llmClient = llmClient;
+      }
+      
+      try {
+        for await (const chunk of llmClient.streamChat(preprocessedMessages, options, abortController.signal)) {
+          // 🆕 检查中断
+          if (abortController.signal.aborted) {
+            logger.debug(`[ChatService] Request interrupted during LLM streaming: ${requestId}`);
             yield `\n\n[用户已中断请求]`;
             yield `__META__:${JSON.stringify({type:'interrupted'})}`;
             return;
           }
           
-          // 🔍 捕获LLM错误（如400），避免污染消息历史
-          logger.error(`❌ [Protocol Loop] LLM request failed in iteration ${recursionDepth + 1}: ${error.message}`);
-          
-          // 如果是400错误，给用户友好提示
-          if (error.message.includes('400')) {
-            yield `\n\n❌ 请求失败（上下文可能过长）。建议新建话题重试。`;
-          } else {
-            yield `\n\n❌ 请求失败：${error.message}`;
-          }
-          
-          // 立即退出循环，不修改currentMessages
-          break;
+          yield chunk;
+        }
+      } catch (error: any) {
+        // 🆕 捕获中断错误
+        if (error.name === 'AbortError' || error.code === 'ERR_CANCELED') {
+          logger.debug(`[ChatService] Request aborted: ${requestId}`);
+          yield `\n\n[用户已中断请求]`;
+          yield `__META__:${JSON.stringify({type:'interrupted'})}`;
+          return;
         }
         
-        // 4.2 解析工具调用（仅使用 ABP 协议）
-        const toolRequests = this.protocolEngine.parseToolRequests(fullContent);
-        
-        if (toolRequests.length === 0) {
-          logger.debug('🔄 [Protocol Loop] No tool calls found, exiting loop');
-          break; // 无工具调用，退出循环
+        logger.error(`❌ LLM request failed: ${error.message}`);
+        if (error.message.includes('400')) {
+          yield `\n\n❌ 请求失败（上下文可能过长）。建议新建话题重试。`;
+        } else {
+          yield `\n\n❌ 请求失败：${error.message}`;
         }
-        
-        logger.debug(`🔧 [Protocol Loop] Found ${toolRequests.length} tool calls in iteration ${recursionDepth + 1}`);
-        
-        // 4.3 将AI响应添加到消息历史
-        currentMessages.push({ role: 'assistant', content: fullContent });
-
-        // 工具授权已移除，直接执行所有工具
-        if (toolRequests.length === 0) {
-          logger.debug('🔄 [Protocol Loop] No tools to execute, exiting loop');
-          break;
-        }
-
-        const syncTools = toolRequests.filter((tool) => !tool.archery);
-        const asyncTools = toolRequests.filter((tool) => tool.archery);
-        
-        if (asyncTools.length > 0) {
-          logger.debug(`🏹 [Protocol Loop] Executing ${asyncTools.length} archery tools (fire-and-forget)`);
-          asyncTools.forEach((tool) => this.executeArcheryTool(tool));
-        }
-        
-        if (syncTools.length === 0) {
-          logger.debug('🔄 [Protocol Loop] Only archery tools found, exiting loop');
-          break;
-        }
-        
-        logger.debug(`🔧 [Protocol Loop] Executing ${syncTools.length} sync tools in parallel...`);
-        
-        const executedResults = await Promise.all(
-          syncTools.map(async (tool) => this.executeTool(tool))
-        );
-        const allResults = executedResults;
-
-        if (allResults.length > 0) {
-          const toolResultTexts = this.formatToolResultEntries(allResults);
-          const combinedToolResults = toolResultTexts.join('\n\n');
-          currentMessages.push({ role: 'user', content: combinedToolResults });
-          logger.debug(`🔄 [Protocol Loop] Tool results added to message history, preparing next iteration`);
-        }
-        
-        // 4.8 增加递归深度
-        recursionDepth++;
-      }
-      
-      // 5. 检查是否达到最大递归深度
-      if (recursionDepth >= maxRecursion) {
-        logger.warn(`⚠️  [Protocol Loop] Max recursion depth (${maxRecursion}) reached`);
       }
       
     } catch (error: any) {
@@ -569,21 +443,6 @@ export class ChatService {
     }
   }
   
-  // evaluateToolAuthorization、buildAuthorizationError 方法已移除（工具授权已删除）
-
-  private formatToolResultEntries(entries: Array<{ tool: string; result?: any; error?: string }>): string[] {
-    return entries.map((entry) => {
-      if (entry.error) {
-        return `来自工具 "${entry.tool}" 的结果:\n执行错误：${entry.error}`;
-      }
-      const resultText =
-        typeof entry.result === 'object' && entry.result !== null
-          ? JSON.stringify(entry.result, null, 2)
-          : String(entry.result);
-      return `来自工具 "${entry.tool}" 的结果:\n${resultText}`;
-    });
-  }
-
   private async requireLLMClient(): Promise<LLMClient> {
     let llmClient = this.llmClient;
     if (!llmClient) {
@@ -598,76 +457,10 @@ export class ChatService {
     return llmClient;
   }
 
-  // resolveApprovalForDecision、findMatchingApproval、ensureToolApprovalRequest 方法已移除（工具授权已删除）
-
-  // resolvePersonaMemoryInfo 方法已移除（记忆服务已删除）
-
-  private async executeTool(
-    tool: ToolRequest
-  ): Promise<{ tool: string; result?: any; error?: string }> {
-    try {
-      // 节点派发逻辑已移除，所有工具在本地执行（通过 SkillsExecutionManager）
-
-      // 仅走 Skills 执行通路（不再回退到插件系统）
-      if (!this.skillsExecutionManager || !this.skillsMapper) {
-        return {
-          tool: tool.name,
-          error: 'Skills execution is not configured'
-        };
-      }
-      // 将工具调用转换为 Skills 执行请求（intent 使用工具名），并用偏好补全缺省参数
-      let execReq;
-      if (this.preferenceService) {
-        try {
-          const prefsView = this.preferenceService.getView({
-            userId: 'default',
-            sessionId: undefined
-          });
-          const prefs = Object.fromEntries(
-            Object.entries(prefsView.merged).map(([k, v]) => [k, v.value])
-          ) as Record<string, unknown>;
-          execReq = await this.skillsMapper.convertToolCallToExecutionRequestWithDefaults(tool, prefs);
-        } catch (e) {
-          logger.debug(`[ChatService] Tool param defaults from preferences skipped: ${(e as Error).message}`);
-          execReq = await this.skillsMapper.convertToolCallToExecutionRequest(tool);
-        }
-      } else {
-        execReq = await this.skillsMapper.convertToolCallToExecutionRequest(tool);
-      }
-      const response = await this.skillsExecutionManager.executeByIntent(tool.name, {
-        skillName: execReq.skillName,
-        parameters: execReq.parameters,
-        context: {
-          metadata: { origin: 'chat_service' }
-        }
-      } as any);
-      const mapped = await this.skillsMapper.convertExecutionResponseToToolResult(response);
-      return {
-        tool: tool.name,
-        result: mapped
-      };
-    } catch (error: any) {
-      logger.error(`❌ 工具执行失败: ${tool.name}`, error);
-      return {
-        tool: tool.name,
-        error: error?.message ?? String(error)
-      };
-    }
-  }
-
-  private executeArcheryTool(tool: ToolRequest): void {
-    logger.debug(`🏹 Async tool triggered: ${tool.name}`);
-
-    // 节点派发逻辑已移除，异步工具在 Skills 架构中不支持，记录告警
-    logger.warn(`⚠️ Archery tool not supported in skills-only architecture: ${tool.name}`);
-  }
-
   /**
    * 解析消息中的变量
    * 
    * 使用SDK VariableEngine统一处理所有变量占位符：
-   * - {{ABPAllTools}} - 所有工具描述（ToolDescriptionProvider）
-   * - {{ToolName}} - 单个工具描述（ToolDescriptionProvider）
    * - {{Date}}, {{Time}}, {{Today}} - 时间变量（TimeProvider）
    * - {{TarXXX}}, {{VarXXX}} - 环境变量（EnvironmentProvider）
    * - 自定义占位符（PlaceholderProvider）
@@ -708,19 +501,6 @@ export class ChatService {
     );
   }
 
-  /**
-   * 🆕 记录情感（如果检测到）
-   * 辅助方法，确保情感记录不阻塞对话流程
-   */
-  private preferenceService?: import('./PreferenceService').PreferenceService;
-
-  setPreferenceService(service: import('./PreferenceService').PreferenceService): void {
-    this.preferenceService = service;
-  }
-
-  // recordEmotionIfDetected 方法已移除（MemoryService 已移除）
-  // buildNodeConversationMessages 方法已移除（节点对话功能已删除）
-
   private pruneEmptyFields(payload: Record<string, any>): Record<string, any> {
     Object.keys(payload).forEach((key) => {
       const value = payload[key];
@@ -736,11 +516,6 @@ export class ChatService {
     return payload;
   }
   
-  // recordMemoryAndPublishEvent 方法已移除（MemoryService 已移除）
-
-  // recallPersonaMemories 方法已移除（记忆服务已删除）
-  // injectMemoriesIntoMessages 方法已移除（记忆服务已删除）
-
   /**
    * 🆕 提取Session Memory（最近N条消息）
    */
@@ -754,6 +529,5 @@ export class ChatService {
     return sessionMessages;
   }
 
-  // filterMemoryByContext 方法已移除（记忆服务已删除）
 }
 

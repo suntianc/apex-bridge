@@ -8,7 +8,6 @@ import { ChatService } from '../../services/ChatService';
 import { LLMManager as LLMClient } from '../../core/LLMManager'; // 向后兼容别名
 import { InterruptRequest, InterruptResponse } from '../../types/request-abort';
 import { logger } from '../../utils/logger';
-// ConversationRouter 已移除（对话路由功能已删除）
 
 export class ChatController {
   private chatService: ChatService;
@@ -68,8 +67,6 @@ export class ChatController {
         options.userId = requestUserId;
       }
 
-      // 对话路由功能已移除，直接处理请求
-      
       if (options.stream) {
         // 流式响应
         res.setHeader('Content-Type', 'text/event-stream');
@@ -123,7 +120,6 @@ export class ChatController {
           res.end();
           
           logger.info(`✅ Streamed ${chunkIndex} chunks for request ${responseId}`);
-          // 对话上下文记录已移除（对话路由功能已删除）
           
         } catch (streamError: any) {
           logger.error('❌ Error during streaming:', streamError);
@@ -163,7 +159,6 @@ export class ChatController {
         
         res.json(response);
         logger.info('✅ Completed non-stream chat request');
-        // 对话上下文记录已移除（对话路由功能已删除）
       }
       
     } catch (error: any) {

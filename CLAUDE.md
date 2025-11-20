@@ -33,7 +33,6 @@ graph TD
     A --> F["服务层"];
     F --> G["聊天服务<br/>对话管理"];
     F --> H["配置服务<br/>动态配置"];
-    F --> I["偏好服务<br/>个性化设置"];
     F --> J["LLM配置服务<br/>提供商管理"];
 
     A --> K["API接口"];
@@ -57,7 +56,7 @@ graph TD
 |------|------|------|------|
 | **核心引擎** | `src/core/` | ABP协议、LLM管理、变量引擎、Skills体系 | ✅ 活跃 |
 | **API层** | `src/api/` | 聊天接口、LLM配置、WebSocket通信 | ✅ 活跃 |
-| **服务层** | `src/services/` | 聊天服务、配置服务、偏好服务 | ✅ 活跃 |
+| **服务层** | `src/services/` | 聊天服务、配置服务、LLM配置服务 | ✅ 活跃 |
 | **中间件** | `src/api/middleware/` | 认证、限流、安全、验证 | ✅ 活跃 |
 
 ## 🚀 运行与开发
@@ -105,7 +104,7 @@ npm run audit:all
 - **独立实现**: 不再依赖任何外部SDK，完全自主的ABP协议处理
 - **Skills体系**: 取代传统插件，支持两段执行器（Direct/Internal）
 - **变量解析**: 支持时间、环境、占位符等多种变量类型
-- **工具描述**: 动态生成工具描述，支持偏好驱动的参数默认值
+- **工具描述**: 动态生成工具描述，简化工具调用流程
 
 ### 🎯 多LLM支持
 - **适配器模式**: 统一接口支持OpenAI、DeepSeek、智谱、Ollama等
@@ -197,11 +196,7 @@ apex-bridge/
    - `scripts/execute.ts`：技能执行入口（默认导出）
    - `references/`、`assets/`：参考资料与资源
 
-2. **偏好驱动的参数默认值**
-   - 当工具参数缺省时，按"显式参数 > schema默认 > 偏好"的顺序补全
-   - 相关实现：`SkillsToToolMapper.convertToolCallToExecutionRequestWithDefaults`、`ChatService.setPreferenceService`
-
-3. **技能执行类型**
+2. **技能执行类型**
    - **Direct（直接执行）**: 本地同步执行，默认类型
    - **Internal（内部执行）**: 核心系统内置技能
    - 简化的执行模型，专注于轻量级场景
@@ -278,8 +273,7 @@ app.use('/api/new', newController.getRouter());
 4. **ChatService** - 聊天服务核心
 5. **Skills体系** - 简化的技能执行（Direct/Internal）
 6. **WebSocket** - 实时通信
-7. **PreferenceService** - 偏好管理
-8. **LLMConfigService** - LLM配置管理
+7. **LLMConfigService** - LLM配置管理
 
 ### ❌ 已移除的复杂功能
 - 人格引擎、情感引擎、记忆系统

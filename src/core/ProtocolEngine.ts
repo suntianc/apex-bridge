@@ -8,7 +8,6 @@ import {
   TimeProvider,
   EnvironmentProvider,
   PlaceholderProvider,
-  ToolDescriptionProvider,
   RAGProvider,
   RAGMode,
 } from './variable/providers';
@@ -23,7 +22,6 @@ export class ProtocolEngine {
   public abpParser: ABPProtocolParser;
   public variableEngine: any;
   public ragService?: any;
-  private toolDescProvider?: ToolDescriptionProvider;
   
   constructor(private config: AdminConfig) {
     logger.info('🧠 Initializing Protocol Engine (ABP only)...');
@@ -31,14 +29,7 @@ export class ProtocolEngine {
   }
   
   /**
-   * 设置插件执行回调（保留用于API兼容性）
-   */
-  setExecutionCallback(callback: (event: any) => void): void {
-    logger.info('[ProtocolEngine] Execution callback ignored (plugin system removed)');
-  }
-  
-  /**
-   * 初始化核心组件（不加载插件）
+   * 初始化核心组件
    */
   initializeCore(): void {
     const abpConfig: ABPProtocolConfig = {
@@ -56,32 +47,6 @@ export class ProtocolEngine {
     
     this.variableEngine = createVariableEngine();
     logger.info('✅ VariableEngine initialized');
-  }
-
-  /**
-   * 解析工具请求（仅支持ABP协议）
-   * 
-   * @param content - AI响应内容
-   * @returns 解析结果（ABP格式）
-   */
-  parseToolRequests(content: string): any[] {
-    const abpResult = this.abpParser.parseToolRequests(content);
-    
-    if (abpResult.success && abpResult.toolCalls.length > 0) {
-      logger.debug(`[ProtocolEngine] ABP protocol parsed ${abpResult.toolCalls.length} tool calls`);
-      return abpResult.toolCalls.map((call) => ({
-        name: call.tool,
-        args: call.parameters,
-        abpCallId: call.id,
-        protocol: 'abp'
-      }));
-    }
-    
-    if (!abpResult.success) {
-      logger.debug(`[ProtocolEngine] ABP protocol parsing failed: ${abpResult.error || 'Unknown error'}`);
-    }
-    
-    return [];
   }
 
   /**
@@ -173,11 +138,6 @@ export class ProtocolEngine {
       });
       this.variableEngine.registerProvider(ragProvider);
       logger.debug('✅ [Layer3] RAGProvider registered (priority: 85)');
-      
-      const toolDescProvider = new ToolDescriptionProvider();
-      this.variableEngine.registerProvider(toolDescProvider);
-      this.toolDescProvider = toolDescProvider;
-      logger.debug('✅ [Layer3] ToolDescriptionProvider registered (priority: 90)');
 
       logger.info('🎉 Variable providers registered');
 
@@ -187,32 +147,10 @@ export class ProtocolEngine {
     }
   }
   
-  /**
-   * 注入 Skills 描述生成器到 ToolDescriptionProvider
-   */
-  setSkillsDescriptionGenerator(generator: any): void {
-    if (!this.toolDescProvider) {
-      logger.warn('[ProtocolEngine] ToolDescriptionProvider not ready; cannot set Skills generator');
-      return;
-    }
-    try {
-      (this.toolDescProvider as any).setSkillsGenerator?.(generator);
-      logger.info('✅ SkillsToolDescriptionGenerator bound to ToolDescriptionProvider');
-    } catch (e) {
-      logger.error('[ProtocolEngine] Failed to bind Skills generator:', e);
-    }
-  }
-  
-  /**
-   * 获取加载的插件数量（保留用于API兼容性）
-   */
   getPluginCount(): number {
     return 0;
   }
 
-  /**
-   * 获取所有插件清单（保留用于API兼容性）
-   */
   getPlugins() {
     return [];
   }
