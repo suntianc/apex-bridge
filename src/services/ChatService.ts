@@ -15,6 +15,7 @@ import { logger } from '../utils/logger';
 import { generateRequestId } from '../utils/request-id';
 import { TaskEvaluator } from '../core/TaskEvaluator';
 import { IWebSocketManager } from '../api/websocket/WebSocketManager';
+import { ConfigService } from './ConfigService';
 
 export class ChatService {
 
@@ -22,8 +23,6 @@ export class ChatService {
   private activeRequests: Map<string, ActiveRequest> = new Map();
   private cleanupTimer: NodeJS.Timeout | null = null;
   private webSocketManager: IWebSocketManager | null = null; // WebSocketManager 实例（可选）
-  // 🆕 自我思考循环（ReAct模式）
-  private taskEvaluator?: TaskEvaluator;
 
   private llmClient: LLMClient | null = null; // 改为可选，支持懒加载
   
@@ -319,8 +318,15 @@ export class ChatService {
     const startTime = Date.now();
     const maxDuration = options.loopTimeout || 300000; // 5分钟
     const maxIterations = options.selfThinking?.maxIterations || 5;
+    // ✅ 修复1：自我思考循环默认启动评估
     const enableTaskEvaluation = options.selfThinking?.enableTaskEvaluation ?? true;
     const includeThoughtsInResponse = options.selfThinking?.includeThoughtsInResponse ?? true;
+    
+    // ✅ 修复2：从配置文件读取快速评估/LLM评估开关，而不是从参数读取
+    const configService = ConfigService.getInstance();
+    const config = configService.readConfig();
+    const useLLMEvaluation = config.selfThinking?.useLLMEvaluation ?? false;
+    const evaluationModel = config.selfThinking?.evaluationModel;
 
     // 获取用户原始查询（第一条用户消息）
     const userQuery = messages.find(msg => msg.role === 'user')?.content || '';
@@ -331,10 +337,11 @@ export class ChatService {
     let finalResult: any = null;
     const thinkingProcess: string[] = []; // 记录思考过程
 
-    // 初始化 TaskEvaluator
-    this.taskEvaluator = new TaskEvaluator({
+    // ✅ 修复并发 Bug：使用局部变量而不是类成员变量，确保每个请求独享一个实例
+    const taskEvaluator = new TaskEvaluator({
       maxIterations,
-      completionPrompt: options.selfThinking?.completionPrompt
+      completionPrompt: options.selfThinking?.completionPrompt,
+      model: evaluationModel // ✅ 从配置文件读取评估模型
     });
 
     logger.info(`🧠 Starting Self-Thinking Loop (max: ${maxIterations} iterations)`);
@@ -371,11 +378,49 @@ export class ChatService {
 
       // 步骤 2: 使用 TaskEvaluator 评估任务是否完成
       let shouldContinue = false;
-      if (enableTaskEvaluation && this.taskEvaluator) {
-        const evaluation = this.taskEvaluator.quickEvaluate(currentMessages);
-        shouldContinue = !evaluation.isLikelyComplete;
-        
-        logger.debug(`[TaskEvaluator] Evaluation result: ${evaluation.isLikelyComplete ? 'Complete' : 'Needs more work'}`);
+      if (enableTaskEvaluation && taskEvaluator) {
+        // ✅ 从配置文件读取评估方式，而不是从参数读取
+        if (useLLMEvaluation) {
+          // 🆕 使用真实的 LLM 评估（更准确但成本更高）
+          logger.debug('[TaskEvaluator] Using LLM-based evaluation');
+          try {
+            const evaluation = await taskEvaluator.evaluate(
+              llmClient,
+              currentMessages,
+              userQuery,
+              iteration
+            );
+            shouldContinue = !evaluation.isComplete;
+            
+            logger.debug(
+              `[TaskEvaluator] LLM Evaluation result: ${evaluation.isComplete ? 'Complete' : 'Needs more work'}` +
+              (evaluation.reasoning ? ` (Reasoning: ${evaluation.reasoning.substring(0, 100)}...)` : '')
+            );
+            
+            // 如果提供了建议的下一步行动，可以记录到思考过程中
+            if (evaluation.suggestedNextAction) {
+              thinkingProcess.push(`[评估建议] ${evaluation.suggestedNextAction}`);
+            }
+            
+            // 如果评估提供了推理过程，也记录到思考过程中
+            if (evaluation.reasoning) {
+              thinkingProcess.push(`[评估推理] ${evaluation.reasoning}`);
+            }
+          } catch (error: any) {
+            // 如果 LLM 评估失败，降级到快速评估
+            logger.warn(`[TaskEvaluator] LLM evaluation failed, falling back to quick evaluation: ${error.message || error}`);
+            const evaluation = taskEvaluator.quickEvaluate(currentMessages);
+            shouldContinue = !evaluation.isLikelyComplete;
+            logger.debug(`[TaskEvaluator] Quick Evaluation (fallback) result: ${evaluation.isLikelyComplete ? 'Complete' : 'Needs more work'}`);
+          }
+        } else {
+          // 使用快速评估（轻量级，基于关键词匹配）
+          logger.debug('[TaskEvaluator] Using quick evaluation (keyword-based)');
+          const evaluation = taskEvaluator.quickEvaluate(currentMessages);
+          shouldContinue = !evaluation.isLikelyComplete;
+          
+          logger.debug(`[TaskEvaluator] Quick Evaluation result: ${evaluation.isLikelyComplete ? 'Complete' : 'Needs more work'}`);
+        }
       } else {
         // 如果没有启用评估，默认在达到最大迭代次数时结束
         shouldContinue = iteration < maxIterations;

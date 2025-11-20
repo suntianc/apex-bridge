@@ -158,6 +158,12 @@ export interface AdminConfig {
     rateLimit?: RateLimitSettings;
   };
 
+  // 🆕 自我思考循环配置（ReAct模式）
+  selfThinking?: {
+    useLLMEvaluation?: boolean;   // 是否使用 LLM 进行真实评估（true=使用 evaluate，false=使用 quickEvaluate，默认 false）
+    evaluationModel?: string;       // 可选：用于评估的专用模型（如 gpt-4o-mini，降低成本）
+  };
+
   [key: string]: any;
 }
 

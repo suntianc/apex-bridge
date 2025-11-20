@@ -2,22 +2,12 @@
   "setup_completed": true,
   "api": {
     "host": "0.0.0.0",
-    "port": 8088,
-    "cors": {
-      "origin": "*",
-      "credentials": true
-    }
+    "port": 8088
   },
   "auth": {
     "enabled": false,
     "apiKey": "default-api-key",
     "apiKeys": []
-  },
-  "llm": {
-    "providers": [],
-    "defaultProvider": "deepseek",
-      "timeout": 60000,
-    "maxRetries": 3
   },
   "rag": {
     "enabled": true,
@@ -30,22 +20,13 @@
       "dimensions": 1023
     }
   },
-  "logging": {
-    "level": "info",
-    "file": "./logs/apexbridge.log"
-  },
-  "performance": {
-    "workerPoolSize": 4,
-    "requestTimeout": 60000,
-    "maxRequestSize": "50mb"
-  },
   "redis": {
     "enabled": false,
     "host": "127.0.0.1",
     "port": 6379,
     "db": 0,
     "keyPrefix": "apex_bridge:",
-    "connectTimeout": 10000,
+    "connectTimeoutMs": 10000,
     "lazyConnect": true,
     "maxRetriesPerRequest": 3,
     "retryDelayOnFailover": 100
@@ -59,6 +40,6 @@
       "standardHeaders": true,
       "legacyHeaders": false,
       "trustProxy": false
-        }
     }
+  }
 }

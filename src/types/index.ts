@@ -22,7 +22,7 @@ export interface ChatOptions {
   selfThinking?: {
     enabled?: boolean;           // 是否启用自我思考循环（ReAct模式）
     maxIterations?: number;      // 最大思考循环次数（默认5）
-    enableTaskEvaluation?: boolean; // 是否启用任务完成评估（会使用LLM评估）
+    enableTaskEvaluation?: boolean; // 是否启用任务完成评估（默认 true）
     completionPrompt?: string;   // 自定义任务完成评估提示
     includeThoughtsInResponse?: boolean; // 是否在响应中包含思考过程（默认true）
   };

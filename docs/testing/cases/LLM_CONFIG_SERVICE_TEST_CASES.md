@@ -758,7 +758,7 @@ curl -X POST http://localhost:8088/api/llm/providers \
 - [测试总览指南](../MANUAL_TESTING_GUIDE.md)
 - [LLMManager 测试用例](./LLM_MANAGER_TEST_CASES.md)
 - [提供商和模型 API 测试](./PROVIDER_MODEL_API_TEST_CASES.md)
-- [数据库架构设计](../../llm-v2/DATABASE_SCHEMA_V2.md)
+- [手动配置指南](../../LLM_CONFIG_MANUAL_SETUP.md)
 
 ---
 
