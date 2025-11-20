@@ -17,6 +17,7 @@ export class ModelRegistry {
   private modelCache: Map<number, LLMModelFull>;
   private defaultModelCache: Map<LLMModelType, LLMModelFull>;
   private typeIndexCache: Map<LLMModelType, LLMModelFull[]>;
+  private keyIndexCache: Map<string, LLMModelFull>; // 🆕 Key 索引: "provider:modelKey" -> model
   private lastRefreshTime: number;
   private refreshInterval: number;
 
@@ -25,6 +26,7 @@ export class ModelRegistry {
     this.modelCache = new Map();
     this.defaultModelCache = new Map();
     this.typeIndexCache = new Map();
+    this.keyIndexCache = new Map(); // 🆕 初始化 Key 索引
     this.lastRefreshTime = 0;
     this.refreshInterval = 60000; // 60 秒刷新间隔
 
@@ -51,6 +53,7 @@ export class ModelRegistry {
       this.modelCache.clear();
       this.defaultModelCache.clear();
       this.typeIndexCache.clear();
+      this.keyIndexCache.clear(); // 🆕 清空 Key 索引
 
       // 加载所有启用的模型
       const models = this.configService.listModels({ enabled: true });
@@ -75,6 +78,10 @@ export class ModelRegistry {
         if (model.isDefault) {
           this.defaultModelCache.set(model.modelType as LLMModelType, model);
         }
+
+        // 🆕 Key 索引 (Provider + ModelKey) - 用于 O(1) 查找
+        const uniqueKey = `${model.provider}:${model.modelKey}`;
+        this.keyIndexCache.set(uniqueKey, model);
       });
 
       this.lastRefreshTime = Date.now();
@@ -149,17 +156,14 @@ export class ModelRegistry {
 
   /**
    * 查找模型（按 provider + modelKey）
+   * ⚡️ 优化为 O(1) 查找（使用 Key 索引）
    */
   public findModel(provider: string, modelKey: string): LLMModelFull | null {
     this.checkRefresh();
     
-    for (const model of this.modelCache.values()) {
-      if (model.provider === provider && model.modelKey === modelKey) {
-        return model;
-      }
-    }
-    
-    return null;
+    // 🆕 使用 Key 索引实现 O(1) 查找
+    const uniqueKey = `${provider}:${modelKey}`;
+    return this.keyIndexCache.get(uniqueKey) || null;
   }
 
   /**

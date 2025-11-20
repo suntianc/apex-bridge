@@ -14,6 +14,85 @@ const configService = LLMConfigService.getInstance();
 const modelRegistry = ModelRegistry.getInstance();
 
 /**
+ * 解析布尔值查询参数
+ * 支持多种格式：'true', '1', true, 'TRUE' 等
+ * 
+ * @param value - 查询参数值
+ * @returns 布尔值或 undefined（如果未提供）
+ */
+function parseBooleanQuery(value: any): boolean | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  
+  // 处理字符串
+  if (typeof value === 'string') {
+    const lower = value.toLowerCase().trim();
+    return lower === 'true' || lower === '1' || lower === 'yes';
+  }
+  
+  // 处理布尔值
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  
+  // 处理数字
+  if (typeof value === 'number') {
+    return value === 1;
+  }
+  
+  return undefined;
+}
+
+/**
+ * 统一处理服务层错误
+ * 将字符串匹配的错误转换为合适的 HTTP 状态码
+ * 
+ * @param res - Express 响应对象
+ * @param error - 错误对象
+ * @param action - 操作名称（用于日志）
+ * @returns 是否已处理错误
+ */
+function handleServiceError(res: Response, error: any, action: string): boolean {
+  logger.error(`❌ Failed to ${action}:`, error);
+  
+  const msg = error.message || '';
+  
+  // 使用字符串匹配（如果 Service 层没有使用 AppError）
+  // 注意：这是临时方案，理想情况下 Service 层应该抛出 AppError
+  if (msg.includes('not found') || msg.toLowerCase().includes('not found')) {
+    res.status(404).json({
+      error: 'Resource not found',
+      message: error.message
+    });
+    return true;
+  }
+  
+  if (msg.includes('already exists') || msg.toLowerCase().includes('already exists')) {
+    res.status(409).json({
+      error: 'Resource already exists',
+      message: error.message
+    });
+    return true;
+  }
+  
+  if (msg.includes('required') || msg.includes('Invalid') || msg.toLowerCase().includes('validation')) {
+    res.status(400).json({
+      error: 'Validation failed',
+      message: error.message
+    });
+    return true;
+  }
+  
+  // 默认返回 500
+  res.status(500).json({
+    error: `Failed to ${action}`,
+    message: error.message
+  });
+  return true;
+}
+
+/**
  * 列出提供商的所有模型
  * GET /api/llm/providers/:providerId/models
  */
@@ -173,36 +252,7 @@ export async function createModel(req: Request, res: Response): Promise<void> {
       }
     });
   } catch (error: any) {
-    logger.error('❌ Failed to create model:', error);
-    
-    if (error.message.includes('not found')) {
-      res.status(404).json({
-        error: 'Provider not found',
-        message: error.message
-      });
-      return;
-    }
-
-    if (error.message.includes('already exists')) {
-      res.status(409).json({
-        error: 'Model already exists',
-        message: error.message
-      });
-      return;
-    }
-
-    if (error.message.includes('required') || error.message.includes('Invalid')) {
-      res.status(400).json({
-        error: 'Validation failed',
-        message: error.message
-      });
-      return;
-    }
-
-    res.status(500).json({
-      error: 'Failed to create model',
-      message: error.message
-    });
+    handleServiceError(res, error, 'create model');
   }
 }
 
@@ -263,20 +313,7 @@ export async function updateModel(req: Request, res: Response): Promise<void> {
       }
     });
   } catch (error: any) {
-    logger.error('❌ Failed to update model:', error);
-    
-    if (error.message.includes('not found')) {
-      res.status(404).json({
-        error: 'Model not found',
-        message: error.message
-      });
-      return;
-    }
-
-    res.status(500).json({
-      error: 'Failed to update model',
-      message: error.message
-    });
+    handleServiceError(res, error, 'update model');
   }
 }
 
@@ -317,20 +354,7 @@ export async function deleteModel(req: Request, res: Response): Promise<void> {
       message: 'Model deleted successfully'
     });
   } catch (error: any) {
-    logger.error('❌ Failed to delete model:', error);
-    
-    if (error.message.includes('not found')) {
-      res.status(404).json({
-        error: 'Model not found',
-        message: error.message
-      });
-      return;
-    }
-
-    res.status(500).json({
-      error: 'Failed to delete model',
-      message: error.message
-    });
+    handleServiceError(res, error, 'delete model');
   }
 }
 
@@ -341,8 +365,9 @@ export async function deleteModel(req: Request, res: Response): Promise<void> {
 export async function queryModels(req: Request, res: Response): Promise<void> {
   try {
     const type = req.query.type as string;
-    const enabled = req.query.enabled === 'true';
-    const isDefault = req.query.default === 'true';
+    // ⚡️ 优化：更健壮的布尔值解析
+    const enabled = parseBooleanQuery(req.query.enabled);
+    const isDefault = parseBooleanQuery(req.query.default);
 
     const params: any = {};
     
@@ -358,12 +383,13 @@ export async function queryModels(req: Request, res: Response): Promise<void> {
       params.modelType = type as LLMModelType;
     }
 
-    if (enabled) {
-      params.enabled = true;
+    // 只有当值明确为 true 时才设置参数
+    if (enabled !== undefined) {
+      params.enabled = enabled;
     }
 
-    if (isDefault) {
-      params.isDefault = true;
+    if (isDefault !== undefined) {
+      params.isDefault = isDefault;
     }
 
     const models = configService.listModels(params);

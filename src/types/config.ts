@@ -37,11 +37,6 @@ export type { PathConfig } from '../services/PathService';
 
 // ==================== 核心模块配置 ====================
 
-// Variable Providers 配置
-export type {
-  RAGProviderConfig
-} from '../core/variable/providers';
-
 // ==================== 工具配置 ====================
 
 // Cache 配置

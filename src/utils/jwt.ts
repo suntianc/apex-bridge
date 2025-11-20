@@ -5,6 +5,7 @@
 
 import * as crypto from 'crypto';
 import { logger } from './logger';
+import { ConfigService } from '../services/ConfigService';
 
 export interface JWTPayload {
   username: string;
@@ -154,26 +155,23 @@ export function verifyJWT(token: string, config: JWTConfig): { valid: boolean; p
  * 获取或生成 JWT 密钥
  * 从配置中读取，如果没有则生成并保存
  */
-export function getOrGenerateJWTSecret(configService: any): string {
+export function getOrGenerateJWTSecret(configService: ConfigService): string {
   const config = configService.readConfig();
   
-  // 检查配置中是否已有 JWT secret
-  if (config.auth?.jwt?.secret) {
-    return config.auth.jwt.secret;
+  // 检查配置中是否已有 JWT secret（使用扁平结构：auth.jwtSecret）
+  if (config.auth?.jwtSecret) {
+    return config.auth.jwtSecret;
   }
 
   // 生成新的密钥（32字节，base64编码）
   const secret = crypto.randomBytes(32).toString('base64');
   
-  // 保存到配置
+  // 保存到配置（使用扁平结构）
   configService.updateConfig({
     auth: {
       ...config.auth,
-      jwt: {
-        secret,
-        expiresIn: DEFAULT_EXPIRES_IN,
-        algorithm: DEFAULT_ALGORITHM
-      }
+      jwtSecret: secret,
+      jwtExpiresIn: `${DEFAULT_EXPIRES_IN}s` // 转换为字符串格式（如 "604800s"）
     }
   });
 
@@ -184,15 +182,47 @@ export function getOrGenerateJWTSecret(configService: any): string {
 /**
  * 获取 JWT 配置
  */
-export function getJWTConfig(configService: any): JWTConfig {
+export function getJWTConfig(configService: ConfigService): JWTConfig {
   const config = configService.readConfig();
-  const jwtConfig = config.auth?.jwt;
-  const secret = jwtConfig?.secret || getOrGenerateJWTSecret(configService);
+  const secret = config.auth?.jwtSecret || getOrGenerateJWTSecret(configService);
+  
+  // 解析 jwtExpiresIn（可能是 "7d", "24h", "604800s" 等格式）
+  let expiresIn = DEFAULT_EXPIRES_IN;
+  if (config.auth?.jwtExpiresIn) {
+    const expiresInStr = config.auth.jwtExpiresIn;
+    // 尝试解析字符串格式（如 "7d", "24h", "604800s"）
+    const match = expiresInStr.match(/^(\d+)([dhms])?$/);
+    if (match) {
+      const value = parseInt(match[1], 10);
+      const unit = match[2] || 's';
+      switch (unit) {
+        case 'd':
+          expiresIn = value * 24 * 60 * 60;
+          break;
+        case 'h':
+          expiresIn = value * 60 * 60;
+          break;
+        case 'm':
+          expiresIn = value * 60;
+          break;
+        case 's':
+        default:
+          expiresIn = value;
+          break;
+      }
+    } else {
+      // 如果不是字符串格式，尝试直接解析为数字
+      const parsed = parseInt(expiresInStr, 10);
+      if (!isNaN(parsed)) {
+        expiresIn = parsed;
+      }
+    }
+  }
 
   return {
     secret,
-    expiresIn: jwtConfig?.expiresIn || DEFAULT_EXPIRES_IN,
-    algorithm: (jwtConfig?.algorithm as 'HS256' | 'HS384' | 'HS512') || DEFAULT_ALGORITHM
+    expiresIn,
+    algorithm: DEFAULT_ALGORITHM // 算法固定为 HS256，配置中不再存储
   };
 }
 

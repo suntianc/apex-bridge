@@ -6,17 +6,22 @@
  * @module utils/request-id
  */
 
+import * as crypto from 'crypto';
+
 /**
  * 生成唯一的请求ID
  * 
  * 格式: req_{timestamp}_{random}
- * 示例: req_1730296800000_a3f9k2x
+ * 示例: req_1730296800000_a3f9k2x8b
  * 
  * @returns 唯一的请求ID
  */
 export function generateRequestId(): string {
   const timestamp = Date.now();
-  const random = Math.random().toString(36).substring(2, 11); // 9位随机字符
+  // 🛡️ 使用 crypto.randomBytes 保证长度固定且熵值更高
+  // 生成 5 字节的随机数据并转为 hex (10字符)，截取前9位
+  // 结果必定是 [0-9a-f]，符合 [a-z0-9] 的正则
+  const random = crypto.randomBytes(5).toString('hex').substring(0, 9);
   return `req_${timestamp}_${random}`;
 }
 
@@ -43,11 +48,17 @@ export function isValidRequestId(requestId: string): boolean {
  * @returns Unix时间戳（毫秒），如果无效返回null
  */
 export function extractTimestamp(requestId: string): number | null {
-  if (!isValidRequestId(requestId)) {
+  // ⚡️ 优化：简单的分割提取，不强制进行完整的正则校验，性能更好
+  if (!requestId || !requestId.startsWith('req_')) {
     return null;
   }
   
   const parts = requestId.split('_');
-  return parseInt(parts[1], 10);
+  if (parts.length < 2) {
+    return null;
+  }
+  
+  const timestamp = parseInt(parts[1], 10);
+  return isNaN(timestamp) ? null : timestamp;
 }
 

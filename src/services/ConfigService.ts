@@ -259,6 +259,10 @@ export class ConfigService {
 
   /**
    * 读取配置（同步）
+   * 
+   * 修复：区分文件不存在和解析错误
+   * - 文件不存在：创建默认配置（首次启动）
+   * - 解析错误：抛出异常，防止覆盖用户配置
    */
   public readConfig(): AdminConfig {
     if (this.configCache) {
@@ -266,13 +270,7 @@ export class ConfigService {
     }
 
     try {
-      // 检查文件是否存在
-      if (!fs.existsSync(this.configPath)) {
-        logger.warn(`配置文件不存在: ${this.configPath}，创建默认配置`);
-        this.writeConfig(DEFAULT_CONFIG);
-        return DEFAULT_CONFIG;
-      }
-
+      // 直接读取，通过错误码判断是否存在
       const configData = fs.readFileSync(this.configPath, 'utf-8');
       const config = JSON.parse(configData) as AdminConfig;
 
@@ -280,18 +278,28 @@ export class ConfigService {
       this.configCache = config;
 
       return config;
-    } catch (error) {
-      logger.error(`读取配置失败: ${this.configPath}`, error);
+    } catch (error: any) {
+      // 1. 文件不存在：创建默认配置（首次启动）
+      if (error.code === 'ENOENT') {
+        logger.warn(`配置文件不存在: ${this.configPath}，创建默认配置`);
+        this.writeConfig(DEFAULT_CONFIG);
+        return DEFAULT_CONFIG;
+      }
 
-      // 如果读取失败，创建默认配置
-      logger.info('创建默认配置文件');
-      this.writeConfig(DEFAULT_CONFIG);
-      return DEFAULT_CONFIG;
+      // 2. JSON 解析错误或其他 IO 错误：这是严重故障，不能覆盖文件！
+      logger.error(`❌ 配置文件损坏或无法读取: ${this.configPath}`);
+      logger.error(`错误详情: ${error.message}`);
+      // 抛出错误，阻止应用在配置错误的情况下启动
+      throw new Error(`Configuration load failed: ${error.message}`);
     }
   }
 
   /**
    * 读取配置（异步）
+   * 
+   * 修复：区分文件不存在和解析错误
+   * - 文件不存在：创建默认配置（首次启动）
+   * - 解析错误：抛出异常，防止覆盖用户配置
    */
   public async readConfigAsync(): Promise<AdminConfig> {
     if (this.configCache) {
@@ -299,15 +307,7 @@ export class ConfigService {
     }
 
     try {
-      // 检查文件是否存在
-      try {
-        await fsPromises.access(this.configPath);
-      } catch {
-        logger.warn(`配置文件不存在: ${this.configPath}，创建默认配置`);
-        await this.writeConfigAsync(DEFAULT_CONFIG);
-        return DEFAULT_CONFIG;
-      }
-
+      // 直接读取，通过错误码判断是否存在（避免 TOCTOU 竞态条件）
       const configData = await fsPromises.readFile(this.configPath, 'utf-8');
       const config = JSON.parse(configData) as AdminConfig;
 
@@ -315,18 +315,25 @@ export class ConfigService {
       this.configCache = config;
 
       return config;
-    } catch (error) {
-      logger.error(`读取配置失败: ${this.configPath}`, error);
+    } catch (error: any) {
+      // 1. 文件不存在：创建默认配置（首次启动）
+      if (error.code === 'ENOENT') {
+        logger.warn(`配置文件不存在: ${this.configPath}，创建默认配置`);
+        await this.writeConfigAsync(DEFAULT_CONFIG);
+        return DEFAULT_CONFIG;
+      }
 
-      // 如果读取失败，创建默认配置
-      logger.info('创建默认配置文件');
-      await this.writeConfigAsync(DEFAULT_CONFIG);
-      return DEFAULT_CONFIG;
+      // 2. JSON 解析错误或其他 IO 错误：这是严重故障，不能覆盖文件！
+      logger.error(`❌ 配置文件损坏或无法读取: ${this.configPath}`, error);
+      // 抛出错误，阻止应用在配置错误的情况下启动
+      throw new Error(`Configuration load failed: ${error.message}`);
     }
   }
 
   /**
-   * 写入配置（同步）
+   * 写入配置（同步 - 原子写入）
+   * 
+   * 修复：使用临时文件+重命名策略，防止断电导致配置文件损坏
    */
   public writeConfig(config: AdminConfig): void {
     try {
@@ -337,7 +344,13 @@ export class ConfigService {
       }
 
       const configData = JSON.stringify(config, null, 2);
-      fs.writeFileSync(this.configPath, configData, 'utf-8');
+      const tempPath = `${this.configPath}.tmp`;
+
+      // 1. 先写入临时文件
+      fs.writeFileSync(tempPath, configData, 'utf-8');
+      
+      // 2. 原子重命名（操作系统级别的原子操作）
+      fs.renameSync(tempPath, this.configPath);
 
       // 更新缓存
       this.configCache = config;
@@ -345,12 +358,23 @@ export class ConfigService {
       logger.info(`配置已保存: ${this.configPath}`);
     } catch (error) {
       logger.error(`写入配置失败: ${this.configPath}`, error);
+      // 清理可能的临时文件
+      try {
+        const tempPath = `${this.configPath}.tmp`;
+        if (fs.existsSync(tempPath)) {
+          fs.unlinkSync(tempPath);
+        }
+      } catch (cleanupError) {
+        // 忽略清理错误
+      }
       throw error;
     }
   }
 
   /**
-   * 写入配置（异步）
+   * 写入配置（异步 - 原子写入）
+   * 
+   * 修复：使用临时文件+重命名策略，防止断电导致配置文件损坏
    */
   public async writeConfigAsync(config: AdminConfig): Promise<void> {
     try {
@@ -359,7 +383,13 @@ export class ConfigService {
       await fsPromises.mkdir(configDir, { recursive: true });
 
       const configData = JSON.stringify(config, null, 2);
-      await fsPromises.writeFile(this.configPath, configData, 'utf-8');
+      const tempPath = `${this.configPath}.tmp`;
+
+      // 1. 先写入临时文件
+      await fsPromises.writeFile(tempPath, configData, 'utf-8');
+      
+      // 2. 原子重命名（操作系统级别的原子操作）
+      await fsPromises.rename(tempPath, this.configPath);
 
       // 更新缓存
       this.configCache = config;
@@ -367,6 +397,15 @@ export class ConfigService {
       logger.info(`配置已保存: ${this.configPath}`);
     } catch (error) {
       logger.error(`写入配置失败: ${this.configPath}`, error);
+      // 清理可能的临时文件
+      try {
+        const tempPath = `${this.configPath}.tmp`;
+        await fsPromises.unlink(tempPath).catch(() => {
+          // 忽略清理错误
+        });
+      } catch (cleanupError) {
+        // 忽略清理错误
+      }
       throw error;
     }
   }
@@ -390,20 +429,36 @@ export class ConfigService {
   }
 
   /**
-   * 合并配置对象
+   * 递归合并配置对象（深层合并）
+   * 
+   * 修复：支持多层级配置更新，防止嵌套配置丢失
+   * 例如：更新 redis.socket.host 不会丢失 redis.socket.port
    */
   private mergeConfig(base: AdminConfig, updates: Partial<AdminConfig>): AdminConfig {
     const result = { ...base };
 
-    for (const key in updates) {
-      if (updates[key] !== undefined) {
-        if (typeof updates[key] === 'object' && updates[key] !== null && !Array.isArray(updates[key])) {
-          result[key] = { ...result[key], ...updates[key] };
-        } else {
-          result[key] = updates[key] as any;
-        }
+    Object.keys(updates).forEach(key => {
+      const updateValue = updates[key];
+      const baseValue = base[key];
+
+      // 如果更新值和基础值都是对象（非数组），进行递归合并
+      if (
+        updateValue !== undefined &&
+        updateValue !== null &&
+        typeof updateValue === 'object' &&
+        !Array.isArray(updateValue) &&
+        baseValue !== undefined &&
+        baseValue !== null &&
+        typeof baseValue === 'object' &&
+        !Array.isArray(baseValue)
+      ) {
+        // 递归合并对象
+        result[key] = this.mergeConfig(baseValue as any, updateValue as any);
+      } else if (updateValue !== undefined) {
+        // 数组或基本类型直接覆盖
+        result[key] = updateValue as any;
       }
-    }
+    });
 
     return result;
   }

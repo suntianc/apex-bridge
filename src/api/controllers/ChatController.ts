@@ -5,13 +5,44 @@
 
 import { Request, Response } from 'express';
 import { ChatService } from '../../services/ChatService';
-import { LLMManager as LLMClient } from '../../core/LLMManager'; // 向后兼容别名
+import { LLMManager as LLMClient } from '../../core/LLMManager';
 import { InterruptRequest, InterruptResponse } from '../../types/request-abort';
+import { Message } from '../../types';
 import { logger } from '../../utils/logger';
+
+/**
+ * OpenAI 标准聊天参数白名单
+ */
+const STANDARD_CHAT_PARAMS = new Set([
+  'model', 'temperature', 'max_tokens', 'top_p', 
+  'frequency_penalty', 'presence_penalty', 
+  'stop', 'n', 'stream', 'user', 'top_k'
+]);
+
+/**
+ * 聊天选项接口
+ */
+interface ChatRequestOptions {
+  provider?: string;
+  model?: string;
+  temperature?: number;
+  max_tokens?: number;
+  top_p?: number;
+  frequency_penalty?: number;
+  presence_penalty?: number;
+  stop?: string[];
+  n?: number;
+  stream?: boolean;
+  user?: string;
+  top_k?: number;
+  agentId?: string;
+  userId?: string;
+  [key: string]: any;
+}
 
 export class ChatController {
   private chatService: ChatService;
-  private llmClient: LLMClient | null = null; // 改为可选，支持懒加载
+  private llmClient: LLMClient | null;
   
   constructor(chatService: ChatService, llmClient: LLMClient | null) {
     this.chatService = chatService;
@@ -25,140 +56,35 @@ export class ChatController {
   async chatCompletions(req: Request, res: Response): Promise<void> {
     try {
       const { messages } = req.body;
+      const body = req.body;
       
-      // 注意：请求验证已由验证中间件处理，这里只需要提取参数
-      // 🔐 白名单机制：只提取OpenAI标准参数
-      const STANDARD_CHAT_PARAMS = new Set([
-        'model', 'temperature', 'max_tokens', 'top_p', 
-        'frequency_penalty', 'presence_penalty', 
-        'stop', 'n', 'stream', 'user', 'top_k'
-      ]);
-      
-      const options: any = {
-        provider: req.body.provider // 内部路由参数
+      // 提取标准参数
+      const options: ChatRequestOptions = {
+        provider: body.provider
       };
       
       // 只提取白名单中的参数
-      for (const [key, value] of Object.entries(req.body)) {
-        if (STANDARD_CHAT_PARAMS.has(key)) {
-          options[key] = value;
+      for (const key of STANDARD_CHAT_PARAMS) {
+        if (key in body) {
+          options[key] = body[key];
         }
       }
       
-      // 🆕 支持agent_id参数（人格切换）
-      if (req.body.agent_id) {
-        options.agentId = req.body.agent_id;
+      // 支持 agent_id 参数（人格切换）
+      if (body.agent_id) {
+        options.agentId = body.agent_id;
       }
       
-      // 确保 stream 是布尔值（验证中间件已经确保它是布尔值或undefined）
+      // 确保 stream 是布尔值
       options.stream = options.stream === true;
 
-      const requestUserId =
-        typeof req.body.user_id === 'string'
-          ? req.body.user_id
-          : typeof req.body.userId === 'string'
-          ? req.body.userId
-          : typeof req.body.user === 'string'
-          ? req.body.user
-          : typeof req.body?.apexMeta?.userId === 'string'
-          ? req.body.apexMeta.userId
-          : undefined;
-      if (requestUserId) {
-        options.userId = requestUserId;
-      }
+      // 优化的 User ID 提取逻辑
+      options.userId = body.user_id ?? body.userId ?? body.user ?? body.apexMeta?.userId;
 
       if (options.stream) {
-        // 流式响应
-        res.setHeader('Content-Type', 'text/event-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive');
-        res.setHeader('X-Accel-Buffering', 'no'); // 禁用Nginx缓冲
-        
-        const responseId = `chatcmpl-${Date.now()}`;
-        let chunkIndex = 0;
-        let aggregatedContent = '';
-        
-        try {
-          for await (const chunk of this.chatService.streamMessage(messages, options)) {
-            // 🆕 处理元数据标记（不包装为delta，直接发送）
-            if (chunk.startsWith('__META__:')) {
-              const metaData = JSON.parse(chunk.substring(9));
-              
-              if (metaData.type === 'requestId') {
-                // 发送 requestId 元数据
-                res.write(`data: ${JSON.stringify({requestId: metaData.value})}\n\n`);
-                continue;
-              } else if (metaData.type === 'interrupted') {
-                // 发送中断标记
-                res.write(`data: [INTERRUPTED]\n\n`);
-                continue;
-              }
-            }
-            
-            // 普通内容：包装为 delta
-            if (!chunk.startsWith('__META__')) {
-              aggregatedContent += chunk;
-            }
-            const sseData = {
-              id: responseId,
-              object: 'chat.completion.chunk',
-              created: Math.floor(Date.now() / 1000),
-              model: options.model || 'gpt-4',
-              choices: [{
-                index: 0,
-                delta: { content: chunk },
-                finish_reason: null
-              }]
-            };
-            
-            res.write(`data: ${JSON.stringify(sseData)}\n\n`);
-            chunkIndex++;
-          }
-          
-          // 发送结束标记
-          res.write('data: [DONE]\n\n');
-          res.end();
-          
-          logger.info(`✅ Streamed ${chunkIndex} chunks for request ${responseId}`);
-          
-        } catch (streamError: any) {
-          logger.error('❌ Error during streaming:', streamError);
-          
-          res.write(`data: ${JSON.stringify({
-            error: {
-              message: streamError.message,
-              type: 'server_error'
-            }
-          })}\n\n`);
-          res.end();
-        }
-        
+        await this.handleStreamResponse(res, messages, options);
       } else {
-        // 非流式响应
-        const result = await this.chatService.processMessage(messages, options);
-        
-        const response = {
-          id: `chatcmpl-${Date.now()}`,
-          object: 'chat.completion',
-          created: Math.floor(Date.now() / 1000),
-          model: options.model || 'gpt-4',
-          choices: [{
-            index: 0,
-            message: {
-              role: 'assistant',
-              content: result.content
-            },
-            finish_reason: 'stop'
-          }],
-          usage: {
-            prompt_tokens: 0,
-            completion_tokens: 0,
-            total_tokens: 0
-          }
-        };
-        
-        res.json(response);
-        logger.info('✅ Completed non-stream chat request');
+        await this.handleNormalResponse(res, messages, options);
       }
       
     } catch (error: any) {
@@ -172,7 +98,148 @@ export class ChatController {
       });
     }
   }
-  
+
+  /**
+   * 处理流式响应
+   */
+  private async handleStreamResponse(
+    res: Response, 
+    messages: Message[], 
+    options: ChatRequestOptions
+  ): Promise<void> {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    
+    const responseId = `chatcmpl-${Date.now()}`;
+    let chunkIndex = 0;
+    
+    try {
+      for await (const chunk of this.chatService.streamMessage(messages, options)) {
+        // 处理元数据标记（必须完全匹配，避免误拦截）
+        if (chunk.startsWith('__META__:')) {
+          const metaJson = chunk.substring(9);
+          try {
+            const metaData = JSON.parse(metaJson);
+            
+            if (metaData.type === 'requestId') {
+              // 发送 requestId 元数据（非标准格式，仅用于自定义客户端）
+              res.write(`data: ${JSON.stringify({ requestId: metaData.value })}\n\n`);
+            } else if (metaData.type === 'interrupted') {
+              // 修复：发送标准格式的中断通知，兼容标准 OpenAI SDK
+              // 发送一个内容为 "Interrupted" 的标准 chunk，然后发送 [DONE]
+              const interruptedChunk = {
+                id: responseId,
+                object: 'chat.completion.chunk',
+                created: Math.floor(Date.now() / 1000),
+                model: options.model || 'gpt-4',
+                choices: [{
+                  index: 0,
+                  delta: { content: '' },
+                  finish_reason: 'stop'
+                }]
+              };
+              res.write(`data: ${JSON.stringify(interruptedChunk)}\n\n`);
+              // 立即发送 [DONE] 标记，结束流
+              res.write('data: [DONE]\n\n');
+              res.end();
+              logger.info(`✅ Stream interrupted for request ${responseId}`);
+              return; // 提前返回，不再处理后续 chunk
+            }
+            // 显式跳过，不执行下方逻辑
+            continue;
+          } catch (parseError) {
+            // JSON 解析失败，记录警告但不中断流
+            logger.warn('[ChatController] Failed to parse meta chunk:', metaJson);
+            // 如果解析失败，不应该继续处理，避免泄露 META 标记
+            continue;
+          }
+        }
+        
+        // 确保 chunk 不是 META 标记（双重保护）
+        if (chunk.startsWith('__META__')) {
+          logger.warn('[ChatController] Unhandled META chunk detected, skipping:', chunk.substring(0, 50));
+          continue;
+        }
+        
+        // 发送内容块（此时 chunk 必定是纯文本）
+        const sseData = {
+          id: responseId,
+          object: 'chat.completion.chunk',
+          created: Math.floor(Date.now() / 1000),
+          model: options.model || 'gpt-4',
+          choices: [{
+            index: 0,
+            delta: { content: chunk },
+            finish_reason: null
+          }]
+        };
+        
+        res.write(`data: ${JSON.stringify(sseData)}\n\n`);
+        chunkIndex++;
+      }
+      
+      // 发送结束标记
+      res.write('data: [DONE]\n\n');
+      res.end();
+      
+      logger.info(`✅ Streamed ${chunkIndex} chunks for request ${responseId}`);
+      
+    } catch (streamError: any) {
+      logger.error('❌ Error during streaming:', streamError);
+      
+      res.write(`data: ${JSON.stringify({
+        error: {
+          message: streamError.message,
+          type: 'server_error'
+        }
+      })}\n\n`);
+      res.end();
+    }
+  }
+
+  /**
+   * 处理普通响应
+   */
+  private async handleNormalResponse(
+    res: Response, 
+    messages: Message[], 
+    options: ChatRequestOptions
+  ): Promise<void> {
+    const result = await this.chatService.processMessage(messages, options);
+    
+    // 修复：正确使用 usage 统计
+    const usage = this.normalizeUsage(result.usage) || {
+      prompt_tokens: 0,
+      completion_tokens: 0,
+      total_tokens: 0
+    };
+    
+    const response = {
+      id: `chatcmpl-${Date.now()}`,
+      object: 'chat.completion',
+      created: Math.floor(Date.now() / 1000),
+      model: options.model || 'gpt-4',
+      choices: [{
+        index: 0,
+        message: {
+          role: 'assistant' as const,
+          content: result.content
+        },
+        finish_reason: 'stop' as const
+      }],
+      usage: usage
+    };
+    
+    res.json(response);
+    logger.info('✅ Completed non-stream chat request');
+  }
+
+  /**
+   * 规范化 Usage 统计
+   * 支持多种格式的 usage 数据
+   */
   private normalizeUsage(usage: any): { prompt_tokens: number; completion_tokens: number; total_tokens: number } | null {
     if (!usage || typeof usage !== 'object') {
       return null;
@@ -199,10 +266,12 @@ export class ChatController {
         ? usage.totalTokens
         : undefined;
 
+    // 如果 total 不存在，尝试计算
     if (typeof total !== 'number' && typeof prompt === 'number' && typeof completion === 'number') {
       total = prompt + completion;
     }
 
+    // 验证所有字段都是数字
     if (
       typeof prompt !== 'number' ||
       typeof completion !== 'number' ||
@@ -219,28 +288,38 @@ export class ChatController {
   }
  
   /**
+   * 获取 LLM 客户端（支持懒加载）
+   * 与 ChatService 的懒加载策略保持一致
+   */
+  private async getLLMClient(): Promise<LLMClient> {
+    if (this.llmClient) {
+      return this.llmClient;
+    }
+    
+    // 懒加载：如果构造函数传入的是 null，尝试动态加载
+    try {
+      const { LLMManager } = await import('../../core/LLMManager');
+      const client = new LLMManager() as LLMClient;
+      if (!client) {
+        throw new Error('LLMClient not available. Please configure LLM providers in admin panel.');
+      }
+      // 缓存实例，避免重复创建
+      this.llmClient = client;
+      return client;
+    } catch (error: any) {
+      throw new Error(`Failed to initialize LLMClient: ${error.message || error}`);
+    }
+  }
+
+  /**
    * GET /v1/models
    * 获取可用模型列表
    */
   async getModels(req: Request, res: Response): Promise<void> {
-    // 懒加载LLMClient（线程安全）
-    if (!this.llmClient) {
-      // LLMManager 支持懒加载，从 SQLite 加载配置
-      const { LLMManager } = require('../../core/LLMManager');
-      this.llmClient = new LLMManager() as LLMClient;
-    }
-    
-    if (!this.llmClient) {
-      res.status(503).json({
-        error: {
-          message: 'LLMClient not available. Please configure LLM providers in admin panel.',
-          type: 'service_unavailable'
-        }
-      });
-      return;
-    }
     try {
-      const models = await this.llmClient.getAllModels();
+      // 优化：支持懒加载，与 ChatService 的策略保持一致
+      const llmClient = await this.getLLMClient();
+      const models = await llmClient.getAllModels();
       
       res.json({
         object: 'list',
@@ -257,23 +336,28 @@ export class ChatController {
     } catch (error: any) {
       logger.error('❌ Error in getModels:', error);
       
-      res.status(500).json({
+      // 区分懒加载失败和业务错误
+      const statusCode = error.message?.includes('not available') || error.message?.includes('Failed to initialize') 
+        ? 503 
+        : 500;
+      
+      res.status(statusCode).json({
         error: {
           message: error.message || 'Failed to fetch models',
-          type: 'server_error'
+          type: statusCode === 503 ? 'service_unavailable' : 'server_error'
         }
       });
     }
   }
   
   /**
-   * 🆕 POST /v1/interrupt
+   * POST /v1/interrupt
    * 中断正在进行的请求
    */
   async interruptRequest(req: Request, res: Response): Promise<void> {
     try {
       const body: InterruptRequest = req.body;
-      const { requestId, reason } = body;
+      const { requestId } = body;
       
       // 验证参数
       if (!requestId || typeof requestId !== 'string') {
@@ -291,7 +375,6 @@ export class ChatController {
       const interrupted = await this.chatService.interruptRequest(requestId);
       
       if (interrupted) {
-        // 成功中断
         const response: InterruptResponse = {
           success: true,
           message: 'Request interrupted successfully',
@@ -302,7 +385,6 @@ export class ChatController {
         logger.info(`✅ Request interrupted: ${requestId}`);
         res.json(response);
       } else {
-        // 请求不存在或已完成
         const response: InterruptResponse = {
           success: false,
           message: 'Request not found or already completed',
@@ -327,4 +409,3 @@ export class ChatController {
     }
   }
 }
-

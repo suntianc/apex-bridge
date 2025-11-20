@@ -14,13 +14,14 @@ import { ActiveRequest } from '../types/request-abort';
 import { logger } from '../utils/logger';
 import { generateRequestId } from '../utils/request-id';
 import { TaskEvaluator } from '../core/TaskEvaluator';
+import { IWebSocketManager } from '../api/websocket/WebSocketManager';
 
 export class ChatService {
 
   // 🆕 活动请求追踪
   private activeRequests: Map<string, ActiveRequest> = new Map();
   private cleanupTimer: NodeJS.Timeout | null = null;
-  private webSocketManager: any = null; // WebSocketManager 实例（可选）
+  private webSocketManager: IWebSocketManager | null = null; // WebSocketManager 实例（可选）
   // 🆕 自我思考循环（ReAct模式）
   private taskEvaluator?: TaskEvaluator;
 
@@ -41,7 +42,7 @@ export class ChatService {
   /**
    * 🆕 设置 WebSocketManager（用于中断通知）
    */
-  setWebSocketManager(manager: any): void {
+  setWebSocketManager(manager: IWebSocketManager): void {
     this.webSocketManager = manager;
     logger.debug('[ChatService] WebSocketManager attached');
   }
@@ -205,6 +206,43 @@ export class ChatService {
 
     // 将streamMessage转换为兼容格式
     for await (const chunk of this.streamMessage(messages, options)) {
+      // 🛡️ 处理 Meta 协议头，转换为事件格式
+      if (chunk.startsWith('__META__:')) {
+        const metaJson = chunk.substring(9);
+        try {
+          const meta = JSON.parse(metaJson);
+          
+          // 将 requestId 作为 meta_event 传递，供 WebSocket 层使用
+          if (meta.type === 'requestId') {
+            yield {
+              type: 'meta_event',
+              payload: {
+                requestId: meta.value
+              }
+            };
+          } else if (meta.type === 'interrupted') {
+            // 中断事件也转换为标准格式
+            yield {
+              type: 'meta_event',
+              payload: {
+                type: 'interrupted'
+              }
+            };
+          }
+          continue; // 跳过 META 标记的原始格式
+        } catch (parseError) {
+          logger.warn('[ChatService] Failed to parse meta chunk in WebSocket adapter:', metaJson);
+          continue;
+        }
+      }
+
+      // 确保 chunk 不是 META 标记（双重保护）
+      if (chunk.startsWith('__META__')) {
+        logger.warn('[ChatService] Unhandled META chunk detected in WebSocket adapter, skipping:', chunk.substring(0, 50));
+        continue;
+      }
+
+      // 发送正常内容
       yield {
         type: 'stream_chunk',
         payload: {
@@ -264,7 +302,8 @@ export class ChatService {
     logger.debug(`🤖 LLM Response (first 200 chars): ${aiContent.substring(0, 200)}`);
 
     return {
-      content: aiContent
+      content: aiContent,
+      usage: llmResponse.usage
     };
   }
 
@@ -287,7 +326,8 @@ export class ChatService {
     const userQuery = messages.find(msg => msg.role === 'user')?.content || '';
 
     let iteration = 0;
-    let currentMessages = [...messages];
+    // 关键修复：使用可变的消息数组，每次迭代都会更新
+    const currentMessages: Message[] = [...messages];
     let finalResult: any = null;
     const thinkingProcess: string[] = []; // 记录思考过程
 
@@ -323,27 +363,58 @@ export class ChatService {
       thinkingProcess.push(`\n[思考步骤 ${iteration}]`);
       thinkingProcess.push(`AI分析: ${aiContent}`);
 
-      logger.debug('ℹ️ Task marked as complete');
-      finalResult = {
-        content: aiContent,
-        iterations: iteration,
-        thinkingProcess: includeThoughtsInResponse ? thinkingProcess.join('\n') : undefined
-      };
-      break;
+      // 关键修复：更新上下文，让模型知道它之前的思考
+      currentMessages.push({ 
+        role: 'assistant', 
+        content: aiContent 
+      });
+
+      // 步骤 2: 使用 TaskEvaluator 评估任务是否完成
+      let shouldContinue = false;
+      if (enableTaskEvaluation && this.taskEvaluator) {
+        const evaluation = this.taskEvaluator.quickEvaluate(currentMessages);
+        shouldContinue = !evaluation.isLikelyComplete;
+        
+        logger.debug(`[TaskEvaluator] Evaluation result: ${evaluation.isLikelyComplete ? 'Complete' : 'Needs more work'}`);
+      } else {
+        // 如果没有启用评估，默认在达到最大迭代次数时结束
+        shouldContinue = iteration < maxIterations;
+      }
+
+      // 如果任务完成或达到最大迭代次数，结束循环
+      if (!shouldContinue || iteration >= maxIterations) {
+        finalResult = {
+          content: aiContent,
+          iterations: iteration,
+          thinkingProcess: includeThoughtsInResponse ? thinkingProcess.join('\n') : undefined,
+          usage: llmResponse.usage
+        };
+        break;
+      }
+
+      // 步骤 3: 如果任务未完成，添加提示消息推动继续思考
+      currentMessages.push({
+        role: 'user',
+        content: '请继续下一步分析，或给出最终结论。如果任务已完成，请明确说明。'
+      });
 
       // 清理：保持上下文大小可控
       if (currentMessages.length > 50) {
         logger.warn(`⚠️ 消息历史过长(${currentMessages.length}条)，可能影响性能`);
+        // 保留前几条系统消息和最后20条消息
+        const systemMessages = currentMessages.filter(msg => msg.role === 'system');
+        const recentMessages = currentMessages.slice(-20);
+        currentMessages.length = 0;
+        currentMessages.push(...systemMessages, ...recentMessages);
       }
     }
 
+    // 如果循环结束但没有生成结果，返回最后一条 AI 回复
     if (!finalResult) {
-      // 如果循环结束但没有生成结果，返回最后一条消息
       logger.warn(`⚠️ Self-thinking loop ended without clear result`);
 
-      const llmClient = await this.requireLLMClient();
-      const llmResponse = await llmClient.chat(currentMessages, options);
-      const aiContent = llmResponse.choices[0]?.message?.content || '';
+      const lastAssistantMessage = [...currentMessages].reverse().find(msg => msg.role === 'assistant');
+      const aiContent = lastAssistantMessage?.content || '思考循环结束，但未生成明确结果。';
 
       finalResult = {
         content: aiContent,
@@ -387,22 +458,15 @@ export class ChatService {
       const preprocessedMessages = processedMessages;
       
       // 3. 流式调用LLM（传递中断信号）
-      let llmClient = this.llmClient;
-      if (!llmClient) {
-        const { LLMManager } = await import('../core/LLMManager');
-        llmClient = new LLMManager() as LLMClient;
-        if (!llmClient) {
-          throw new Error('LLMClient not available. Please configure LLM providers in admin panel.');
-        }
-        this.llmClient = llmClient;
-      }
+      // 修复：使用 requireLLMClient 避免代码重复
+      const llmClient = await this.requireLLMClient();
       
       try {
         for await (const chunk of llmClient.streamChat(preprocessedMessages, options, abortController.signal)) {
           // 🆕 检查中断
           if (abortController.signal.aborted) {
             logger.debug(`[ChatService] Request interrupted during LLM streaming: ${requestId}`);
-            yield `\n\n[用户已中断请求]`;
+            // 修复：发送中断元数据，但不发送错误文本给用户
             yield `__META__:${JSON.stringify({type:'interrupted'})}`;
             return;
           }
@@ -413,29 +477,27 @@ export class ChatService {
         // 🆕 捕获中断错误
         if (error.name === 'AbortError' || error.code === 'ERR_CANCELED') {
           logger.debug(`[ChatService] Request aborted: ${requestId}`);
-          yield `\n\n[用户已中断请求]`;
+          // 修复：发送中断元数据，但不发送错误文本给用户
           yield `__META__:${JSON.stringify({type:'interrupted'})}`;
           return;
         }
         
+        // 修复：对于非中断错误，抛出异常而不是 yield 错误文本
         logger.error(`❌ LLM request failed: ${error.message}`);
-        if (error.message.includes('400')) {
-          yield `\n\n❌ 请求失败（上下文可能过长）。建议新建话题重试。`;
-        } else {
-          yield `\n\n❌ 请求失败：${error.message}`;
-        }
+        throw error; // 让上层处理错误，而不是在流中发送错误文本
       }
       
     } catch (error: any) {
       // 🆕 检查是否为中断错误
       if (error.name === 'AbortError' || error.code === 'ERR_CANCELED') {
         logger.debug(`[ChatService] Request aborted in catch block: ${requestId}`);
-        yield `\n\n[用户已中断请求]`;
+        // 修复：发送中断元数据，但不发送错误文本给用户
         yield `__META__:${JSON.stringify({type:'interrupted'})}`;
         return;
       }
       
       logger.error('❌ Error in ChatService.streamMessage:', error);
+      // 修复：对于非中断错误，抛出异常而不是 yield 错误文本
       throw error;
     } finally {
       // 🆕 无论成功或失败，都清理请求
@@ -462,8 +524,9 @@ export class ChatService {
    * 
    * 使用SDK VariableEngine统一处理所有变量占位符：
    * - {{Date}}, {{Time}}, {{Today}} - 时间变量（TimeProvider）
-   * - {{TarXXX}}, {{VarXXX}} - 环境变量（EnvironmentProvider）
    * - 自定义占位符（PlaceholderProvider）
+   * 
+   * 如果变量解析失败，会降级使用原始文本，确保请求不会因变量解析错误而失败。
    * 
    * @param messages - 消息数组
    * @returns 解析后的消息数组
@@ -477,56 +540,39 @@ export class ChatService {
           return msg;
         }
         
-        const originalLength = msg.content.length;
+        const originalContent = msg.content;
+        const originalLength = originalContent.length;
         
-        // 🎯 使用ProtocolEngine的VariableEngine，传递完整的VariableContext
-        // 包括role、model等上下文信息，支持role过滤机制
-        const resolvedContent = await this.protocolEngine.variableEngine.resolveAll(
-          msg.content,
-          {
-            role: msg.role || 'system', // 传递消息角色
-            currentMessage: msg.content
-          }
-        );
-        
-        // 调试日志：显示解析前后的长度变化
-        if (originalLength !== resolvedContent.length) {
-          logger.debug(
-            `[SDK] Variable resolved (${msg.role}): ${originalLength} → ${resolvedContent.length} chars (+${resolvedContent.length - originalLength})`
+        try {
+          // 🎯 使用ProtocolEngine的VariableEngine，传递完整的VariableContext
+          // 包括role、model等上下文信息，支持role过滤机制
+          const resolvedContent = await this.protocolEngine.variableEngine.resolveAll(
+            originalContent,
+            {
+              role: msg.role || 'system', // 传递消息角色
+              currentMessage: originalContent
+            }
           );
+          
+          // 调试日志：显示解析前后的长度变化
+          if (originalLength !== resolvedContent.length) {
+            logger.debug(
+              `[SDK] Variable resolved (${msg.role}): ${originalLength} → ${resolvedContent.length} chars (+${resolvedContent.length - originalLength})`
+            );
+          }
+          
+          return { ...msg, content: resolvedContent };
+        } catch (error: any) {
+          // 🛡️ 变量解析失败时降级使用原始文本，确保请求不会因变量解析错误而失败
+          logger.warn(
+            `[SDK] Variable resolution failed for message (${msg.role}), using original content: ${error.message || error}`
+          );
+          
+          // 降级：返回原始消息内容
+          return { ...msg, content: originalContent };
         }
-        
-        return { ...msg, content: resolvedContent };
       })
     );
-  }
-
-  private pruneEmptyFields(payload: Record<string, any>): Record<string, any> {
-    Object.keys(payload).forEach((key) => {
-      const value = payload[key];
-      if (
-        value === undefined ||
-        value === null ||
-        (typeof value === 'string' && value.trim().length === 0) ||
-        (Array.isArray(value) && value.length === 0)
-      ) {
-        delete payload[key];
-      }
-    });
-    return payload;
-  }
-  
-  /**
-   * 🆕 提取Session Memory（最近N条消息）
-   */
-  private extractSessionMemory(messages: Message[], limit: number = 50): Message[] {
-    // 过滤掉system消息，只保留user和assistant消息
-    const nonSystemMessages = messages.filter(msg => msg.role !== 'system');
-    
-    // 取最后N条消息
-    const sessionMessages = nonSystemMessages.slice(-limit);
-    
-    return sessionMessages;
   }
 
 }

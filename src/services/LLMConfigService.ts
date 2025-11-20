@@ -6,6 +6,7 @@
  */
 
 import Database from 'better-sqlite3';
+import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from '../utils/logger';
 import { PathService } from './PathService';
@@ -36,7 +37,6 @@ export class LLMConfigService {
     const dataDir = pathService.getDataDir();
     
     // 确保数据目录存在
-    const fs = require('fs');
     if (!fs.existsSync(dataDir)) {
       fs.mkdirSync(dataDir, { recursive: true });
     }
@@ -98,8 +98,9 @@ export class LLMConfigService {
         FOREIGN KEY (provider_id) REFERENCES llm_providers(id) ON DELETE CASCADE,
         UNIQUE(provider_id, model_key),
         CHECK(enabled IN (0, 1)),
-        CHECK(is_default IN (0, 1)),
-        CHECK(model_type IN ('nlp', 'embedding', 'rerank', 'image', 'audio', 'other'))
+        CHECK(is_default IN (0, 1))
+        -- ⚠️ 移除 model_type 的 CHECK 约束，避免扩展枚举时数据库报错
+        -- 完全依赖 TypeScript 层面的校验（validateModelInput）
       );
 
       -- 提供商索引
@@ -390,33 +391,41 @@ export class LLMConfigService {
       throw new Error(`Model already exists: ${input.modelKey}`);
     }
 
-    // 如果设置为默认模型，先取消同类型的其他默认模型
-    if (input.isDefault) {
-      this.clearDefaultModel(input.modelType);
-    }
+    // ✅ 使用事务确保原子性：如果插入失败，清除默认模型的操作也会回滚
+    const createTransaction = this.db.transaction(() => {
+      // 1. 如果设置为默认模型，先取消同类型的其他默认模型
+      if (input.isDefault) {
+        this.clearDefaultModel(input.modelType);
+      }
 
-    const now = Date.now();
-    const result = this.db.prepare(`
-      INSERT INTO llm_models (
-        provider_id, model_key, model_name, model_type,
-        model_config, api_endpoint_suffix, enabled, is_default,
-        display_order, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      providerId,
-      input.modelKey,
-      input.modelName,
-      input.modelType,
-      JSON.stringify(input.modelConfig || {}),
-      input.apiEndpointSuffix || null,
-      input.enabled !== false ? 1 : 0,
-      input.isDefault ? 1 : 0,
-      input.displayOrder || 0,
-      now,
-      now
-    );
+      // 2. 插入新模型
+      const now = Date.now();
+      const result = this.db.prepare(`
+        INSERT INTO llm_models (
+          provider_id, model_key, model_name, model_type,
+          model_config, api_endpoint_suffix, enabled, is_default,
+          display_order, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        providerId,
+        input.modelKey,
+        input.modelName,
+        input.modelType,
+        JSON.stringify(input.modelConfig || {}),
+        input.apiEndpointSuffix || null,
+        input.enabled !== false ? 1 : 0,
+        input.isDefault ? 1 : 0,
+        input.displayOrder || 0,
+        now,
+        now
+      );
 
-    const created = this.getModel(result.lastInsertRowid as number);
+      return result.lastInsertRowid;
+    });
+
+    const newModelId = createTransaction();
+
+    const created = this.getModel(newModelId as number);
     if (!created) {
       throw new Error('Failed to create model');
     }
@@ -434,61 +443,66 @@ export class LLMConfigService {
       throw new Error(`Model not found: ${modelId}`);
     }
 
-    const updates: string[] = [];
-    const values: any[] = [];
+    // ✅ 使用事务确保原子性：如果更新失败，清除默认模型的操作也会回滚
+    const updateTransaction = this.db.transaction(() => {
+      const updates: string[] = [];
+      const values: any[] = [];
 
-    if (input.modelName !== undefined) {
-      updates.push('model_name = ?');
-      values.push(input.modelName);
-    }
-
-    if (input.modelConfig !== undefined) {
-      // 合并配置
-      const mergedConfig = {
-        ...existing.modelConfig,
-        ...input.modelConfig
-      };
-      updates.push('model_config = ?');
-      values.push(JSON.stringify(mergedConfig));
-    }
-
-    if (input.apiEndpointSuffix !== undefined) {
-      updates.push('api_endpoint_suffix = ?');
-      values.push(input.apiEndpointSuffix);
-    }
-
-    if (input.enabled !== undefined) {
-      updates.push('enabled = ?');
-      values.push(input.enabled ? 1 : 0);
-    }
-
-    if (input.isDefault !== undefined) {
-      if (input.isDefault) {
-        // 先取消同类型的其他默认模型
-        this.clearDefaultModel(existing.modelType);
+      if (input.modelName !== undefined) {
+        updates.push('model_name = ?');
+        values.push(input.modelName);
       }
-      updates.push('is_default = ?');
-      values.push(input.isDefault ? 1 : 0);
-    }
 
-    if (input.displayOrder !== undefined) {
-      updates.push('display_order = ?');
-      values.push(input.displayOrder);
-    }
+      if (input.modelConfig !== undefined) {
+        // 合并配置
+        const mergedConfig = {
+          ...existing.modelConfig,
+          ...input.modelConfig
+        };
+        updates.push('model_config = ?');
+        values.push(JSON.stringify(mergedConfig));
+      }
 
-    if (updates.length === 0) {
-      return existing;
-    }
+      if (input.apiEndpointSuffix !== undefined) {
+        updates.push('api_endpoint_suffix = ?');
+        values.push(input.apiEndpointSuffix);
+      }
 
-    updates.push('updated_at = ?');
-    values.push(Date.now());
-    values.push(modelId);
+      if (input.enabled !== undefined) {
+        updates.push('enabled = ?');
+        values.push(input.enabled ? 1 : 0);
+      }
 
-    this.db.prepare(`
-      UPDATE llm_models
-      SET ${updates.join(', ')}
-      WHERE id = ?
-    `).run(...values);
+      if (input.isDefault !== undefined) {
+        // 如果设置为默认模型，且当前不是默认模型，先取消同类型的其他默认模型
+        if (input.isDefault && !existing.isDefault) {
+          this.clearDefaultModel(existing.modelType);
+        }
+        updates.push('is_default = ?');
+        values.push(input.isDefault ? 1 : 0);
+      }
+
+      if (input.displayOrder !== undefined) {
+        updates.push('display_order = ?');
+        values.push(input.displayOrder);
+      }
+
+      if (updates.length === 0) {
+        return; // 没有更新，直接返回
+      }
+
+      updates.push('updated_at = ?');
+      values.push(Date.now());
+      values.push(modelId);
+
+      this.db.prepare(`
+        UPDATE llm_models
+        SET ${updates.join(', ')}
+        WHERE id = ?
+      `).run(...values);
+    });
+
+    updateTransaction();
 
     const updated = this.getModel(modelId)!;
     logger.info(`✅ Updated model: ${updated.modelName} (id: ${modelId})`);

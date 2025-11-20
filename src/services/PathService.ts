@@ -4,7 +4,7 @@
  */
 
 import * as path from 'path';
-import * as os from 'os';
+import * as fs from 'fs';
 import { logger } from '../utils/logger';
 
 export interface PathConfig {
@@ -14,16 +14,8 @@ export interface PathConfig {
   configDir?: string;
   /** 数据目录（默认为 {rootDir}/data） */
   dataDir?: string;
-  /** Agent目录（默认为 {rootDir}/Agent） */
-  agentDir?: string;
-  /** 插件目录（从配置读取） */
-  pluginDir?: string;
   /** 日志目录（默认为 {rootDir}/logs） */
   logDir?: string;
-  /** 异步结果目录（默认为 {rootDir}/async_results） */
-  asyncResultDir?: string;
-  /** 日记根目录（默认为 {rootDir}/dailynote） */
-  diaryRootDir?: string;
   /** 向量存储目录（从配置读取） */
   vectorStoreDir?: string;
 }
@@ -47,20 +39,8 @@ export class PathService {
       dataDir: path.resolve(
         process.env.APEX_BRIDGE_DATA_DIR || path.join(rootDir, 'data')
       ),
-      agentDir: path.resolve(
-        process.env.APEX_BRIDGE_AGENT_DIR || path.join(rootDir, 'Agent')
-      ),
-      pluginDir: path.resolve(
-        process.env.APEX_BRIDGE_PLUGIN_DIR || path.join(rootDir, 'plugins')
-      ),
       logDir: path.resolve(
         process.env.APEX_BRIDGE_LOG_DIR || path.join(rootDir, 'logs')
-      ),
-      asyncResultDir: path.resolve(
-        process.env.APEX_BRIDGE_ASYNC_RESULT_DIR || path.join(rootDir, 'async_results')
-      ),
-      diaryRootDir: path.resolve(
-        process.env.APEX_BRIDGE_DIARY_ROOT_DIR || path.join(rootDir, 'dailynote')
       ),
       vectorStoreDir: path.resolve(
         process.env.APEX_BRIDGE_VECTOR_STORE_DIR || path.join(rootDir, 'vector_store')
@@ -102,45 +82,10 @@ export class PathService {
   }
 
   /**
-   * 获取Agent目录
-   */
-  public getAgentDir(): string {
-    return this.config.agentDir;
-  }
-
-  /**
-   * 获取插件目录（可动态更新）
-   */
-  public getPluginDir(): string {
-    return this.config.pluginDir;
-  }
-
-  /**
-   * 设置插件目录（从配置读取）
-   */
-  public setPluginDir(pluginDir: string): void {
-    this.config.pluginDir = path.resolve(pluginDir);
-  }
-
-  /**
    * 获取日志目录
    */
   public getLogDir(): string {
     return this.config.logDir;
-  }
-
-  /**
-   * 获取异步结果目录
-   */
-  public getAsyncResultDir(): string {
-    return this.config.asyncResultDir;
-  }
-
-  /**
-   * 获取日记根目录
-   */
-  public getDiaryRootDir(): string {
-    return this.config.diaryRootDir;
   }
 
   /**
@@ -172,56 +117,50 @@ export class PathService {
   }
 
   /**
-   * 获取节点配置文件路径
-   */
-  public getNodesFilePath(): string {
-    return path.join(this.config.configDir, 'nodes.json');
-  }
-
-  /**
-   * 获取偏好存储目录
-   */
-  public getPreferencesDir(): string {
-    return path.join(this.config.configDir, 'preferences');
-  }
-
-  /**
-   * 获取管理后台静态文件目录
-   */
-  public getAdminDistDir(): string {
-    return path.join(this.config.rootDir, 'admin', 'dist');
-  }
-
-  /**
    * 确保目录存在（如果不存在则创建）
+   * 
+   * @param dirPath - 目录路径
+   * @throws 如果创建目录失败（非 EEXIST 错误）
    */
   public ensureDir(dirPath: string): void {
-    const fs = require('fs');
     if (!fs.existsSync(dirPath)) {
-      fs.mkdirSync(dirPath, { recursive: true, mode: 0o755 });
-      logger.debug(`✅ Created directory: ${dirPath}`);
+      try {
+        fs.mkdirSync(dirPath, { recursive: true, mode: 0o755 });
+        logger.debug(`✅ Created directory: ${dirPath}`);
+      } catch (error: any) {
+        // 如果并发创建导致 EEXIST，通常可以忽略
+        // 但如果是 EACCES 等权限错误，需要记录并抛出
+        if (error.code !== 'EEXIST') {
+          logger.error(`❌ Failed to create directory ${dirPath}:`, error);
+          throw error;
+        }
+        // EEXIST 错误通常表示目录已存在（可能是并发创建），可以安全忽略
+        logger.debug(`⚠️ Directory already exists (concurrent creation?): ${dirPath}`);
+      }
     }
   }
 
   /**
    * 确保所有必要的目录都存在
+   * 
+   * @throws 如果关键目录创建失败，应阻断启动
    */
   public ensureAllDirs(): void {
-    this.ensureDir(this.config.configDir);
-    this.ensureDir(this.config.dataDir);
-    this.ensureDir(this.config.agentDir);
-    this.ensureDir(this.config.logDir);
-    this.ensureDir(this.config.asyncResultDir);
-    // pluginDir 和 vectorStoreDir 可能从配置读取，在需要时确保
+    try {
+      this.ensureDir(this.config.configDir);
+      this.ensureDir(this.config.dataDir);
+      this.ensureDir(this.config.logDir);
+      // vectorStoreDir 可能从配置读取，在需要时确保
+    } catch (error) {
+      logger.error('❌ Failed to initialize project directories', error);
+      throw error; // 关键目录创建失败应阻断启动
+    }
   }
 
   /**
    * 更新配置（从ConfigService读取的配置）
    */
-  public updateFromConfig(config: { plugins?: { directory?: string }; rag?: { storagePath?: string } }): void {
-    if (config.plugins?.directory) {
-      this.setPluginDir(config.plugins.directory);
-    }
+  public updateFromConfig(config: { rag?: { storagePath?: string } }): void {
     if (config.rag?.storagePath) {
       this.setVectorStoreDir(config.rag.storagePath);
     }
@@ -234,4 +173,3 @@ export class PathService {
     return { ...this.config };
   }
 }
-

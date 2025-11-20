@@ -2,7 +2,6 @@
  * ABP Protocol Parser
  * 
  * ABP (ApexBridge Protocol) 是一个独立的协议（ABP-only）
- * 解决协议合规问题（CC BY-NC-SA 4.0约束）
  * 
  * @module core/protocol
  */

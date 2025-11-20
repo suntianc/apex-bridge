@@ -186,26 +186,28 @@ export class Cache<T = any> {
 
   /**
    * 获取缓存大小
+   * ⚡️ 优化：不再触发全量清理，保证 O(1) 性能
+   * 过期项会在 get/has 时惰性删除，或由定期清理任务处理
    */
   size(): number {
-    // 清理过期项
-    this.cleanupExpired();
     return this.cache.size;
   }
 
   /**
    * 获取所有keys
+   * ⚡️ 优化：不再触发全量清理，保证 O(1) 性能
+   * 过期项会在 get/has 时惰性删除，或由定期清理任务处理
    */
   keys(): string[] {
-    this.cleanupExpired();
     return Array.from(this.cache.keys());
   }
 
   /**
    * 获取统计信息
+   * ⚡️ 优化：不再触发全量清理，保证 O(1) 性能
+   * 过期项会在 get/has 时惰性删除，或由定期清理任务处理
    */
   getStats(): CacheStats {
-    this.cleanupExpired();
     return { ...this.stats };
   }
 
@@ -225,20 +227,23 @@ export class Cache<T = any> {
   }
 
   /**
-   * 清理过期项（LRU淘汰）
+   * 清理过期项（LFU淘汰 - Least Frequently Used）
+   * ⚠️ 性能说明：此方法使用 O(N) 复杂度遍历整个缓存
+   * 适合中小规模缓存（< 1000 项）且需要按访问频率淘汰的场景
+   * 如果需要 O(1) 性能，可改用纯 LRU 实现（基于 Map 插入顺序）
    */
   private evictLRU(): void {
     if (this.cache.size === 0) {
       return;
     }
 
-    // 找到最少访问的项
+    // 找到最少访问的项（LFU 算法）
     let lruKey: string | null = null;
     let minAccessCount = Infinity;
     let oldestAccess = Infinity;
 
+    // O(N) 遍历：优先淘汰访问次数最少的，如果相同则淘汰最久未访问的
     for (const [key, item] of this.cache.entries()) {
-      // 优先淘汰访问次数最少的，如果相同则淘汰最久未访问的
       if (item.accessCount < minAccessCount || 
           (item.accessCount === minAccessCount && item.lastAccessedAt < oldestAccess)) {
         minAccessCount = item.accessCount;
@@ -287,6 +292,12 @@ export class Cache<T = any> {
     this.cleanupInterval = setInterval(() => {
       this.cleanupExpired();
     }, 5 * 60 * 1000);
+    
+    // ✅ 关键修复：不阻止进程退出
+    // 允许进程在没有其他任务时自动退出，避免定时器阻止 Node.js 进程退出
+    if (this.cleanupInterval && typeof this.cleanupInterval.unref === 'function') {
+      this.cleanupInterval.unref();
+    }
   }
 
   /**

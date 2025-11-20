@@ -15,12 +15,10 @@ import { ChatController } from './api/controllers/ChatController';
 import { authMiddleware } from './api/middleware/authMiddleware';
 import { rateLimitMiddleware } from './api/middleware/rateLimitMiddleware';
 import { errorHandler } from './api/middleware/errorHandler';
-import { loadConfig, validateConfig } from './config';
 import { logger } from './utils/logger';
 import type { AdminConfig } from './services/ConfigService';
 import { WebSocketManager } from './api/websocket/WebSocketManager';
 import { ChatChannel } from './api/websocket/channels/ChatChannel';
-import * as path from 'path';
 import { ConfigService } from './services/ConfigService';
 import { PathService } from './services/PathService';
 
@@ -65,37 +63,60 @@ export class ABPIntelliCore {
   
   async initialize(): Promise<void> {
     try {
-      // 1. 加载和验证配置
-      logger.info('📋 Loading configuration...');
-      const config = loadConfig();
-      validateConfig();
-      logger.info('✅ Configuration loaded and validated');
+      // 1. 基础服务初始化 (Config, Path, DB)
+      logger.info('📋 Initializing base services...');
       
-      // 1.5 确保必要的目录存在
-      const { PathService } = await import('./services/PathService');
+      // 确保路径服务最先就绪
       const pathService = PathService.getInstance();
       pathService.ensureAllDirs();
       logger.info('✅ All required directories ensured');
       
-      // 1.6 初始化LLM配置服务（确保SQLite数据库和表已创建）
+      // 统一使用 ConfigService 读取配置
+      const config = this.configService.readConfig();
+      
+      // 验证配置（如果设置未完成，跳过严格验证）
+      if (!this.configService.isSetupCompleted()) {
+        logger.warn('⚠️ Configuration not fully setup (missing API Key)');
+      } else {
+        const validation = this.configService.validateConfig(config);
+        if (!validation.valid) {
+          throw new Error(`Configuration errors:\n${validation.errors.join('\n')}`);
+        }
+      }
+      logger.info('✅ Configuration loaded and validated');
+      
+      // 初始化LLM配置服务（确保SQLite数据库和表已创建）
       const { LLMConfigService } = await import('./services/LLMConfigService');
-      const llmConfigService = LLMConfigService.getInstance();
+      LLMConfigService.getInstance(); // 触发 DB 初始化
       logger.info('✅ LLMConfigService initialized (SQLite database ready)');
       
-      // 2. 初始化协议引擎核心组件（ProtocolEngine构造函数已调用initializeCore）
+      // 2. 核心引擎初始化
+      // ⏳ 关键调整：先创建 ProtocolEngine，然后等待完全初始化
       this.protocolEngine = new ProtocolEngine(config);
-      logger.info('✅ Protocol Engine core components initialized');
+      await this.protocolEngine.initialize(); // 等待引擎完全就绪
+      logger.info('✅ Protocol Engine initialized');
       
       // LLMManager采用懒加载模式，仅在需要时（聊天请求时）初始化
       // 从SQLite加载配置，支持运行时配置变更，无需重启服务
       logger.info('ℹ️ LLMManager will be initialized on-demand (lazy loading from SQLite)');
       
-      // 3. 设置WebSocket
+      // 3. 业务服务初始化 (ChatService)
+      // 注意：此时 Engine 已就绪，ChatService 可以安全使用
+      this.chatService = new ChatService(
+        this.protocolEngine,
+        null as any, // LLMClient 懒加载
+        this.eventBus
+      );
+      logger.info('✅ ChatService initialized');
+      
+      // 4. 接口层初始化 (WebSocket & HTTP Routes)
+      // ⚠️ 关键调整：先初始化 ChatService，再初始化 WS，最后绑定 Server
       this.setupWebSocket(config);
       
-      // 4. 初始化协议引擎
-      await this.protocolEngine.initialize();
-      logger.info(`✅ Protocol Engine initialized`);
+      // 注入 WS Manager 到 ChatService
+      if (this.websocketManager) {
+        this.chatService.setWebSocketManager(this.websocketManager);
+      }
       
       // 5. 设置中间件
       this.setupMiddleware();
@@ -103,7 +124,7 @@ export class ABPIntelliCore {
       // 6. 设置路由
       await this.setupRoutes();
       
-      // 7. 启动HTTP服务器
+      // 7. 启动HTTP服务器（所有初始化完成后才启动）
       const apiHost = config.api.host || '0.0.0.0';
       const apiPort = config.api.port || 8088;
       this.server.listen(apiPort, apiHost, () => {
@@ -176,44 +197,33 @@ export class ABPIntelliCore {
       throw new Error('Protocol Engine not initialized');
     }
     
+    if (!this.chatService) {
+      throw new Error('ChatService must be initialized before setting up routes');
+    }
+    
     // LLMClient采用懒加载机制，不在启动时初始化
     // 首次使用时（如聊天请求）会自动创建 LLMManager 实例（从 SQLite 加载配置）
     
-    // 创建ChatService（保存为类成员）
-    // LLMClient采用懒加载模式，不在这里初始化
-    this.chatService = new ChatService(
-      this.protocolEngine,
-      null as any, // LLMClient采用懒加载
-      this.eventBus
+    // 注册聊天API
+    // 创建控制器（LLMClient采用懒加载）
+    const chatController = new ChatController(this.chatService, null as any);
+
+    // 聊天API（添加验证中间件）
+    this.app.post('/v1/chat/completions',
+      createValidationMiddleware(chatCompletionSchema),
+      (req, res) => chatController.chatCompletions(req, res)
+    );
+    // 模型列表API（添加验证中间件）
+    this.app.get('/v1/models',
+      createValidationMiddleware(modelsListSchema),
+      (req, res) => chatController.getModels(req, res)
     );
 
-    // 注入 WebSocketManager（用于中断通知）
-    if (this.websocketManager) {
-      this.chatService.setWebSocketManager(this.websocketManager);
-    }
-    
-    // 注册聊天API
-    if (this.chatService) {
-      // 创建控制器（LLMClient采用懒加载）
-      const chatController = new ChatController(this.chatService, null as any);
-
-      // 聊天API（添加验证中间件）
-      this.app.post('/v1/chat/completions',
-        createValidationMiddleware(chatCompletionSchema),
-        (req, res) => chatController.chatCompletions(req, res)
-      );
-      // 模型列表API（添加验证中间件）
-      this.app.get('/v1/models',
-        createValidationMiddleware(modelsListSchema),
-        (req, res) => chatController.getModels(req, res)
-      );
-
-      // 请求中断API（添加验证中间件）
-      this.app.post('/v1/interrupt',
-        createValidationMiddleware(interruptRequestSchema),
-        (req, res) => chatController.interruptRequest(req, res)
-      );
-    }
+    // 请求中断API（添加验证中间件）
+    this.app.post('/v1/interrupt',
+      createValidationMiddleware(interruptRequestSchema),
+      (req, res) => chatController.interruptRequest(req, res)
+    );
     
     // LLM 配置管理 API（两级结构：提供商 + 模型）
     const ProviderController = await import('./api/controllers/ProviderController');
@@ -256,18 +266,23 @@ export class ABPIntelliCore {
 
   /**
    * 设置WebSocket服务器（使用独立实现）
+   * ⚠️ 注意：此时 HTTP Server 还没 listen，这是安全的
    */
   private setupWebSocket(config: AdminConfig): void {
+    if (!this.chatService) {
+      throw new Error('ChatService must be initialized before WebSocket');
+    }
+    
     logger.info('🌐 Setting up WebSocket server...');
 
     try {
       // 创建聊天频道实例
-      this.chatChannel = new ChatChannel(this.chatService!);
+      this.chatChannel = new ChatChannel(this.chatService);
 
       // 创建精简版WebSocket管理器（仅支持聊天功能）
       this.websocketManager = new WebSocketManager(config, this.chatChannel);
 
-      // 初始化（传入HTTP server）
+      // 绑定到 HTTP Server（此时 HTTP Server 还没 listen，这是安全的）
       this.websocketManager.initialize(this.server);
 
       logger.info('✅ WebSocket server configured (ABP-only chat implementation)');

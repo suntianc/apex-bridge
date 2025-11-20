@@ -14,6 +14,82 @@ const configService = LLMConfigService.getInstance();
 const modelRegistry = ModelRegistry.getInstance();
 
 /**
+ * 统一处理服务层错误
+ * 将字符串匹配的错误转换为合适的 HTTP 状态码
+ * 
+ * @param res - Express 响应对象
+ * @param error - 错误对象
+ * @param action - 操作名称（用于日志）
+ * @returns 是否已处理错误
+ */
+function handleServiceError(res: Response, error: any, action: string): boolean {
+  logger.error(`❌ Failed to ${action}:`, error);
+  
+  const msg = error.message || '';
+  
+  // 使用字符串匹配（如果 Service 层没有使用 AppError）
+  // 注意：这是临时方案，理想情况下 Service 层应该抛出 AppError
+  if (msg.includes('not found') || msg.toLowerCase().includes('not found')) {
+    res.status(404).json({
+      error: 'Resource not found',
+      message: error.message
+    });
+    return true;
+  }
+  
+  if (msg.includes('already exists') || msg.toLowerCase().includes('already exists')) {
+    res.status(409).json({
+      error: 'Resource already exists',
+      message: error.message
+    });
+    return true;
+  }
+  
+  if (msg.includes('required') || msg.includes('Invalid') || msg.toLowerCase().includes('validation')) {
+    res.status(400).json({
+      error: 'Validation failed',
+      message: error.message
+    });
+    return true;
+  }
+  
+  // 默认返回 500
+  res.status(500).json({
+    error: `Failed to ${action}`,
+    message: error.message
+  });
+  return true;
+}
+
+/**
+ * 转换为 Provider DTO
+ * 统一响应结构，确保所有接口返回格式一致，且绝对安全（脱敏处理）
+ * 
+ * @param provider - 提供商对象
+ * @param modelCount - 模型数量（可选，默认 0）
+ * @returns 标准化的 Provider DTO
+ */
+function toProviderDTO(provider: any, modelCount: number = 0) {
+  return {
+    id: provider.id,
+    provider: provider.provider,
+    name: provider.name,
+    description: provider.description,
+    enabled: provider.enabled,
+    modelCount: modelCount, // 统一包含模型数量
+    baseConfig: {
+      // 🛡️ 统一脱敏逻辑，防止未来新增字段时忘记脱敏
+      baseURL: provider.baseConfig?.baseURL,
+      timeout: provider.baseConfig?.timeout,
+      maxRetries: provider.baseConfig?.maxRetries,
+      // Explicitly OMIT apiKey - 确保敏感信息不会泄露
+    },
+    createdAt: provider.createdAt,
+    updatedAt: provider.updatedAt
+  };
+}
+
+/**
  * 列出所有提供商
  * GET /api/llm/providers
  */
@@ -21,20 +97,11 @@ export async function listProviders(req: Request, res: Response): Promise<void> 
   try {
     const providers = configService.listProviders();
     
-    // 为每个提供商添加模型统计
+    // 为每个提供商添加模型统计，使用统一的 DTO
     const providersWithStats = providers.map(p => {
       const models = configService.getProviderModels(p.id);
-      return {
-        id: p.id,
-        provider: p.provider,
-        name: p.name,
-        description: p.description,
-        enabled: p.enabled,
-        modelCount: models.length,
-        createdAt: p.createdAt,
-        updatedAt: p.updatedAt
-        // 不返回 baseConfig 中的敏感信息
-      };
+      // ✅ 使用统一 DTO，确保响应结构一致
+      return toProviderDTO(p, models.length);
     });
 
     res.json({
@@ -42,11 +109,7 @@ export async function listProviders(req: Request, res: Response): Promise<void> 
       providers: providersWithStats
     });
   } catch (error: any) {
-    logger.error('❌ Failed to list providers:', error);
-    res.status(500).json({
-      error: 'Failed to list providers',
-      message: error.message
-    });
+    handleServiceError(res, error, 'list providers');
   }
 }
 
@@ -81,29 +144,11 @@ export async function getProvider(req: Request, res: Response): Promise<void> {
 
     res.json({
       success: true,
-      provider: {
-        id: provider.id,
-        provider: provider.provider,
-        name: provider.name,
-        description: provider.description,
-        baseConfig: {
-          // 隐藏 API Key
-          baseURL: provider.baseConfig.baseURL,
-          timeout: provider.baseConfig.timeout,
-          maxRetries: provider.baseConfig.maxRetries
-        },
-        enabled: provider.enabled,
-        modelCount: models.length,
-        createdAt: provider.createdAt,
-        updatedAt: provider.updatedAt
-      }
+      // ✅ 使用统一 DTO，确保响应结构一致
+      provider: toProviderDTO(provider, models.length)
     });
   } catch (error: any) {
-    logger.error('❌ Failed to get provider:', error);
-    res.status(500).json({
-      error: 'Failed to get provider',
-      message: error.message
-    });
+    handleServiceError(res, error, 'get provider');
   }
 }
 
@@ -132,39 +177,11 @@ export async function createProvider(req: Request, res: Response): Promise<void>
     res.status(201).json({
       success: true,
       message: 'Provider created successfully',
-      provider: {
-        id: created.id,
-        provider: created.provider,
-        name: created.name,
-        description: created.description,
-        enabled: created.enabled,
-        createdAt: created.createdAt,
-        updatedAt: created.updatedAt
-      }
+      // ✅ 返回完整的、一致的结构（新创建的 Provider 模型数为 0）
+      provider: toProviderDTO(created, 0)
     });
   } catch (error: any) {
-    logger.error('❌ Failed to create provider:', error);
-    
-    if (error.message.includes('already exists')) {
-      res.status(409).json({
-        error: 'Provider already exists',
-        message: error.message
-      });
-      return;
-    }
-
-    if (error.message.includes('required')) {
-      res.status(400).json({
-        error: 'Validation failed',
-        message: error.message
-      });
-      return;
-    }
-
-    res.status(500).json({
-      error: 'Failed to create provider',
-      message: error.message
-    });
+    handleServiceError(res, error, 'create provider');
   }
 }
 
@@ -198,34 +215,18 @@ export async function updateProvider(req: Request, res: Response): Promise<void>
     
     // 刷新缓存
     modelRegistry.forceRefresh();
+    
+    // 获取当前模型数以保持一致性
+    const models = configService.getProviderModels(id);
 
     res.json({
       success: true,
       message: 'Provider updated successfully',
-      provider: {
-        id: updated.id,
-        provider: updated.provider,
-        name: updated.name,
-        description: updated.description,
-        enabled: updated.enabled,
-        updatedAt: updated.updatedAt
-      }
+      // ✅ 返回完整的、一致的结构
+      provider: toProviderDTO(updated, models.length)
     });
   } catch (error: any) {
-    logger.error('❌ Failed to update provider:', error);
-    
-    if (error.message.includes('not found')) {
-      res.status(404).json({
-        error: 'Provider not found',
-        message: error.message
-      });
-      return;
-    }
-
-    res.status(500).json({
-      error: 'Failed to update provider',
-      message: error.message
-    });
+    handleServiceError(res, error, 'update provider');
   }
 }
 
@@ -255,20 +256,7 @@ export async function deleteProvider(req: Request, res: Response): Promise<void>
       message: 'Provider and associated models deleted successfully'
     });
   } catch (error: any) {
-    logger.error('❌ Failed to delete provider:', error);
-    
-    if (error.message.includes('not found')) {
-      res.status(404).json({
-        error: 'Provider not found',
-        message: error.message
-      });
-      return;
-    }
-
-    res.status(500).json({
-      error: 'Failed to delete provider',
-      message: error.message
-    });
+    handleServiceError(res, error, 'delete provider');
   }
 }
 
