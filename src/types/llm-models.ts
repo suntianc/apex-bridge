@@ -67,6 +67,7 @@ export interface LLMModelV2 {
   apiEndpointSuffix?: string; // API 端点后缀
   enabled: boolean;
   isDefault: boolean;        // 是否为该类型的默认模型
+  isAceEvolution: boolean;   // 是否为ACE进化专用模型
   displayOrder: number;      // 显示排序
   createdAt: number;
   updatedAt: number;
@@ -114,6 +115,7 @@ export interface CreateModelInput {
   apiEndpointSuffix?: string; // API 端点后缀
   enabled?: boolean;         // 是否启用（默认 true）
   isDefault?: boolean;       // 是否默认（默认 false）
+  isAceEvolution?: boolean;  // 是否ACE进化专用（默认 false）
   displayOrder?: number;     // 显示排序（默认 0）
 }
 
@@ -126,6 +128,7 @@ export interface UpdateModelInput {
   apiEndpointSuffix?: string;
   enabled?: boolean;
   isDefault?: boolean;
+  isAceEvolution?: boolean;
   displayOrder?: number;
 }
 

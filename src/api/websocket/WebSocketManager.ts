@@ -157,13 +157,20 @@ export class WebSocketManager implements IWebSocketManager {
   /**
    * 验证 API Key
    * 🛡️ 使用防时序攻击的比较方法
+   * ✅ 修复：优先从配置文件读取，回退到环境变量
    */
   private validateApiKey(apiKey: string): boolean {
-    const expectedKey = process.env.API_KEY || '';
+    // 优先从配置文件读取
+    const configKey = this.config.auth?.apiKey || '';
+    // 回退到环境变量（支持 API_KEY 和 ABP_API_KEY）
+    const envKey = process.env.API_KEY || process.env.ABP_API_KEY || '';
+    
+    // 确定使用的 Key（配置文件优先）
+    const expectedKey = configKey || envKey;
     
     // 如果未配置 Key，默认拒绝
     if (!expectedKey) {
-      logger.warn('⚠️ API_KEY not configured, rejecting all connections');
+      logger.warn('⚠️ API_KEY not configured (neither in config file nor environment), rejecting all connections');
       return false;
     }
 

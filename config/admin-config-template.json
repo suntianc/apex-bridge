@@ -41,5 +41,13 @@
       "legacyHeaders": false,
       "trustProxy": false
     }
+  },
+  "ace": {
+    "enabled": true,
+    "evolutionModel": {
+      "provider": "deepseek",
+      "model": "deepseek-chat"
+    },
+    "reflectionStrategy": "on_failure"
   }
 }

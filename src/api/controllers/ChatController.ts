@@ -70,11 +70,6 @@ export class ChatController {
         }
       }
       
-      // 支持 agent_id 参数（人格切换）
-      if (body.agent_id) {
-        options.agentId = body.agent_id;
-      }
-      
       // 确保 stream 是布尔值
       options.stream = options.stream === true;
 

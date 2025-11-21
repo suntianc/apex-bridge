@@ -35,7 +35,7 @@ export class LLMConfigService {
   private constructor() {
     const pathService = PathService.getInstance();
     const dataDir = pathService.getDataDir();
-    
+
     // 确保数据目录存在
     if (!fs.existsSync(dataDir)) {
       fs.mkdirSync(dataDir, { recursive: true });
@@ -43,12 +43,12 @@ export class LLMConfigService {
 
     this.dbPath = path.join(dataDir, 'llm_providers.db');
     this.db = new Database(this.dbPath);
-    
+
     // 启用 WAL 模式提升性能
     this.db.pragma('journal_mode = WAL');
     // 启用外键约束
     this.db.pragma('foreign_keys = ON');
-    
+
     this.initializeDatabase();
     logger.info(`✅ LLMConfigService initialized (database: ${this.dbPath})`);
   }
@@ -92,13 +92,15 @@ export class LLMConfigService {
         api_endpoint_suffix TEXT,
         enabled INTEGER DEFAULT 1,
         is_default INTEGER DEFAULT 0,
+        is_ace_evolution INTEGER DEFAULT 0,
         display_order INTEGER DEFAULT 0,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
         FOREIGN KEY (provider_id) REFERENCES llm_providers(id) ON DELETE CASCADE,
         UNIQUE(provider_id, model_key),
         CHECK(enabled IN (0, 1)),
-        CHECK(is_default IN (0, 1))
+        CHECK(is_default IN (0, 1)),
+        CHECK(is_ace_evolution IN (0, 1))
         -- ⚠️ 移除 model_type 的 CHECK 约束，避免扩展枚举时数据库报错
         -- 完全依赖 TypeScript 层面的校验（validateModelInput）
       );
@@ -115,7 +117,7 @@ export class LLMConfigService {
       CREATE INDEX IF NOT EXISTS idx_model_key ON llm_models(model_key);
       CREATE INDEX IF NOT EXISTS idx_model_type_default ON llm_models(model_type, is_default);
     `);
-    
+
     logger.debug('✅ LLM v2 tables initialized');
   }
 
@@ -275,7 +277,7 @@ export class LLMConfigService {
       .get(id) as any;
 
     this.db.prepare('DELETE FROM llm_providers WHERE id = ?').run(id);
-    
+
     logger.info(`✅ Deleted provider: ${existing.name} (id: ${id}), cascaded ${modelCount.count} models`);
   }
 
@@ -288,7 +290,7 @@ export class LLMConfigService {
     let sql = `
       SELECT 
         m.id, m.provider_id, m.model_key, m.model_name, m.model_type,
-        m.model_config, m.api_endpoint_suffix, m.enabled, m.is_default,
+        m.model_config, m.api_endpoint_suffix, m.enabled, m.is_default, m.is_ace_evolution,
         m.display_order, m.created_at, m.updated_at,
         p.provider, p.name as provider_name, p.base_config, p.enabled as provider_enabled
       FROM llm_models m
@@ -336,7 +338,7 @@ export class LLMConfigService {
     const row = this.db.prepare(`
       SELECT 
         m.id, m.provider_id, m.model_key, m.model_name, m.model_type,
-        m.model_config, m.api_endpoint_suffix, m.enabled, m.is_default,
+        m.model_config, m.api_endpoint_suffix, m.enabled, m.is_default, m.is_ace_evolution,
         m.display_order, m.created_at, m.updated_at,
         p.provider, p.name as provider_name, p.base_config, p.enabled as provider_enabled
       FROM llm_models m
@@ -354,7 +356,7 @@ export class LLMConfigService {
     const row = this.db.prepare(`
       SELECT 
         m.id, m.provider_id, m.model_key, m.model_name, m.model_type,
-        m.model_config, m.api_endpoint_suffix, m.enabled, m.is_default,
+        m.model_config, m.api_endpoint_suffix, m.enabled, m.is_default, m.is_ace_evolution,
         m.display_order, m.created_at, m.updated_at,
         p.provider, p.name as provider_name, p.base_config, p.enabled as provider_enabled
       FROM llm_models m
@@ -403,9 +405,9 @@ export class LLMConfigService {
       const result = this.db.prepare(`
         INSERT INTO llm_models (
           provider_id, model_key, model_name, model_type,
-          model_config, api_endpoint_suffix, enabled, is_default,
+          model_config, api_endpoint_suffix, enabled, is_default, is_ace_evolution,
           display_order, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         providerId,
         input.modelKey,
@@ -415,6 +417,7 @@ export class LLMConfigService {
         input.apiEndpointSuffix || null,
         input.enabled !== false ? 1 : 0,
         input.isDefault ? 1 : 0,
+        input.isAceEvolution ? 1 : 0,
         input.displayOrder || 0,
         now,
         now
@@ -482,6 +485,15 @@ export class LLMConfigService {
         values.push(input.isDefault ? 1 : 0);
       }
 
+      if (input.isAceEvolution !== undefined) {
+        // 如果设置为ACE进化模型，先取消其他模型的标记
+        if (input.isAceEvolution && !existing.isAceEvolution) {
+          this.clearAceEvolutionModel();
+        }
+        updates.push('is_ace_evolution = ?');
+        values.push(input.isAceEvolution ? 1 : 0);
+      }
+
       if (input.displayOrder !== undefined) {
         updates.push('display_order = ?');
         values.push(input.displayOrder);
@@ -519,7 +531,7 @@ export class LLMConfigService {
     }
 
     this.db.prepare('DELETE FROM llm_models WHERE id = ?').run(modelId);
-    
+
     logger.info(`✅ Deleted model: ${existing.modelName} (id: ${modelId})`);
   }
 
@@ -545,11 +557,11 @@ export class LLMConfigService {
   public getAllDefaultModels(): Map<LLMModelType, LLMModelFull> {
     const models = this.listModels({ isDefault: true, enabled: true });
     const map = new Map<LLMModelType, LLMModelFull>();
-    
+
     models.forEach(model => {
       map.set(model.modelType as LLMModelType, model);
     });
-    
+
     return map;
   }
 
@@ -564,6 +576,38 @@ export class LLMConfigService {
       SET is_default = 0, updated_at = ?
       WHERE model_type = ? AND is_default = 1
     `).run(Date.now(), modelType);
+  }
+
+  /**
+   * 清除ACE进化模型标记
+   */
+  private clearAceEvolutionModel(): void {
+    this.db.prepare(`
+      UPDATE llm_models
+      SET is_ace_evolution = 0, updated_at = ?
+      WHERE is_ace_evolution = 1
+    `).run(Date.now());
+  }
+
+  /**
+   * 获取ACE进化专用模型
+   */
+  public getAceEvolutionModel(): LLMModelFull | null {
+    const row = this.db.prepare(`
+      SELECT 
+        m.id, m.provider_id, m.model_key, m.model_name, m.model_type,
+        m.model_config, m.api_endpoint_suffix, m.enabled, m.is_default, m.is_ace_evolution,
+        m.display_order, m.created_at, m.updated_at,
+        p.provider, p.name as provider_name, p.base_config, p.enabled as provider_enabled
+      FROM llm_models m
+      JOIN llm_providers p ON m.provider_id = p.id
+      WHERE m.is_ace_evolution = 1
+        AND m.enabled = 1
+        AND p.enabled = 1
+      LIMIT 1
+    `).get() as any;
+
+    return row ? this.mapModelFullRow(row) : null;
   }
 
   /**
@@ -640,6 +684,7 @@ export class LLMConfigService {
       apiEndpointSuffix: row.api_endpoint_suffix,
       enabled: row.enabled === 1,
       isDefault: row.is_default === 1,
+      isAceEvolution: row.is_ace_evolution === 1,
       displayOrder: row.display_order,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
