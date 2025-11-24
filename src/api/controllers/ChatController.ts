@@ -37,6 +37,7 @@ interface ChatRequestOptions {
   top_k?: number;
   agentId?: string;
   userId?: string;
+  conversationId?: string; // 🆕 添加对话ID
   [key: string]: any;
 }
 
@@ -73,8 +74,28 @@ export class ChatController {
       // 确保 stream 是布尔值
       options.stream = options.stream === true;
 
-      // 优化的 User ID 提取逻辑
-      options.userId = body.user_id ?? body.userId ?? body.user ?? body.apexMeta?.userId;
+      // 注意：user 参数主要用于 OpenAI 标准，如果同时提供 user 和其他格式，优先使用其他格式
+      options.userId = body.user_id ?? body.userId ?? body.apexMeta?.userId ?? body.user;
+      
+      // 🆕 提取 Conversation ID
+      // 优先级：conversation_id > conversationId > apexMeta.conversationId
+      options.conversationId = body.conversation_id ?? body.conversationId ?? body.apexMeta?.conversationId;
+      
+      // 🆕 提取 Agent ID（如果前端传入）
+      // 优先级：agent_id > agentId > apexMeta.agentId
+      options.agentId = body.agent_id ?? body.agentId ?? body.apexMeta?.agentId;
+
+      // 🆕 提取 Self-Thinking 配置（多轮思考/ReAct模式）
+      // 支持直接传递或通过apexMeta传递
+      if (body.selfThinking || body.apexMeta?.selfThinking) {
+        options.selfThinking = {
+          enabled: body.selfThinking?.enabled ?? body.apexMeta?.selfThinking?.enabled,
+          maxIterations: body.selfThinking?.maxIterations ?? body.apexMeta?.selfThinking?.maxIterations,
+          enableTaskEvaluation: body.selfThinking?.enableTaskEvaluation ?? body.apexMeta?.selfThinking?.enableTaskEvaluation,
+          completionPrompt: body.selfThinking?.completionPrompt ?? body.apexMeta?.selfThinking?.completionPrompt,
+          includeThoughtsInResponse: body.selfThinking?.includeThoughtsInResponse ?? body.apexMeta?.selfThinking?.includeThoughtsInResponse
+        };
+      }
 
       if (options.stream) {
         await this.handleStreamResponse(res, messages, options);
@@ -401,6 +422,392 @@ export class ChatController {
       };
       
       res.status(500).json(response);
+    }
+  }
+
+  /**
+   * DELETE /v1/chat/sessions/:conversationId
+   * 删除会话（用户删除对话时调用）
+   */
+  async deleteSession(req: Request, res: Response): Promise<void> {
+    try {
+      const conversationId = req.params.conversationId;
+      
+      if (!conversationId) {
+        res.status(400).json({
+          error: {
+            message: 'conversationId is required',
+            type: 'invalid_request'
+          }
+        });
+        return;
+      }
+      
+      await this.chatService.endSession(conversationId);
+      
+      res.json({
+        success: true,
+        message: 'Session deleted successfully'
+      });
+    } catch (error: any) {
+      logger.error('❌ Error in deleteSession:', error);
+      res.status(500).json({
+        error: {
+          message: error.message || 'Internal server error',
+          type: 'server_error'
+        }
+      });
+    }
+  }
+
+  /**
+   * GET /v1/chat/sessions/:conversationId
+   * 获取会话状态
+   */
+  async getSession(req: Request, res: Response): Promise<void> {
+    try {
+      const conversationId = req.params.conversationId;
+      
+      if (!conversationId) {
+        res.status(400).json({
+          error: {
+            message: 'conversationId is required',
+            type: 'invalid_request'
+          }
+        });
+        return;
+      }
+      
+      const sessionState = await this.chatService.getSessionState(conversationId);
+      
+      if (!sessionState) {
+        res.status(404).json({
+          error: {
+            message: 'Session not found',
+            type: 'not_found'
+          }
+        });
+        return;
+      }
+      
+      res.json({
+        success: true,
+        data: sessionState
+      });
+    } catch (error: any) {
+      logger.error('❌ Error in getSession:', error);
+      res.status(500).json({
+        error: {
+          message: error.message || 'Internal server error',
+          type: 'server_error'
+        }
+      });
+    }
+  }
+
+  /**
+   * GET /v1/chat/sessions/active
+   * 获取会话列表（支持获取所有有对话历史的会话或时间范围内的活跃会话）
+   */
+  async getActiveSessions(req: Request, res: Response): Promise<void> {
+    try {
+      // 解析参数
+      const cutoffTime = req.query.cutoffTime
+        ? parseInt(req.query.cutoffTime as string)
+        : undefined;
+
+      // 获取ACE引擎（可能为null）
+      const engine = this.chatService.getAceEngine();
+
+      let conversationIds: string[];
+
+      if (cutoffTime === -1) {
+        // 获取所有有对话历史的会话
+        conversationIds = await this.chatService.getAllConversationsWithHistory();
+      } else {
+        // 获取ACE引擎管理的活跃会话
+        if (!engine) {
+          res.status(503).json({
+            error: {
+              message: 'ACE Engine not initialized',
+              type: 'service_unavailable'
+            }
+          });
+          return;
+        }
+
+        const effectiveCutoffTime = cutoffTime ?? (Date.now() - 60 * 60 * 1000); // 默认1小时前
+        conversationIds = await engine.getActiveSessions(effectiveCutoffTime);
+      }
+
+      // 获取会话详细信息（统一的ACE会话格式）
+      const sessions = await Promise.all(
+        conversationIds.map(async (sessionId) => {
+          try {
+            // 优先获取ACE会话状态
+            const aceSession = engine ? await engine.getSessionState(sessionId).catch(() => null) : null;
+
+            if (aceSession) {
+              // 如果有ACE会话，直接返回
+              return aceSession;
+            } else if (cutoffTime === -1) {
+              // 如果是获取所有会话且没有ACE会话，为对话历史创建基本的会话信息
+              const messageCount = await this.chatService.getConversationMessageCount(sessionId);
+              const lastMessage = await this.chatService.getConversationLastMessage(sessionId);
+
+              return {
+                sessionId,
+                lastActivityAt: lastMessage?.created_at || 0,
+                status: 'no_ace_session', // 标记为没有ACE会话
+                activeGoals: [],
+                reflectionCount: 0,
+                lastReflectionTime: 0,
+                lastReflectionDataHash: '',
+                metadata: {
+                  conversationId: sessionId,
+                  messageCount,
+                  lastMessage: lastMessage?.content?.substring(0, 100) || '',
+                  source: 'conversation_history'
+                }
+              };
+            }
+
+            return null;
+          } catch (error: any) {
+            logger.warn(`[ChatController] Failed to get session state for ${sessionId}: ${error.message}`);
+            return null;
+          }
+        })
+      );
+
+      // 统一的响应格式
+      const response = {
+        sessions: sessions.filter(s => s !== null),
+        total: sessions.filter(s => s !== null).length,
+        cutoffTime: cutoffTime ?? (Date.now() - 60 * 60 * 1000)
+      };
+
+      res.json(response);
+    } catch (error: any) {
+      logger.error('❌ Error in getActiveSessions:', error);
+      res.status(500).json({
+        error: {
+          message: error.message || 'Internal server error',
+          type: 'server_error'
+        }
+      });
+    }
+  }
+
+  /**
+   * GET /v1/chat/sessions/:conversationId/history
+   * 获取会话历史（日志、轨迹等）
+   */
+  async getSessionHistory(req: Request, res: Response): Promise<void> {
+    try {
+      const { conversationId } = req.params;
+      const { type = 'all', limit = '100' } = req.query;
+
+      if (!conversationId) {
+        res.status(400).json({
+          error: {
+            message: 'conversationId is required',
+            type: 'invalid_request'
+          }
+        });
+        return;
+      }
+
+      const engine = this.chatService.getAceEngine();
+      if (!engine) {
+        res.status(503).json({
+          error: {
+            message: 'ACE Engine not initialized',
+            type: 'service_unavailable'
+          }
+        });
+        return;
+      }
+
+      // 1. 先查内存映射
+      let sessionId = this.chatService.getSessionIdByConversationId(conversationId);
+      
+      // 2. 如果映射不存在，尝试直接从 ACE Engine 查询（因为 sessionId = conversationId）
+      if (!sessionId) {
+        try {
+          // 直接使用 conversationId 作为 sessionId 查询
+          const session = await engine.getSessionState(conversationId);
+          if (session && session.status === 'active') {
+            // 找到会话，使用 conversationId 作为 sessionId
+            sessionId = conversationId;
+          } else {
+            res.status(404).json({
+              error: {
+                message: 'Session not found',
+                type: 'not_found'
+              }
+            });
+            return;
+          }
+        } catch (error: any) {
+          logger.debug(`[ChatController] Session ${conversationId} not found in ACE Engine: ${error.message}`);
+          res.status(404).json({
+            error: {
+              message: 'Session not found',
+              type: 'not_found'
+            }
+          });
+          return;
+        }
+      }
+
+      const history: any = {};
+      const limitNum = parseInt(limit as string) || 100;
+
+      // 获取会话状态
+      if (type === 'all' || type === 'state') {
+        history.sessionState = await engine.getSessionState(sessionId);
+      }
+
+      // 获取遥测日志
+      if (type === 'all' || type === 'telemetry') {
+        try {
+          history.telemetry = await engine.getTelemetryBySession(sessionId, limitNum);
+        } catch (error: any) {
+          logger.warn(`[ChatController] Failed to get telemetry: ${error.message}`);
+          history.telemetry = [];
+        }
+      }
+
+      // 获取指令日志
+      if (type === 'all' || type === 'directives') {
+        try {
+          history.directives = await engine.getDirectivesBySession(sessionId, limitNum);
+        } catch (error: any) {
+          logger.warn(`[ChatController] Failed to get directives: ${error.message}`);
+          history.directives = [];
+        }
+      }
+
+      res.json({
+        success: true,
+        data: history
+      });
+    } catch (error: any) {
+      logger.error('❌ Error in getSessionHistory:', error);
+      res.status(500).json({
+        error: {
+          message: error.message || 'Internal server error',
+          type: 'server_error'
+        }
+      });
+    }
+  }
+
+  /**
+   * GET /v1/chat/sessions/:conversationId/messages
+   * 获取对话消息历史
+   */
+  async getConversationMessages(req: Request, res: Response): Promise<void> {
+    try {
+      const { conversationId } = req.params;
+      const { limit = '100', offset = '0' } = req.query;
+
+      if (!conversationId) {
+        res.status(400).json({
+          error: {
+            message: 'conversationId is required',
+            type: 'invalid_request'
+          }
+        });
+        return;
+      }
+
+      const messages = await this.chatService.getConversationHistory(
+        conversationId,
+        parseInt(limit as string) || 100,
+        parseInt(offset as string) || 0
+      );
+
+      const total = await this.chatService.getConversationMessageCount(conversationId);
+
+      res.json({
+        success: true,
+        data: {
+          messages,
+          total,
+          limit: parseInt(limit as string) || 100,
+          offset: parseInt(offset as string) || 0
+        }
+      });
+    } catch (error: any) {
+      logger.error('❌ Error in getConversationMessages:', error);
+      res.status(500).json({
+        error: {
+          message: error.message || 'Internal server error',
+          type: 'server_error'
+        }
+      });
+    }
+  }
+
+  /**
+   * POST /v1/chat/simple-stream
+   * 简化版流式聊天接口（专为前端看板娘设计）
+   * 只包含基本的LLM对话参数，不支持多轮思考和ACE
+   */
+  async simpleChatStream(req: Request, res: Response): Promise<void> {
+    try {
+      const { messages } = req.body;
+      const body = req.body;
+
+      // 验证必填参数
+      if (!messages || !Array.isArray(messages)) {
+        res.status(400).json({
+          error: {
+            message: 'messages is required and must be an array',
+            type: 'validation_error'
+          }
+        });
+        return;
+      }
+
+      // 只提取最基本的LLM参数
+      const options: ChatRequestOptions = {
+        provider: body.provider,
+        model: body.model,
+        temperature: body.temperature,
+        max_tokens: body.max_tokens,
+        stream: true, // 强制流式输出
+        user: body.user
+      };
+
+      // 简单的参数验证
+      if (!options.model) {
+        res.status(400).json({
+          error: {
+            message: 'model is required',
+            type: 'validation_error'
+          }
+        });
+        return;
+      }
+
+      // 调用流式响应处理
+      await this.handleStreamResponse(res, messages, options);
+
+    } catch (error: any) {
+      logger.error('❌ Error in simpleChatStream:', error);
+
+      // 如果响应头还没发送，发送错误响应
+      if (!res.headersSent) {
+        res.status(500).json({
+          error: {
+            message: error.message || 'Internal server error',
+            type: 'server_error'
+          }
+        });
+      }
     }
   }
 }

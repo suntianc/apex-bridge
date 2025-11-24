@@ -4,7 +4,7 @@
  */
 
 import { ProtocolEngine } from '../core/ProtocolEngine';
-import { LLMManager as LLMClient } from '../core/LLMManager'; // 向后兼容别名
+import { LLMManager } from '../core/LLMManager';
 import { EventBus } from '../core/EventBus';
 import {
   Message,
@@ -13,10 +13,37 @@ import {
 import { ActiveRequest } from '../types/request-abort';
 import { logger } from '../utils/logger';
 import { generateRequestId } from '../utils/request-id';
-import { TaskEvaluator } from '../core/TaskEvaluator';
 import { IWebSocketManager } from '../api/websocket/WebSocketManager';
 import { ConfigService } from './ConfigService';
 import { AceService } from './AceService';
+import { ConversationHistoryService } from './ConversationHistoryService';
+import { TaskEvaluator } from '../core/TaskEvaluator';
+
+/**
+ * 会话扩展元数据接口
+ */
+interface SessionExtendedMetadata {
+  /** Agent ID */
+  agentId?: string;
+  /** 用户 ID */
+  userId?: string;
+  /** 对话 ID */
+  conversationId?: string;
+  /** 创建时间 */
+  createdAt?: number;
+  /** 来源 */
+  source?: string;
+  /** 最后一条消息时间 */
+  lastMessageAt?: number;
+  /** 消息计数 */
+  messageCount?: number;
+  /** 累计 Token 使用量 */
+  totalTokens?: number;
+  /** 累计输入 Token */
+  totalInputTokens?: number;
+  /** 累计输出 Token */
+  totalOutputTokens?: number;
+}
 
 export class ChatService {
 
@@ -25,16 +52,21 @@ export class ChatService {
   private cleanupTimer: NodeJS.Timeout | null = null;
   private webSocketManager: IWebSocketManager | null = null; // WebSocketManager 实例（可选）
 
-  private llmClient: LLMClient | null = null; // 改为可选，支持懒加载
+  private llmManager: LLMManager | null = null; // 改为可选，支持懒加载
   private aceService: AceService;
+  private conversationHistoryService: ConversationHistoryService;
+
+  // 🆕 会话管理映射表：conversationId -> sessionId
+  private sessionMap: Map<string, string> = new Map();
 
   constructor(
     private protocolEngine: ProtocolEngine,
-    llmClient: LLMClient | null, // 改为可选参数
+    llmManager: LLMManager | null, // 改为可选参数
     private eventBus: EventBus
   ) {
-    this.llmClient = llmClient; // 可选，可以为null（懒加载）
+    this.llmManager = llmManager; // 可选，可以为null（懒加载）
     this.aceService = AceService.getInstance();
+    this.conversationHistoryService = ConversationHistoryService.getInstance();
 
     // 尝试初始化 ACE (非阻塞)
     this.aceService.initialize().catch(err => {
@@ -177,6 +209,358 @@ export class ChatService {
     return this.activeRequests.size;
   }
 
+  // ========== 会话管理方法 ==========
+
+  /**
+   * 获取或创建会话
+   * @param agentId Agent ID（可选）
+   * @param userId 用户ID（可选）
+   * @param conversationId 对话ID（必需，来自前端）
+   * @returns sessionId 或 null
+   */
+  private async getOrCreateSession(
+    agentId: string | undefined,
+    userId: string | undefined,
+    conversationId: string | undefined
+  ): Promise<string | null> {
+    // 1. 如果没有 conversationId，无法创建会话
+    if (!conversationId) {
+      logger.debug('[ChatService] No conversationId provided, processing without session');
+      return null;
+    }
+
+    // 2. 检查是否已存在会话映射
+    let sessionId = this.sessionMap.get(conversationId);
+
+    if (sessionId) {
+      // 3. 验证会话是否仍然存在且有效
+      const engine = this.aceService.getEngine();
+      if (engine) {
+        try {
+          const session = await engine.getSessionState(sessionId);
+          if (session && session.status === 'active') {
+            // 更新会话活动时间
+            await engine.updateSessionActivity(sessionId).catch(err => {
+              logger.warn(`[ChatService] Failed to update session activity: ${err.message}`);
+            });
+            return sessionId;
+          } else {
+            // 会话已失效或被归档，移除映射
+            this.sessionMap.delete(conversationId);
+            logger.debug(`[ChatService] Session ${sessionId} is no longer active, removed from map`);
+          }
+        } catch (error: any) {
+          logger.warn(`[ChatService] Failed to verify session: ${error.message}`);
+          // 验证失败，移除映射并重新创建
+          this.sessionMap.delete(conversationId);
+          sessionId = null;
+        }
+      }
+    }
+
+    // 4. 如果内存中没有，直接使用 conversationId 作为 sessionId
+    if (!sessionId) {
+      sessionId = conversationId;
+    }
+
+    const engine = this.aceService.getEngine();
+    if (!engine) {
+      logger.warn('[ChatService] ACE Engine not initialized, cannot create session');
+      return null;
+    }
+
+    // 5. 🆕 先检查数据库中是否已存在该 session（防止 UNIQUE constraint 错误）
+    try {
+      const existingSession = await engine.getSessionState(sessionId);
+      if (existingSession) {
+        // 会话已存在，更新映射关系并返回
+        this.sessionMap.set(conversationId, sessionId);
+
+        // 更新会话活动时间
+        await engine.updateSessionActivity(sessionId).catch(err => {
+          logger.warn(`[ChatService] Failed to update session activity: ${err.message}`);
+        });
+
+        logger.debug(`[ChatService] Reused existing session: ${sessionId} for conversation: ${conversationId}`);
+        return sessionId;
+      }
+    } catch (error: any) {
+      // 如果查询失败（可能是 session 不存在），继续创建流程
+      logger.debug(`[ChatService] Session ${sessionId} not found in database, will create new one`);
+    }
+
+    // 6. 创建新会话（数据库中不存在）
+    try {
+      // 🆕 初始化扩展元数据
+      const metadata: SessionExtendedMetadata = {
+        agentId,
+        userId,
+        conversationId,
+        createdAt: Date.now(),
+        source: 'frontend',
+        lastMessageAt: Date.now(),
+        messageCount: 0,
+        totalTokens: 0,
+        totalInputTokens: 0,
+        totalOutputTokens: 0
+      };
+
+      await engine.createSession(sessionId, metadata);
+
+      // 7. 保存映射关系
+      this.sessionMap.set(conversationId, sessionId);
+
+      logger.info(`[ChatService] Created new session: ${sessionId} for conversation: ${conversationId}`);
+    } catch (error: any) {
+      // 🆕 如果创建失败（可能是并发创建导致的 UNIQUE constraint），再次尝试获取
+      if (error.message && error.message.includes('UNIQUE constraint')) {
+        logger.warn(`[ChatService] Session ${sessionId} already exists (concurrent creation), reusing it`);
+        try {
+          const existingSession = await engine.getSessionState(sessionId);
+          if (existingSession) {
+            this.sessionMap.set(conversationId, sessionId);
+            await engine.updateSessionActivity(sessionId).catch(() => { });
+            return sessionId;
+          }
+        } catch (retryError: any) {
+          logger.error(`[ChatService] Failed to get session after UNIQUE constraint error: ${retryError.message}`);
+        }
+      }
+      logger.error(`[ChatService] Failed to create session: ${error.message}`);
+      return null;
+    }
+
+    return sessionId;
+  }
+
+  /**
+   * 🆕 更新会话元数据（消息计数、Token使用量等）
+   * @param sessionId 会话ID
+   * @param usage Token使用信息（可选）
+   */
+  private async updateSessionMetadata(
+    sessionId: string,
+    usage?: { total_tokens?: number; prompt_tokens?: number; completion_tokens?: number }
+  ): Promise<void> {
+    const engine = this.aceService.getEngine();
+    if (!engine) {
+      return;
+    }
+
+    try {
+      // 获取当前会话状态
+      const session = await engine.getSessionState(sessionId);
+      if (!session || !session.metadata) {
+        return;
+      }
+
+      const currentMetadata = session.metadata as SessionExtendedMetadata;
+
+      // 更新元数据
+      const updates: Partial<SessionExtendedMetadata> = {
+        lastMessageAt: Date.now(),
+        messageCount: (currentMetadata.messageCount || 0) + 1
+      };
+
+      // 更新 Token 统计
+      if (usage) {
+        const totalTokens = usage.total_tokens || 0;
+        const inputTokens = usage.prompt_tokens || 0;
+        const outputTokens = usage.completion_tokens || 0;
+
+        updates.totalTokens = (currentMetadata.totalTokens || 0) + totalTokens;
+        updates.totalInputTokens = (currentMetadata.totalInputTokens || 0) + inputTokens;
+        updates.totalOutputTokens = (currentMetadata.totalOutputTokens || 0) + outputTokens;
+      }
+
+      // 合并更新
+      await engine.updateSessionMetadata(sessionId, updates);
+    } catch (error: any) {
+      logger.warn(`[ChatService] Failed to update session metadata: ${error.message}`);
+      // 不抛出错误，避免影响主流程
+    }
+  }
+
+  /**
+   * 🆕 根据 conversationId 获取 sessionId
+   * @param conversationId 对话ID
+   * @returns sessionId 或 null
+   */
+  getSessionIdByConversationId(conversationId: string): string | null {
+    return this.sessionMap.get(conversationId) || null;
+  }
+
+  /**
+   * 🆕 获取 ACE Engine 实例（用于 API 调用）
+   * @returns AceEngine 实例或 null
+   */
+  getAceEngine() {
+    return this.aceService.getEngine();
+  }
+
+  /**
+   * 结束会话（用户删除对话时调用）
+   * @param conversationId 对话ID
+   */
+  async endSession(conversationId: string): Promise<void> {
+    const sessionId = this.sessionMap.get(conversationId);
+    if (!sessionId) {
+      logger.warn(`[ChatService] No session found for conversation: ${conversationId}`);
+      // 即使没有 sessionId，也尝试删除消息历史（因为 conversationId 可能直接作为 sessionId）
+      try {
+        await this.conversationHistoryService.deleteMessages(conversationId);
+        logger.info(`[ChatService] Deleted conversation history for: ${conversationId}`);
+      } catch (error: any) {
+        logger.warn(`[ChatService] Failed to delete conversation history: ${error.message}`);
+      }
+      return;
+    }
+
+    const engine = this.aceService.getEngine();
+    if (engine) {
+      try {
+        await engine.archiveSession(sessionId);
+        logger.info(`[ChatService] Archived session: ${sessionId} for conversation: ${conversationId}`);
+      } catch (error: any) {
+        logger.error(`[ChatService] Failed to archive session: ${error.message}`);
+      }
+    }
+
+    // 🆕 删除对话消息历史
+    try {
+      await this.conversationHistoryService.deleteMessages(conversationId);
+      logger.info(`[ChatService] Deleted conversation history for: ${conversationId}`);
+    } catch (error: any) {
+      logger.error(`[ChatService] Failed to delete conversation history: ${error.message}`);
+    }
+
+    // 移除映射
+    this.sessionMap.delete(conversationId);
+  }
+
+  /**
+   * 🆕 获取对话消息历史
+   * @param conversationId 对话ID
+   * @param limit 限制返回数量，默认 100
+   * @param offset 偏移量，默认 0
+   * @returns 消息列表
+   */
+  async getConversationHistory(
+    conversationId: string,
+    limit: number = 100,
+    offset: number = 0
+  ): Promise<any[]> {
+    return this.conversationHistoryService.getMessages(conversationId, limit, offset);
+  }
+
+  /**
+   * 🆕 获取对话消息总数
+   * @param conversationId 对话ID
+   * @returns 消息总数
+   */
+  async getConversationMessageCount(conversationId: string): Promise<number> {
+    return this.conversationHistoryService.getMessageCount(conversationId);
+  }
+
+  /**
+   * 获取对话的最后一条消息
+   * @param conversationId 对话ID
+   * @returns 最后一条消息
+   */
+  async getConversationLastMessage(conversationId: string): Promise<any> {
+    const messages = await this.conversationHistoryService.getMessages(conversationId, 1, 0);
+    return messages.length > 0 ? messages[0] : null;
+  }
+
+  /**
+   * 🆕 向 ACE 引擎发布带会话的消息（可选功能）
+   * @param conversationId 对话ID
+   * @param content 消息内容
+   * @param targetLayer 目标层级（可选，默认 GLOBAL_STRATEGY）
+   */
+  async publishToAceEngine(
+    conversationId: string,
+    content: string,
+    targetLayer?: string
+  ): Promise<void> {
+    const sessionId = this.sessionMap.get(conversationId);
+    if (!sessionId) {
+      logger.warn(`[ChatService] No session found for conversation: ${conversationId}`);
+      return;
+    }
+
+    const engine = this.aceService.getEngine();
+    if (!engine) {
+      logger.warn('[ChatService] ACE Engine not initialized');
+      return;
+    }
+
+    try {
+      // 使用字符串值作为层级（AceLayerID 枚举值就是字符串）
+      // 有效的层级: 'ASPIRATIONAL', 'GLOBAL_STRATEGY', 'AGENT_MODEL', 
+      //            'EXECUTIVE_FUNCTION', 'COGNITIVE_CONTROL', 'TASK_PROSECUTION'
+      const validLayers = [
+        'ASPIRATIONAL',
+        'GLOBAL_STRATEGY',
+        'AGENT_MODEL',
+        'EXECUTIVE_FUNCTION',
+        'COGNITIVE_CONTROL',
+        'TASK_PROSECUTION'
+      ] as const;
+
+      const layer = (targetLayer && validLayers.includes(targetLayer as any))
+        ? (targetLayer as any)
+        : 'GLOBAL_STRATEGY';
+
+      await engine.publishWithSession(sessionId, content, layer as any);
+      logger.debug(`[ChatService] Published message to ACE engine (session: ${sessionId}, layer: ${layer})`);
+    } catch (error: any) {
+      logger.error(`[ChatService] Failed to publish to ACE engine: ${error.message}`);
+    }
+  }
+
+  /**
+   * 获取会话状态（用于查询）
+   * @param conversationId 对话ID
+   * @returns 会话状态或 null
+   */
+  async getSessionState(conversationId: string): Promise<any> {
+    // 1. 先查内存映射
+    let sessionId = this.sessionMap.get(conversationId);
+
+    // 2. 如果映射不存在，尝试直接从 ACE Engine 查询（因为 sessionId = conversationId）
+    if (!sessionId) {
+      const engine = this.aceService.getEngine();
+      if (engine) {
+        try {
+          // 直接使用 conversationId 作为 sessionId 查询
+          const session = await engine.getSessionState(conversationId);
+          if (session && session.status === 'active') {
+            // 找到会话，更新映射
+            this.sessionMap.set(conversationId, conversationId);
+            return session;
+          }
+        } catch (error: any) {
+          logger.debug(`[ChatService] Session ${conversationId} not found in ACE Engine: ${error.message}`);
+        }
+      }
+      return null;
+    }
+
+    // 3. 如果映射存在，从 ACE Engine 获取最新状态
+    const engine = this.aceService.getEngine();
+    if (!engine) {
+      return null;
+    }
+
+    try {
+      return await engine.getSessionState(sessionId);
+    } catch (error: any) {
+      logger.error(`[ChatService] Failed to get session state: ${error.message}`);
+      return null;
+    }
+  }
+
   /**
    * 🆕 WebSocket适配方法 - 创建聊天完成（兼容OpenAI格式）
    */
@@ -274,12 +658,32 @@ export class ChatService {
    */
   async processMessage(messages: Message[], options: ChatOptions = {}): Promise<any> {
     try {
-      // 🆕 检查是否启用自我思考循环（ReAct模式）
+      // 🆕 1. 获取或创建会话（必须在处理消息之前）
+      const conversationId = options.conversationId as string | undefined;
+
+      if (conversationId) {
+        const sessionId = await this.getOrCreateSession(
+          options.agentId,
+          options.userId,
+          conversationId
+        );
+
+        if (sessionId) {
+          // 🆕 2. 将 sessionId 添加到 options 中，供后续使用
+          options.sessionId = sessionId;
+
+          logger.debug(`[ChatService] Processing message with session: ${sessionId}`);
+        }
+      } else {
+        logger.debug('[ChatService] Processing message without session (no conversationId)');
+      }
+
+      // 3. 检查是否启用自我思考循环（ReAct模式）
       if (options.selfThinking?.enabled) {
         return this.processMessageWithSelfThinking(messages, options);
       }
 
-      // 原有的单次处理逻辑
+      // 4. 原有的单次处理逻辑
       return this.processSingleRound(messages, options);
 
     } catch (error: any) {
@@ -308,6 +712,80 @@ export class ChatService {
     const aiContent = llmResponse.choices[0]?.message?.content || '';
 
     logger.debug(`🤖 LLM Response (first 200 chars): ${aiContent.substring(0, 200)}`);
+
+    // 🆕 更新会话活动时间和元数据（如果有会话）
+    const sessionId = options.sessionId;
+    if (sessionId && this.aceService.getEngine()) {
+      // 异步更新，不阻塞响应
+      this.aceService.getEngine()?.updateSessionActivity(sessionId).catch(err => {
+        logger.warn(`[ChatService] Failed to update session activity: ${err.message}`);
+      });
+
+      // 🆕 更新会话元数据（消息计数、Token使用量）
+      this.updateSessionMetadata(sessionId, llmResponse.usage).catch(err => {
+        logger.warn(`[ChatService] Failed to update session metadata: ${err.message}`);
+      });
+    }
+
+    // 🆕 ACE Integration: 保存轨迹（单轮处理）
+    if (this.aceService.getEngine() && sessionId) {
+      const userQuery = messages.find(m => m.role === 'user')?.content || '';
+      const taskId = options.requestId || `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+      const trajectory = {
+        task_id: taskId,
+        session_id: sessionId, // 🆕 会话ID
+        user_input: userQuery,
+        steps: [{
+          thought: 'Single round processing',
+          action: 'chat',
+          output: aiContent
+        }],
+        final_result: aiContent,
+        outcome: 'SUCCESS' as const,
+        environment_feedback: 'Single round chat completed',
+        used_rule_ids: [],
+        timestamp: Date.now(),
+        duration_ms: 0, // 单轮处理，不计算耗时
+        evolution_status: 'PENDING' as const
+      };
+
+      this.aceService.evolve(trajectory).catch(err => {
+        logger.error(`[ChatService] ACE Evolution failed: ${err.message}`);
+      });
+    }
+
+    // 🆕 保存对话消息历史
+    const conversationId = options.conversationId as string | undefined;
+    if (conversationId) {
+      try {
+        // 检查是否是新对话
+        const count = await this.conversationHistoryService.getMessageCount(conversationId);
+        const messagesToSave: Message[] = [];
+
+        if (count === 0) {
+          // 新对话：保存所有请求消息（通常包含 System 和 第一条 User）
+          // 过滤掉可能存在的 assistant 消息（防止重复历史中的 assistant）
+          messagesToSave.push(...messages.filter(m => m.role !== 'assistant'));
+        } else {
+          // 已有对话：只保存最后一条消息（通常是新的 User 消息）
+          const lastMessage = messages[messages.length - 1];
+          if (lastMessage && lastMessage.role !== 'assistant') {
+            messagesToSave.push(lastMessage);
+          }
+        }
+
+        // 添加 AI 回复
+        messagesToSave.push({
+          role: 'assistant',
+          content: aiContent
+        });
+
+        await this.conversationHistoryService.saveMessages(conversationId, messagesToSave);
+      } catch (err: any) {
+        logger.warn(`[ChatService] Failed to save conversation history: ${err.message}`);
+      }
+    }
 
     return {
       content: aiContent,
@@ -446,7 +924,7 @@ export class ChatService {
 
         // 🚀 ACE Integration: Capture Trajectory
         // Only evolve if we have a valid result and ACE is active
-        if (this.aceService.getAgent()) {
+        if (this.aceService.getEngine()) {
           const outcome = shouldContinue ? 'FAILURE' : 'SUCCESS'; // If loop broke early, it's success
 
           // Generate a unique task ID if not present (using request ID context if available)
@@ -456,6 +934,7 @@ export class ChatService {
 
           const trajectory = {
             task_id: taskId,
+            session_id: options.sessionId, // 🆕 添加会话ID
             user_input: userQuery,
             steps: thinkingProcess.map(t => ({
               thought: t,
@@ -473,6 +952,21 @@ export class ChatService {
 
           this.aceService.evolve(trajectory).catch(err => {
             logger.error(`[ChatService] ACE Evolution failed: ${err.message}`);
+          });
+        }
+
+        // 🆕 更新会话元数据（消息计数、Token使用量）
+        const sessionId = options.sessionId;
+        if (sessionId && this.aceService.getEngine()) {
+          // 更新会话活动时间
+          this.aceService.getEngine()?.updateSessionActivity(sessionId).catch(err => {
+            logger.warn(`[ChatService] Failed to update session activity: ${err.message}`);
+          });
+
+          // 更新会话元数据（使用最后一次 LLM 调用的 usage）
+          // 注意：这里只统计最后一次调用的 usage，后续可以优化为累计所有迭代的 usage
+          this.updateSessionMetadata(sessionId, llmResponse.usage).catch(err => {
+            logger.warn(`[ChatService] Failed to update session metadata: ${err.message}`);
           });
         }
 
@@ -512,6 +1006,37 @@ export class ChatService {
 
     logger.info(`✅ Self-thinking loop completed in ${iteration} iterations`);
 
+    // 🆕 保存对话消息历史
+    const conversationId = options.conversationId as string | undefined;
+    if (conversationId) {
+      try {
+        const count = await this.conversationHistoryService.getMessageCount(conversationId);
+        const messagesToSave: Message[] = [];
+
+        // 找出新增的消息（排除原始消息）
+        // 注意：currentMessages 中的原始消息引用与 messages 相同
+        const newMessages = currentMessages.filter(m => !messages.includes(m));
+
+        if (count === 0) {
+          // 新对话：保存所有原始消息
+          messagesToSave.push(...messages);
+        } else {
+          // 已有对话：只保存最后一条原始消息
+          const lastMessage = messages[messages.length - 1];
+          if (lastMessage) {
+            messagesToSave.push(lastMessage);
+          }
+        }
+
+        // 添加思考过程中的新消息
+        messagesToSave.push(...newMessages);
+
+        await this.conversationHistoryService.saveMessages(conversationId, messagesToSave);
+      } catch (err: any) {
+        logger.warn(`[ChatService] Failed to save conversation history: ${err.message}`);
+      }
+    }
+
     return finalResult;
   }
 
@@ -526,6 +1051,24 @@ export class ChatService {
     const requestId = generateRequestId();
     const abortController = new AbortController();
 
+    // 🆕 0.0 获取或创建会话（与 processMessage 保持一致）
+    const conversationId = options.conversationId as string | undefined;
+    if (conversationId) {
+      try {
+        const sessionId = await this.getOrCreateSession(
+          options.agentId,
+          options.userId,
+          conversationId
+        );
+        if (sessionId) {
+          options.sessionId = sessionId;
+        }
+      } catch (err: any) {
+        logger.warn(`[ChatService] Failed to get/create session in stream: ${err.message}`);
+        // 不阻塞流式处理，继续执行
+      }
+    }
+
     // 🆕 0.1 注册请求
     this.registerRequest(requestId, abortController, {
       model: options.model,
@@ -534,6 +1077,9 @@ export class ChatService {
 
     // 🆕 0.2 发送请求ID给客户端（元数据标记）
     yield `__META__:${JSON.stringify({ type: 'requestId', value: requestId })}`;
+
+    // 🆕 收集完整的AI回复内容（用于保存历史，需要在方法作用域内声明）
+    let fullAssistantContent = '';
 
     try {
       let processedMessages = messages;
@@ -558,6 +1104,8 @@ export class ChatService {
             return;
           }
 
+          // 🆕 收集完整内容
+          fullAssistantContent += chunk;
           yield chunk;
         }
       } catch (error: any) {
@@ -587,23 +1135,97 @@ export class ChatService {
       // 修复：对于非中断错误，抛出异常而不是 yield 错误文本
       throw error;
     } finally {
+      // 🆕 更新会话活动时间（如果有会话）
+      const sessionId = options.sessionId;
+      if (sessionId && this.aceService.getEngine()) {
+        // 异步更新，不阻塞响应
+        this.aceService.getEngine()?.updateSessionActivity(sessionId).catch(err => {
+          logger.warn(`[ChatService] Failed to update session activity in stream: ${err.message}`);
+        });
+      }
+
+      // 🆕 保存对话消息历史（流式响应完成后）
+      if (conversationId && fullAssistantContent) {
+        try {
+          // 检查是否是新对话
+          const count = await this.conversationHistoryService.getMessageCount(conversationId);
+          const messagesToSave: Message[] = [];
+
+          if (count === 0) {
+            // 新对话：保存所有请求消息
+            messagesToSave.push(...messages.filter(m => m.role !== 'assistant'));
+          } else {
+            // 已有对话：只保存最后一条消息
+            const lastMessage = messages[messages.length - 1];
+            if (lastMessage && lastMessage.role !== 'assistant') {
+              messagesToSave.push(lastMessage);
+            }
+          }
+
+          // 添加 AI 回复
+          messagesToSave.push({
+            role: 'assistant',
+            content: fullAssistantContent
+          });
+
+          await this.conversationHistoryService.saveMessages(conversationId, messagesToSave);
+        } catch (err: any) {
+          logger.warn(`[ChatService] Failed to save conversation history in stream: ${err.message}`);
+        }
+      }
+
+      // 🆕 ACE Integration: 保存轨迹（流式单轮处理）
+      if (this.aceService.getEngine() && options.sessionId && fullAssistantContent) {
+        const userQuery = messages.find(m => m.role === 'user')?.content || '';
+        const taskId = requestId || `stream_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+        const trajectory = {
+          task_id: taskId,
+          session_id: options.sessionId,
+          user_input: userQuery,
+          steps: [{
+            thought: 'Stream processing',
+            action: 'chat_stream',
+            output: fullAssistantContent
+          }],
+          final_result: fullAssistantContent,
+          outcome: 'SUCCESS' as const,
+          environment_feedback: 'Stream response completed',
+          used_rule_ids: [],
+          timestamp: Date.now(),
+          duration_ms: 0, // 流式处理，不精确计算耗时
+          evolution_status: 'PENDING' as const
+        };
+
+        this.aceService.evolve(trajectory).catch(err => {
+          logger.error(`[ChatService] ACE Evolution failed in stream: ${err.message}`);
+        });
+      }
+
       // 🆕 无论成功或失败，都清理请求
       this.cleanupRequest(requestId);
     }
   }
 
-  private async requireLLMClient(): Promise<LLMClient> {
-    let llmClient = this.llmClient;
-    if (!llmClient) {
-      // LLMManager 支持懒加载，从 SQLite 加载配置
+  private   /**
+   * 获取所有有对话历史的会话ID
+   * @returns conversation_id 列表
+   */
+  async getAllConversationsWithHistory(): Promise<string[]> {
+    return this.conversationHistoryService.getAllConversationIds();
+  }
+
+  private async requireLLMClient(): Promise<LLMManager> {
+    // 如果 llmManager 未初始化（null），尝试懒加载
+    if (!this.llmManager) {
       const { LLMManager } = await import('../core/LLMManager');
-      llmClient = new LLMManager() as LLMClient;
-      if (!llmClient) {
-        throw new Error('LLMClient not available. Please configure LLM providers in admin panel.');
+      const manager = new LLMManager();
+      if (!manager) {
+        throw new Error('LLMManager not available. Please configure LLM providers in admin panel.');
       }
-      this.llmClient = llmClient;
+      this.llmManager = manager;
     }
-    return llmClient;
+    return this.llmManager;
   }
 
   /**

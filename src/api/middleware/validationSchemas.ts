@@ -145,6 +145,56 @@ export const modelsListSchema: ValidationSchema = {
 };
 
 
+
+/**
+ * 简化流式聊天请求验证模式（专为前端看板娘设计）
+ */
+export const simpleStreamSchema: ValidationSchema = {
+  body: {
+    type: 'object',
+    required: ['messages', 'model'],
+    properties: {
+      messages: {
+        type: 'array',
+        minItems: 1,
+        maxItems: 50, // 简化接口限制消息数量
+        items: {
+          type: 'object',
+          required: ['role', 'content'],
+          properties: {
+            role: {
+              type: 'string',
+              enum: ['system', 'user', 'assistant']
+            },
+            content: {
+              type: 'string',
+              maxLength: 50000 // 简化接口限制内容长度
+            }
+          }
+        }
+      },
+      model: {
+        type: 'string',
+        pattern: '^[a-zA-Z0-9._-]+$',
+        maxLength: 100
+      },
+      temperature: {
+        type: 'number',
+        minimum: 0,
+        maximum: 2
+      },
+      max_tokens: {
+        type: 'number',
+        minimum: 1,
+        maximum: 10000
+      },
+      user: {
+        type: 'string',
+        maxLength: 100
+      }
+    }
+  }
+};
 /**
  * 中断请求验证模式
  */

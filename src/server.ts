@@ -28,7 +28,8 @@ import { createValidationMiddleware } from './api/middleware/validationMiddlewar
 import {
   chatCompletionSchema,
   modelsListSchema,
-  interruptRequestSchema
+  interruptRequestSchema,
+  simpleStreamSchema
 } from './api/middleware/validationSchemas';
 // 清理中间件
 import { createSanitizationMiddleware } from './api/middleware/sanitizationMiddleware';
@@ -92,8 +93,15 @@ export class ABPIntelliCore {
       
       // 2. 核心引擎初始化
       // ⏳ 关键调整：先创建 ProtocolEngine，然后等待完全初始化
+      const memBefore = process.memoryUsage();
+      logger.info(`[Memory] Before Protocol Engine init - RSS: ${Math.round(memBefore.rss / 1024 / 1024)}MB, Heap: ${Math.round(memBefore.heapUsed / 1024 / 1024)}MB`);
+      
       this.protocolEngine = new ProtocolEngine(config);
       await this.protocolEngine.initialize(); // 等待引擎完全就绪
+      
+      const memAfter = process.memoryUsage();
+      logger.info(`[Memory] After Protocol Engine init - RSS: ${Math.round(memAfter.rss / 1024 / 1024)}MB, Heap: ${Math.round(memAfter.heapUsed / 1024 / 1024)}MB`);
+      logger.info(`[Memory] Protocol Engine memory delta - RSS: +${Math.round((memAfter.rss - memBefore.rss) / 1024 / 1024)}MB, Heap: +${Math.round((memAfter.heapUsed - memBefore.heapUsed) / 1024 / 1024)}MB`);
       logger.info('✅ Protocol Engine initialized');
       
       // LLMManager采用懒加载模式，仅在需要时（聊天请求时）初始化
@@ -213,6 +221,41 @@ export class ABPIntelliCore {
       createValidationMiddleware(chatCompletionSchema),
       (req, res) => chatController.chatCompletions(req, res)
     );
+
+    // 🆕 简化版流式聊天接口（专为前端看板娘设计）
+    this.app.post('/v1/chat/simple-stream',
+      createValidationMiddleware(simpleStreamSchema),
+      (req, res) => chatController.simpleChatStream(req, res)
+    );
+
+    // 🆕 会话管理API
+    // ⚠️ 重要：更具体的路由必须在参数化路由之前注册
+    
+    // 🆕 获取活动会话列表（必须在 /:conversationId 之前）
+    this.app.get('/v1/chat/sessions/active',
+      (req, res) => chatController.getActiveSessions(req, res)
+    );
+
+    // 🆕 获取会话历史（ACE Engine 内部日志，必须在 /:conversationId 之前）
+    this.app.get('/v1/chat/sessions/:conversationId/history',
+      (req, res) => chatController.getSessionHistory(req, res)
+    );
+
+    // 🆕 获取对话消息历史（用户对话消息，必须在 /:conversationId 之前）
+    this.app.get('/v1/chat/sessions/:conversationId/messages',
+      (req, res) => chatController.getConversationMessages(req, res)
+    );
+    
+    // 获取单个会话（参数化路由，放在最后）
+    this.app.get('/v1/chat/sessions/:conversationId',
+      (req, res) => chatController.getSession(req, res)
+    );
+    
+    // 删除会话
+    this.app.delete('/v1/chat/sessions/:conversationId',
+      (req, res) => chatController.deleteSession(req, res)
+    );
+    
     // 模型列表API（添加验证中间件）
     this.app.get('/v1/models',
       createValidationMiddleware(modelsListSchema),
