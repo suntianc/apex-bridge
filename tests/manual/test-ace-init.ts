@@ -8,9 +8,9 @@ async function main() {
         const aceService = AceService.getInstance();
         await aceService.initialize();
 
-        const agent = aceService.getAgent();
-        if (agent) {
-            console.log('✅ AceAgent initialized successfully');
+        const engine = aceService.getEngine();
+        if (engine) {
+            console.log('✅ AceEngine initialized successfully');
 
             // Mock a trajectory evolution
             console.log('🧪 Testing Evolution Trigger...');
@@ -29,7 +29,7 @@ async function main() {
 
             console.log('✅ Evolution triggered (check logs for async results)');
         } else {
-            console.error('❌ AceAgent failed to initialize (check config enabled status)');
+            console.error('❌ AceEngine failed to initialize (check config enabled status)');
         }
     } catch (error) {
         console.error('❌ Test failed:', error);
