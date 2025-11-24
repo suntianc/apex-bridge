@@ -133,6 +133,9 @@ export class ProtocolEngine {
       // --- RAG Service Initialization ---
       if (this.config.rag?.enabled) {
         try {
+          const memBefore = process.memoryUsage();
+          logger.info(`[Memory] Before RAG Service init - RSS: ${Math.round(memBefore.rss / 1024 / 1024)}MB`);
+          
           this.ragService = new RAGService();
           const ragConfig = this.config.rag;
           const vectorizerConfig = this.normalizeVectorizerConfig(ragConfig.vectorizer);
@@ -142,6 +145,9 @@ export class ProtocolEngine {
             vectorizer: vectorizerConfig,
             debug: this.config.debugMode
           });
+          
+          const memAfter = process.memoryUsage();
+          logger.info(`[Memory] After RAG Service init - RSS: ${Math.round(memAfter.rss / 1024 / 1024)}MB, Delta: +${Math.round((memAfter.rss - memBefore.rss) / 1024 / 1024)}MB`);
           logger.info('✅ RAG Service initialized (abp-rag-sdk)');
         } catch (error: any) {
           logger.warn(`⚠️ RAG service initialization failed: ${error?.message || error}`);

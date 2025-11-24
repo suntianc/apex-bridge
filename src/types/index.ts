@@ -18,6 +18,8 @@ export interface ChatOptions {
   loopTimeout?: number; // 循环总超时时间（毫秒，默认5分钟）
   agentId?: string; // 🆕 Agent ID，用于指定人格（如"小文"、"default"）
   userId?: string; // 请求方可选 userId，用于记忆命名空间
+  conversationId?: string; // 🆕 对话ID（前端传入）
+  sessionId?: string;      // 🆕 会话ID（内部使用，由 ChatService 自动生成）
   // 🆕 自我思考循环配置（ReAct模式）
   selfThinking?: {
     enabled?: boolean;           // 是否启用自我思考循环（ReAct模式）
