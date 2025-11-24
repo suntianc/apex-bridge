@@ -127,6 +127,7 @@ temp/
 config/local.*
 config/development.*
 config/production.*
+config/admin-config.json
 
 ## Monitoring and analytics data
 *.log.*
