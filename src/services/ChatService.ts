@@ -1041,6 +1041,45 @@ export class ChatService {
   }
 
   /**
+   * 流式多轮思考（ReAct模式）
+   * 将多轮思考的结果流式输出给客户端
+   */
+  private async *streamMessageWithSelfThinking(
+    messages: Message[],
+    options: ChatOptions,
+    abortController: AbortController
+  ): AsyncIterableIterator<string> {
+    const maxIterations = options.selfThinking?.maxIterations || 5;
+    const includeThoughtsInResponse = options.selfThinking?.includeThoughtsInResponse ?? true;
+    
+    logger.info(`🧠 Starting Self-Thinking Loop (max: ${maxIterations} iterations) [Stream Mode]`);
+
+    // 先完成多轮思考（非流式）
+    try {
+      // 临时禁用流式，使用非流式处理多轮思考
+      const nonStreamOptions = { ...options, stream: false };
+      const result = await this.processMessageWithSelfThinking(messages, nonStreamOptions);
+      
+      // 将结果流式输出
+      const finalContent = includeThoughtsInResponse && result.thinkingProcess
+        ? `${result.thinkingProcess}\n\n${result.content}`
+        : result.content;
+      
+      // 逐字符流式输出（模拟流式效果）
+      for (const char of finalContent) {
+        if (abortController.signal.aborted) {
+          yield `__META__:${JSON.stringify({ type: 'interrupted' })}`;
+          return;
+        }
+        yield char;
+      }
+    } catch (error: any) {
+      logger.error('❌ Error in streamMessageWithSelfThinking:', error);
+      throw error;
+    }
+  }
+
+  /**
    * 流式处理消息
    */
   async *streamMessage(
@@ -1078,7 +1117,14 @@ export class ChatService {
     // 🆕 0.2 发送请求ID给客户端（元数据标记）
     yield `__META__:${JSON.stringify({ type: 'requestId', value: requestId })}`;
 
-    // 🆕 收集完整的AI回复内容（用于保存历史，需要在方法作用域内声明）
+    // �� 检查是否启用自我思考循环（ReAct模式）
+    if (options.selfThinking?.enabled) {
+      // 流式多轮思考：将多轮思考的结果流式输出
+      yield* this.streamMessageWithSelfThinking(messages, options, abortController);
+      return;
+    }
+
+    // �� 收集完整的AI回复内容（用于保存历史，需要在方法作用域内声明）
     let fullAssistantContent = '';
 
     try {

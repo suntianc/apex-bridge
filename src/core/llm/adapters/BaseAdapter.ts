@@ -105,7 +105,18 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
         logger.error(`❌ ${this.providerName} chat error:`, error.message);
         if (error.response) {
           logger.error(`   HTTP状态: ${error.response.status}`);
-          logger.error(`   错误详情: ${JSON.stringify(error.response.data)}`);
+          // 🐛 修复：安全序列化，避免循环引用
+          try {
+            if (error.response.data && typeof error.response.data === 'object') {
+              // 只序列化 data 字段，避免序列化整个 response 对象
+              logger.error(`   错误详情: ${JSON.stringify(error.response.data, null, 2)}`);
+            } else {
+              logger.error(`   错误详情: ${error.response.data || '无详细信息'}`);
+            }
+          } catch (e) {
+            // 如果序列化失败，只记录错误消息
+            logger.error(`   错误详情: [无法序列化响应数据]`);
+          }
         }
         throw new Error(`${this.providerName} request failed: ${error.message}`);
       }
@@ -163,7 +174,18 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
       logger.error(`❌ ${this.providerName} stream error:`, error.message);
       if (error.response) {
         logger.error(`   HTTP状态: ${error.response.status}`);
-        logger.error(`   错误详情: ${JSON.stringify(error.response.data)}`);
+        // 🐛 修复：安全序列化，避免循环引用
+        try {
+          if (error.response.data && typeof error.response.data === 'object') {
+            // 只序列化 data 字段，避免序列化整个 response 对象
+            logger.error(`   错误详情: ${JSON.stringify(error.response.data, null, 2)}`);
+          } else {
+            logger.error(`   错误详情: ${error.response.data || '无详细信息'}`);
+          }
+        } catch (e) {
+          // 如果序列化失败，只记录错误消息
+          logger.error(`   错误详情: [无法序列化响应数据]`);
+        }
       }
       throw new Error(`${this.providerName} stream request failed: ${error.message}`);
     }

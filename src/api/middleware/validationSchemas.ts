@@ -102,25 +102,29 @@ export const chatCompletionSchema: ValidationSchema = {
         pattern: '^[a-zA-Z0-9._-]+$',
         maxLength: 100
       },
-      apexMeta: {
+      selfThinking: {
         type: 'object',
         properties: {
-          conversationId: {
+          enabled: {
+            type: 'boolean'
+          },
+          maxIterations: {
+            type: 'integer',
+            minimum: 1,
+            maximum: 20,
+            default: 5
+          },
+          enableTaskEvaluation: {
+            type: 'boolean',
+            default: true
+          },
+          completionPrompt: {
             type: 'string',
-            maxLength: 200
+            maxLength: 2000
           },
-          sessionType: {
-            type: 'string',
-            enum: ['private', 'group']
-          },
-          target: {
-            type: 'object'
-          },
-          mentions: {
-            type: 'array',
-            items: {
-              type: 'string'
-            }
+          includeThoughtsInResponse: {
+            type: 'boolean',
+            default: true
           }
         }
       }
