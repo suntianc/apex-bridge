@@ -560,6 +560,9 @@ export class ReActEngine {
               case 'ANSWER_CONTENT':
                 if (enableStreamThoughts) {
                   yield `__ANSWER__:${JSON.stringify({ content: ev.content, timestamp: Date.now() })}\n`;
+                } else {
+                  // 当不启用思考流式输出时，只输出答案的原始内容
+                  yield ev.content;
                 }
                 finalAnswer = (finalAnswer ?? '') + (ev.content ?? '');
                 break;
@@ -569,9 +572,8 @@ export class ReActEngine {
                 }
                 break;
               case 'RAW_CONTENT':
-                if (!enableStreamThoughts && ev.content) {
-                  yield ev.content;
-                }
+                // 不处理 RAW_CONTENT，因为它会包含 XML 标签
+                // 思考过程应该通过 THOUGHT_CONTENT 等事件来获取
                 break;
             }
           }
@@ -586,8 +588,15 @@ export class ReActEngine {
 
       // 流结束，处理剩余 buffer
       for (const ev of parser.finish()) {
-        if (ev.type === 'RAW_CONTENT' && !enableStreamThoughts && ev.content) {
-          yield ev.content;
+        // 不处理 RAW_CONTENT，避免输出 XML 标签
+        // 只关注 ANSWER_CONTENT（实际上应该不会走到这里）
+        if (ev.type === 'ANSWER_CONTENT') {
+          if (enableStreamThoughts) {
+            yield `__ANSWER__:${JSON.stringify({ content: ev.content })}\n`;
+          } else {
+            yield ev.content;
+          }
+          finalAnswer = (finalAnswer ?? '') + (ev.content ?? '');
         }
       }
 

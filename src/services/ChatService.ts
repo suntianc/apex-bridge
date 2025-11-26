@@ -901,10 +901,17 @@ export class ChatService {
           }
         }
 
-        // 添加 AI 回复
+        // 添加 AI 回复（包含思考过程）
+        let assistantContent = result.finalAnswer || result.content;
+
+        // 如果包含思考过程，则将思考添加到回复中
+        if (options.selfThinking?.includeThoughtsInResponse && result.thinkingProcess.length > 0) {
+          assistantContent = `思考过程:\n${result.thinkingProcess.join('\n')}\n\n${assistantContent}`;
+        }
+
         messagesToSave.push({
           role: 'assistant',
-          content: result.finalAnswer || result.content
+          content: assistantContent
         });
 
         await this.conversationHistoryService.saveMessages(conversationId, messagesToSave);
@@ -1054,8 +1061,17 @@ export class ChatService {
 
     // 收集完整内容（用于保存历史）
     let fullContent = '';
-    const thinkingProcess: string[] = [];
+    const thinkingSteps: Array<{
+      type: 'thought' | 'action' | 'observation';
+      iteration: number;
+      content?: string;
+      tool?: string;
+      params?: any;
+      result?: any;
+      error?: string;
+    }> = [];
     let finalAnswer = '';
+    let currentIteration = 0;
 
     try {
       // 使用流式版本的 ReAct 引擎
@@ -1076,7 +1092,7 @@ export class ChatService {
         // 处理思考过程元数据
         if (chunk.startsWith('__THOUGHT_START__:')) {
           const data = JSON.parse(chunk.substring(18).trim());
-          thinkingProcess.push(`[思考 ${data.iteration}] 开始`);
+          currentIteration = data.iteration;
           // 转发给客户端
           yield chunk;
           continue;
@@ -1085,7 +1101,11 @@ export class ChatService {
         if (chunk.startsWith('__THOUGHT__:')) {
           const data = JSON.parse(chunk.substring(12).trim());
           if (data.content) {
-            thinkingProcess.push(data.content);
+            thinkingSteps.push({
+              type: 'thought',
+              iteration: data.iteration,
+              content: data.content
+            });
           }
           // 转发给客户端
           yield chunk;
@@ -1100,7 +1120,12 @@ export class ChatService {
 
         if (chunk.startsWith('__ACTION_START__:')) {
           const data = JSON.parse(chunk.substring(17).trim());
-          thinkingProcess.push(`[执行工具] ${data.tool}`);
+          thinkingSteps.push({
+            type: 'action',
+            iteration: data.iteration,
+            tool: data.tool,
+            params: data.params
+          });
           // 转发给客户端
           yield chunk;
           continue;
@@ -1108,8 +1133,13 @@ export class ChatService {
 
         if (chunk.startsWith('__OBSERVATION__:')) {
           const data = JSON.parse(chunk.substring(16).trim());
-          const observationText = data.result || data.error || '';
-          thinkingProcess.push(`[观察] ${data.tool}: ${observationText}`);
+          thinkingSteps.push({
+            type: 'observation',
+            iteration: data.iteration,
+            tool: data.tool,
+            result: data.result,
+            error: data.error
+          });
           // 转发给客户端
           yield chunk;
           continue;
@@ -1162,11 +1192,37 @@ export class ChatService {
             }
           }
 
-          // 添加 AI 回复
+          // 添加 AI 回复（包含思考过程）
           if (finalAnswer || fullContent) {
+            let assistantContent = finalAnswer || fullContent;
+
+            // 如果包含思考过程，则将思考添加到回复中
+            if (options.selfThinking?.includeThoughtsInResponse && thinkingSteps.length > 0) {
+              const thinkingLines: string[] = [];
+
+              for (const step of thinkingSteps) {
+                if (step.type === 'thought' && step.content) {
+                  thinkingLines.push(`[思考 ${step.iteration}] ${step.content}`);
+                } else if (step.type === 'action') {
+                  thinkingLines.push(`[执行工具] ${step.tool}`);
+                  if (step.params) {
+                    thinkingLines.push(`  参数: ${JSON.stringify(step.params, null, 2)}`);
+                  }
+                } else if (step.type === 'observation') {
+                  const result = step.error || step.result || '';
+                  thinkingLines.push(`[观察] ${step.tool}: ${result}`);
+                }
+              }
+
+              // 在最终答案前添加思考过程
+              if (thinkingLines.length > 0) {
+                assistantContent = `思考过程:\n${thinkingLines.join('\n')}\n\n${assistantContent}`;
+              }
+            }
+
             messagesToSave.push({
               role: 'assistant',
-              content: finalAnswer || fullContent
+              content: assistantContent
             });
           }
 
