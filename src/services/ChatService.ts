@@ -1139,8 +1139,11 @@ export class ChatService {
         }
 
         // 普通内容（不启用思考流式输出时的回退）
-        fullContent += chunk;
-        yield chunk;
+        // 防护：确保不是元数据标记（以防前面的条件遗漏）
+        if (!chunk.startsWith('__')) {
+          fullContent += chunk;
+          yield chunk;
+        }
       }
 
       // 🆕 保存对话消息历史

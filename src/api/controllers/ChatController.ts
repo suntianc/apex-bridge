@@ -87,10 +87,71 @@ export class ChatController {
 
       // 🆕 提取 Self-Thinking 配置（多轮思考/ReAct模式）
       if (body.selfThinking) {
-        // 只提取实际传入的参数，其他使用默认值
-        options.selfThinking = {
-          ...body.selfThinking
-        };
+        try {
+          // 验证 selfThinking 参数格式
+          const selfThinking = body.selfThinking;
+
+          // enabled 必须是 boolean
+          if (typeof selfThinking.enabled !== 'boolean') {
+            throw new Error('selfThinking.enabled must be a boolean');
+          }
+
+          // maxIterations 必须是正整数（如果提供）
+          if (selfThinking.maxIterations !== undefined) {
+            if (typeof selfThinking.maxIterations !== 'number' || selfThinking.maxIterations < 1) {
+              throw new Error('selfThinking.maxIterations must be a positive integer');
+            }
+          }
+
+          // includeThoughtsInResponse 必须是 boolean（如果提供）
+          if (selfThinking.includeThoughtsInResponse !== undefined &&
+              typeof selfThinking.includeThoughtsInResponse !== 'boolean') {
+            throw new Error('selfThinking.includeThoughtsInResponse must be a boolean');
+          }
+
+          // enableStreamThoughts 必须是 boolean（如果提供）
+          if (selfThinking.enableStreamThoughts !== undefined &&
+              typeof selfThinking.enableStreamThoughts !== 'boolean') {
+            throw new Error('selfThinking.enableStreamThoughts must be a boolean');
+          }
+
+          // tools 必须是数组（如果提供）
+          if (selfThinking.tools !== undefined) {
+            if (!Array.isArray(selfThinking.tools)) {
+              throw new Error('selfThinking.tools must be an array');
+            }
+            // 验证每个 tool 的格式
+            for (const tool of selfThinking.tools) {
+              if (!tool.name || typeof tool.name !== 'string') {
+                throw new Error('Each tool must have a name (string)');
+              }
+              if (!tool.description || typeof tool.description !== 'string') {
+                throw new Error(`Tool ${tool.name} must have a description (string)`);
+              }
+            }
+          }
+
+          // 参数验证通过，提取配置
+          options.selfThinking = {
+            enabled: selfThinking.enabled,
+            maxIterations: selfThinking.maxIterations ?? 5,
+            includeThoughtsInResponse: selfThinking.includeThoughtsInResponse ?? true,
+            systemPrompt: selfThinking.systemPrompt,
+            additionalPrompts: selfThinking.additionalPrompts,
+            tools: selfThinking.tools,
+            enableStreamThoughts: selfThinking.enableStreamThoughts ?? false
+          };
+
+        } catch (validationError: any) {
+          logger.error('❌ Invalid selfThinking parameters:', validationError);
+          res.status(400).json({
+            error: {
+              message: validationError.message || 'Invalid selfThinking parameters',
+              type: 'invalid_request'
+            }
+          });
+          return;
+        }
       }
 
       if (options.stream) {
@@ -98,10 +159,10 @@ export class ChatController {
       } else {
         await this.handleNormalResponse(res, messages, options);
       }
-      
+
     } catch (error: any) {
       logger.error('❌ Error in chatCompletions:', error);
-      
+
       res.status(500).json({
         error: {
           message: error.message || 'Internal server error',
@@ -115,18 +176,21 @@ export class ChatController {
    * 处理流式响应
    */
   private async handleStreamResponse(
-    res: Response, 
-    messages: Message[], 
+    res: Response,
+    messages: Message[],
     options: ChatRequestOptions
   ): Promise<void> {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
-    
+
     const responseId = `chatcmpl-${Date.now()}`;
     let chunkIndex = 0;
-    
+
+    // 检查是否启用思考过程流式输出
+    const enableStreamThoughts = options.selfThinking?.enableStreamThoughts ?? false;
+
     try {
       for await (const chunk of this.chatService.streamMessage(messages, options)) {
         // 处理元数据标记（必须完全匹配，避免误拦截）
@@ -168,14 +232,24 @@ export class ChatController {
             continue;
           }
         }
-        
+
         // 确保 chunk 不是 META 标记（双重保护）
         if (chunk.startsWith('__META__')) {
           logger.warn('[ChatController] Unhandled META chunk detected, skipping:', chunk.substring(0, 50));
           continue;
         }
-        
-        // 处理思考过程元数据
+
+        // 如果未启用思考流式输出，跳过思考过程标记
+        if (!enableStreamThoughts && (
+          chunk.startsWith('__THOUGHT') ||
+          chunk.startsWith('__ACTION') ||
+          chunk.startsWith('__OBSERVATION') ||
+          chunk.startsWith('__ANSWER')
+        )) {
+          continue;
+        }
+
+        // 处理思考过程元数据（仅当启用时）
         if (chunk.startsWith('__THOUGHT_START__:')) {
           try {
             const data = JSON.parse(chunk.substring(18).trim());
