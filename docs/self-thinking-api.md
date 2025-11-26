@@ -38,6 +38,110 @@ ApexBridge 支持多轮思考模式（ReAct模式），基于提示工程的客�
 
 **注意**：启用此参数会增加前端处理的复杂度，但能提供更好的用户体验（实时展示AI的思考过程）。
 
+## 性能优化建议
+
+多轮思考模式（ReAct）由于需要进行多次迭代，响应时间会比普通对话更长。以下是一些优化建议：
+
+### 1. 调整迭代次数
+
+`maxIterations` 参数直接影响响应时间：
+
+```javascript
+// 快速模式（推荐用于简单问题）
+{
+  "selfThinking": {
+    "enabled": true,
+    "maxIterations": 2,  // 最多思考 2 轮
+    "includeThoughtsInResponse": true
+  }
+}
+
+// 标准模式（默认，适合大多数场景）
+{
+  "selfThinking": {
+    "enabled": true,
+    "maxIterations": 3,  // 最多思考 3 轮
+    "includeThoughtsInResponse": true
+  }
+}
+
+// 深度模式（适合复杂推理）
+{
+  "selfThinking": {
+    "enabled": true,
+    "maxIterations": 5,  // 最多思考 5 轮（默认）
+    "includeThoughtsInResponse": true
+  }
+}
+```
+
+**响应时间参考**（假设每次 LLM 调用 2-3 秒）：
+
+| maxIterations | 预估响应时间 | 适用场景 |
+|---------------|-------------|----------|
+| 2 | 4-6 秒 | 简单问题、快速问答 |
+| 3 | 6-9 秒 | 标准推理、大多数场景 |
+| 5 | 10-15 秒 | 复杂问题、深度分析 |
+
+### 2. 使用更快的模型
+
+选择响应速度更快的 LLM 模型：
+
+```javascript
+{
+  "model": "gpt-4-turbo",  // 比 gpt-4 快 30-50%
+  "selfThinking": {
+    "enabled": true,
+    "maxIterations": 3
+  }
+}
+```
+
+### 3. 关闭思考过程输出
+
+如果不需要在响应中包含思考过程，可以关闭以减少 token 消耗：
+
+```javascript
+{
+  "selfThinking": {
+    "enabled": true,
+    "maxIterations": 3,
+    "includeThoughtsInResponse": false  // 不输出思考过程
+  }
+}
+```
+
+### 4. 流式输出优化体验
+
+使用流式输出可以提升用户体验（响应更快）：
+
+```javascript
+{
+  "stream": true,  // 启用流式
+  "selfThinking": {
+    "enabled": true,
+    "maxIterations": 3,
+    "enableStreamThoughts": false  // 或使用 true 实时展示思考
+  }
+}
+```
+
+### 5. 工具执行优化
+
+- 确保自定义工具响应迅速
+- 使用缓存避免重复的工具调用
+- 对于耗时工具，考虑异步执行
+
+### 性能 vs 质量的权衡
+
+| 配置 | 响应速度 | 推理质量 | 建议场景 |
+|------|---------|---------|----------|
+| maxIterations=2 | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | 快速问答、简单问题 |
+| maxIterations=3 | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | 大多数场景（推荐） |
+| maxIterations=5 | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 复杂推理、深度分析 |
+
+**提示**：对于生产环境，建议从 `maxIterations: 2` 开始，根据实际需求逐步调整。
+
 ### ToolDefinition 接口
 
 | 参数 | 类型 | 说明 |

@@ -1202,7 +1202,7 @@ export class ChatService {
 
               for (const step of thinkingSteps) {
                 if (step.type === 'thought' && step.content) {
-                  thinkingLines.push(`[思考 ${step.iteration}] ${step.content}`);
+                  thinkingLines.push(step.content);
                 } else if (step.type === 'action') {
                   thinkingLines.push(`[执行工具] ${step.tool}`);
                   if (step.params) {

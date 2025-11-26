@@ -257,7 +257,7 @@ export class ReActEngine {
 
       // 记录思考过程
       if (parsed.thought) {
-        const thoughtText = `[思考 ${iteration}] ${parsed.thought}`;
+        const thoughtText = parsed.thought;
         thinkingProcess.push(thoughtText);
 
         // 如果启用流式输出，调用回调
@@ -685,9 +685,6 @@ export class ReActEngine {
     if (!tool) {
       throw new Error(`未知工具: ${toolName}`);
     }
-
-    // 模拟网络延迟
-    await new Promise(resolve => setTimeout(resolve, 500));
 
     logger.debug(`⚙️ [ReAct Engine] Executing: ${toolName} with`, params);
 
