@@ -17,7 +17,7 @@ import { IWebSocketManager } from '../api/websocket/WebSocketManager';
 import { ConfigService } from './ConfigService';
 import { AceService } from './AceService';
 import { ConversationHistoryService } from './ConversationHistoryService';
-import { TaskEvaluator } from '../core/TaskEvaluator';
+import { ReActEngine, Tool } from './ReActEngine';
 
 /**
  * 会话扩展元数据接口
@@ -680,7 +680,7 @@ export class ChatService {
 
       // 3. 检查是否启用自我思考循环（ReAct模式）
       if (options.selfThinking?.enabled) {
-        return this.processMessageWithSelfThinking(messages, options);
+        return this.processMessageWithReAct(messages, options);
       }
 
       // 4. 原有的单次处理逻辑
@@ -795,216 +795,95 @@ export class ChatService {
 
   /**
    * 自我思考循环（ReAct模式）
-   *
-   * 循环执行：思考 → 行动 → 观察 → 评估 → 直到任务完成
+   * 使用 ReActEngine 实现基于 XML 标签协议的思考-行动循环
    */
   private async processMessageWithSelfThinking(
     messages: Message[],
     options: ChatOptions
   ): Promise<any> {
+    return this.processMessageWithReAct(messages, options);
+  }
+
+  /**
+   * ReAct 模式实现
+   */
+  private async processMessageWithReAct(
+    messages: Message[],
+    options: ChatOptions
+  ): Promise<any> {
     const startTime = Date.now();
-    const maxDuration = options.loopTimeout || 300000; // 5分钟
-    const maxIterations = options.selfThinking?.maxIterations || 5;
-    // ✅ 修复1：自我思考循环默认启动评估
-    const enableTaskEvaluation = options.selfThinking?.enableTaskEvaluation ?? true;
+    const userQuery = messages.find(msg => msg.role === 'user')?.content || '';
+    const llmClient = await this.requireLLMClient();
     const includeThoughtsInResponse = options.selfThinking?.includeThoughtsInResponse ?? true;
 
-    // ✅ 修复2：从配置文件读取快速评估/LLM评估开关，而不是从参数读取
-    const configService = ConfigService.getInstance();
-    const config = configService.readConfig();
-    const useLLMEvaluation = config.selfThinking?.useLLMEvaluation ?? false;
-    const evaluationModel = config.selfThinking?.evaluationModel;
+    // 初始化 ReAct 引擎
+    const reactEngine = new ReActEngine();
 
-    // 获取用户原始查询（第一条用户消息）
-    const userQuery = messages.find(msg => msg.role === 'user')?.content || '';
+    // 注册默认工具
+    this.registerDefaultTools(reactEngine);
 
-    let iteration = 0;
-    // 关键修复：使用可变的消息数组，每次迭代都会更新
-    const currentMessages: Message[] = [...messages];
-    let finalResult: any = null;
-    const thinkingProcess: string[] = []; // 记录思考过程
+    // 如果用户定义了额外工具，也注册
+    if (options.selfThinking?.tools) {
+      options.selfThinking.tools.forEach(toolDef => {
+        reactEngine.registerTool({
+          name: toolDef.name,
+          description: toolDef.description,
+          parameters: toolDef.parameters,
+          execute: async (params) => {
+            return this.executeCustomTool(toolDef.name, params);
+          }
+        });
+      });
+    }
 
-    // ✅ 修复并发 Bug：使用局部变量而不是类成员变量，确保每个请求独享一个实例
-    const taskEvaluator = new TaskEvaluator({
-      maxIterations,
-      completionPrompt: options.selfThinking?.completionPrompt,
-      model: evaluationModel // ✅ 从配置文件读取评估模型
+    // 执行 ReAct 循环
+    const result = await reactEngine.execute(userQuery, llmClient, {
+      systemPrompt: options.selfThinking?.systemPrompt,
+      additionalPrompts: options.selfThinking?.additionalPrompts,
+      maxIterations: options.selfThinking?.maxIterations,
+      timeout: options.loopTimeout,
+      enableStreamThoughts: options.selfThinking?.enableStreamThoughts
     });
 
-    logger.info(`🧠 Starting Self-Thinking Loop (max: ${maxIterations} iterations)`);
+    // 🚀 ACE Integration: Capture Trajectory
+    if (this.aceService.getEngine()) {
+      const taskId = options.requestId || `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const outcome = result.finalAnswer ? 'SUCCESS' : 'FAILURE';
 
-    while (iteration < maxIterations) {
-      iteration++;
-
-      logger.info(`\n🔄 [Self-Thinking Loop Iteration ${iteration}/${maxIterations}]`);
-
-      // 检查超时
-      if (Date.now() - startTime > maxDuration) {
-        logger.warn(`⚠️ Self-thinking loop timeout (${maxDuration}ms) reached`);
-        thinkingProcess.push(`[系统警告] 达到最大超时时间，停止循环`);
-        break;
-      }
-
-      // 步骤 1: 调用 LLM
-      logger.debug('🤖 Calling LLM...');
-      const llmClient = await this.requireLLMClient();
-      const llmResponse = await llmClient.chat(currentMessages, options);
-      const aiContent = llmResponse.choices[0]?.message?.content || '';
-
-      logger.debug(`📝 LLM Response: ${aiContent.substring(0, 200)}...`);
-
-      // 记录思考过程
-      thinkingProcess.push(`\n[思考步骤 ${iteration}]`);
-      thinkingProcess.push(`AI分析: ${aiContent}`);
-
-      // 关键修复：更新上下文，让模型知道它之前的思考
-      currentMessages.push({
-        role: 'assistant',
-        content: aiContent
-      });
-
-      // 步骤 2: 使用 TaskEvaluator 评估任务是否完成
-      let shouldContinue = false;
-      if (enableTaskEvaluation && taskEvaluator) {
-        // ✅ 从配置文件读取评估方式，而不是从参数读取
-        if (useLLMEvaluation) {
-          // 🆕 使用真实的 LLM 评估（更准确但成本更高）
-          logger.debug('[TaskEvaluator] Using LLM-based evaluation');
-          try {
-            const evaluation = await taskEvaluator.evaluate(
-              llmClient,
-              currentMessages,
-              userQuery,
-              iteration
-            );
-            shouldContinue = !evaluation.isComplete;
-
-            logger.debug(
-              `[TaskEvaluator] LLM Evaluation result: ${evaluation.isComplete ? 'Complete' : 'Needs more work'}` +
-              (evaluation.reasoning ? ` (Reasoning: ${evaluation.reasoning.substring(0, 100)}...)` : '')
-            );
-
-            // 如果提供了建议的下一步行动，可以记录到思考过程中
-            if (evaluation.suggestedNextAction) {
-              thinkingProcess.push(`[评估建议] ${evaluation.suggestedNextAction}`);
-            }
-
-            // 如果评估提供了推理过程，也记录到思考过程中
-            if (evaluation.reasoning) {
-              thinkingProcess.push(`[评估推理] ${evaluation.reasoning}`);
-            }
-          } catch (error: any) {
-            // 如果 LLM 评估失败，降级到快速评估
-            logger.warn(`[TaskEvaluator] LLM evaluation failed, falling back to quick evaluation: ${error.message || error}`);
-            const evaluation = taskEvaluator.quickEvaluate(currentMessages);
-            shouldContinue = !evaluation.isLikelyComplete;
-            logger.debug(`[TaskEvaluator] Quick Evaluation (fallback) result: ${evaluation.isLikelyComplete ? 'Complete' : 'Needs more work'}`);
-          }
-        } else {
-          // 使用快速评估（轻量级，基于关键词匹配）
-          logger.debug('[TaskEvaluator] Using quick evaluation (keyword-based)');
-          const evaluation = taskEvaluator.quickEvaluate(currentMessages);
-          shouldContinue = !evaluation.isLikelyComplete;
-
-          logger.debug(`[TaskEvaluator] Quick Evaluation result: ${evaluation.isLikelyComplete ? 'Complete' : 'Needs more work'}`);
-        }
-      } else {
-        // 如果没有启用评估，默认在达到最大迭代次数时结束
-        shouldContinue = iteration < maxIterations;
-      }
-
-      // 如果任务完成或达到最大迭代次数，结束循环
-      if (!shouldContinue || iteration >= maxIterations) {
-        finalResult = {
-          content: aiContent,
-          iterations: iteration,
-          thinkingProcess: includeThoughtsInResponse ? thinkingProcess.join('\n') : undefined,
-          usage: llmResponse.usage
-        };
-
-        // 🚀 ACE Integration: Capture Trajectory
-        // Only evolve if we have a valid result and ACE is active
-        if (this.aceService.getEngine()) {
-          const outcome = shouldContinue ? 'FAILURE' : 'SUCCESS'; // If loop broke early, it's success
-
-          // Generate a unique task ID if not present (using request ID context if available)
-          // For now we use a random UUID if requestId is not easily accessible here, 
-          // but ideally we should pass requestId through options
-          const taskId = options.requestId || `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-          const trajectory = {
-            task_id: taskId,
-            session_id: options.sessionId, // 🆕 添加会话ID
-            user_input: userQuery,
-            steps: thinkingProcess.map(t => ({
-              thought: t,
-              action: 'think',
-              output: ''
-            })),
-            final_result: aiContent,
-            outcome: outcome as 'SUCCESS' | 'FAILURE',
-            environment_feedback: 'TaskEvaluator: ' + (shouldContinue ? 'Max iterations reached' : 'Task completed'),
-            used_rule_ids: [], // We don't track rule usage in ApexBridge yet
-            timestamp: Date.now(),
-            duration_ms: Date.now() - startTime,
-            evolution_status: 'PENDING' as const
-          };
-
-          this.aceService.evolve(trajectory).catch(err => {
-            logger.error(`[ChatService] ACE Evolution failed: ${err.message}`);
-          });
-        }
-
-        // 🆕 更新会话元数据（消息计数、Token使用量）
-        const sessionId = options.sessionId;
-        if (sessionId && this.aceService.getEngine()) {
-          // 更新会话活动时间
-          this.aceService.getEngine()?.updateSessionActivity(sessionId).catch(err => {
-            logger.warn(`[ChatService] Failed to update session activity: ${err.message}`);
-          });
-
-          // 更新会话元数据（使用最后一次 LLM 调用的 usage）
-          // 注意：这里只统计最后一次调用的 usage，后续可以优化为累计所有迭代的 usage
-          this.updateSessionMetadata(sessionId, llmResponse.usage).catch(err => {
-            logger.warn(`[ChatService] Failed to update session metadata: ${err.message}`);
-          });
-        }
-
-        break;
-      }
-
-      // 步骤 3: 如果任务未完成，添加提示消息推动继续思考
-      currentMessages.push({
-        role: 'user',
-        content: '请继续下一步分析，或给出最终结论。如果任务已完成，请明确说明。'
-      });
-
-      // 清理：保持上下文大小可控
-      if (currentMessages.length > 50) {
-        logger.warn(`⚠️ 消息历史过长(${currentMessages.length}条)，可能影响性能`);
-        // 保留前几条系统消息和最后20条消息
-        const systemMessages = currentMessages.filter(msg => msg.role === 'system');
-        const recentMessages = currentMessages.slice(-20);
-        currentMessages.length = 0;
-        currentMessages.push(...systemMessages, ...recentMessages);
-      }
-    }
-
-    // 如果循环结束但没有生成结果，返回最后一条 AI 回复
-    if (!finalResult) {
-      logger.warn(`⚠️ Self-thinking loop ended without clear result`);
-
-      const lastAssistantMessage = [...currentMessages].reverse().find(msg => msg.role === 'assistant');
-      const aiContent = lastAssistantMessage?.content || '思考循环结束，但未生成明确结果。';
-
-      finalResult = {
-        content: aiContent,
-        iterations: iteration,
-        thinkingProcess: includeThoughtsInResponse ? thinkingProcess.join('\n') : undefined
+      const trajectory = {
+        task_id: taskId,
+        session_id: options.sessionId,
+        user_input: userQuery,
+        steps: result.thinkingProcess.map((thought, index) => ({
+          thought: thought,
+          action: 'think',
+          output: ''
+        })),
+        final_result: result.finalAnswer || result.content,
+        outcome: outcome as 'SUCCESS' | 'FAILURE',
+        environment_feedback: `ReAct Engine: ${result.iterations} iterations completed`,
+        used_rule_ids: [],
+        timestamp: Date.now(),
+        duration_ms: Date.now() - startTime,
+        evolution_status: 'PENDING' as const
       };
+
+      this.aceService.evolve(trajectory).catch(err => {
+        logger.error(`[ChatService] ACE Evolution failed: ${err.message}`);
+      });
     }
 
-    logger.info(`✅ Self-thinking loop completed in ${iteration} iterations`);
+    // 🆕 更新会话元数据
+    const sessionId = options.sessionId;
+    if (sessionId && this.aceService.getEngine()) {
+      this.aceService.getEngine()?.updateSessionActivity(sessionId).catch(err => {
+        logger.warn(`[ChatService] Failed to update session activity: ${err.message}`);
+      });
+
+      this.updateSessionMetadata(sessionId, result.usage).catch(err => {
+        logger.warn(`[ChatService] Failed to update session metadata: ${err.message}`);
+      });
+    }
 
     // 🆕 保存对话消息历史
     const conversationId = options.conversationId as string | undefined;
@@ -1013,23 +892,20 @@ export class ChatService {
         const count = await this.conversationHistoryService.getMessageCount(conversationId);
         const messagesToSave: Message[] = [];
 
-        // 找出新增的消息（排除原始消息）
-        // 注意：currentMessages 中的原始消息引用与 messages 相同
-        const newMessages = currentMessages.filter(m => !messages.includes(m));
-
         if (count === 0) {
-          // 新对话：保存所有原始消息
-          messagesToSave.push(...messages);
+          messagesToSave.push(...messages.filter(m => m.role !== 'assistant'));
         } else {
-          // 已有对话：只保存最后一条原始消息
           const lastMessage = messages[messages.length - 1];
-          if (lastMessage) {
+          if (lastMessage && lastMessage.role !== 'assistant') {
             messagesToSave.push(lastMessage);
           }
         }
 
-        // 添加思考过程中的新消息
-        messagesToSave.push(...newMessages);
+        // 添加 AI 回复
+        messagesToSave.push({
+          role: 'assistant',
+          content: result.finalAnswer || result.content
+        });
 
         await this.conversationHistoryService.saveMessages(conversationId, messagesToSave);
       } catch (err: any) {
@@ -1037,52 +913,279 @@ export class ChatService {
       }
     }
 
-    return finalResult;
+    // 格式化返回结果
+    return {
+      content: result.finalAnswer || result.content,
+      iterations: result.iterations,
+      thinkingProcess: includeThoughtsInResponse ? result.thinkingProcess.join('\n') : undefined,
+      usage: result.usage
+    };
   }
 
   /**
-   * 流式多轮思考（ReAct模式）
-   * 将多轮思考的结果流式输出给客户端
+   * 注册默认工具
    */
+  private registerDefaultTools(reactEngine: ReActEngine) {
+    // 注册数据库查询工具
+    reactEngine.registerTool({
+      name: 'query_database',
+      description: '查询业务数据库',
+      parameters: { sql: 'string' },
+      execute: async (params) => {
+        return this.mockDatabaseQuery(params.sql);
+      }
+    });
+
+    // 注册用户画像查询工具
+    reactEngine.registerTool({
+      name: 'fetch_user_profile',
+      description: '获取用户画像信息',
+      parameters: { userId: 'string' },
+      execute: async (params) => {
+        return this.mockFetchUserProfile(params.userId);
+      }
+    });
+
+    // 注册风险计算工具
+    reactEngine.registerTool({
+      name: 'calculate_risk',
+      description: '计算风险评分',
+      parameters: { score: 'number' },
+      execute: async (params) => {
+        return this.mockCalculateRisk(params.score);
+      }
+    });
+  }
+
+  /**
+   * 执行自定义工具
+   */
+  private async executeCustomTool(toolName: string, params: any): Promise<any> {
+    logger.info(`Executing custom tool: ${toolName}`, params);
+
+    // 这里可以根据 toolName 调用不同的业务服务
+    // 示例实现
+    switch (toolName) {
+      case 'custom_business_logic':
+        return { result: 'Custom business result', params };
+      default:
+        throw new Error(`Unknown tool: ${toolName}`);
+    }
+  }
+
+  /**
+   * Mock 数据库查询（生产环境替换为真实实现）
+   */
+  private async mockDatabaseQuery(sql: string): Promise<any> {
+    await new Promise(resolve => setTimeout(resolve, 800));
+
+    if (sql && sql.includes('orders')) {
+      return JSON.stringify({
+        status: "success",
+        data: [
+          { orderId: "A100", amount: 5000, risk: "high" },
+          { orderId: "A101", amount: 200, risk: "low" }
+        ]
+      });
+    }
+
+    return JSON.stringify({ status: "empty", data: [] });
+  }
+
+  /**
+   * Mock 用户画像查询
+   */
+  private async mockFetchUserProfile(userId: string): Promise<any> {
+    await new Promise(resolve => setTimeout(resolve, 600));
+
+    return JSON.stringify({
+      name: "John Doe",
+      vipLevel: "Diamond",
+      tags: ["high-value", "churn-risk"]
+    });
+  }
+
+  /**
+   * Mock 风险计算
+   */
+  private async mockCalculateRisk(score: number): Promise<any> {
+    await new Promise(resolve => setTimeout(resolve, 400));
+
+    if (score > 1000) {
+      return "Risk Level: CRITICAL";
+    }
+    return "Risk Level: SAFE";
+  }
+
   private async *streamMessageWithSelfThinking(
     messages: Message[],
     options: ChatOptions,
     abortController: AbortController
   ): AsyncIterableIterator<string> {
-    const maxIterations = options.selfThinking?.maxIterations || 5;
-    const includeThoughtsInResponse = options.selfThinking?.includeThoughtsInResponse ?? true;
-    
-    logger.info(`🧠 Starting Self-Thinking Loop (max: ${maxIterations} iterations) [Stream Mode]`);
+    yield* this.processMessageWithReActStream(messages, options, abortController);
+  }
 
-    // 先完成多轮思考（非流式）
+  /**
+   * ReAct 模式的流式实现
+   */
+  private async *processMessageWithReActStream(
+    messages: Message[],
+    options: ChatOptions,
+    abortController: AbortController
+  ): AsyncIterableIterator<string> {
+    const userQuery = messages.find(msg => msg.role === 'user')?.content || '';
+    const llmClient = await this.requireLLMClient();
+    const enableStreamThoughts = options.selfThinking?.enableStreamThoughts ?? false;
+
+    // 初始化 ReAct 引擎
+    const reactEngine = new ReActEngine();
+    this.registerDefaultTools(reactEngine);
+
+    if (options.selfThinking?.tools) {
+      options.selfThinking.tools.forEach(toolDef => {
+        reactEngine.registerTool({
+          name: toolDef.name,
+          description: toolDef.description,
+          parameters: toolDef.parameters,
+          execute: async (params) => this.executeCustomTool(toolDef.name, params)
+        });
+      });
+    }
+
+    // 收集完整内容（用于保存历史）
+    let fullContent = '';
+    const thinkingProcess: string[] = [];
+    let finalAnswer = '';
+
     try {
-      // 临时禁用流式，使用非流式处理多轮思考
-      const nonStreamOptions = { ...options, stream: false };
-      const result = await this.processMessageWithSelfThinking(messages, nonStreamOptions);
-      
-      // 将结果流式输出
-      const finalContent = includeThoughtsInResponse && result.thinkingProcess
-        ? `${result.thinkingProcess}\n\n${result.content}`
-        : result.content;
-      
-      // 逐字符流式输出（模拟流式效果）
-      for (const char of finalContent) {
+      // 使用流式版本的 ReAct 引擎
+      for await (const chunk of reactEngine.executeStream(userQuery, llmClient, {
+        systemPrompt: options.selfThinking?.systemPrompt,
+        additionalPrompts: options.selfThinking?.additionalPrompts,
+        maxIterations: options.selfThinking?.maxIterations,
+        timeout: options.loopTimeout,
+        enableStreamThoughts: enableStreamThoughts
+      }, abortController.signal)) {
+
+        // 检查中断
         if (abortController.signal.aborted) {
-          yield `__META__:${JSON.stringify({ type: 'interrupted' })}`;
+          yield `__META__:${JSON.stringify({ type: 'interrupted' })}\n`;
           return;
         }
-        yield char;
+
+        // 处理思考过程元数据
+        if (chunk.startsWith('__THOUGHT_START__:')) {
+          const data = JSON.parse(chunk.substring(18).trim());
+          thinkingProcess.push(`[思考 ${data.iteration}] 开始`);
+          // 转发给客户端
+          yield chunk;
+          continue;
+        }
+
+        if (chunk.startsWith('__THOUGHT__:')) {
+          const data = JSON.parse(chunk.substring(12).trim());
+          if (data.content) {
+            thinkingProcess.push(data.content);
+          }
+          // 转发给客户端
+          yield chunk;
+          continue;
+        }
+
+        if (chunk.startsWith('__THOUGHT_END__:')) {
+          // 转发给客户端
+          yield chunk;
+          continue;
+        }
+
+        if (chunk.startsWith('__ACTION_START__:')) {
+          const data = JSON.parse(chunk.substring(17).trim());
+          thinkingProcess.push(`[执行工具] ${data.tool}`);
+          // 转发给客户端
+          yield chunk;
+          continue;
+        }
+
+        if (chunk.startsWith('__OBSERVATION__:')) {
+          const data = JSON.parse(chunk.substring(16).trim());
+          const observationText = data.result || data.error || '';
+          thinkingProcess.push(`[观察] ${data.tool}: ${observationText}`);
+          // 转发给客户端
+          yield chunk;
+          continue;
+        }
+
+        if (chunk.startsWith('__ANSWER_START__:')) {
+          // 转发给客户端
+          yield chunk;
+          continue;
+        }
+
+        if (chunk.startsWith('__ANSWER__:')) {
+          const data = JSON.parse(chunk.substring(11).trim());
+          if (data.content) {
+            finalAnswer += data.content;
+            fullContent += data.content;
+          }
+          // 转发给客户端
+          yield chunk;
+          continue;
+        }
+
+        if (chunk.startsWith('__ANSWER_END__:')) {
+          // 转发给客户端
+          yield chunk;
+          continue;
+        }
+
+        // 普通内容（不启用思考流式输出时的回退）
+        fullContent += chunk;
+        yield chunk;
       }
+
+      // 🆕 保存对话消息历史
+      const conversationId = options.conversationId as string | undefined;
+      if (conversationId) {
+        try {
+          const count = await this.conversationHistoryService.getMessageCount(conversationId);
+          const messagesToSave: Message[] = [];
+
+          if (count === 0) {
+            messagesToSave.push(...messages.filter(m => m.role !== 'assistant'));
+          } else {
+            const lastMessage = messages[messages.length - 1];
+            if (lastMessage && lastMessage.role !== 'assistant') {
+              messagesToSave.push(lastMessage);
+            }
+          }
+
+          // 添加 AI 回复
+          if (finalAnswer || fullContent) {
+            messagesToSave.push({
+              role: 'assistant',
+              content: finalAnswer || fullContent
+            });
+          }
+
+          await this.conversationHistoryService.saveMessages(conversationId, messagesToSave);
+        } catch (err: any) {
+          logger.warn(`[ChatService] Failed to save conversation history: ${err.message}`);
+        }
+      }
+
     } catch (error: any) {
-      logger.error('❌ Error in streamMessageWithSelfThinking:', error);
+      logger.error('❌ Error in ReAct stream:', error);
       throw error;
     }
   }
 
+
+
+
   /**
    * 流式处理消息
    */
-  async *streamMessage(
+  async * streamMessage(
     messages: Message[],
     options: ChatOptions = {}
   ): AsyncIterableIterator<string> {
@@ -1117,14 +1220,14 @@ export class ChatService {
     // 🆕 0.2 发送请求ID给客户端（元数据标记）
     yield `__META__:${JSON.stringify({ type: 'requestId', value: requestId })}`;
 
-    // �� 检查是否启用自我思考循环（ReAct模式）
+    // 检查是否启用自我思考循环（ReAct模式）
     if (options.selfThinking?.enabled) {
       // 流式多轮思考：将多轮思考的结果流式输出
       yield* this.streamMessageWithSelfThinking(messages, options, abortController);
       return;
     }
 
-    // �� 收集完整的AI回复内容（用于保存历史，需要在方法作用域内声明）
+    // 收集完整的AI回复内容（用于保存历史，需要在方法作用域内声明）
     let fullAssistantContent = '';
 
     try {

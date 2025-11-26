@@ -114,17 +114,47 @@ export const chatCompletionSchema: ValidationSchema = {
             maximum: 20,
             default: 5
           },
-          enableTaskEvaluation: {
-            type: 'boolean',
-            default: true
-          },
-          completionPrompt: {
-            type: 'string',
-            maxLength: 2000
-          },
           includeThoughtsInResponse: {
             type: 'boolean',
             default: true
+          },
+          systemPrompt: {
+            type: 'string',
+            maxLength: 10000
+          },
+          additionalPrompts: {
+            type: 'array',
+            items: {
+            type: 'string',
+            maxLength: 2000
+          },
+            maxItems: 10
+          },
+          tools: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                name: {
+                  type: 'string',
+                  pattern: '^[a-zA-Z0-9_]+$',
+                  maxLength: 50
+                },
+                description: {
+                  type: 'string',
+                  maxLength: 500
+                },
+                parameters: {
+                  type: 'object'
+                }
+              },
+              required: ['name', 'description', 'parameters']
+            },
+            maxItems: 20
+          },
+          enableStreamThoughts: {
+            type: 'boolean',
+            default: false
           }
         }
       }

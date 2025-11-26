@@ -24,9 +24,11 @@ export interface ChatOptions {
   selfThinking?: {
     enabled?: boolean;           // 是否启用自我思考循环（ReAct模式）
     maxIterations?: number;      // 最大思考循环次数（默认5）
-    enableTaskEvaluation?: boolean; // 是否启用任务完成评估（默认 true）
-    completionPrompt?: string;   // 自定义任务完成评估提示
     includeThoughtsInResponse?: boolean; // 是否在响应中包含思考过程（默认true）
+    systemPrompt?: string;       // 可注入的基础系统提示词
+    additionalPrompts?: string[]; // 额外的提示词段落
+    tools?: ToolDefinition[];    // 工具定义
+    enableStreamThoughts?: boolean; // 是否流式输出思考过程
   };
   [key: string]: any;
 }
@@ -80,6 +82,13 @@ export interface WebSocketMessage {
 export interface ABPLogMessage extends WebSocketMessage {
   type: 'connection_ack' | 'abp_log' | 'notification' | 'ai_stream' | 'heartbeat' | 'proactive_message';
   data?: any;
+}
+
+// 🆕 工具定义接口
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  parameters: { [key: string]: any };
 }
 
 // 配置接口统一导出（可选，也可以直接从各模块导入）

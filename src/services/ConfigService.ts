@@ -159,10 +159,8 @@ export interface AdminConfig {
   };
 
   // 🆕 自我思考循环配置（ReAct模式）
-  selfThinking?: {
-    useLLMEvaluation?: boolean;   // 是否使用 LLM 进行真实评估（true=使用 evaluate，false=使用 quickEvaluate，默认 false）
-    evaluationModel?: string;       // 可选：用于评估的专用模型（如 gpt-4o-mini，降低成本）
-  };
+  // 注意：ReAct 模式通过 XML 标签协议判断任务完成，不再需要独立的评估器配置
+  // 所有配置通过 API 请求参数传递（systemPrompt, additionalPrompts, tools 等）
 
   [key: string]: any;
 }

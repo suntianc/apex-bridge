@@ -2,7 +2,9 @@
 
 ## 概述
 
-ApexBridge 支持多轮思考模式（也称为ReAct模式），允许AI进行深入的推理和问题解决。这个功能通过 `selfThinking` 参数在 `/v1/chat/completions` 接口中启用。
+ApexBridge 支持多轮思考模式（ReAct模式），基于提示工程的客户端路由 Agent 实现。该模式通过 XML 标签协议（`<thought>`, `<action>`, `<answer>`）实现思考-行动循环，不依赖 Function Calling API，支持跨模型通用（如 DeepSeek、Llama 等开源模型）。
+
+这个功能通过 `selfThinking` 参数在 `/v1/chat/completions` 接口中启用。
 
 ## 参数说明
 
@@ -10,11 +12,21 @@ ApexBridge 支持多轮思考模式（也称为ReAct模式），允许AI进行�
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `enabled` | boolean | - | 是否启用多轮思考模式 |
+| `enabled` | boolean | - | 是否启用多轮思考模式（ReAct模式） |
 | `maxIterations` | number | 5 | 最大思考循环次数 |
-| `enableTaskEvaluation` | boolean | true | 是否启用任务完成评估 |
-| `completionPrompt` | string | - | 自定义任务完成评估提示 |
 | `includeThoughtsInResponse` | boolean | true | 是否在响应中包含思考过程 |
+| `systemPrompt` | string | - | 可注入的基础系统提示词 |
+| `additionalPrompts` | string[] | - | 额外的提示词段落（支持多段注入） |
+| `tools` | ToolDefinition[] | - | 自定义工具定义 |
+| `enableStreamThoughts` | boolean | false | 是否流式输出思考过程 |
+
+### ToolDefinition 接口
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `name` | string | 工具名称（只能包含字母、数字、下划线） |
+| `description` | string | 工具描述 |
+| `parameters` | object | 工具参数定义 |
 
 ## API 接口列表
 
@@ -67,12 +79,17 @@ curl -X POST http://localhost:3000/v1/chat/completions \
     "selfThinking": {
       "enabled": true,
       "maxIterations": 3,
-      "includeThoughtsInResponse": true
+      "includeThoughtsInResponse": true,
+      "systemPrompt": "你是一个专业的算法分析师...",
+      "additionalPrompts": [
+        "特别关注时间复杂度分析",
+        "提供详细的步骤说明"
+      ]
     }
   }'
 ```
 
-### 2. 通过 apexMeta 传递参数
+### 2. 使用自定义工具
 
 ```bash
 curl -X POST http://localhost:3000/v1/chat/completions \
@@ -85,13 +102,20 @@ curl -X POST http://localhost:3000/v1/chat/completions \
       }
     ],
     "model": "gpt-4",
-    "apexMeta": {
       "selfThinking": {
         "enabled": true,
         "maxIterations": 4,
-        "enableTaskEvaluation": true,
-        "includeThoughtsInResponse": false
+      "includeThoughtsInResponse": false,
+      "tools": [
+        {
+          "name": "query_code_examples",
+          "description": "查询代码示例",
+          "parameters": {
+            "language": "string",
+            "topic": "string"
+          }
       }
+      ]
     }
   }'
 ```
@@ -114,7 +138,9 @@ const response = await fetch('http://localhost:3000/v1/chat/completions', {
     selfThinking: {
       enabled: true,
       maxIterations: 2,
-      includeThoughtsInResponse: true
+      includeThoughtsInResponse: true,
+      systemPrompt: '你是一个数学问题解决专家...',
+      enableStreamThoughts: true
     }
   })
 });
@@ -271,7 +297,9 @@ response = requests.post('http://localhost:3000/v1/chat/completions', json={
     'selfThinking': {
         'enabled': True,
         'maxIterations': 3,
-        'includeThoughtsInResponse': True
+        'includeThoughtsInResponse': True,
+        'systemPrompt': '你是一个系统设计专家...',
+        'additionalPrompts': ['关注可扩展性', '考虑性能优化']
     }
 })
 
@@ -333,26 +361,35 @@ print(result['choices'][0]['message']['content'])
 }
 ```
 
-## 评估策略
+## ReAct 模式工作原理
 
-多轮思考模式支持两种评估策略：
+ReAct 模式通过 XML 标签协议实现思考-行动循环：
 
-### 1. LLM评估（准确但成本较高）
-- 使用专门的LLM模型评估任务完成度
-- 提供详细的推理过程
-- 配置方式：修改 `config/self-thinking.json` 中的 `useLLMEvaluation: true`
+1. **思考阶段**：LLM 输出 `<thought>...</thought>` 标签，记录推理过程
+2. **行动阶段**：如果需要调用工具，输出 `<action name="工具名">{"参数"}</action>` 标签
+3. **观察阶段**：系统执行工具并返回结果，作为观察反馈给 LLM
+4. **完成阶段**：当任务完成时，输出 `<answer>...</answer>` 标签
 
-### 2. 快速评估（轻量级）
-- 使用关键词匹配进行快速判断
-- 降低API调用成本
-- 默认策略，适用于大部分场景
+### 默认工具
+
+系统提供以下默认工具：
+
+- `query_database`: 查询业务数据库
+- `fetch_user_profile`: 获取用户画像信息
+- `calculate_risk`: 计算风险评分
+
+### 自定义工具
+
+可以通过 `tools` 参数定义自定义工具，工具执行逻辑由后端实现。
 
 ## 注意事项
 
 1. **性能考虑**: 多轮思考会增加响应时间，因为需要进行多次LLM调用
 2. **成本控制**: 合理设置 `maxIterations` 避免过度消耗
 3. **任务复杂度**: 对于简单问题，建议不启用多轮思考；对于复杂推理任务，推荐启用
-4. **配置覆盖**: 直接传递的 `selfThinking` 参数会覆盖配置文件中的默认设置
+4. **提示词注入**: 支持通过 `systemPrompt` 和 `additionalPrompts` 多段注入提示词，方便灵活配置
+5. **工具调用**: 工具调用通过 XML 标签协议实现，不依赖 Function Calling API，支持跨模型通用
+6. **思考链可视化**: 启用 `enableStreamThoughts` 可以实时流式输出思考过程，提升用户体验
 
 ## 错误处理
 

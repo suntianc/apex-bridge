@@ -75,25 +75,21 @@ export class ChatController {
       options.stream = options.stream === true;
 
       // 注意：user 参数主要用于 OpenAI 标准，如果同时提供 user 和其他格式，优先使用其他格式
-      options.userId = body.user_id ?? body.userId ?? body.apexMeta?.userId ?? body.user;
+      options.userId = body.user_id
       
       // 🆕 提取 Conversation ID
       // 优先级：conversation_id > conversationId > apexMeta.conversationId
-      options.conversationId = body.conversation_id ?? body.conversationId ?? body.apexMeta?.conversationId;
+      options.conversationId = body.conversation_id
       
       // 🆕 提取 Agent ID（如果前端传入）
       // 优先级：agent_id > agentId > apexMeta.agentId
-      options.agentId = body.agent_id ?? body.agentId ?? body.apexMeta?.agentId;
+      options.agentId = body.agent_id
 
       // 🆕 提取 Self-Thinking 配置（多轮思考/ReAct模式）
-      // 支持直接传递或通过apexMeta传递
-      if (body.selfThinking || body.apexMeta?.selfThinking) {
+      if (body.selfThinking) {
+        // 只提取实际传入的参数，其他使用默认值
         options.selfThinking = {
-          enabled: body.selfThinking?.enabled ?? body.apexMeta?.selfThinking?.enabled,
-          maxIterations: body.selfThinking?.maxIterations ?? body.apexMeta?.selfThinking?.maxIterations,
-          enableTaskEvaluation: body.selfThinking?.enableTaskEvaluation ?? body.apexMeta?.selfThinking?.enableTaskEvaluation,
-          completionPrompt: body.selfThinking?.completionPrompt ?? body.apexMeta?.selfThinking?.completionPrompt,
-          includeThoughtsInResponse: body.selfThinking?.includeThoughtsInResponse ?? body.apexMeta?.selfThinking?.includeThoughtsInResponse
+          ...body.selfThinking
         };
       }
 
@@ -179,7 +175,139 @@ export class ChatController {
           continue;
         }
         
-        // 发送内容块（此时 chunk 必定是纯文本）
+        // 处理思考过程元数据
+        if (chunk.startsWith('__THOUGHT_START__:')) {
+          try {
+            const data = JSON.parse(chunk.substring(18).trim());
+            // 发送思考开始事件（自定义格式，用于前端展示）
+            res.write(`event: thought_start\n`);
+            res.write(`data: ${JSON.stringify({
+              iteration: data.iteration,
+              timestamp: data.timestamp
+            })}\n\n`);
+            chunkIndex++;
+          } catch (e) {
+            logger.warn('[ChatController] Failed to parse thought_start:', e);
+          }
+          continue;
+        }
+        
+        if (chunk.startsWith('__THOUGHT__:')) {
+          try {
+            const data = JSON.parse(chunk.substring(12).trim());
+            // 发送思考内容（标准 SSE 格式，带自定义字段）
+            const sseData = {
+              id: responseId,
+              object: 'chat.completion.chunk',
+              created: Math.floor(Date.now() / 1000),
+              model: options.model || 'gpt-4',
+              choices: [{
+                index: 0,
+                delta: { 
+                  content: `[思考 ${data.iteration}] ${data.content}`,
+                  role: 'assistant'
+                },
+                finish_reason: null
+              }],
+              // 自定义字段：标识这是思考过程
+              _type: 'thought',
+              _iteration: data.iteration
+            };
+            res.write(`data: ${JSON.stringify(sseData)}\n\n`);
+            chunkIndex++;
+          } catch (e) {
+            logger.warn('[ChatController] Failed to parse thought:', e);
+          }
+          continue;
+        }
+        
+        if (chunk.startsWith('__THOUGHT_END__:')) {
+          try {
+            const data = JSON.parse(chunk.substring(16).trim());
+            res.write(`event: thought_end\n`);
+            res.write(`data: ${JSON.stringify({ iteration: data.iteration })}\n\n`);
+            chunkIndex++;
+          } catch (e) {
+            logger.warn('[ChatController] Failed to parse thought_end:', e);
+          }
+          continue;
+        }
+        
+        if (chunk.startsWith('__ACTION_START__:')) {
+          try {
+            const data = JSON.parse(chunk.substring(17).trim());
+            // 发送工具执行开始事件
+            res.write(`event: action_start\n`);
+            res.write(`data: ${JSON.stringify({
+              iteration: data.iteration,
+              tool: data.tool,
+              params: data.params
+            })}\n\n`);
+            chunkIndex++;
+          } catch (e) {
+            logger.warn('[ChatController] Failed to parse action_start:', e);
+          }
+          continue;
+        }
+        
+        if (chunk.startsWith('__OBSERVATION__:')) {
+          try {
+            const data = JSON.parse(chunk.substring(16).trim());
+            // 发送观察结果
+            res.write(`event: observation\n`);
+            res.write(`data: ${JSON.stringify({
+              iteration: data.iteration,
+              tool: data.tool,
+              result: data.result,
+              error: data.error
+            })}\n\n`);
+            chunkIndex++;
+          } catch (e) {
+            logger.warn('[ChatController] Failed to parse observation:', e);
+          }
+          continue;
+        }
+        
+        if (chunk.startsWith('__ANSWER_START__:')) {
+          // 发送答案开始标记
+          res.write(`event: answer_start\n`);
+          res.write(`data: {}\n\n`);
+          chunkIndex++;
+          continue;
+        }
+        
+        if (chunk.startsWith('__ANSWER__:')) {
+          try {
+            const data = JSON.parse(chunk.substring(11).trim());
+            // 发送最终答案内容（标准格式）
+            const sseData = {
+              id: responseId,
+              object: 'chat.completion.chunk',
+              created: Math.floor(Date.now() / 1000),
+              model: options.model || 'gpt-4',
+              choices: [{
+                index: 0,
+                delta: { content: data.content },
+                finish_reason: null
+              }],
+              _type: 'answer'
+            };
+            res.write(`data: ${JSON.stringify(sseData)}\n\n`);
+            chunkIndex++;
+          } catch (e) {
+            logger.warn('[ChatController] Failed to parse answer:', e);
+          }
+          continue;
+        }
+        
+        if (chunk.startsWith('__ANSWER_END__:')) {
+          res.write(`event: answer_end\n`);
+          res.write(`data: {}\n\n`);
+          chunkIndex++;
+          continue;
+        }
+        
+        // 发送内容块（此时 chunk 必定是纯文本，回退模式）
         const sseData = {
           id: responseId,
           object: 'chat.completion.chunk',
