@@ -904,8 +904,8 @@ export class ChatService {
         // 添加 AI 回复（包含思考过程）
         let assistantContent = result.finalAnswer || result.content;
 
-        // 如果包含思考过程，则将思考添加到回复中
-        if (options.selfThinking?.includeThoughtsInResponse && result.thinkingProcess.length > 0) {
+        // 📝 总是在历史记录中包含思考过程（无论 includeThoughtsInResponse 如何设置）
+        if (result.thinkingProcess.length > 0) {
           assistantContent = `思考过程:\n${result.thinkingProcess.join('\n')}\n\n${assistantContent}`;
         }
 
@@ -1196,8 +1196,8 @@ export class ChatService {
           if (finalAnswer || fullContent) {
             let assistantContent = finalAnswer || fullContent;
 
-            // 如果包含思考过程，则将思考添加到回复中
-            if (options.selfThinking?.includeThoughtsInResponse && thinkingSteps.length > 0) {
+            // 📝 总是在历史记录中包含思考过程（无论 includeThoughtsInResponse 如何设置）
+            if (thinkingSteps.length > 0) {
               const thinkingLines: string[] = [];
 
               for (const step of thinkingSteps) {
