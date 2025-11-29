@@ -954,11 +954,31 @@ export class ChatService {
         const extractedThinking: string[] = [];
         for (const chunk of thinkingProcess) {
           try {
+            // 移除可能的前缀（如data:）
             const cleaned = chunk.replace(/^data:\s*/, '').trim();
             if (cleaned && cleaned !== '[DONE]') {
-              const parsed = JSON.parse(cleaned);
-              if (parsed.reasoning_content) {
-                extractedThinking.push(parsed.reasoning_content);
+              // 检查是否是多个JSON对象拼接
+              if (cleaned.includes('}{')) {
+                // 分割多个JSON对象
+                const jsonObjects = cleaned.split(/\}\{/);
+                for (let i = 0; i < jsonObjects.length; i++) {
+                  let jsonStr = jsonObjects[i];
+                  // 恢复被分割的括号
+                  if (i > 0) jsonStr = '{' + jsonStr;
+                  if (i < jsonObjects.length - 1) jsonStr = jsonStr + '}';
+                  if (jsonStr) {
+                    const parsed = JSON.parse(jsonStr);
+                    if (parsed.reasoning_content) {
+                      extractedThinking.push(parsed.reasoning_content);
+                    }
+                  }
+                }
+              } else {
+                // 单个JSON对象
+                const parsed = JSON.parse(cleaned);
+                if (parsed.reasoning_content) {
+                  extractedThinking.push(parsed.reasoning_content);
+                }
               }
             }
           } catch (error) {
