@@ -35,6 +35,10 @@ export class ReActEngine {
       enableThinking: options.enableThinking ?? true,
       maxConcurrentTools: options.maxConcurrentTools ?? 3,
       enableStreamingTools: options.enableStreamingTools ?? false,
+      provider: options.provider ?? undefined,
+      model: options.model ?? undefined,
+      temperature: options.temperature ?? 0.7,
+      maxTokens: options.maxTokens ?? undefined
     };
   }
 
@@ -83,7 +87,17 @@ export class ReActEngine {
     context: ReActRuntimeContext,
     signal: AbortSignal
   ): AsyncGenerator<StreamEvent, string | null, void> {
-    const llmStream = llmClient.streamChat(messages, { enableThinking: context.enableThinking }, signal);
+    const { provider, model, temperature, maxTokens, ...llmSpecificOptions } = this.defaultOptions;
+    const llmOptions: LLMOptions = {
+      enableThinking: context.enableThinking,
+      model,
+      provider,
+      temperature,
+      maxTokens,
+      ...llmSpecificOptions
+    };
+
+    const llmStream = llmClient.streamChat(messages, llmOptions, signal);
 
     let assistantMessage = { role: 'assistant', content: '' };
     let toolCalls: ToolCall[] = [];

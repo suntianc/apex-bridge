@@ -18,6 +18,21 @@ export interface ReActOptions {
 
   /** 是否启用流式工具支持 (默认: false) */
   enableStreamingTools?: boolean;
+
+  /** LLM提供商 (默认: 系统默认) */
+  provider?: string;
+
+  /** LLM模型 (默认: 系统默认) */
+  model?: string;
+
+  /** 温度参数 (默认: 0.7) */
+  temperature?: number;
+
+  /** 最大Token数 */
+  maxTokens?: number;
+
+  /** 其他LLM参数 */
+  [key: string]: any;
 }
 
 // ── 流式事件定义 ────────────────────────────────────────────────────────

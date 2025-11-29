@@ -843,7 +843,11 @@ export class ChatService {
     const reactEngine = new ReActEngine({
       maxIterations: options.selfThinking?.maxIterations ?? 5,
       enableThinking: options.selfThinking?.enableStreamThoughts ?? true,
-      maxConcurrentTools: 3
+      maxConcurrentTools: 3,
+      provider: options.provider,
+      model: options.model,
+      temperature: options.temperature,
+      maxTokens: options.max_tokens
     });
 
     // 执行 ReAct 循环
@@ -1132,7 +1136,11 @@ export class ChatService {
       const reactEngine = new ReActEngine({
         maxIterations: options.selfThinking?.maxIterations ?? 5,
         enableThinking: options.selfThinking?.enableStreamThoughts ?? true,
-        maxConcurrentTools: 3
+        maxConcurrentTools: 3,
+        provider: options.provider,
+        model: options.model,
+        temperature: options.temperature,
+        maxTokens: options.max_tokens
       });
 
       const stream = reactEngine.execute(messages, llmClient, {});
