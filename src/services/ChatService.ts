@@ -1164,6 +1164,10 @@ export class ChatService {
 
       const stream = reactEngine.execute(messages, llmClient, {});
 
+      // 收集用于历史记录的数据（从LLM原始响应中提取）
+      const collectedThinking: string[] = [];
+      let collectedContent = '';
+
       for await (const event of stream) {
         // 检查中断
         if (abortController.signal.aborted) {
@@ -1171,13 +1175,27 @@ export class ChatService {
           return;
         }
 
-        // 流式输出事件
+        // 流式输出事件（前端格式不变）
         if (options.selfThinking?.enableStreamThoughts && event.type === 'reasoning') {
           yield `__THOUGHT__:${JSON.stringify({ iteration: event.iteration, content: event.data })}`;
+          // 收集思考内容（用于历史记录）
+          collectedThinking.push(event.data);
         } else if (event.type === 'content') {
           yield event.data;
+          // 收集回答内容（用于历史记录）
+          collectedContent += event.data;
           fullAssistantContent += event.data;
         }
+      }
+
+      // 保存对话历史（格式：<thinking>...</thinking> content）
+      if (options.conversationId) {
+        await this.saveReActConversationHistory(
+          options.conversationId,
+          messages,
+          collectedContent,
+          collectedThinking
+        );
       }
 
       return;
