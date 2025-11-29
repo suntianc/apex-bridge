@@ -49,18 +49,83 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
 
   /**
    * 构建请求体（子类可覆盖）
+   * 🆕 支持新的配置结构
    */
   protected buildRequestBody(messages: Message[], options: ChatOptions): any {
     const { provider, ...apiOptions } = options;
     const filteredOptions = this.filterOptions(apiOptions);
 
-    return {
+    // 🐾 构建基础请求体
+    const requestBody: any = {
       model: options.model || this.config.defaultModel,
       messages,
-      temperature: options.temperature ?? 0.7,
       stream: false,
       ...filteredOptions
     };
+
+    // 🐾 处理温度参数（基础配置）
+    if (options.temperature !== undefined) {
+      requestBody.temperature = options.temperature;
+    }
+
+    // 🐾 处理生成配置（GenerationConfig）
+    if (options.generationConfig) {
+      const gc = options.generationConfig;
+
+      // Top-P 采样
+      if (gc.topP !== undefined) {
+        requestBody.top_p = gc.topP;
+      }
+
+      // 频率惩罚
+      if (gc.frequencyPenalty !== undefined) {
+        requestBody.frequency_penalty = gc.frequencyPenalty;
+      }
+
+      // 存在惩罚
+      if (gc.presencePenalty !== undefined) {
+        requestBody.presence_penalty = gc.presencePenalty;
+      }
+
+      // 重复惩罚
+      if (gc.repetitionPenalty !== undefined) {
+        requestBody.repetition_penalty = gc.repetitionPenalty;
+      }
+
+      // 随机种子
+      if (gc.seed !== undefined) {
+        requestBody.seed = gc.seed;
+      }
+
+      // Logit 偏差
+      if (gc.logitBias) {
+        requestBody.logit_bias = gc.logitBias;
+      }
+    }
+
+    // 🐾 处理输出配置（OutputConfig）
+    if (options.outputConfig) {
+      const oc = options.outputConfig;
+
+      // 最大输出 tokens
+      if (oc.maxOutputTokens !== undefined) {
+        requestBody.max_tokens = oc.maxOutputTokens;
+      }
+
+      // 输出格式
+      if (oc.outputFormat === 'json') {
+        requestBody.response_format = { type: 'json_object' };
+      } else if (oc.outputFormat === 'text') {
+        requestBody.response_format = { type: 'text' };
+      }
+
+      // 停止序列
+      if (oc.stopSequences && oc.stopSequences.length > 0) {
+        requestBody.stop = oc.stopSequences;
+      }
+    }
+
+    return requestBody;
   }
 
   async chat(messages: Message[], options: ChatOptions, signal?: AbortSignal): Promise<LLMResponse> {
@@ -128,13 +193,43 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
       const { provider, ...apiOptions } = options;
       const filteredOptions = this.filterOptions(apiOptions);
 
+      // 🐾 构建基础请求体（与 buildRequestBody 保持一致）
       const requestBody: any = {
         model: options.model || this.config.defaultModel,
         messages,
-        temperature: options.temperature ?? 0.7,
         stream: true,
         ...filteredOptions
       };
+
+      // 🐾 处理温度参数
+      if (options.temperature !== undefined) {
+        requestBody.temperature = options.temperature;
+      }
+
+      // 🐾 处理生成配置
+      if (options.generationConfig) {
+        const gc = options.generationConfig;
+        if (gc.topP !== undefined) requestBody.top_p = gc.topP;
+        if (gc.frequencyPenalty !== undefined) requestBody.frequency_penalty = gc.frequencyPenalty;
+        if (gc.presencePenalty !== undefined) requestBody.presence_penalty = gc.presencePenalty;
+        if (gc.repetitionPenalty !== undefined) requestBody.repetition_penalty = gc.repetitionPenalty;
+        if (gc.seed !== undefined) requestBody.seed = gc.seed;
+        if (gc.logitBias) requestBody.logit_bias = gc.logitBias;
+      }
+
+      // 🐾 处理输出配置
+      if (options.outputConfig) {
+        const oc = options.outputConfig;
+        if (oc.maxOutputTokens !== undefined) requestBody.max_tokens = oc.maxOutputTokens;
+        if (oc.outputFormat === 'json') {
+          requestBody.response_format = { type: 'json_object' };
+        } else if (oc.outputFormat === 'text') {
+          requestBody.response_format = { type: 'text' };
+        }
+        if (oc.stopSequences && oc.stopSequences.length > 0) {
+          requestBody.stop = oc.stopSequences;
+        }
+      }
 
       logger.debug(`[${this.providerName}] Stream request`, {
         model: requestBody.model,
@@ -159,10 +254,23 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
 
             try {
               const parsed = JSON.parse(data);
+
+              // 提取 reasoning_content (深度思考)
+              const reasoning = parsed.choices?.[0]?.delta?.reasoning_content;
+
+              // 提取 content (回答内容)
               const content = parsed.choices?.[0]?.delta?.content;
 
-              if (content) {
-                yield content;
+              // 提取 tool_calls (工具调用)
+              const toolCalls = parsed.choices?.[0]?.delta?.tool_calls;
+
+              // 只要有内容就 yield JSON 字符串
+              if (reasoning || content || toolCalls) {
+                yield JSON.stringify({
+                  reasoning_content: reasoning,
+                  content: content,
+                  tool_calls: toolCalls
+                });
               }
             } catch (e) {
               // Skip parse errors

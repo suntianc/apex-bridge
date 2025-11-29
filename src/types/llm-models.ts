@@ -43,15 +43,75 @@ export interface LLMProviderV2 {
 }
 
 /**
+ * 上下文和记忆配置
+ */
+export interface ContextConfig {
+  maxContextLength?: number;     // 最大上下文长度
+  contextWindowType?: 'sliding' | 'fixed'; // 上下文窗口类型
+  memoryRetention?: number;      // 记忆保留时间（秒）
+  contextCompression?: boolean;  // 是否启用上下文压缩
+  contextStrategy?: 'truncate' | 'summarize' | 'sliding'; // 上下文溢出策略
+}
+
+/**
+ * 输出控制配置
+ */
+export interface OutputConfig {
+  maxOutputTokens?: number;      // 最大输出 tokens
+  minOutputTokens?: number;      // 最小输出 tokens
+  outputFormat?: 'text' | 'json' | 'xml' | 'markdown'; // 输出格式
+  streamingEnabled?: boolean;    // 是否启用流式输出
+  chunkSize?: number;            // 流式输出块大小
+  stopSequences?: string[];      // 停止序列
+  responseFormat?: object;       // 响应格式规范（用于 json 模式）
+}
+
+/**
+ * 高级生成配置
+ */
+export interface GenerationConfig {
+  topP?: number;                 // Top-P 采样
+  frequencyPenalty?: number;     // 频率惩罚
+  presencePenalty?: number;      // 存在惩罚
+  repetitionPenalty?: number;    // 重复惩罚
+  seed?: number;                 // 随机种子
+  logitBias?: Record<string, number>; // Logit 偏差
+  numSequences?: number;         // 生成的序列数量
+  bestOf?: number;               // 生成多个序列并返回最佳
+}
+
+/**
+ * 性能和缓存配置
+ */
+export interface PerformanceConfig {
+  cacheEnabled?: boolean;        // 是否启用缓存
+  cacheTTL?: number;             // 缓存 TTL（秒）
+  batchSize?: number;            // 批处理大小
+  requestTimeout?: number;       // 请求超时（毫秒）
+  retryBackoff?: 'exponential' | 'linear'; // 重试退避策略
+  maxConcurrentRequests?: number; // 最大并发请求数
+  enableMetrics?: boolean;       // 是否启用性能指标
+}
+
+/**
  * 模型配置
  */
 export interface ModelConfig {
-  contextWindow?: number;     // 上下文窗口大小
-  maxTokens?: number;         // 最大生成 tokens
-  temperature?: number;       // 温度参数
-  dimensions?: number;        // 向量维度（Embedding 模型）
-  topK?: number;             // Top-K（Rerank 模型）
-  [key: string]: any;        // 其他模型特定参数
+  // 基础配置
+  contextWindow?: number;        // 上下文窗口大小
+  maxTokens?: number;            // 最大生成 tokens
+  temperature?: number;          // 温度参数
+  dimensions?: number;           // 向量维度（Embedding 模型）
+  topK?: number;                // Top-K（Rerank 模型）
+
+  // ⭐ 新增配置
+  contextConfig?: ContextConfig;     // 上下文和记忆配置
+  outputConfig?: OutputConfig;       // 输出控制配置
+  generationConfig?: GenerationConfig; // 高级生成配置
+  performanceConfig?: PerformanceConfig; // 性能和缓存配置
+
+  // 扩展参数
+  [key: string]: any;            // 其他模型特定参数
 }
 
 /**

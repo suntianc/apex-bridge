@@ -61,13 +61,17 @@ export class ChatController {
 
       // 提取标准参数
       const options: ChatRequestOptions = {
-        provider: body.provider
+        provider: body.provider,
+        model: body.model  // 显式初始化 model 参数
       };
 
       // 只提取白名单中的参数
       for (const key of STANDARD_CHAT_PARAMS) {
         if (key in body) {
-          options[key] = body[key];
+          // 避免重复设置已初始化的参数
+          if (key !== 'provider' && key !== 'model') {
+            options[key] = body[key];
+          }
         }
       }
 
@@ -173,6 +177,31 @@ export class ChatController {
   }
 
   /**
+   * 获取实际使用的模型（处理回退逻辑）
+   */
+  private async getActualModel(options: ChatRequestOptions): Promise<string> {
+    // 如果明确指定了模型，直接使用
+    if (options.model) {
+      return options.model;
+    }
+
+    // 否则使用 LLMManager 获取默认模型
+    try {
+      const llmClient = await this.getLLMClient();
+      const models = llmClient.getAllModels();
+      const defaultModel = models.find(m => m.type === 'NLP');
+      if (defaultModel) {
+        return defaultModel.id;
+      }
+    } catch (error) {
+      logger.warn('[ChatController] Failed to get default model, using fallback');
+    }
+
+    // 最终回退
+    return 'gpt-4';
+  }
+
+  /**
    * 处理流式响应
    */
   private async handleStreamResponse(
@@ -180,6 +209,7 @@ export class ChatController {
     messages: Message[],
     options: ChatRequestOptions
   ): Promise<void> {
+    const actualModel = await this.getActualModel(options);
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
@@ -209,7 +239,7 @@ export class ChatController {
                 id: responseId,
                 object: 'chat.completion.chunk',
                 created: Math.floor(Date.now() / 1000),
-                model: options.model || 'gpt-4',
+                model: actualModel,
                 choices: [{
                   index: 0,
                   delta: { content: '' },
@@ -274,7 +304,7 @@ export class ChatController {
               id: responseId,
               object: 'chat.completion.chunk',
               created: Math.floor(Date.now() / 1000),
-              model: options.model || 'gpt-4',
+              model: actualModel,
               choices: [{
                 index: 0,
                 delta: {
@@ -358,7 +388,7 @@ export class ChatController {
               id: responseId,
               object: 'chat.completion.chunk',
               created: Math.floor(Date.now() / 1000),
-              model: options.model || 'gpt-4',
+              model: actualModel,
               choices: [{
                 index: 0,
                 delta: { content: data.content },
@@ -386,7 +416,7 @@ export class ChatController {
           id: responseId,
           object: 'chat.completion.chunk',
           created: Math.floor(Date.now() / 1000),
-          model: options.model || 'gpt-4',
+          model: actualModel,
           choices: [{
             index: 0,
             delta: { content: chunk },
@@ -426,6 +456,7 @@ export class ChatController {
     options: ChatRequestOptions
   ): Promise<void> {
     const result = await this.chatService.processMessage(messages, options);
+    const actualModel = await this.getActualModel(options);
 
     // 修复：正确使用 usage 统计
     const usage = this.normalizeUsage(result.usage) || {
@@ -438,7 +469,7 @@ export class ChatController {
       id: `chatcmpl-${Date.now()}`,
       object: 'chat.completion',
       created: Math.floor(Date.now() / 1000),
-      model: options.model || 'gpt-4',
+      model: actualModel,
       choices: [{
         index: 0,
         message: {
