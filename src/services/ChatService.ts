@@ -947,9 +947,28 @@ export class ChatService {
       }
 
       // 添加包含思考过程的AI回复
+      // 格式: <thinking>...</thinking> content
       let assistantContent = finalContent;
       if (thinkingProcess.length > 0) {
-        assistantContent = `思考过程:\n${thinkingProcess.join('\n')}\n\n${finalContent}`;
+        // 解析thinkingProcess中的JSON字符串，提取reasoning_content
+        const extractedThinking: string[] = [];
+        for (const chunk of thinkingProcess) {
+          try {
+            const cleaned = chunk.replace(/^data:\s*/, '').trim();
+            if (cleaned && cleaned !== '[DONE]') {
+              const parsed = JSON.parse(cleaned);
+              if (parsed.reasoning_content) {
+                extractedThinking.push(parsed.reasoning_content);
+              }
+            }
+          } catch (error) {
+            // 如果解析失败，直接使用原始内容
+            extractedThinking.push(chunk);
+          }
+        }
+
+        const thinkingContent = extractedThinking.join('');
+        assistantContent = `<thinking>${thinkingContent}</thinking> ${finalContent}`;
       }
 
       messagesToSave.push({
