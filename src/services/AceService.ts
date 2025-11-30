@@ -290,6 +290,13 @@ export class AceService {
     }
 
     /**
+     * 🆕 检查ACE引擎是否已启用
+     */
+    public isEnabled(): boolean {
+        return !!this.engine;
+    }
+
+    /**
      * @deprecated 使用 getEngine() 替代
      * 向后兼容方法：返回引擎实例
      */

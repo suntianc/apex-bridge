@@ -103,16 +103,16 @@ export class ABPIntelliCore {
       logger.info(`[Memory] After Protocol Engine init - RSS: ${Math.round(memAfter.rss / 1024 / 1024)}MB, Heap: ${Math.round(memAfter.heapUsed / 1024 / 1024)}MB`);
       logger.info(`[Memory] Protocol Engine memory delta - RSS: +${Math.round((memAfter.rss - memBefore.rss) / 1024 / 1024)}MB, Heap: +${Math.round((memAfter.heapUsed - memBefore.heapUsed) / 1024 / 1024)}MB`);
       logger.info('✅ Protocol Engine initialized');
-      
-      // LLMManager采用懒加载模式，仅在需要时（聊天请求时）初始化
-      // 从SQLite加载配置，支持运行时配置变更，无需重启服务
-      logger.info('ℹ️ LLMManager will be initialized on-demand (lazy loading from SQLite)');
-      
+
       // 3. 业务服务初始化 (ChatService)
-      // 注意：此时 Engine 已就绪，ChatService 可以安全使用
+      // 注意：LLMManager现在需要在构造时传入，不再支持懒加载
+      const { LLMManager } = await import('./core/LLMManager');
+      const llmManager = new LLMManager();
+      logger.info('✅ LLMManager initialized');
+
       this.chatService = new ChatService(
         this.protocolEngine,
-        null as any, // LLMClient 懒加载
+        llmManager, // 必需参数，直接传入LLMManager实例
         this.eventBus
       );
       logger.info('✅ ChatService initialized');

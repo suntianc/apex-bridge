@@ -228,6 +228,29 @@ export class ConversationHistoryService {
   }
 
   /**
+   * 获取对话的最后一条消息
+   * @param conversationId 对话ID
+   * @returns 最后一条消息或null
+   */
+  async getLastMessage(conversationId: string): Promise<ConversationMessage | null> {
+    try {
+      const stmt = this.db.prepare(`
+        SELECT id, conversation_id, role, content, created_at, metadata
+        FROM conversation_messages
+        WHERE conversation_id = ?
+        ORDER BY created_at DESC
+        LIMIT 1
+      `);
+
+      const row = stmt.get(conversationId) as ConversationMessage | undefined;
+      return row || null;
+    } catch (error: any) {
+      logger.error(`[ConversationHistory] Failed to get last message: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
    * 关闭数据库连接
    */
   close(): void {

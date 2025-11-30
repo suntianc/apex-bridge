@@ -82,12 +82,22 @@ export class ChatController {
       options.userId = body.user_id
 
       // 🆕 提取 Conversation ID
-      // 优先级：conversation_id > conversationId > apexMeta.conversationId
+      // 优先级：conversation_id > conversationId
+      // 如果前端没有提供，自动生成一个新的 conversationId
       options.conversationId = body.conversation_id
+
+      // 如果还是没有 conversationId，自动生成
+      if (!options.conversationId) {
+        // 使用 generateRequestId 生成格式化的 ID
+        const timestamp = Date.now();
+        const random = Math.random().toString(36).substring(2, 11);
+        options.conversationId = `conv_${timestamp}_${random}`;
+        logger.info(`🆕 Auto-generated conversationId: ${options.conversationId}`);
+      }
 
       // 🆕 提取 Agent ID（如果前端传入）
       // 优先级：agent_id > agentId > apexMeta.agentId
-      options.agentId = body.agent_id
+      options.agentId = body.agent_id || body.agentId
 
       // 🆕 提取 Self-Thinking 配置（多轮思考/ReAct模式）
       if (body.selfThinking) {
