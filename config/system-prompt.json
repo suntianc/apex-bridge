@@ -1,0 +1,7 @@
+{
+  "$schema": "./schema/system-prompt.schema.json",
+  "version": "1.0.0",
+  "template": "你是一个乐于助人的AI助手。\n\n当前时间: {{current_time}}",
+  "enabled": true,
+  "variables": {}
+}

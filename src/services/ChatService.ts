@@ -12,6 +12,7 @@ import {
   ToolDefinition
 } from '../types';
 import { logger } from '../utils/logger';
+import { SystemPromptService } from './SystemPromptService';
 import { generateRequestId } from '../utils/request-id';
 import { IWebSocketManager } from '../api/websocket/WebSocketManager';
 import { ConfigService } from './ConfigService';
@@ -34,6 +35,9 @@ export class ChatService {
   private llmManager: LLMManager;
   private aceService: AceService;
   private conversationHistoryService: ConversationHistoryService;
+
+  // 🆕 系统提示词服务
+  private systemPromptService: SystemPromptService;
 
   // 🆕 会话管理器
   private sessionManager: SessionManager;
@@ -58,6 +62,10 @@ export class ChatService {
     this.llmManager = llmManager;
     this.aceService = AceService.getInstance();
     this.conversationHistoryService = ConversationHistoryService.getInstance();
+
+    // 🆕 初始化系统提示词服务
+    this.systemPromptService = new SystemPromptService('./config');
+    logger.debug('[ChatService] SystemPromptService initialized');
 
     // 初始化会话管理器
     this.sessionManager = new SessionManager(this.aceService, this.conversationHistoryService);
@@ -168,6 +176,29 @@ export class ChatService {
         }
       } else {
         logger.debug('[ChatService] Processing message without session (no conversationId)');
+      }
+
+      // 🆕 检查并添加系统提示词（如果没有在messages中）
+      const hasSystemMessage = messages.some(m => m.role === 'system');
+
+      if (!hasSystemMessage) {
+        const systemPrompt = await this.systemPromptService.getSystemPrompt({
+          model: options.model,
+          provider: options.provider
+          // 其他上下文变量会自动从options中传递
+        });
+
+        if (systemPrompt) {
+          messages = [
+            {
+              role: 'system',
+              content: systemPrompt
+            },
+            ...messages
+          ];
+
+          logger.debug(`[ChatService] Applied system prompt (${systemPrompt.length} chars)`);
+        }
       }
 
       // 2. 选择并执行策略
