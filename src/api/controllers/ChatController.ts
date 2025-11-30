@@ -9,37 +9,10 @@ import { LLMManager as LLMClient } from '../../core/LLMManager';
 import { InterruptRequest, InterruptResponse } from '../../types/request-abort';
 import { Message } from '../../types';
 import { logger } from '../../utils/logger';
-
-/**
- * OpenAI 标准聊天参数白名单
- */
-const STANDARD_CHAT_PARAMS = new Set([
-  'model', 'temperature', 'max_tokens', 'top_p',
-  'frequency_penalty', 'presence_penalty',
-  'stop', 'n', 'stream', 'user', 'top_k'
-]);
-
-/**
- * 聊天选项接口
- */
-interface ChatRequestOptions {
-  provider?: string;
-  model?: string;
-  temperature?: number;
-  max_tokens?: number;
-  top_p?: number;
-  frequency_penalty?: number;
-  presence_penalty?: number;
-  stop?: string[];
-  n?: number;
-  stream?: boolean;
-  user?: string;
-  top_k?: number;
-  agentId?: string;
-  userId?: string;
-  conversationId?: string; // 🆕 添加对话ID
-  [key: string]: any;
-}
+import { parseChatRequest } from '../../api/validators/chat-request-validator';
+import type { ChatRequestOptions } from '../../api/validators/chat-request-validator';
+import { normalizeUsage, buildChatResponse } from '../../api/utils/response-formatter';
+import { parseLLMChunk } from '../../api/utils/stream-parser';
 
 export class ChatController {
   private chatService: ChatService;
@@ -56,124 +29,28 @@ export class ChatController {
    */
   async chatCompletions(req: Request, res: Response): Promise<void> {
     try {
-      const { messages } = req.body;
       const body = req.body;
 
-      // 提取标准参数
-      const options: ChatRequestOptions = {
-        provider: body.provider,
-        model: body.model  // 显式初始化 model 参数
-      };
-
-      // 只提取白名单中的参数
-      for (const key of STANDARD_CHAT_PARAMS) {
-        if (key in body) {
-          // 避免重复设置已初始化的参数
-          if (key !== 'provider' && key !== 'model') {
-            options[key] = body[key];
+      const validation = parseChatRequest(body);
+      if (!validation.success) {
+        logger.warn('[ChatController] Invalid request:', validation.error);
+        res.status(400).json({
+          error: {
+            message: validation.error || 'Invalid request parameters',
+            type: 'invalid_request'
           }
-        }
+        });
+        return;
       }
 
-      // 确保 stream 是布尔值
-      options.stream = options.stream === true;
-
-      // 注意：user 参数主要用于 OpenAI 标准，如果同时提供 user 和其他格式，优先使用其他格式
-      options.userId = body.user_id
-
-      // 🆕 提取 Conversation ID
-      // 优先级：conversation_id > conversationId
-      // 如果前端没有提供，自动生成一个新的 conversationId
-      options.conversationId = body.conversation_id
-
-      // 如果还是没有 conversationId，自动生成
-      if (!options.conversationId) {
-        // 使用 generateRequestId 生成格式化的 ID
-        const timestamp = Date.now();
-        const random = Math.random().toString(36).substring(2, 11);
-        options.conversationId = `conv_${timestamp}_${random}`;
-        logger.info(`🆕 Auto-generated conversationId: ${options.conversationId}`);
-      }
-
-      // 🆕 提取 Agent ID（如果前端传入）
-      // 优先级：agent_id > agentId > apexMeta.agentId
-      options.agentId = body.agent_id || body.agentId
-
-      // 🆕 提取 Self-Thinking 配置（多轮思考/ReAct模式）
-      if (body.selfThinking) {
-        try {
-          // 验证 selfThinking 参数格式
-          const selfThinking = body.selfThinking;
-
-          // enabled 必须是 boolean
-          if (typeof selfThinking.enabled !== 'boolean') {
-            throw new Error('selfThinking.enabled must be a boolean');
-          }
-
-          // maxIterations 必须是正整数（如果提供）
-          if (selfThinking.maxIterations !== undefined) {
-            if (typeof selfThinking.maxIterations !== 'number' || selfThinking.maxIterations < 1) {
-              throw new Error('selfThinking.maxIterations must be a positive integer');
-            }
-          }
-
-          // includeThoughtsInResponse 必须是 boolean（如果提供）
-          if (selfThinking.includeThoughtsInResponse !== undefined &&
-            typeof selfThinking.includeThoughtsInResponse !== 'boolean') {
-            throw new Error('selfThinking.includeThoughtsInResponse must be a boolean');
-          }
-
-          // enableStreamThoughts 必须是 boolean（如果提供）
-          if (selfThinking.enableStreamThoughts !== undefined &&
-            typeof selfThinking.enableStreamThoughts !== 'boolean') {
-            throw new Error('selfThinking.enableStreamThoughts must be a boolean');
-          }
-
-          // tools 必须是数组（如果提供）
-          if (selfThinking.tools !== undefined) {
-            if (!Array.isArray(selfThinking.tools)) {
-              throw new Error('selfThinking.tools must be an array');
-            }
-            // 验证每个 tool 的格式
-            for (const tool of selfThinking.tools) {
-              if (!tool.name || typeof tool.name !== 'string') {
-                throw new Error('Each tool must have a name (string)');
-              }
-              if (!tool.description || typeof tool.description !== 'string') {
-                throw new Error(`Tool ${tool.name} must have a description (string)`);
-              }
-            }
-          }
-
-          // 参数验证通过，提取配置
-          options.selfThinking = {
-            enabled: selfThinking.enabled,
-            maxIterations: selfThinking.maxIterations ?? 5,
-            includeThoughtsInResponse: selfThinking.includeThoughtsInResponse ?? true,
-            systemPrompt: selfThinking.systemPrompt,
-            additionalPrompts: selfThinking.additionalPrompts,
-            tools: selfThinking.tools,
-            enableStreamThoughts: selfThinking.enableStreamThoughts ?? false
-          };
-
-        } catch (validationError: any) {
-          logger.error('❌ Invalid selfThinking parameters:', validationError);
-          res.status(400).json({
-            error: {
-              message: validationError.message || 'Invalid selfThinking parameters',
-              type: 'invalid_request'
-            }
-          });
-          return;
-        }
-      }
+      const options = validation.data;
+      const messages = body.messages;
 
       if (options.stream) {
         await this.handleStreamResponse(res, messages, options);
       } else {
         await this.handleNormalResponse(res, messages, options);
       }
-
     } catch (error: any) {
       logger.error('❌ Error in chatCompletions:', error);
 
@@ -190,17 +67,23 @@ export class ChatController {
    * 获取实际使用的模型（处理回退逻辑）
    */
   private async getActualModel(options: ChatRequestOptions): Promise<string> {
+    // 🐛 调试日志：查看传入的options
+    logger.debug(`[ChatController.getActualModel] Input options.model: ${options.model}, options.provider: ${options.provider}`);
+
     // 如果明确指定了模型，直接使用
     if (options.model) {
+      logger.debug(`[ChatController.getActualModel] Using specified model: ${options.model}`);
       return options.model;
     }
 
     // 否则使用 LLMManager 获取默认模型
+    logger.debug('[ChatController.getActualModel] No model specified, getting default from LLMManager');
     try {
       const llmClient = await this.getLLMClient();
       const models = llmClient.getAllModels();
       const defaultModel = models.find(m => m.type === 'NLP');
       if (defaultModel) {
+        logger.debug(`[ChatController.getActualModel] Using default model: ${defaultModel.id}`);
         return defaultModel.id;
       }
     } catch (error) {
@@ -208,6 +91,7 @@ export class ChatController {
     }
 
     // 最终回退
+    logger.debug('[ChatController.getActualModel] Using fallback model: gpt-4');
     return 'gpt-4';
   }
 
@@ -421,6 +305,9 @@ export class ChatController {
           continue;
         }
 
+        // 🆕 解析LLM的嵌套JSON格式（如：{"content":"{\\"reasoning_content\\":\\"\\n\\"}"}）
+        const parsedChunk = parseLLMChunk(chunk);
+
         // 发送内容块（此时 chunk 必定是纯文本，回退模式）
         const sseData = {
           id: responseId,
@@ -429,7 +316,7 @@ export class ChatController {
           model: actualModel,
           choices: [{
             index: 0,
-            delta: { content: chunk },
+            delta:  { content: chunk },
             finish_reason: null
           }]
         };
@@ -468,82 +355,12 @@ export class ChatController {
     const result = await this.chatService.processMessage(messages, options);
     const actualModel = await this.getActualModel(options);
 
-    // 修复：正确使用 usage 统计
-    const usage = this.normalizeUsage(result.usage) || {
-      prompt_tokens: 0,
-      completion_tokens: 0,
-      total_tokens: 0
-    };
-
-    const response = {
-      id: `chatcmpl-${Date.now()}`,
-      object: 'chat.completion',
-      created: Math.floor(Date.now() / 1000),
-      model: actualModel,
-      choices: [{
-        index: 0,
-        message: {
-          role: 'assistant' as const,
-          content: result.content
-        },
-        finish_reason: 'stop' as const
-      }],
-      usage: usage
-    };
+    // 使用工具函数规范化usage并构建响应
+    const usage = normalizeUsage(result.usage);
+    const response = buildChatResponse(result.content, actualModel, usage);
 
     res.json(response);
     logger.info('✅ Completed non-stream chat request');
-  }
-
-  /**
-   * 规范化 Usage 统计
-   * 支持多种格式的 usage 数据
-   */
-  private normalizeUsage(usage: any): { prompt_tokens: number; completion_tokens: number; total_tokens: number } | null {
-    if (!usage || typeof usage !== 'object') {
-      return null;
-    }
-
-    const prompt =
-      typeof usage.prompt_tokens === 'number'
-        ? usage.prompt_tokens
-        : typeof usage.promptTokens === 'number'
-          ? usage.promptTokens
-          : undefined;
-
-    const completion =
-      typeof usage.completion_tokens === 'number'
-        ? usage.completion_tokens
-        : typeof usage.completionTokens === 'number'
-          ? usage.completionTokens
-          : undefined;
-
-    let total =
-      typeof usage.total_tokens === 'number'
-        ? usage.total_tokens
-        : typeof usage.totalTokens === 'number'
-          ? usage.totalTokens
-          : undefined;
-
-    // 如果 total 不存在，尝试计算
-    if (typeof total !== 'number' && typeof prompt === 'number' && typeof completion === 'number') {
-      total = prompt + completion;
-    }
-
-    // 验证所有字段都是数字
-    if (
-      typeof prompt !== 'number' ||
-      typeof completion !== 'number' ||
-      typeof total !== 'number'
-    ) {
-      return null;
-    }
-
-    return {
-      prompt_tokens: prompt,
-      completion_tokens: completion,
-      total_tokens: total
-    };
   }
 
   /**

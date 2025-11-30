@@ -140,16 +140,18 @@ export class LLMManager {
    * 流式聊天补全
    */
   async *streamChat(messages: Message[], options?: ChatOptions, abortSignal?: AbortSignal): AsyncIterableIterator<string> {
+    logger.debug(`[LLMManager.streamChat] Input options: ${JSON.stringify(options)}`);
+
     const model = await this.getActiveModel(options);
-    
+
     if (!model) {
       throw new Error('No NLP model available');
     }
 
     const adapter = await this.getOrCreateAdapter(model);
-    
+
     logger.debug(`💬 Streaming with model: ${model.modelName} (${model.provider}/${model.modelKey})`);
-    
+
     // 调用适配器的 streamChat 方法
     yield* adapter.streamChat(messages, {
       ...options,
@@ -161,8 +163,13 @@ export class LLMManager {
    * 获取活跃的模型（辅助方法）
    */
   private async getActiveModel(options?: ChatOptions): Promise<LLMModelFull | null> {
+    logger.debug(`[LLMManager.getActiveModel] Input options: provider=${options?.provider}, model=${options?.model}`);
+
     if (options?.provider && options?.model) {
-      return this.modelRegistry.findModel(options.provider, options.model);
+      logger.debug(`[LLMManager.getActiveModel] Searching for model: ${options.provider}/${options.model}`);
+      const foundModel = this.modelRegistry.findModel(options.provider, options.model);
+      logger.debug(`[LLMManager.getActiveModel] Found model: ${foundModel?.modelName || 'null'}`);
+      return foundModel;
     } else if (options?.provider) {
       const provider = this.configService.getProviderByKey(options.provider);
       if (provider) {
@@ -175,7 +182,8 @@ export class LLMManager {
         return models[0] || null;
       }
     }
-    
+
+    logger.debug('[LLMManager.getActiveModel] Using system default model');
     return this.modelRegistry.getDefaultModel(LLMModelType.NLP);
   }
 

@@ -27,6 +27,7 @@ import { ReActStrategy } from '../strategies/ReActStrategy';
 import type { Tool } from '../core/stream-orchestrator/types';
 import { SkillExecutor } from '../core/skills/SkillExecutor';
 import { LLMManagerAdapter } from '../core/stream-orchestrator/LLMAdapter';
+import { parseAggregatedContent } from '../api/utils/stream-parser';
 
 export class ChatService {
 
@@ -338,6 +339,16 @@ export class ChatService {
           if (options.selfThinking?.enabled && collectedThinking.length > 0) {
             const thinkingContent = collectedThinking.join('');
             assistantContent = `<thinking>${thinkingContent}</thinking> ${fullContent}`;
+          } else if (!options.selfThinking?.enabled) {
+            // 普通模式：解析可能包含的嵌套JSON格式（如glm-4）
+            const parsed = parseAggregatedContent(fullContent);
+            if (parsed.reasoning) {
+              // 如果有推理内容，使用<thinking>标签包裹
+              assistantContent = `<thinking>${parsed.reasoning}</thinking> ${parsed.content}`;
+            } else {
+              // 只有输出内容
+              assistantContent = parsed.content;
+            }
           }
 
           // 添加AI回复
