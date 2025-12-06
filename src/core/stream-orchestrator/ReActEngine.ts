@@ -23,6 +23,7 @@ import type {
 export class ReActEngine {
   private toolExecutor: ToolExecutor;
   private defaultOptions: Required<ReActOptions>;
+  public tools: any[] = [];  // ✅ 新增：可用工具列表
 
   constructor(options: Partial<ReActOptions> = {}) {
     this.toolExecutor = new ToolExecutor({
@@ -97,7 +98,12 @@ export class ReActEngine {
       ...llmSpecificOptions
     };
 
-    const llmStream = llmClient.streamChat(messages, llmOptions, signal);
+    const llmStream = llmClient.streamChat(
+      messages,
+      llmOptions,
+      this.tools.length > 0 ? this.tools : undefined,  // ✅ 传递可用工具
+      signal
+    );
 
     let assistantMessage = { role: 'assistant', content: '' };
     let toolCalls: ToolCall[] = [];

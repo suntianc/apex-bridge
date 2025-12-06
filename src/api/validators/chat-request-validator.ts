@@ -11,7 +11,7 @@ import type { Message, ChatOptions, ToolDefinition } from '../../types';
 const STANDARD_CHAT_PARAMS = new Set([
   'model', 'temperature', 'max_tokens', 'top_p',
   'frequency_penalty', 'presence_penalty',
-  'stop', 'n', 'stream', 'user', 'top_k'
+  'stop', 'n', 'stream', 'user', 'top_k', 'user_prompt'
 ]);
 
 /**

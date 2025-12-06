@@ -1,0 +1,232 @@
+/**
+ * 工具执行器接口定义
+ * 定义内置工具和Skills工具的通用执行接口
+ */
+
+import {
+  ToolExecutor as IToolExecutor,
+  ToolExecuteOptions,
+  ToolResult,
+  BuiltInTool,
+  SkillTool
+} from '../../types/tool-system';
+
+/**
+ * 抽象工具执行器基类
+ * 提供通用的工具执行接口和基础功能
+ */
+export abstract class BaseToolExecutor implements IToolExecutor {
+  /**
+   * 执行工具
+   * @param options 执行选项
+   * @returns 执行结果
+   */
+  abstract execute(options: ToolExecuteOptions): Promise<ToolResult>;
+
+  /**
+   * 获取支持的工具列表
+   * @returns 工具列表
+   */
+  abstract listTools(): (BuiltInTool | SkillTool)[];
+
+  /**
+   * 检查工具是否存在
+   * @param name 工具名称
+   * @returns 是否存在
+   */
+  hasTool(name: string): boolean {
+    return this.listTools().some(tool => tool.name === name);
+  }
+
+  /**
+   * 获取工具详情
+   * @param name 工具名称
+   * @returns 工具详情或undefined
+   */
+  getTool(name: string): BuiltInTool | SkillTool | undefined {
+    return this.listTools().find(tool => tool.name === name);
+  }
+
+  /**
+   * 验证执行选项
+   * @param options 执行选项
+   * @throws 当选项无效时抛出错误
+   */
+  protected validateExecuteOptions(options: ToolExecuteOptions): void {
+    if (!options.name || typeof options.name !== 'string') {
+      throw new Error('Tool name is required and must be a string');
+    }
+
+    if (!options.args || typeof options.args !== 'object') {
+      throw new Error('Tool arguments are required and must be an object');
+    }
+
+    if (options.timeout && (typeof options.timeout !== 'number' || options.timeout <= 0)) {
+      throw new Error('Timeout must be a positive number');
+    }
+
+    if (options.maxOutputSize && (typeof options.maxOutputSize !== 'number' || options.maxOutputSize <= 0)) {
+      throw new Error('Max output size must be a positive number');
+    }
+
+    if (options.concurrency && (typeof options.concurrency !== 'number' || options.concurrency <= 0)) {
+      throw new Error('Concurrency must be a positive number');
+    }
+  }
+
+  /**
+   * 创建成功的执行结果
+   * @param output 输出内容
+   * @param duration 执行耗时
+   * @returns 成功结果
+   */
+  protected createSuccessResult(output: string, duration: number): ToolResult {
+    return {
+      success: true,
+      output,
+      duration,
+      exitCode: 0
+    };
+  }
+
+  /**
+   * 创建失败的执行结果
+   * @param error 错误信息
+   * @param duration 执行耗时
+   * @param errorCode 错误代码
+   * @returns 失败结果
+   */
+  protected createErrorResult(error: string, duration: number, errorCode?: string): ToolResult {
+    return {
+      success: false,
+      error,
+      duration,
+      errorCode,
+      exitCode: 1
+    };
+  }
+
+  /**
+   * 计算执行耗时
+   * @param startTime 开始时间
+   * @returns 耗时（毫秒）
+   */
+  protected calculateDuration(startTime: number): number {
+    return Date.now() - startTime;
+  }
+
+  /**
+   * 格式化错误信息
+   * @param error 原始错误
+   * @returns 格式化的错误信息
+   */
+  protected formatError(error: any): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    if (typeof error === 'string') {
+      return error;
+    }
+    return JSON.stringify(error);
+  }
+}
+
+/**
+ * 工具执行器工厂
+ * 用于创建不同类型的工具执行器
+ */
+export class ToolExecutorFactory {
+  /**
+   * 创建内置工具执行器
+   * @returns 内置工具执行器实例
+   */
+  static createBuiltInExecutor(): IToolExecutor {
+    // 这里将返回 BuiltInExecutor 实例
+    // 暂时返回一个占位符，后续实现
+    throw new Error('BuiltInExecutor not implemented yet');
+  }
+
+  /**
+   * 创建Skills沙箱执行器
+   * @returns Skills沙箱执行器实例
+   */
+  static createSkillsSandboxExecutor(): IToolExecutor {
+    // 这里将返回 SkillsSandboxExecutor 实例
+    // 暂时返回一个占位符，后续实现
+    throw new Error('SkillsSandboxExecutor not implemented yet');
+  }
+}
+
+/**
+ * 工具执行器管理器
+ * 统一管理多个执行器
+ */
+export class ToolExecutorManager {
+  private executors: Map<string, IToolExecutor> = new Map();
+
+  constructor() {
+    this.registerExecutor('builtin', ToolExecutorFactory.createBuiltInExecutor());
+    this.registerExecutor('skill', ToolExecutorFactory.createSkillsSandboxExecutor());
+  }
+
+  /**
+   * 注册执行器
+   * @param type 执行器类型
+   * @param executor 执行器实例
+   */
+  registerExecutor(type: string, executor: IToolExecutor): void {
+    this.executors.set(type, executor);
+  }
+
+  /**
+   * 获取执行器
+   * @param type 执行器类型
+   * @returns 执行器实例
+   */
+  getExecutor(type: string): IToolExecutor | undefined {
+    return this.executors.get(type);
+  }
+
+  /**
+   * 执行工具
+   * @param type 执行器类型
+   * @param options 执行选项
+   * @returns 执行结果
+   */
+  async execute(type: string, options: ToolExecuteOptions): Promise<ToolResult> {
+    const executor = this.getExecutor(type);
+    if (!executor) {
+      throw new Error(`Executor type '${type}' not found`);
+    }
+    return executor.execute(options);
+  }
+
+  /**
+   * 获取所有工具
+   * @returns 所有工具列表
+   */
+  listAllTools(): (BuiltInTool | SkillTool)[] {
+    const allTools: (BuiltInTool | SkillTool)[] = [];
+    const executors = Array.from(this.executors.values());
+    for (const executor of executors) {
+      allTools.push(...executor.listTools());
+    }
+    return allTools;
+  }
+
+  /**
+   * 查找工具
+   * @param name 工具名称
+   * @returns 工具详情
+   */
+  findTool(name: string): { tool: BuiltInTool | SkillTool; type: string } | undefined {
+    const entries = Array.from(this.executors.entries());
+    for (const [type, executor] of entries) {
+      const tool = executor.getTool(name);
+      if (tool) {
+        return { tool, type };
+      }
+    }
+    return undefined;
+  }
+}

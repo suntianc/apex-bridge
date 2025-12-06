@@ -15,6 +15,7 @@ export class LLMManagerAdapter implements LLMAdapter {
   async *streamChat(
     messages: any[],
     options?: LLMOptions,
+    tools?: any[],  // ✅ 新增：工具列表
     signal?: AbortSignal
   ): AsyncGenerator<any, void, void> {
     const stream = this.llmManager.streamChat(messages, options || {}, signal);

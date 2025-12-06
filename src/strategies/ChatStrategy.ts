@@ -13,6 +13,7 @@ export interface ChatResult {
   usage?: any;
   iterations?: number;
   thinkingProcess?: string;
+  rawThinkingProcess?: string[];  // 原始思考过程（供ChatService统一存储）
 }
 
 /**

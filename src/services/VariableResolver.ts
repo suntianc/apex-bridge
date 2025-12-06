@@ -26,9 +26,10 @@ export class VariableResolver {
   /**
    * 批量解析消息中的变量
    * @param messages 消息数组
+   * @param variables 变量键值对映射
    * @returns 解析后的消息数组
    */
-  async resolve(messages: Message[]): Promise<Message[]> {
+  async resolve(messages: Message[], variables: Record<string, string> = {}): Promise<Message[]> {
     if (!messages || messages.length === 0) {
       return [];
     }
@@ -36,23 +37,24 @@ export class VariableResolver {
     logger.debug(`[VariableResolver] Resolving variables in ${messages.length} messages`);
 
     return Promise.all(
-      messages.map(msg => this.resolveSingle(msg))
+      messages.map(msg => this.resolveSingle(msg, variables))
     );
   }
 
   /**
    * 解析单条消息（带缓存）
    */
-  private async resolveSingle(msg: Message): Promise<Message> {
+  private async resolveSingle(msg: Message, variables: Record<string, string>): Promise<Message> {
     if (!msg.content || typeof msg.content !== 'string') {
       return msg;
     }
 
     const originalContent = msg.content;
     const originalLength = originalContent.length;
+    const cacheKey = `${originalContent}:${JSON.stringify(variables)}`;
 
     // 检查缓存
-    const cached = this.cache.get(originalContent);
+    const cached = this.cache.get(cacheKey);
     if (cached) {
       const age = Date.now() - cached.timestamp;
       if (age < this.cacheTtlMs) {
@@ -60,19 +62,15 @@ export class VariableResolver {
         return { ...msg, content: cached.resolved };
       } else {
         // 缓存过期，删除
-        this.cache.delete(originalContent);
+        this.cache.delete(cacheKey);
       }
     }
 
     try {
-      // 使用ProtocolEngine的VariableEngine，传递完整的VariableContext
-      // 包括role、model等上下文信息，支持role过滤机制
+      // 使用ProtocolEngine的VariableEngine进行变量替换
       const resolvedContent = await this.protocolEngine.variableEngine.resolveAll(
         originalContent,
-        {
-          role: msg.role || 'system', // 传递消息角色
-          currentMessage: originalContent
-        }
+        variables
       );
 
       // 调试日志：显示解析前后的长度变化
@@ -83,7 +81,7 @@ export class VariableResolver {
       }
 
       // 存入缓存
-      this.cache.set(originalContent, {
+      this.cache.set(cacheKey, {
         resolved: resolvedContent,
         timestamp: Date.now()
       });

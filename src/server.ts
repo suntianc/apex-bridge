@@ -39,6 +39,8 @@ import { createSecurityHeadersMiddleware } from './api/middleware/securityHeader
 import { createSecurityLoggerMiddleware } from './api/middleware/securityLoggerMiddleware';
 // 审计日志中间件
 import { createAuditLoggerMiddleware } from './api/middleware/auditLoggerMiddleware';
+// Skills管理路由
+import skillRoutes from './api/routes/skillRoutes';
 
 export class ABPIntelliCore {
   private app: express.Application;
@@ -289,7 +291,13 @@ export class ABPIntelliCore {
     // 模型查询（跨提供商）
     this.app.get('/api/llm/models', ModelController.queryModels);
     this.app.get('/api/llm/models/default', ModelController.getDefaultModel);
-    
+
+    /**
+     * Skills管理API
+     * 管理skills的生命周期：安装、卸载、查询
+     */
+    this.app.use('/api/skills', skillRoutes);
+
     // 健康检查
     this.app.get('/health', (req, res) => {
       res.json({

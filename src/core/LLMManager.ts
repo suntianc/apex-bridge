@@ -153,10 +153,11 @@ export class LLMManager {
     logger.debug(`💬 Streaming with model: ${model.modelName} (${model.provider}/${model.modelKey})`);
 
     // 调用适配器的 streamChat 方法
+    // ✅ 修复：正确传递参数（没有tools）
     yield* adapter.streamChat(messages, {
       ...options,
       model: model.modelKey
-    }, abortSignal);
+    }, undefined, abortSignal);
   }
 
   /**

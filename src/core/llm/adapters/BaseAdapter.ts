@@ -13,7 +13,7 @@ import { retry, RetryConfig } from '../../../utils/retry';
  */
 export interface ILLMAdapter {
   chat(messages: Message[], options: ChatOptions, signal?: AbortSignal): Promise<LLMResponse>;
-  streamChat(messages: Message[], options: ChatOptions, signal?: AbortSignal): AsyncIterableIterator<string>;
+  streamChat(messages: Message[], options: ChatOptions, tools?: any[], signal?: AbortSignal): AsyncIterableIterator<string>;
   getModels(): Promise<string[]>;
 }
 
@@ -188,7 +188,7 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
     }, retryConfig);
   }
 
-  async *streamChat(messages: Message[], options: ChatOptions, signal?: AbortSignal): AsyncIterableIterator<string> {
+  async *streamChat(messages: Message[], options: ChatOptions, tools?: any[], signal?: AbortSignal): AsyncIterableIterator<string> {
     try {
       const { provider, ...apiOptions } = options;
       const filteredOptions = this.filterOptions(apiOptions);
@@ -200,6 +200,12 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
         stream: true,
         ...filteredOptions
       };
+
+      // ✅ 新增：传递给LLM的工具列表
+      if (tools && tools.length > 0) {
+        requestBody.tools = tools;
+        requestBody.tool_choice = 'auto';
+      }
 
       // 🐾 处理温度参数
       if (options.temperature !== undefined) {

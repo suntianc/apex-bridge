@@ -1,6 +1,7 @@
 /**
  * ReActStrategy - ReAct聊天处理策略
  * 实现自我思考循环，支持工具调用和流式输出
+ * 集成新工具系统：内置工具 + Skills外置工具
  */
 
 import type { Message, ChatOptions } from '../types';
@@ -11,17 +12,42 @@ import type { AceIntegrator } from '../services/AceIntegrator';
 import type { ConversationHistoryService } from '../services/ConversationHistoryService';
 import { ReActEngine } from '../core/stream-orchestrator/ReActEngine';
 import { LLMManagerAdapter } from '../core/stream-orchestrator/LLMAdapter';
-import { SkillExecutor } from '../core/skills/SkillExecutor';
+import { BuiltInToolsRegistry } from '../services/BuiltInToolsRegistry';
+import { ToolRetrievalService } from '../services/ToolRetrievalService';
+import { BuiltInExecutor } from '../services/executors/BuiltInExecutor';
+import { SkillsSandboxExecutor } from '../services/executors/SkillsSandboxExecutor';
 import type { Tool } from '../core/stream-orchestrator/types';
 import { logger } from '../utils/logger';
 
 export class ReActStrategy implements ChatStrategy {
+  private builtInRegistry: BuiltInToolsRegistry;
+  private toolRetrievalService: ToolRetrievalService;
+  private builtInExecutor: BuiltInExecutor;
+  private skillsExecutor: SkillsSandboxExecutor;
+  private availableTools: any[] = [];  // ✅ 新增：可用工具列表
+
   constructor(
     private llmManager: LLMManager,
     private variableResolver: VariableResolver,
     private aceIntegrator: AceIntegrator,
     private historyService: ConversationHistoryService
-  ) {}
+  ) {
+    // 初始化工具系统组件
+    this.builtInRegistry = new BuiltInToolsRegistry();
+    // 注意：ToolRetrievalService 需要 config，这里暂时用空配置，实际使用时会由外部传入
+    const tempConfig = {
+      vectorDbPath: '',
+      model: 'all-MiniLM-L6-v2',
+      dimensions: 384,
+      similarityThreshold: 0.6,
+      cacheSize: 100
+    };
+    this.toolRetrievalService = new ToolRetrievalService(tempConfig);
+    this.builtInExecutor = new BuiltInExecutor();
+    this.skillsExecutor = new SkillsSandboxExecutor();
+
+    logger.info('ReActStrategy initialized with new tool system integration');
+  }
 
   getName(): string {
     return 'ReActStrategy';
@@ -41,26 +67,10 @@ export class ReActStrategy implements ChatStrategy {
     const startTime = Date.now();
     const includeThoughtsInResponse = options.selfThinking?.includeThoughtsInResponse ?? true;
 
-    logger.debug(`[${this.getName()}] Starting ReAct execution`);
+    logger.info(`[${this.getName()}] Starting ReAct execution with new tool system`);
 
-    // 1. 创建SkillExecutor并注册工具
-    const skillExecutor = new SkillExecutor();
-    this.registerDefaultTools(skillExecutor);
-
-    // 注册用户自定义工具
-    if (options.selfThinking?.tools) {
-      options.selfThinking.tools.forEach(toolDef => {
-        const tool: Tool = {
-          name: toolDef.name,
-          description: toolDef.description,
-          parameters: toolDef.parameters,
-          execute: async (args) => {
-            return this.executeCustomTool(toolDef.name, args);
-          }
-        };
-        skillExecutor.registerSkill(tool);
-      });
-    }
+    // 1. 工具发现与注册
+    await this.initializeToolSystem(messages);
 
     // 2. 变量替换
     messages = await this.variableResolver.resolve(messages);
@@ -75,6 +85,12 @@ export class ReActStrategy implements ChatStrategy {
       temperature: options.temperature,
       maxTokens: options.max_tokens
     });
+
+    // ✅ 新增：将可用工具传递给ReActEngine
+    if (this.availableTools.length > 0) {
+      (reactEngine as any).tools = this.availableTools;
+      logger.debug(`[${this.getName()}] Passed ${this.availableTools.length} tools to ReActEngine`);
+    }
 
     // 4. 执行 ReAct 循环
     const thinkingProcess: string[] = [];
@@ -115,17 +131,12 @@ export class ReActStrategy implements ChatStrategy {
         });
       }
 
-      // 6. 保存对话消息历史
-      const conversationId = options.conversationId as string | undefined;
-      if (conversationId) {
-        await this.saveReActConversationHistory(conversationId, messages, finalContent, thinkingProcess);
-      }
-
-      // 返回结果
+      // 返回结果（包含原始思考过程，供ChatService统一保存）
       return {
         content: finalContent,
         iterations,
         thinkingProcess: includeThoughtsInResponse ? thinkingProcess.join('\n') : undefined,
+        rawThinkingProcess: thinkingProcess,  // 原始思考过程
         usage: undefined // TODO: 从LLMClient获取usage
       };
 
@@ -144,25 +155,6 @@ export class ReActStrategy implements ChatStrategy {
     abortSignal?: AbortSignal
   ): AsyncIterableIterator<any> {
     logger.debug(`[${this.getName()}] Streaming ReAct execution`);
-
-    // 创建SkillExecutor并注册工具
-    const skillExecutor = new SkillExecutor();
-    this.registerDefaultTools(skillExecutor);
-
-    // 注册用户自定义工具
-    if (options.selfThinking?.tools) {
-      options.selfThinking.tools.forEach(toolDef => {
-        const tool: Tool = {
-          name: toolDef.name,
-          description: toolDef.description,
-          parameters: toolDef.parameters,
-          execute: async (args) => {
-            return this.executeCustomTool(toolDef.name, args);
-          }
-        };
-        skillExecutor.registerSkill(tool);
-      });
-    }
 
     // 变量替换
     messages = await this.variableResolver.resolve(messages);
@@ -202,111 +194,149 @@ export class ReActStrategy implements ChatStrategy {
       }
     }
 
-    // 保存对话历史（在流结束后）
-    if (options.conversationId) {
-      await this.saveReActConversationHistory(
-        options.conversationId,
-        messages,
-        collectedContent,
-        collectedThinking
+    // ✅ ChaService会统一保存历史，策略层只返回数据
+    // 返回收集的思考过程和内容
+    return {
+      content: collectedContent,
+      rawThinkingProcess: collectedThinking
+    };
+  }
+
+  /**
+   * 初始化工具系统（工具发现与注册）
+   */
+  private async initializeToolSystem(messages: Message[]): Promise<void> {
+    const startTime = Date.now();
+
+    try {
+      // 1. 加载所有内置工具到执行器
+      const builtInTools = this.builtInRegistry.listAllTools();
+      logger.debug(`[${this.getName()}] Found ${builtInTools.length} built-in tools`);
+      logger.debug(`[${this.getName()}] Loaded ${builtInTools.length} built-in tools`);
+
+      // 2. 向量检索相关Skills
+      const query = messages[messages.length - 1]?.content || '';
+      const relevantSkills = await this.toolRetrievalService.findRelevantSkills(
+        query,
+        10, // limit
+        0.6 // threshold
       );
+
+      logger.debug(`[${this.getName()}] Found ${relevantSkills.length} relevant Skills for query: "${query.substring(0, 50)}..."`);
+
+      // 3. 注册检索到的Skills到Skills执行器
+      for (const skill of relevantSkills) {
+        // 创建Skills执行包装器
+        const skillExecuteWrapper = async (args: Record<string, any>) => {
+          const result = await this.skillsExecutor.execute({
+            name: skill.tool.name,
+            args
+          });
+          return result;
+        };
+
+        // 注册到Skills执行器
+        // 注意：Skills执行器内部会加载实际的Skills代码
+      }
+
+      // ✅ 新增：构建工具列表传递给LLM
+      this.availableTools = [
+        ...builtInTools.map(tool => ({
+          type: 'function' as const,
+          function: {
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.parameters
+          }
+        })),
+        ...relevantSkills.map(skill => ({
+          type: 'function' as const,
+          function: {
+            name: skill.tool.name,
+            description: skill.tool.description,
+            parameters: skill.tool.parameters
+          }
+        }))
+      ];
+
+      logger.info(`[${this.getName()}] Tool system initialized in ${Date.now() - startTime}ms`);
+      logger.info(`[${this.getName()}] Available tools: ${builtInTools.length} built-in + ${relevantSkills.length} Skills`);
+      logger.info(`[${this.getName()}] Registered ${this.availableTools.length} tools for LLM`);
+
+    } catch (error) {
+      logger.warn(`[${this.getName()}] Tool system initialization failed:`, error);
+      // 降级处理：继续执行，只是没有可用的工具
+      this.availableTools = []; // 确保清空工具列表
     }
   }
 
   /**
-   * 保存ReAct对话历史（包含思考过程）
+   * 注册工具到ReAct引擎
    */
-  private async saveReActConversationHistory(
-    conversationId: string,
-    messages: Message[],
-    finalContent: string,
-    thinkingProcess: string[]
-  ): Promise<void> {
+  private registerToolsToReActEngine(reactEngine: ReActEngine, options: ChatOptions): void {
+    const builtInToolCount = this.builtInRegistry.listAllTools().length;
+    logger.debug(`[${this.getName()}] ReActEngine tool registration stub - ${builtInToolCount} built-in tools available`);
+    // TODO: 实现 ReActEngine 工具注册逻辑
+  }
+
+  /**
+   * 执行工具（双执行器路由）
+   */
+  private async executeTool(toolName: string, params: Record<string, any>): Promise<any> {
+    const startTime = Date.now();
+
     try {
-      const count = await this.historyService.getMessageCount(conversationId);
-      const messagesToSave: Message[] = [];
+      // 1. 先尝试内置执行器（零开销）
+      const builtInResult = await this.builtInExecutor.execute({
+        name: toolName,
+        args: params
+      }).catch(() => null);
 
-      if (count === 0) {
-        messagesToSave.push(...messages.filter(m => m.role !== 'assistant'));
-      } else {
-        const lastMessage = messages[messages.length - 1];
-        if (lastMessage && lastMessage.role !== 'assistant') {
-          messagesToSave.push(lastMessage);
-        }
+      if (builtInResult?.success) {
+        logger.debug(`[${this.getName()}] Built-in tool executed: ${toolName} (${Date.now() - startTime}ms)`);
+        return builtInResult.output;
       }
 
-      // 构建包含思考过程的AI回复
-      let assistantContent = finalContent;
-      if (thinkingProcess.length > 0) {
-        // 解析thinkingProcess中的JSON字符串，提取reasoning_content
-        const extractedThinking: string[] = [];
-        for (const chunk of thinkingProcess) {
-          try {
-            const cleaned = chunk.replace(/^data:\s*/, '').trim();
-            if (cleaned && cleaned !== '[DONE]') {
-              // 检查是否是多个JSON对象拼接
-              if (cleaned.includes('}{')) {
-                const jsonObjects = cleaned.split(/\}\{/);
-                for (let i = 0; i < jsonObjects.length; i++) {
-                  let jsonStr = jsonObjects[i];
-                  if (i > 0) jsonStr = '{' + jsonStr;
-                  if (i < jsonObjects.length - 1) jsonStr = jsonStr + '}';
-                  if (jsonStr) {
-                    const parsed = JSON.parse(jsonStr);
-                    if (parsed.reasoning_content) {
-                      extractedThinking.push(parsed.reasoning_content);
-                    }
-                  }
-                }
-              } else {
-                const parsed = JSON.parse(cleaned);
-                if (parsed.reasoning_content) {
-                  extractedThinking.push(parsed.reasoning_content);
-                }
-              }
-            }
-          } catch (error) {
-            extractedThinking.push(chunk);
-          }
-        }
-
-        const thinkingContent = extractedThinking.join('');
-        assistantContent = `<thinking>${thinkingContent}</thinking> ${finalContent}`;
-      }
-
-      messagesToSave.push({
-        role: 'assistant',
-        content: assistantContent
+      // 2. 尝试Skills执行器（进程隔离）
+      const skillResult = await this.skillsExecutor.execute({
+        name: toolName,
+        args: params
       });
 
-      await this.historyService.saveMessages(conversationId, messagesToSave);
-      logger.debug(`[${this.getName()}] Saved ${messagesToSave.length} messages to history`);
-    } catch (err: any) {
-      logger.warn(`[${this.getName()}] Failed to save conversation history: ${err.message}`);
+      if (skillResult.success) {
+        logger.debug(`[${this.getName()}] Skills tool executed: ${toolName} (${Date.now() - startTime}ms)`);
+        return skillResult.output;
+      }
+
+      throw new Error(`Tool execution failed: ${toolName}`);
+
+    } catch (error) {
+      logger.error(`[${this.getName()}] Tool execution failed: ${toolName}`, error);
+      throw error;
     }
   }
 
   /**
-   * 注册默认工具
+   * 执行自定义工具（由ChatService传递的工具定义）
    */
-  private registerDefaultTools(skillExecutor: SkillExecutor): void {
-    // 这里应该由ChatService传递默认工具，避免重复定义
-    // 暂时为空，由ChatService在初始化时传递
-  }
-
-  /**
-   * 执行自定义工具
-   */
-  private async executeCustomTool(toolName: string, params: any): Promise<any> {
-    // 工具执行委托给ChatService或Skill系统
-    // 暂时返回模拟结果
+  private async executeCustomTool(toolName: string, params: Record<string, any>): Promise<any> {
     logger.info(`[${this.getName()}] Executing custom tool: ${toolName}`, params);
 
+    // 这里可以扩展为支持更多自定义工具类型
+    // 目前主要处理options传递的工具定义
     switch (toolName) {
       case 'custom_business_logic':
         return { result: 'Custom business result', params };
       default:
-        throw new Error(`[${this.getName()}] Unknown tool: ${toolName}`);
+        throw new Error(`[${this.getName()}] Unknown custom tool: ${toolName}`);
     }
+  }
+
+  /**
+   * 注册默认工具 (暂存函数 - 未实现)
+   */
+  private registerDefaultTools(_skillExecutor: any): void {
+    // 这里应该由ChatService传递默认工具，避免重复定义
+    // 暂时为空，由ChatService在初始化时传递
   }
 }

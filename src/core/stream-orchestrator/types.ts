@@ -129,11 +129,13 @@ export interface LLMAdapter {
    * 流式聊天
    * @param messages 消息列表
    * @param options 选项
+   * @param tools 可用工具列表
    * @param signal 中止信号
    */
   streamChat(
     messages: any[],
     options?: LLMOptions,
+    tools?: any[],  // ✅ 新增：工具列表
     signal?: AbortSignal
   ): AsyncGenerator<any, void, void>;
 }

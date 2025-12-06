@@ -74,54 +74,11 @@ export class SingleRoundStrategy implements ChatStrategy {
       });
     }
 
-    // 6. 保存对话消息历史
-    const conversationId = options.conversationId as string | undefined;
-    if (conversationId) {
-      try {
-        await this.saveConversationHistory(conversationId, messages, aiContent);
-      } catch (err: any) {
-        logger.warn(`[${this.getName()}] Failed to save conversation history: ${err.message}`);
-      }
-    }
-
+    // ✅ ChaService会统一保存历史，策略层只返回数据
     return {
       content: aiContent,
       usage: llmResponse.usage
     };
-  }
-
-  /**
-   * 保存对话历史
-   */
-  private async saveConversationHistory(
-    conversationId: string,
-    messages: Message[],
-    aiContent: string
-  ): Promise<void> {
-    // 检查是否是新对话
-    const count = await this.historyService.getMessageCount(conversationId);
-    const messagesToSave: Message[] = [];
-
-    if (count === 0) {
-      // 新对话：保存所有请求消息（通常包含 System 和 第一条 User）
-      // 过滤掉可能存在的 assistant 消息
-      messagesToSave.push(...messages.filter(m => m.role !== 'assistant'));
-    } else {
-      // 已有对话：只保存最后一条消息（通常是新的 User 消息）
-      const lastMessage = messages[messages.length - 1];
-      if (lastMessage && lastMessage.role !== 'assistant') {
-        messagesToSave.push(lastMessage);
-      }
-    }
-
-    // 添加 AI 回复
-    messagesToSave.push({
-      role: 'assistant',
-      content: aiContent
-    });
-
-    await this.historyService.saveMessages(conversationId, messagesToSave);
-    logger.debug(`[${this.getName()}] Saved ${messagesToSave.length} messages to history`);
   }
 
   /**

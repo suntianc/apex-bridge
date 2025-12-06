@@ -90,12 +90,13 @@ export class ClaudeAdapter implements ILLMAdapter {
     }, retryConfig);
   }
 
-  async *streamChat(messages: Message[], options: ChatOptions, signal?: AbortSignal): AsyncIterableIterator<string> {
+  async *streamChat(messages: Message[], options: ChatOptions, tools?: any[], signal?: AbortSignal): AsyncIterableIterator<string> {
     try {
       const systemMessages = messages.filter(m => m.role === 'system');
       const otherMessages = messages.filter(m => m.role !== 'system');
 
-      const response = await this.client.post('/messages', {
+      // 构建请求体
+      const requestBody: any = {
         model: options.model || this.config.defaultModel,
         max_tokens: options.max_tokens || 4096,
         temperature: options.temperature ?? 0.7,
@@ -105,7 +106,28 @@ export class ClaudeAdapter implements ILLMAdapter {
           content: m.content
         })),
         stream: true
-      }, {
+      };
+
+      // Claude目前不直接支持tools参数，需要特殊处理
+      // 将工具描述添加到system message中
+      if (tools && tools.length > 0) {
+        const toolsDescription = tools.map((tool: any) => {
+          const func = tool.function || {};
+          return `
+## Tool: ${func.name}
+Description: ${func.description}
+Parameters: ${JSON.stringify(func.parameters, null, 2)}
+`;
+        }).join('\n');
+
+        if (requestBody.system) {
+          requestBody.system += `\n\n# Available Tools\n${toolsDescription}`;
+        } else {
+          requestBody.system = `# Available Tools\n${toolsDescription}`;
+        }
+      }
+
+      const response = await this.client.post('/messages', requestBody, {
         responseType: 'stream',
         signal
       });

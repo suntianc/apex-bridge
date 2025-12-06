@@ -4,10 +4,6 @@
  */
 
 import { createVariableEngine, IVariableEngine } from './variable';
-import {
-  TimeProvider,
-  PlaceholderProvider,
-} from './variable/providers';
 import type { AdminConfig } from '../services/ConfigService';
 import { logger } from '../utils/logger';
 import { ABPProtocolParser } from './protocol/ABPProtocolParser';
@@ -156,19 +152,10 @@ export class ProtocolEngine {
         }
       }
       
+      
       // --- Variable Providers Registration ---
-      
-      // Layer 1 (10-30): 系统内置变量
-      this.variableEngine.registerProvider(new TimeProvider());
-      logger.debug('✅ [Layer1] TimeProvider registered (priority: 10)');
-      
-      // Layer 2 (40-60): 配置驱动变量
-      const placeholderProvider = new PlaceholderProvider();
-      this.variableEngine.registerProvider(placeholderProvider);
-      logger.debug('✅ [Layer2] PlaceholderProvider registered (priority: 60)');
-
-      logger.info('🎉 All Variable providers registered');
-
+      // 简化版：移除提供者模式，变量由调用方直接传入
+      logger.debug('✅ VariableEngine initialized (simplified version, no providers)');
     } catch (error) {
       logger.error('❌ Failed to initialize Protocol Engine:', error);
       throw error;

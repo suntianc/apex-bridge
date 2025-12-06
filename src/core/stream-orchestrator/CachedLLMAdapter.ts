@@ -38,6 +38,7 @@ export class CachedLLMAdapter implements LLMAdapter {
   async *streamChat(
     messages: any[],
     options?: LLMOptions,
+    tools?: any[],
     signal?: AbortSignal
   ): AsyncGenerator<any, void, void> {
     const cacheKey = this.generateCacheKey(messages, options);
@@ -55,7 +56,7 @@ export class CachedLLMAdapter implements LLMAdapter {
     }
 
     const chunks: string[] = [];
-    for await (const chunk of this.delegate.streamChat(messages, options, signal)) {
+    for await (const chunk of this.delegate.streamChat(messages, options, tools, signal)) {
       if (chunk.type === 'text') {
         chunks.push(chunk.content);
       }

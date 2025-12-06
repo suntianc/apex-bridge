@@ -29,6 +29,7 @@ import type { Tool } from '../core/stream-orchestrator/types';
 import { SkillExecutor } from '../core/skills/SkillExecutor';
 import { LLMManagerAdapter } from '../core/stream-orchestrator/LLMAdapter';
 import { parseAggregatedContent } from '../api/utils/stream-parser';
+import { VariableEngine } from '../core/variable/VariableEngine';
 
 export class ChatService {
 
@@ -63,9 +64,9 @@ export class ChatService {
     this.aceService = AceService.getInstance();
     this.conversationHistoryService = ConversationHistoryService.getInstance();
 
-    // 🆕 初始化系统提示词服务
+    // 🆕 初始化系统提示词服务（从Markdown文件读取）
     this.systemPromptService = new SystemPromptService('./config');
-    logger.debug('[ChatService] SystemPromptService initialized');
+    logger.debug('[ChatService] SystemPromptService initialized (Markdown format)');
 
     // 初始化会话管理器
     this.sessionManager = new SessionManager(this.aceService, this.conversationHistoryService);
@@ -143,10 +144,159 @@ export class ChatService {
   }
 
   /**
+   * 🆕 注入系统提示词（公共方法，供processMessage和streamMessage使用）
+   */
+  private async injectSystemPrompt(messages: Message[], options: ChatOptions): Promise<Message[]> {
+    const hasSystemMessage = messages.some(m => m.role === 'system');
+
+    if (!hasSystemMessage) {
+      // 获取系统提示词模板副本（从Markdown文件读取）
+      const systemPromptTemplate = this.systemPromptService.getSystemPromptTemplate();
+      
+      if (systemPromptTemplate) {
+        // 构建变量上下文
+        const variables: Record<string, string> = {
+          model: options.model || '',
+          provider: options.provider || '',
+          current_time: new Date().toISOString(),
+          // 从options中提取其他变量，如user_prompt等
+          ...Object.entries(options).reduce((acc, [key, value]) => {
+            if (typeof value === 'string') {
+              acc[key] = value;
+            }
+            return acc;
+          }, {} as Record<string, string>)
+        };
+
+        // 使用VariableEngine进行变量替换，自动填充未找到的变量为空字符串
+        const variableEngine = new VariableEngine();
+        const renderedPrompt = await variableEngine.resolveAll(systemPromptTemplate, variables, {
+          fillEmptyOnMissing: true
+        });
+
+        const resultMessages: Message[] = [
+          {
+            role: 'system',
+            content: renderedPrompt
+          } as Message,
+          ...messages
+        ];
+
+        logger.debug(`[ChatService] Injected system prompt (${renderedPrompt.length} chars)`);
+        return resultMessages;
+      }
+    }
+
+    return messages;
+  }
+
+  /**
    * 🆕 获取或创建会话（代理到SessionManager）
    */
   private async getOrCreateSession(agentId: string | undefined, userId: string | undefined, conversationId: string): Promise<string | null> {
     return this.sessionManager.getOrCreate(agentId, userId, conversationId);
+  }
+
+  /**
+   * 🆕 统一保存对话历史（包含思考过程）
+   */
+  private async saveConversationHistory(
+    conversationId: string,
+    messages: Message[],
+    aiContent: string,
+    thinkingProcess?: string[],
+    isReAct: boolean = false
+  ): Promise<void> {
+    try {
+      // 1. 检查历史记录数量
+      const count = await this.conversationHistoryService.getMessageCount(conversationId);
+      const messagesToSave: Message[] = [];
+
+      // 2. 准备要保存的消息（统一逻辑）
+      if (count === 0) {
+        // 新对话：保存所有非assistant、非system消息
+        // ✅ 修复：同时过滤system和assistant
+        messagesToSave.push(...messages.filter(m =>
+          m.role !== 'assistant' && m.role !== 'system'
+        ));
+      } else {
+        // 已有对话：只保存最后一条非assistant、非system消息
+        const lastMessage = messages[messages.length - 1];
+        if (lastMessage && lastMessage.role !== 'assistant' && lastMessage.role !== 'system') {
+          messagesToSave.push(lastMessage);
+        }
+      }
+
+      // 3. 构建AI回复内容（统一格式）
+      let assistantContent = aiContent;
+      if (isReAct) {
+        assistantContent = ""
+        if (thinkingProcess && thinkingProcess.length > 0) {
+          // ReAct模式：包含思考过程
+          const extractedThinking = this.extractThinkingContent(thinkingProcess);
+          assistantContent = `<thinking>${extractedThinking}</thinking> `;
+        }
+        const parsed = parseAggregatedContent(aiContent);  // 解析JSON格式
+        assistantContent += parsed.content;
+
+      } else if (!isReAct) {
+        // 普通模式：解析特殊格式（如glm-4）
+        const parsed = parseAggregatedContent(aiContent);
+        if (parsed.reasoning) {
+          assistantContent = `<thinking>${parsed.reasoning}</thinking> ${parsed.content}`;
+        } else {
+          assistantContent = parsed.content;
+        }
+      }
+
+      // 4. 添加AI回复
+      messagesToSave.push({
+        role: 'assistant',
+        content: assistantContent
+      });
+
+      // 5. 保存到数据库
+      await this.conversationHistoryService.saveMessages(conversationId, messagesToSave);
+      logger.debug(`[ChatService] Saved ${messagesToSave.length} messages to history`);
+    } catch (err: any) {
+      logger.warn(`[ChatService] Failed to save conversation history: ${err.message}`);
+    }
+  }
+
+  /**
+   * 🆕 提取思考过程内容
+   */
+  private extractThinkingContent(thinkingProcess: string[]): string {
+    const extracted: string[] = [];
+    for (const chunk of thinkingProcess) {
+      try {
+        const cleaned = chunk.replace(/^data:\s*/, '').trim();
+        if (cleaned && cleaned !== '[DONE]') {
+          if (cleaned.includes('}{')) {
+            const jsonObjects = cleaned.split(/\}\{/);
+            for (let i = 0; i < jsonObjects.length; i++) {
+              let jsonStr = jsonObjects[i];
+              if (i > 0) jsonStr = '{' + jsonStr;
+              if (i < jsonObjects.length - 1) jsonStr = jsonStr + '}';
+              if (jsonStr) {
+                const parsed = JSON.parse(jsonStr);
+                if (parsed.reasoning_content) {
+                  extracted.push(parsed.reasoning_content);
+                }
+              }
+            }
+          } else {
+            const parsed = JSON.parse(cleaned);
+            if (parsed.reasoning_content) {
+              extracted.push(parsed.reasoning_content);
+            }
+          }
+        }
+      } catch (error) {
+        extracted.push(chunk);
+      }
+    }
+    return extracted.join('');
   }
 
   /**
@@ -178,28 +328,6 @@ export class ChatService {
         logger.debug('[ChatService] Processing message without session (no conversationId)');
       }
 
-      // 🆕 检查并添加系统提示词（如果没有在messages中）
-      const hasSystemMessage = messages.some(m => m.role === 'system');
-
-      if (!hasSystemMessage) {
-        const systemPrompt = await this.systemPromptService.getSystemPrompt({
-          model: options.model,
-          provider: options.provider
-          // 其他上下文变量会自动从options中传递
-        });
-
-        if (systemPrompt) {
-          messages = [
-            {
-              role: 'system',
-              content: systemPrompt
-            },
-            ...messages
-          ];
-
-          logger.debug(`[ChatService] Applied system prompt (${systemPrompt.length} chars)`);
-        }
-      }
 
       // 2. 选择并执行策略
       const strategy = await this.selectStrategy(options);
@@ -217,6 +345,17 @@ export class ChatService {
           await this.updateSessionMetadata(options.sessionId, result.usage).catch(err => {
             logger.warn(`[ChatService] Failed to update session metadata: ${err.message}`);
           });
+        }
+
+        // 4. ✅ 统一保存对话历史（非流式模式）
+        if (options.conversationId) {
+          await this.saveConversationHistory(
+            options.conversationId,
+            messages,
+            result.content,
+            result.rawThinkingProcess,  // ReAct返回的思考过程
+            options.selfThinking?.enabled  // 是否ReAct模式
+          );
         }
 
         return result;
@@ -306,6 +445,38 @@ export class ChatService {
         });
       }
 
+      // 🆕 检查并添加系统提示词（如果没有在messages中）- 流式模式也需要注入
+      const hasSystemMessage = messages.some(m => m.role === 'system');
+
+      if (!hasSystemMessage) {
+        // 获取系统提示词模板副本（从Markdown文件读取）
+        const systemPromptTemplate = this.systemPromptService.getSystemPromptTemplate();
+        logger.debug(`[ChatService] Streaming message - system prompt template length: ${systemPromptTemplate ? systemPromptTemplate.length : 0}`);
+        if (systemPromptTemplate) {
+          // 构建变量上下文
+          const variables: Record<string, string> = {
+            user_prompt: options.user_prompt || '',
+            current_time: new Date().toISOString()
+          };
+
+          // 使用VariableEngine进行变量替换，自动填充未找到的变量为空字符串
+          const variableEngine = new VariableEngine();
+          const renderedPrompt = await variableEngine.resolveAll(systemPromptTemplate, variables, {
+            fillEmptyOnMissing: true
+          });
+          logger.debug(`[ChatService] Streaming message - rendered system prompt: ${renderedPrompt}`);
+          messages = [
+            {
+              role: 'system',
+              content: renderedPrompt
+            },
+            ...messages
+          ];
+
+          logger.debug(`[ChatService] Applied system prompt for streaming (${renderedPrompt.length} chars)`);
+        }
+      }
+
       // 选择策略并执行流式处理
       const strategy = await this.selectStrategy(options);
 
@@ -346,53 +517,16 @@ export class ChatService {
       this.requestTracker.unregister(requestId);
       logger.debug(`[ChatService] Stream completed for ${requestId}`);
 
-      // 🆕 保存对话历史（流式响应完成后）
+      // ✅ 统一保存对话历史（流式模式）
       const conversationId = options.conversationId;
       if (conversationId && !abortController.signal.aborted) {
-        try {
-          // 获取历史记录数量
-          const count = await this.conversationHistoryService.getMessageCount(conversationId);
-
-          const messagesToSave: Message[] = [];
-          if (count === 0) {
-            // 新对话：保存所有非assistant消息
-            messagesToSave.push(...messages.filter(m => m.role !== 'assistant'));
-          } else {
-            // 已有对话：只保存最后一条非assistant消息
-            const lastMessage = messages[messages.length - 1];
-            if (lastMessage && lastMessage.role !== 'assistant') {
-              messagesToSave.push(lastMessage);
-            }
-          }
-
-          // 如果是ReAct模式，包含思考过程
-          let assistantContent = fullContent;
-          if (options.selfThinking?.enabled && collectedThinking.length > 0) {
-            const thinkingContent = collectedThinking.join('');
-            assistantContent = `<thinking>${thinkingContent}</thinking> ${fullContent}`;
-          } else if (!options.selfThinking?.enabled) {
-            // 普通模式：解析可能包含的嵌套JSON格式（如glm-4）
-            const parsed = parseAggregatedContent(fullContent);
-            if (parsed.reasoning) {
-              // 如果有推理内容，使用<thinking>标签包裹
-              assistantContent = `<thinking>${parsed.reasoning}</thinking> ${parsed.content}`;
-            } else {
-              // 只有输出内容
-              assistantContent = parsed.content;
-            }
-          }
-
-          // 添加AI回复
-          messagesToSave.push({
-            role: 'assistant',
-            content: assistantContent
-          });
-
-          await this.conversationHistoryService.saveMessages(conversationId, messagesToSave);
-          logger.debug(`[ChatService] Saved ${messagesToSave.length} messages from stream`);
-        } catch (err: any) {
-          logger.warn(`[ChatService] Failed to save stream conversation history: ${err.message}`);
-        }
+        await this.saveConversationHistory(
+          conversationId,
+          messages,
+          fullContent,
+          collectedThinking.length > 0 ? collectedThinking : undefined,
+          options.selfThinking?.enabled
+        );
       }
     }
   }
