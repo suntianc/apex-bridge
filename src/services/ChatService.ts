@@ -229,24 +229,24 @@ export class ChatService {
 
       // 3. 构建AI回复内容（统一格式）
       let assistantContent = aiContent;
+      const parsed = parseAggregatedContent(aiContent);
       if (isReAct) {
-        assistantContent = ""
-        if (thinkingProcess && thinkingProcess.length > 0) {
-          // ReAct模式：包含思考过程
+        const thinkingParts = [];
+        if (thinkingProcess?.length > 0) {
           const extractedThinking = this.extractThinkingContent(thinkingProcess);
-          assistantContent = `<thinking>${extractedThinking}</thinking> `;
+          thinkingParts.push(`<thinking>${extractedThinking}</thinking>`);
         }
-        const parsed = parseAggregatedContent(aiContent);  // 解析JSON格式
-        assistantContent += parsed.content;
-
+        thinkingParts.push(
+          parsed.reasoning 
+          ? `<thinking>${parsed.reasoning}</thinking> ${parsed.content}`
+          : parsed.content
+        );
+        assistantContent = thinkingParts.join(' ');
       } else if (!isReAct) {
         // 普通模式：解析特殊格式（如glm-4）
-        const parsed = parseAggregatedContent(aiContent);
-        if (parsed.reasoning) {
-          assistantContent = `<thinking>${parsed.reasoning}</thinking> ${parsed.content}`;
-        } else {
-          assistantContent = parsed.content;
-        }
+        assistantContent = parsed.reasoning 
+          ? `<thinking>${parsed.reasoning}</thinking> ${parsed.content}`
+          : parsed.content;
       }
 
       // 4. 添加AI回复

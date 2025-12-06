@@ -5,6 +5,7 @@
 
 import * as lancedb from '@lancedb/lancedb';
 import { Index } from '@lancedb/lancedb';
+import * as arrow from 'apache-arrow';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { createHash } from 'crypto';
@@ -178,21 +179,26 @@ export class ToolRetrievalService {
         const count = await this.getTableCount();
         logger.info(`Table contains ${count} vector records`);
       } else {
-        // 创建新表
-        const schema = {
-          id: 'string',
-          name: 'string',
-          description: 'string',
-          tags: 'list',
-          path: 'string',
-          version: 'string',
-          metadata: 'object',
-          vector: 'vector',
-          indexedAt: 'timestamp'
-        };
+        // 创建新表 - 使用 Apache Arrow Schema
+        const schema = new arrow.Schema([
+          new arrow.Field('id', new arrow.Utf8(), false),
+          new arrow.Field('name', new arrow.Utf8(), false),
+          new arrow.Field('description', new arrow.Utf8(), false),
+          new arrow.Field('tags', new arrow.List(
+            new arrow.Field('item', new arrow.Utf8(), true)
+          ), false),
+          new arrow.Field('path', new arrow.Utf8(), false),
+          new arrow.Field('version', new arrow.Utf8(), false),
+          new arrow.Field('metadata', new arrow.Utf8(), false), // 对象存储为JSON字符串
+          new arrow.Field('vector', new arrow.FixedSizeList(
+            this.config.dimensions,
+            new arrow.Field('item', new arrow.Float32(), true)
+          ), false),
+          new arrow.Field('indexedAt', new arrow.Timestamp(arrow.TimeUnit.MICROSECOND), false)
+        ]);
 
-        // 创建空表 - 向量列会在插入数据时自动检测
-        this.table = await this.db!.createTable(tableName, []);
+        // 创建空表
+        this.table = await this.db!.createTable(tableName, [], { schema });
 
         logger.info(`Created new table: ${tableName}`);
       }
@@ -430,7 +436,7 @@ export class ToolRetrievalService {
       // 生成向量嵌入
       const vector = await this.getEmbedding(skill);
 
-      // 准备记录数据
+      // 准备记录数据 - 向量转换为 Float32Array
       const record: SkillsTable = {
         id: skillId,
         name: skill.name,
@@ -439,7 +445,7 @@ export class ToolRetrievalService {
         path: skill.path,
         version: skill.version || '1.0.0',
         metadata: skill.metadata || {},
-        vector,
+        vector: new Float32Array(vector), // 转换为 Float32Array
         indexedAt: new Date()
       };
 
