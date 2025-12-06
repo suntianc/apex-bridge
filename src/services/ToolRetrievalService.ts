@@ -37,7 +37,7 @@ interface SkillsTable {
   path: string;
   version: string;
   metadata: Record<string, any>;
-  vector: number[];
+  vector: Float32Array;
   indexedAt: Date;
 }
 
