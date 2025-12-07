@@ -229,7 +229,7 @@ export class ChatService {
 
       // 3. 构建AI回复内容（统一格式）
       let assistantContent = aiContent;
-      const parsed = parseAggregatedContent(aiContent);
+      const parsed = parseAggregatedContent(assistantContent);
       if (isReAct) {
         const thinkingParts = [];
         if (thinkingProcess?.length > 0) {

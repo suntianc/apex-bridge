@@ -4,37 +4,44 @@
  */
 
 /**
- * 解析LLM的chunk内容
+ * 解析LLM的chunk内容（支持嵌套JSON）
  * LLM返回格式：{"content":"{\\"reasoning_content\\":\\"\\n\\"}"}
- * 或 {"content":"{\\"content\\":\\"输出\\"}"}
+ * 或 {"content":"输出"} 或 {"reasoning_content":"。","content":null}
  *
  * @param chunkContent chunk中的content字符串
  * @returns 解析结果 { isReasoning: boolean, content: string }
  */
 export function parseLLMChunk(chunkContent: string): { isReasoning: boolean; content: string } {
   try {
-    // 如果内容已经是纯文本（不是JSON），直接返回
-    if (!chunkContent.includes('{"') && !chunkContent.includes('{}')) {
-      return { isReasoning: false, content: chunkContent };
-    }
-
-    // 解析嵌套的JSON字符串
+    // 第一次解析：尝试解析外层的JSON
     const parsed = JSON.parse(chunkContent);
 
-    // 如果包含reasoning_content，说明是推理内容
-    if (parsed.reasoning_content !== undefined) {
-      return {
-        isReasoning: true,
-        content: parsed.reasoning_content
-      };
+    // 如果包含嵌套JSON字符串（如glm-4的格式）
+    if (parsed.content && typeof parsed.content === 'string' && parsed.content.includes('{"')) {
+      try {
+        // 第二次解析：解析内层JSON
+        const nested = JSON.parse(parsed.content);
+        
+        // 优先判断内层是否有reasoning_content
+        if (nested.reasoning_content !== undefined && nested.reasoning_content !== null) {
+          return { isReasoning: true, content: nested.reasoning_content };
+        }
+        if (nested.content !== undefined && nested.content !== null) {
+          return { isReasoning: false, content: nested.content };
+        }
+      } catch {
+        // 内层解析失败，使用外层content作为普通文本
+        return { isReasoning: false, content: parsed.content };
+      }
     }
 
-    // 如果包含content，说明是输出内容
-    if (parsed.content !== undefined) {
-      return {
-        isReasoning: false,
-        content: parsed.content
-      };
+    // 处理非嵌套格式（如直接返回的JSON）
+    if (parsed.reasoning_content !== undefined && parsed.reasoning_content !== null) {
+      return { isReasoning: true, content: parsed.reasoning_content };
+    }
+    
+    if (parsed.content !== undefined && parsed.content !== null) {
+      return { isReasoning: false, content: parsed.content };
     }
 
     // 未知格式，返回原字符串
@@ -47,9 +54,10 @@ export function parseLLMChunk(chunkContent: string): { isReasoning: boolean; con
 
 /**
  * 解析聚合的LLM输出（用于对话历史存储）
- * 将fullContent字符串解析为推理内容和输出内容
- * 修复: 正确处理代码中的大括号，避免误解析
- * 关键改进: 使用正则表达式完整匹配JSON模板，而非逐字符扫描
+ * 支持格式：
+ * - {"reasoning_content":"思考","content":"输出"}
+ * - {"reasoning_content":"思考"}{"content":"输出"}
+ * - 普通文本和代码片段
  *
  * @param rawContent 收集的原始内容（可能包含多个JSON）
  * @returns 解析后的内容对象 { reasoning: string, content: string }
@@ -61,46 +69,32 @@ export function parseAggregatedContent(rawContent: string): {
   const reasoningParts: string[] = [];
   const contentParts: string[] = [];
 
-  // 使用正则表达式匹配完整的JSON模式：
-  // {"content":"..."} 或 {"reasoning_content":"..."}
-  // 关键点: 字符串内部可以有任意字符，包括代码中的{和}，只要正确转义"
-  // 模式解释:
-  //   \{  - 匹配{
-  //   "(?:content|reasoning_content)":"  - 匹配键名和:"
-  //   (?:[^"\\]|\\.)*  - 匹配字符串值: 非"字符或转义序列（包括\", \\, \/等）
-  //   "\}  - 匹配闭合的"
-  const jsonPattern = /\{"(?:content|reasoning_content)":"(?:[^"\\]|\\.)*"\}/g;
+  // 改进的正则：匹配完整的JSON对象，支持两个键值对和null值
+  // 支持格式：{"key":"value"} 或 {"key1":"val1","key2":null}
+  const jsonPattern = /\{(?:"(?:content|reasoning_content)":(?:"(?:[^"\\]|\\.)*"|null)(?:,(?:"(?:content|reasoning_content)":(?:"(?:[^"\\]|\\.)*"|null)))?)\}/g;
 
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
   while ((match = jsonPattern.exec(rawContent)) !== null) {
-    // 两个JSON之间的内容（原始文本或代码）
+    // 添加JSON之间的内容（代码或普通文本）
     const betweenContent = rawContent.slice(lastIndex, match.index);
     if (betweenContent) {
-      // 这是代码或普通文本，直接添加到content
       contentParts.push(betweenContent);
     }
 
-    // 解析匹配的JSON
-    try {
-      const chunkContent = match[0]; // 完整的JSON字符串
-      const parsed = parseLLMChunk(chunkContent);
-
-      if (parsed.isReasoning) {
-        reasoningParts.push(parsed.content);
-      } else {
-        contentParts.push(parsed.content);
-      }
-    } catch (error) {
-      // 解析失败，作为普通内容
-      contentParts.push(match[0]);
+    // 解析JSON，提取内容
+    const parsed = parseLLMChunk(match[0]);
+    if (parsed.isReasoning) {
+      reasoningParts.push(parsed.content);
+    } else {
+      contentParts.push(parsed.content);
     }
 
     lastIndex = jsonPattern.lastIndex;
   }
 
-  // 处理剩余的内容（如果有）
+  // 处理剩余内容
   const remainingContent = rawContent.slice(lastIndex);
   if (remainingContent) {
     contentParts.push(remainingContent);
@@ -115,23 +109,13 @@ export function parseAggregatedContent(rawContent: string): {
 /**
  * 构建前端渲染格式的内容
  * 推理内容包裹在<thinking>标签中
- *
- * @param content 内容字符串
- * @param isReasoning 是否为推理内容
- * @returns 格式化后的内容
  */
 export function buildFrontendContent(content: string, isReasoning: boolean): string {
-  if (isReasoning) {
-    return `<thinking>${content}</thinking>`;
-  }
-  return content;
+  return isReasoning ? `<thinking>${content}</thinking>` : content;
 }
 
 /**
  * 批量处理LLM输出，分离推理历史和对话历史
- *
- * @param chunks LLM输出的chunk数组
- * @returns 分离后的结果 { reasoningHistory: string[], contentHistory: string[] }
  */
 export function splitLLMOutput(chunks: string[]): {
   reasoningHistory: string[];
@@ -142,7 +126,6 @@ export function splitLLMOutput(chunks: string[]): {
 
   for (const chunk of chunks) {
     const parsed = parseLLMChunk(chunk);
-
     if (parsed.isReasoning) {
       reasoningHistory.push(parsed.content);
     } else {
