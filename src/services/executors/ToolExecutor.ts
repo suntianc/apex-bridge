@@ -230,3 +230,19 @@ export class ToolExecutorManager {
     return undefined;
   }
 }
+
+/**
+ * 工具执行器管理器实例
+ */
+let toolExecutorManagerInstance: ToolExecutorManager | null = null;
+
+/**
+ * 获取工具执行器管理器实例
+ * @returns 管理器实例
+ */
+export function getToolExecutorManager(): ToolExecutorManager {
+  if (!toolExecutorManagerInstance) {
+    toolExecutorManagerInstance = new ToolExecutorManager();
+  }
+  return toolExecutorManagerInstance;
+}

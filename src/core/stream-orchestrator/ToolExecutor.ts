@@ -1,21 +1,22 @@
 import PQueue from 'p-queue';
 import type { ToolCall, ToolResult } from './types';
-import { SkillExecutor } from '../skills/SkillExecutor';
+import { ToolExecutorManager } from '../../services/executors/ToolExecutor';
 
 export interface ToolExecutorOptions {
   maxConcurrency?: number;
-  skillExecutor?: SkillExecutor;
 }
 
 export class ToolExecutor {
   private queue: PQueue;
-  private skillExecutor: SkillExecutor;
+  private executorManager: ToolExecutorManager;
 
   constructor(options: ToolExecutorOptions = {}) {
     this.queue = new PQueue({
       concurrency: options.maxConcurrency ?? 5
     });
-    this.skillExecutor = options.skillExecutor ?? new SkillExecutor();
+    // Create a new instance of ToolExecutorManager instead of using singleton
+    // to avoid circular dependency issues
+    this.executorManager = new ToolExecutorManager();
   }
 
   async *executeStreaming(
@@ -56,9 +57,10 @@ export class ToolExecutor {
   }
 
   private async executeTool(call: ToolCall, iteration: number): Promise<ToolResult> {
-    const skill = this.skillExecutor.getSkillByName(call.function.name);
+    // Find the tool using executor manager
+    const toolInfo = this.executorManager.findTool(call.function.name);
 
-    if (!skill) {
+    if (!toolInfo) {
       return {
         toolCallId: call.id,
         name: call.function.name,
@@ -72,14 +74,19 @@ export class ToolExecutor {
     const startTime = Date.now();
 
     try {
-      const result = await this.skillExecutor.executeSkill(skill, JSON.parse(call.function.arguments || '{}'));
+      // Execute the tool using the appropriate executor
+      const result = await this.executorManager.execute(toolInfo.type, {
+        name: call.function.name,
+        args: JSON.parse(call.function.arguments || '{}')
+      });
       const durationMs = Date.now() - startTime;
 
       return {
         toolCallId: call.id,
         name: call.function.name,
-        status: 'success',
-        result,
+        status: result.success ? 'success' : 'error',
+        result: result.success ? result.output : null,
+        error: result.success ? undefined : result.error,
         durationMs
       };
     } catch (error) {

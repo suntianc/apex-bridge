@@ -26,7 +26,6 @@ import type { ChatStrategy } from '../strategies/ChatStrategy';
 import { SingleRoundStrategy } from '../strategies/SingleRoundStrategy';
 import { ReActStrategy } from '../strategies/ReActStrategy';
 import type { Tool } from '../core/stream-orchestrator/types';
-import { SkillExecutor } from '../core/skills/SkillExecutor';
 import { LLMManagerAdapter } from '../core/stream-orchestrator/LLMAdapter';
 import { parseAggregatedContent } from '../api/utils/stream-parser';
 import { VariableEngine } from '../core/variable/VariableEngine';
