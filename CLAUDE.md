@@ -1,353 +1,122 @@
-<!-- OPENSPEC:START -->
-# OpenSpec Instructions
+# CLAUDE.md
 
-These instructions are for AI assistants working in this project.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+<!-- OPENSPEC:START -->
+## OpenSpec Instructions
 
 Always open `@/openspec/AGENTS.md` when the request:
 - Mentions planning or proposals (words like proposal, spec, change, plan)
 - Introduces new capabilities, breaking changes, architecture shifts, or big performance/security work
 - Sounds ambiguous and you need the authoritative spec before coding
-
-Use `@/openspec/AGENTS.md` to learn:
-- How to create and apply change proposals
-- Spec format and conventions
-- Project structure and guidelines
-
-Keep this managed block so 'openspec update' can refresh the instructions.
-
 <!-- OPENSPEC:END -->
 
-# ApexBridge - 轻量级ABP聊天服务
+## Project Overview
 
-> **项目愿景**: 一个专注于ABP协议和LLM集成的轻量级聊天服务，支持多LLM提供商、Skills体系和实时流式对话。刚刚完成了ChatService重构，应用策略模式将1406行上帝类拆分为6个高内聚服务。
+ApexBridge is a lightweight ABP (AI Bridge Protocol) chat service focused on LLM integration. Key features:
+- Multi-LLM provider support (OpenAI, DeepSeek, Zhipu, Ollama) via adapter pattern
+- Skills system for tool execution (Direct/Internal execution types)
+- Strategy pattern for chat processing (ReAct multi-round thinking, SingleRound fast response)
+- WebSocket real-time streaming with interrupt support
+- SQLite-based LLM configuration management
 
-## 🏗️ 架构总览
+## Common Commands
 
-```mermaid
-graph TD
-    A["ApexBridge 轻量级服务"] --> B["核心引擎"];
-    B --> C["Protocol引擎<br/>ABP协议处理"];
-    B --> D["LLM管理器<br/>多提供商适配"];
-    B --> E["变量引擎<br/>动态变量解析"];
-    B --> F["Skills体系<br/>轻量级插件"];
-
-    A --> G["服务层"];
-    G --> H["聊天服务<br/>策略模式重构"];
-    G --> I["配置服务<br/>动态配置"];
-    G --> J["LLM配置服务<br/>SQLite管理"];
-    G --> K["会话管理<br/>生命周期"];
-    G --> L["请求追踪<br/>中断处理"];
-
-    A --> M["API接口"];
-    M --> N["聊天控制器<br/>OpenAI兼容"];
-    M --> O["LLM控制器<br/>配置管理"];
-    M --> P["WebSocket管理<br/>实时通信"];
-
-    A --> Q["策略层"];
-    Q --> R["ReAct策略<br/>多轮思考"];
-    Q --> S["单轮策略<br/>快速响应"];
-
-    click C "./src/core/ProtocolEngine.ts" "查看Protocol引擎实现"
-    click D "./src/core/LLMManager.ts" "查看LLM管理器实现"
-    click E "./src/core/variable/VariableEngine.ts" "查看变量引擎实现"
-    click H "./src/services/ChatService.ts" "查看聊天服务策略重构"
-    click R "./src/strategies/ReActStrategy.ts" "查看ReAct策略实现"
-    click S "./src/strategies/SingleRoundStrategy.ts" "查看单轮策略实现"
-```
-
-## 📦 核心模块
-
-| 模块 | 路径 | 职责 | 状态 |
-|------|------|------|------|
-| **核心引擎** | `src/core/` | ABP协议、LLM管理、变量引擎、Skills体系 | ✅ 活跃 |
-| **聊天服务** | `src/services/ChatService.ts` | 策略模式重构，支持ReAct和单轮策略 | ✅ 重构完成 |
-| **API层** | `src/api/` | 聊天接口、LLM配置、WebSocket通信 | ✅ 活跃 |
-| **策略层** | `src/strategies/` | ReAct多轮思考和单轮快速响应策略 | ✅ 新增 |
-| **LLM配置** | `src/services/LLMConfigService.ts` | SQLite存储多提供商配置 | ✅ 活跃 |
-| **会话管理** | `src/services/SessionManager.ts` | 对话生命周期和元数据管理 | ✅ 新增 |
-
-## 🚀 运行与开发
-
-### 📋 环境要求
-- **Node.js** ≥ 16.0.0
-- **npm** ≥ 8.0.0 或 **yarn** ≥ 1.22.0
-- **Git** （版本控制）
-
-### ⚡ 快速开始
 ```bash
-# 1. 克隆项目
-git clone https://github.com/your-username/apex-bridge.git
-cd apex-bridge
+# Development
+npm run dev              # Start dev server with hot reload (nodemon + ts-node)
+npm run build            # TypeScript compilation
+npm start                # Run compiled dist/server.js
 
-# 2. 更新徽章配置（替换为你的GitHub用户名）
-./scripts/update-badges.sh your-username
+# Testing
+npm test                 # Run all Jest tests
+npm run test:watch       # Watch mode for development
+npm run test:coverage    # Generate coverage report
+npm test -- <pattern>    # Run specific test (e.g., npm test -- ReActStrategy)
 
-# 3. 安装所有模块依赖
-npm run install:all
+# Code Quality
+npm run lint             # ESLint check
+npm run lint:fix         # Auto-fix lint issues
+npm run format           # Prettier format all files
+npm run format:check     # Check formatting without changes
 
-# 4. 配置环境变量
-cp apex-bridge/env.template .env
-# 编辑 .env 文件配置LLM提供商API密钥
-
-# 5. 开发模式
-npm run dev
+# Build
+npm run build:all        # Build server + admin panel
+npm run clean            # Remove dist directory
 ```
 
-### 📦 依赖管理
-```bash
-# 安装所有模块依赖
-npm run install:all
+## Architecture
 
-# 更新所有模块依赖
-npm run update:all
+### Core Engines (`src/core/`)
+- **ProtocolEngine** - ABP protocol parsing, tool call handling via Skills mapping, variable resolution
+- **LLMManager** - Multi-provider adapter pattern, streaming support, retry with exponential backoff
+- **VariableEngine** (`src/core/variable/`) - Dynamic variable resolution (time, environment, placeholders)
+- **EventBus** - Internal event system
 
-# 检查依赖安全
-npm run audit:all
+### Service Layer (`src/services/`)
+- **ChatService** - Main orchestrator using strategy pattern (~200 lines after refactor)
+- **SessionManager** - Conversation lifecycle, metadata management
+- **RequestTracker** - Active request tracking, interrupt handling
+- **LLMConfigService** - SQLite-based provider/model configuration
+- **ConversationHistoryService** - Chat history persistence
+
+### Strategy Layer (`src/strategies/`)
+- **ChatStrategy** interface - Contract for chat strategies
+- **ReActStrategy** - Multi-round thinking with tool calls (`options.selfThinking.enabled = true`)
+- **SingleRoundStrategy** - Fast single response (default)
+
+### API Layer (`src/api/`)
+- **controllers/** - REST endpoints (Chat: `/v1/chat/completions`, LLM config: `/api/llm/*`)
+- **websocket/** - WebSocket manager for streaming
+- **middleware/** - 15+ middlewares (auth, rate limit, validation, security)
+
+### Data Flow
+```
+Request → Controller → ChatService → Strategy Selection → LLMManager → Provider Adapter
+                                  ↓
+                           ProtocolEngine (tool calls) → Skills System
 ```
 
-## 🔧 核心架构特色
+## Key Patterns
 
-### 🧠 ChatService策略重构（2025-11-30更新）
-- **策略模式**: 将1406行上帝类拆分为6个高内聚服务
-- **ReAct策略**: 支持多轮思考和工具调用的复杂对话
-- **单轮策略**: 快速响应的简单对话模式
-- **服务拆分**: ChatService、SessionManager、RequestTracker、VariableResolver、AceIntegrator、ConversationHistoryService
+### Adding a New LLM Provider
+1. Create adapter in `src/core/llm/adapters/`
+2. Implement the adapter interface with `chat()` and `chatStream()` methods
+3. Register in `LLMManager.initializeAdapters()`
+4. Add configuration via `/api/llm/providers` endpoint
 
-### 🧠 ABP协议引擎（ABP-only）
-- **独立实现**: 不再依赖任何外部SDK，完全自主的ABP协议处理
-- **Skills体系**: 取代传统插件，支持两段执行器（Direct/Internal）
-- **变量解析**: 支持时间、环境、占位符等多种变量类型
-- **工具描述**: 动态生成工具描述，简化工具调用流程
-
-### 🎯 多LLM支持
-- **适配器模式**: 统一接口支持OpenAI、DeepSeek、智谱、Ollama等
-- **SQLite配置**: 从数据库加载配置，支持运行时热更新
-- **智能重试**: 自动重试机制，支持指数退避
-- **流式响应**: 支持流式聊天和实时中断
-
-### 🔐 安全与监控
-- **多层认证**: API Key认证机制
-- **速率限制**: 智能限流，支持IP和API Key双重策略
-- **安全中间件**: 输入清理、路径遍历防护、安全日志记录
-- **实时通信**: WebSocket支持双向通信和请求中断
-
-### 🧪 新增服务组件
-- **会话管理器**: 管理对话生命周期和元数据
-- **请求追踪器**: 跟踪活动请求，支持中断处理
-- **变量解析器**: 处理消息中的动态变量
-- **ACE集成器**: 集成ACE引擎的轨迹记录
-
-## 🧪 测试策略
-
-### 测试层级
-1. **单元测试** - 核心引擎和服务层（Jest）
-2. **集成测试** - API接口和WebSocket
-3. **端到端测试** - 完整用户场景
-
-### 运行测试
-```bash
-# 在主目录运行所有测试
-cd apex-bridge
-npm test
-
-# 覆盖率报告
-npm run test:coverage
-
-# 特定测试
-npm test -- ReActStrategy.test.ts
-```
-
-### 测试覆盖重点
-- ABP协议变量解析与Skills执行
-- 多LLM提供商适配和切换
-- WebSocket连接和消息处理
-- 策略模式的不同执行路径
-- 请求中断和流式响应机制
-
-## 📋 编码规范
-
-### TypeScript规范
-- 严格模式启用 (`strict: true`)
-- 明确的类型定义和接口设计
-- 函数式编程优先，类用于明确抽象
-- 错误处理和日志记录标准化
-
-### 项目结构规范
-```
-apex-bridge/
-├── src/
-│   ├── core/           # 核心引擎（Protocol、LLM、变量、Skills等）
-│   ├── services/       # 业务逻辑服务（ChatService策略重构）
-│   ├── strategies/     # 聊天策略（ReAct和单轮策略）
-│   ├── api/            # API接口和控制器
-│   ├── types/          # 类型定义
-│   ├── utils/          # 工具函数
-│   └── config/         # 配置管理
-├── tests/              # 测试套件
-├── config/             # 配置文件
-└── docs/               # 文档
-```
-
-### 命名约定
-- **类名**: PascalCase (如: `ProtocolEngine`, `LLMManager`)
-- **函数和变量**: camelCase (如: `loadConfig`, `systemPrompt`)
-- **常量**: UPPER_SNAKE_CASE (如: `DEFAULT_TIMEOUT`, `MAX_RETRIES`)
-- **文件和目录**: kebab-case (如: `protocol-engine.ts`, `chat-controller.ts`)
-
-## 🤖 AI 使用指引
-
-### 核心引擎理解路径
-1. **ProtocolEngine** (`src/core/ProtocolEngine.ts`)
-   - 独立实现，不再依赖任何外部SDK
-   - 处理ABP协议解析和工具调用（经Skills映射执行）
-   - 处理变量解析与工具描述生成
-   - 轻量级设计，专注于核心聊天功能
-
-2. **LLMManager** (`src/core/LLMManager.ts`)
-   - 多提供商适配器模式
-   - 支持OpenAI、DeepSeek、智谱、Ollama
-   - 流式聊天和重试机制
-   - 与ProtocolEngine深度集成
-
-3. **ChatService策略重构** (`src/services/ChatService.ts`)
-   - 应用策略模式拆分上帝类
-   - 支持ReAct多轮思考和单轮快速响应
-   - 6个高内聚服务协同工作
-   - 会话管理和请求追踪集成
-
-### Skills 开发指南
-1. **目录结构**
-   - `SKILL.md`：前言区含ABP配置（tools/kind/parameters），正文提供执行指令与注意事项
-   - `scripts/execute.ts`：技能执行入口（默认导出）
-   - `references/`、`assets/`：参考资料与资源
-
-2. **技能执行类型**
-   - **Direct（直接执行）**: 本地同步执行，默认类型
-   - **Internal（内部执行）**: 核心系统内置技能
-   - 简化的执行模型，专注于轻量级场景
-
-### 策略模式扩展
+### Adding a New Chat Strategy
 ```typescript
-// 1. 创建新策略
 // src/strategies/NewStrategy.ts
 export class NewStrategy implements ChatStrategy {
-  supports(options: ChatOptions): boolean {
-    // 判断是否支持该选项
-  }
-
-  async execute(messages: Message[], options: ChatOptions): Promise<ChatResult> {
-    // 实现策略逻辑
-  }
+  supports(options: ChatOptions): boolean { /* condition */ }
+  async execute(messages: Message[], options: ChatOptions): Promise<ChatResult> { /* logic */ }
 }
 
-// 2. 注册到ChatService
-// src/services/ChatService.ts 构造函数中
-this.strategies = [
-  new ReActStrategy(...),
-  new SingleRoundStrategy(...),
-  new NewStrategy(...) // 添加新策略
-];
+// Register in ChatService constructor
+this.strategies = [...existing, new NewStrategy(...)];
 ```
 
-## 📊 变更记录 (Changelog)
+### Skills Development
+Skills are defined in `skills/` directories with:
+- `SKILL.md` - Frontmatter with ABP config (tools/kind/parameters), body with execution instructions
+- `scripts/execute.ts` - Execution entry point (default export)
+- Execution types: **Direct** (local sync), **Internal** (core system built-in)
 
-### 2025-11-30 - ChatService策略重构完成
-- ✅ **策略模式重构**: 将1406行上帝类拆分为6个高内聚服务
-  - ChatService: 主服务协调（~200行）
-  - SessionManager: 会话生命周期管理
-  - RequestTracker: 活动请求追踪和中断处理
-  - VariableResolver: 动态变量解析（30秒缓存）
-  - AceIntegrator: ACE引擎轨迹集成
-  - ConversationHistoryService: 对话历史管理
+## Naming Conventions
+- **Classes**: PascalCase (`ProtocolEngine`, `LLMManager`)
+- **Functions/Variables**: camelCase (`loadConfig`, `systemPrompt`)
+- **Constants**: UPPER_SNAKE_CASE (`DEFAULT_TIMEOUT`, `MAX_RETRIES`)
+- **Files**: kebab-case (`protocol-engine.ts`, `chat-controller.ts`)
 
-- ✅ **新增策略层**: 创建独立的策略模式实现
-  - ChatStrategy接口: 定义策略契约
-  - ReActStrategy: 多轮思考和工具调用
-  - SingleRoundStrategy: 快速单轮响应
+## Configuration
+- Main config: `config/admin-config.json`
+- LLM providers stored in SQLite: `data/llm_providers.db`
+- Environment variables via `.env` (copy from `env.template`)
 
-- ✅ **架构优化**: 服务职责清晰分离
-  - 策略选择逻辑: 根据options.selfThinking.enabled自动选择
-  - 流式支持: 两种策略都支持流式输出
-  - ACE集成: 统一的轨迹记录和会话管理
-
-- ✅ **代码质量提升**:
-  - 平均每个服务<300行代码
-  - 高内聚低耦合设计
-  - 完整的TypeScript类型支持
-
-### 2025-11-19 - 架构简化与代码清理
-- ✅ **中间件简化**: 7个中间件文件简化，平均减少53.4%代码量
-  - rateLimitMiddleware: 673→374行 (-44.4%)
-  - validationMiddleware: 414→167行 (-59.4%)
-  - auditLoggerMiddleware: 250→67行 (-73.2%)
-  - sanitizationMiddleware: 302→134行 (-55.6%)
-  - securityLoggerMiddleware: 233→105行 (-54.9%)
-  - customValidators: 171→62行 (-63.7%)
-  - validationSchemas: 224→172行 (-23.2%)
-
-- ✅ **Services精简**: 移除4个过度设计的服务，简化ConfigService
-  - 删除: DiaryArchiveService, SecurityAlertService, SecurityStatsService
-  - 简化: ConfigService 1005→470行 (-53.2%)
-  - 删除: RaceDetector, TransactionManager, Mutex等并发工具
-  - 总计减少: ~1,300行代码
-
-- ✅ **Types优化**: 移除未使用的类型定义
-  - 删除: personality.ts (51行)
-  - 简化: index.ts 移除了LLMQuotaConfig等未使用类型
-  - 简化: skills.ts SkillExecutionType从6种减少到2种
-  - 总计减少: ~288行代码
-
-- ✅ **功能清理**: 移除非核心功能
-  - 删除: plugin-callback.ts (异步插件回调)
-  - 删除: AsyncResultProvider及相关服务
-  - 删除: DemoAsyncTask技能示例
-  - 总计减少: ~600行代码
-
-- ✅ **架构简化成果**:
-  - **总代码减少**: ~2,200+行（从复杂分布式系统简化为轻量级ABP聊天服务）
-  - **编译状态**: ✅ 全部通过
-  - **架构清晰**: 专注于核心聊天功能，去除过度工程化设计
-
-### 2025-11-16 - 项目初始化扫描
-- ✅ 完成项目结构分析和模块识别
-- ✅ 分析核心架构：ABP协议引擎、Skills体系、多LLM支持
-- ✅ 识别关键组件：人格引擎、情感引擎、记忆系统、分布式节点
-- ✅ 建立模块文档体系框架
-- ✅ 生成架构图和模块索引
-
-### 扫描覆盖率（当前）
-- **总文件数**: ~89个文件（精简后架构）
-- **核心代码**: 结构清晰，模块职责明确
-- **架构状态**: 轻量级、专注、易维护
-- **策略重构**: 完成ChatService策略模式拆分
-
-## 🎯 当前架构特点
-
-### ✅ 保留的核心功能
-1. **ProtocolEngine** - ABP协议处理核心
-2. **LLMManager** - 多LLM提供商支持
-3. **VariableEngine** - 变量解析系统
-4. **ChatService** - 策略模式重构的聊天服务
-5. **Skills体系** - 简化的技能执行（Direct/Internal）
-6. **WebSocket** - 实时通信
-7. **LLMConfigService** - LLM配置管理
-
-### 🆕 新增策略模式
-1. **ChatStrategy接口** - 统一的策略契约
-2. **ReActStrategy** - 支持多轮思考和工具调用
-3. **SingleRoundStrategy** - 快速单轮响应
-4. **服务拆分** - 6个高内聚的独立服务
-
-### 🎯 设计理念
-- **KISS原则**: 保持简单，专注于核心聊天功能
-- **YAGNI原则**: 移除当前不需要的复杂功能
-- **策略模式**: 根据不同场景选择最优处理策略
-- **单一职责**: 每个服务职责清晰，便于维护
-- **类型安全**: 严格的TypeScript类型定义
-- **编译通过**: 所有重构都保证编译成功
-
----
-
-**更新时间**: 2025-11-30 18:21:54
-**扫描覆盖**: 25/89文件 (28.1%)
-**架构状态**: 策略重构完成，代码质量显著提升
+## Important Files
+- `src/server.ts` - Application entry point
+- `src/core/ProtocolEngine.ts` - Core ABP protocol handling
+- `src/core/LLMManager.ts` - LLM provider orchestration
+- `src/services/ChatService.ts` - Chat service with strategy pattern
+- `src/strategies/ReActStrategy.ts` - Multi-round thinking implementation
