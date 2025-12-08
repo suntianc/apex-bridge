@@ -21,10 +21,8 @@ import { LLMModelType } from '../types/llm-models';
 import { logger } from '../utils/logger';
 import { LLMConfigService } from './LLMConfigService';
 
-// 导入transformers.js用于本地嵌入模型
-let transformers: any = null;
-let embeddingPipeline: any = null;
-let embeddingModel: string | null = null;
+// LLMManager 延迟导入，避免循环依赖
+let llmManagerInstance: any = null;
 
 /**
  * Skills向量表接口
@@ -49,8 +47,6 @@ export class ToolRetrievalService {
   private table: lancedb.Table | null = null;
   private config: ToolRetrievalConfig;
   private isInitialized = false;
-  private embeddingModelConfig: any = null;
-  private providerConfig: any = null;
 
   constructor(config: ToolRetrievalConfig) {
     this.config = config;
@@ -78,10 +74,7 @@ export class ToolRetrievalService {
       // 1. 连接到LanceDB
       await this.connectToLanceDB();
 
-      // 2. 加载Embedding模型配置
-      await this.loadEmbeddingModelConfig();
-
-      // 3. 创建或打开向量表
+      // 2. 创建或打开向量表
       await this.initializeSkillsTable();
 
       this.isInitialized = true;
@@ -118,46 +111,6 @@ export class ToolRetrievalService {
         ToolErrorCode.VECTOR_DB_ERROR
       );
     }
-  }
-
-  /**
-   * 加载Embedding模型配置
-   */
-  private async loadEmbeddingModelConfig(): Promise<void> {
-    try {
-      const llmConfigService = LLMConfigService.getInstance();
-
-      // 获取默认的Embedding模型配置
-      this.embeddingModelConfig = await llmConfigService.getDefaultModel(LLMModelType.EMBEDDING);
-
-      if (!this.embeddingModelConfig) {
-        logger.warn('No default embedding model found, will create default configuration');
-        await this.ensureDefaultEmbeddingModel();
-        return;
-      }
-
-      this.providerConfig = await llmConfigService.getProvider(
-        this.embeddingModelConfig.providerId
-      );
-
-      logger.info('Loaded embedding model configuration:', {
-        modelKey: this.embeddingModelConfig.modelKey,
-        modelType: this.embeddingModelConfig.modelType,
-        isLocal: this.embeddingModelConfig.modelConfig?.local
-      });
-
-    } catch (error) {
-      logger.error('Failed to load embedding model configuration:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * 确保存在默认的Embedding模型配置
-   */
-  private async ensureDefaultEmbeddingModel(): Promise<void> {
-    logger.warn('Embedding model auto-creation is not implemented yet. Please configure embedding model manually.');
-    throw new Error('No embedding model configured');
   }
 
   /**
@@ -280,12 +233,8 @@ export class ToolRetrievalService {
     try {
       logger.debug(`Generating embedding for skill: ${skill.name}`);
 
-      // 检查是否需要使用本地嵌入模型
-      if (this.embeddingModelConfig?.modelConfig?.local) {
-        return await this.generateLocalEmbedding(skill);
-      } else {
-        return await this.generateRemoteEmbedding(skill);
-      }
+      // 优先使用远程 embedding API（数据库配置的模型）
+      return await this.generateRemoteEmbedding(skill);
 
     } catch (error) {
       logger.error(`Failed to generate embedding for ${skill.name}:`, error);
@@ -297,57 +246,7 @@ export class ToolRetrievalService {
   }
 
   /**
-   * 使用本地嵌入模型生成向量
-   */
-  private async generateLocalEmbedding(skill: {
-    name: string;
-    description: string;
-    tags: string[];
-  }): Promise<number[]> {
-    try {
-      // 延迟加载transformers.js（首次调用时加载）
-      if (!transformers) {
-        logger.info('Loading transformers.js for local embedding...');
-        transformers = await import('@xenova/transformers');
-      }
-
-      // 加载或获取嵌入管道
-      const modelName = this.embeddingModelConfig.modelKey;
-      if (!embeddingPipeline || embeddingModel !== modelName) {
-        logger.info(`Loading embedding model: ${modelName}`);
-
-        const modelPath = this.embeddingModelConfig.modelConfig.modelPath;
-
-        embeddingPipeline = await transformers.pipeline(
-          'feature-extraction',
-          modelPath
-        );
-
-        embeddingModel = modelName;
-        logger.info(`Embedding model loaded: ${modelName}`);
-      }
-
-      // 准备文本（名称 + 描述 + 标签）
-      const text = this.prepareEmbeddingText(skill);
-
-      // 生成向量
-      const result = await embeddingPipeline(text);
-
-      // 转换为数组并归一化
-      const vector = await this.normalizeVector(result);
-
-      logger.debug(`Generated local embedding: ${vector.length} dimensions`);
-
-      return vector;
-
-    } catch (error) {
-      logger.error('Local embedding generation failed:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * 使用远程API生成嵌入
+   * 使用远程API生成嵌入（通过 LLMManager 调用数据库配置的 embedding 模型）
    */
   private async generateRemoteEmbedding(skill: {
     name: string;
@@ -355,10 +254,25 @@ export class ToolRetrievalService {
     tags: string[];
   }): Promise<number[]> {
     try {
-      // 这里应该调用LLMManager.embed()方法
-      // 暂时使用本地模型作为后备
-      logger.warn('Remote embedding not implemented, falling back to local');
-      return await this.generateLocalEmbedding(skill);
+      // 延迟导入 LLMManager，避免循环依赖
+      if (!llmManagerInstance) {
+        const { LLMManager } = await import('../core/LLMManager');
+        llmManagerInstance = new LLMManager();
+      }
+
+      // 准备文本（名称 + 描述 + 标签）
+      const text = this.prepareEmbeddingText(skill);
+
+      // 调用 LLMManager.embed() - 会自动使用数据库配置的默认 embedding 模型
+      const embeddings = await llmManagerInstance.embed([text]);
+
+      if (!embeddings || embeddings.length === 0 || !embeddings[0]) {
+        throw new Error('Empty embedding result');
+      }
+
+      logger.debug(`Generated remote embedding: ${embeddings[0].length} dimensions`);
+
+      return embeddings[0];
     } catch (error) {
       logger.error('Remote embedding generation failed:', error);
       throw error;
@@ -380,40 +294,6 @@ export class ToolRetrievalService {
     ];
 
     return parts.join(' ').trim();
-  }
-
-  /**
-   * 归一化向量
-   */
-  private async normalizeVector(tensor: any): Promise<number[]> {
-    // 从tensor中提取数据
-    const data = await this.extractTensorData(tensor);
-
-    // 归一化
-    const norm = Math.sqrt(data.reduce((sum, val) => sum + val * val, 0));
-    if (norm === 0) return data;
-
-    return data.map(val => val / norm);
-  }
-
-  /**
-   * 从tensor提取数据
-   */
-  private async extractTensorData(tensor: any): Promise<number[]> {
-    // 处理不同的tensor格式
-    if (Array.isArray(tensor)) {
-      return tensor;
-    }
-
-    if (tensor.data) {
-      return Array.from(tensor.data);
-    }
-
-    if (tensor.tolist) {
-      return await tensor.tolist();
-    }
-
-    throw new Error('Unsupported tensor format');
   }
 
   /**
@@ -803,7 +683,7 @@ export class ToolRetrievalService {
     return {
       initialized: this.isInitialized,
       config: this.config,
-      embeddingModel: this.embeddingModelConfig?.modelKey || 'not-loaded'
+      embeddingModel: 'using-llm-manager'  // 通过 LLMManager 动态获取
     };
   }
 

@@ -19,6 +19,12 @@ export interface ReActOptions {
   /** 是否启用流式工具支持 (默认: false) */
   enableStreamingTools?: boolean;
 
+  /** 是否启用 tool_action 标签解析 (默认: true) */
+  enableToolActionParsing?: boolean;
+
+  /** tool_action 工具执行超时时间(ms) (默认: 30000) */
+  toolActionTimeout?: number;
+
   /** LLM提供商 (默认: 系统默认) */
   provider?: string;
 

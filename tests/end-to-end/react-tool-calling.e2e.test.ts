@@ -103,7 +103,6 @@ jest.mock('../../src/services/ToolRetrievalService', () => ({
 
 import { ReActStrategy } from '../../src/strategies/ReActStrategy';
 import { LLMManager } from '../../src/core/LLMManager';
-import { VariableResolver } from '../../src/services/VariableResolver';
 import { AceIntegrator } from '../../src/services/AceIntegrator';
 import { ConversationHistoryService } from '../../src/services/ConversationHistoryService';
 import { SkillManager } from '../../src/services/SkillManager';
@@ -165,7 +164,6 @@ describe('ReAct策略工具调用端到端测试', () => {
 
   // Mock服务（因为实际依赖复杂）
   let mockLLMManager: any;
-  let mockVariableResolver: any;
   let mockAceIntegrator: any;
   let mockHistoryService: any;
 
@@ -223,11 +221,6 @@ describe('ReAct策略工具调用端到端测试', () => {
       supportsStreaming: jest.fn().mockReturnValue(true)
     };
 
-    // Mock VariableResolver
-    mockVariableResolver = {
-      resolve: jest.fn().mockImplementation(async (messages) => messages)
-    };
-
     // Mock AceIntegrator
     mockAceIntegrator = {
       isEnabled: jest.fn().mockReturnValue(false),
@@ -254,10 +247,9 @@ describe('ReAct策略工具调用端到端测试', () => {
     });
     await retrievalService.initialize();
 
-    // 创建ReActStrategy实例
+    // 创建ReActStrategy实例（构造函数已更新，不再需要 variableEngine）
     reactStrategy = new ReActStrategy(
       mockLLMManager as any,
-      mockVariableResolver as VariableResolver,
       mockAceIntegrator as AceIntegrator,
       mockHistoryService as ConversationHistoryService
     );

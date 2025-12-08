@@ -20,7 +20,6 @@ import { AceService } from './AceService';
 import { ConversationHistoryService, type ConversationMessage } from './ConversationHistoryService';
 import { SessionManager } from './SessionManager';
 import { RequestTracker } from './RequestTracker';
-import { VariableResolver } from './VariableResolver';
 import { AceIntegrator } from './AceIntegrator';
 import type { ChatStrategy } from '../strategies/ChatStrategy';
 import { SingleRoundStrategy } from '../strategies/SingleRoundStrategy';
@@ -45,8 +44,8 @@ export class ChatService {
   // 🆕 请求追踪器
   private requestTracker: RequestTracker;
 
-  // 🆕 变量解析器
-  private variableResolver: VariableResolver;
+  // 🆕 变量引擎（统一的变量解析）
+  private variableEngine: VariableEngine;
 
   // 🆕 ACE集成器
   private aceIntegrator: AceIntegrator;
@@ -73,16 +72,17 @@ export class ChatService {
     // 初始化请求追踪器（5分钟超时）
     this.requestTracker = new RequestTracker(null, 300000);
 
-    // 初始化变量解析器（30秒缓存）
-    this.variableResolver = new VariableResolver(this.protocolEngine, 30000);
+    // 初始化变量引擎（30秒缓存）
+    this.variableEngine = new VariableEngine({ cacheTtlMs: 30000 });
 
     // 初始化ACE集成器
     this.aceIntegrator = new AceIntegrator(this.aceService);
 
     // 初始化策略（构造时立即初始化，因为LLMManager已传入）
+    // 注意：策略不再需要 variableEngine，变量注入由 ChatService 统一处理
     this.strategies = [
-      new ReActStrategy(this.llmManager, this.variableResolver, this.aceIntegrator, this.conversationHistoryService),
-      new SingleRoundStrategy(this.llmManager, this.variableResolver, this.aceIntegrator, this.conversationHistoryService)
+      new ReActStrategy(this.llmManager, this.aceIntegrator, this.conversationHistoryService),
+      new SingleRoundStrategy(this.llmManager, this.aceIntegrator, this.conversationHistoryService)
     ];
     logger.debug('[ChatService] Chat strategies initialized');
 
@@ -143,50 +143,56 @@ export class ChatService {
   }
 
   /**
-   * 🆕 注入系统提示词（公共方法，供processMessage和streamMessage使用）
+   * 🆕 统一的消息预处理：注入系统提示词 + 变量替换
+   * 合并了原来分散在 ChatService 和 Strategy 中的变量注入逻辑
+   * @param messages 原始消息数组
+   * @param options 聊天选项
+   * @param strategyVariables 策略提供的额外变量（如 available_tools）
    */
-  private async injectSystemPrompt(messages: Message[], options: ChatOptions): Promise<Message[]> {
-    const hasSystemMessage = messages.some(m => m.role === 'system');
+  private async prepareMessages(
+    messages: Message[],
+    options: ChatOptions,
+    strategyVariables: Record<string, string> = {}
+  ): Promise<Message[]> {
+    let processedMessages = [...messages];
 
+    // 1. 注入系统提示词（如果没有）
+    const hasSystemMessage = processedMessages.some(m => m.role === 'system');
     if (!hasSystemMessage) {
-      // 获取系统提示词模板副本（从Markdown文件读取）
       const systemPromptTemplate = this.systemPromptService.getSystemPromptTemplate();
-      
       if (systemPromptTemplate) {
-        // 构建变量上下文
-        const variables: Record<string, string> = {
-          model: options.model || '',
-          provider: options.provider || '',
-          current_time: new Date().toISOString(),
-          // 从options中提取其他变量，如user_prompt等
-          ...Object.entries(options).reduce((acc, [key, value]) => {
-            if (typeof value === 'string') {
-              acc[key] = value;
-            }
-            return acc;
-          }, {} as Record<string, string>)
-        };
-
-        // 使用VariableEngine进行变量替换，自动填充未找到的变量为空字符串
-        const variableEngine = new VariableEngine();
-        const renderedPrompt = await variableEngine.resolveAll(systemPromptTemplate, variables, {
-          fillEmptyOnMissing: true
-        });
-
-        const resultMessages: Message[] = [
-          {
-            role: 'system',
-            content: renderedPrompt
-          } as Message,
-          ...messages
+        processedMessages = [
+          { role: 'system', content: systemPromptTemplate } as Message,
+          ...processedMessages
         ];
-
-        logger.debug(`[ChatService] Injected system prompt (${renderedPrompt.length} chars)`);
-        return resultMessages;
+        logger.debug(`[ChatService] Injected system prompt template (${systemPromptTemplate.length} chars)`);
       }
     }
 
-    return messages;
+    // 2. 构建统一的变量上下文
+    const variables: Record<string, string> = {
+      // 基础变量
+      model: options.model || '',
+      provider: options.provider || '',
+      current_time: new Date().toISOString(),
+      user_prompt: options.user_prompt || '',
+      // 从 options 中提取字符串类型的变量
+      ...Object.entries(options).reduce((acc, [key, value]) => {
+        if (typeof value === 'string') {
+          acc[key] = value;
+        }
+        return acc;
+      }, {} as Record<string, string>),
+      // 策略提供的变量（如 available_tools）
+      ...strategyVariables
+    };
+
+    // 3. 统一变量替换
+    processedMessages = await this.variableEngine.resolveMessages(processedMessages, variables);
+    logger.info(`[ChatService] ${processedMessages}`);
+    logger.debug(`[ChatService] Variable replacement completed with ${Object.keys(variables).length} variables`);
+
+    return processedMessages;
   }
 
   /**
@@ -318,42 +324,50 @@ export class ChatService {
         );
 
         if (sessionId) {
-          // 将 sessionId 添加到 options 中，供后续使用
           options.sessionId = sessionId;
-
           logger.debug(`[ChatService] Processing message with session: ${sessionId}`);
         }
       } else {
         logger.debug('[ChatService] Processing message without session (no conversationId)');
       }
 
-
-      // 2. 选择并执行策略
+      // 2. 选择策略
       const strategy = await this.selectStrategy(options);
 
-      // 检查是否为流式模式
+      // 3. 调用策略的 prepare 方法获取需要注入的变量
+      let strategyVariables: Record<string, string> = {};
+      if (strategy.prepare) {
+        const prepareResult = await strategy.prepare(messages, options);
+        strategyVariables = prepareResult.variables;
+        logger.debug(`[ChatService] Strategy ${strategy.getName()} provided ${Object.keys(strategyVariables).length} variables`);
+      }
+
+      // 4. 统一消息预处理（系统提示词注入 + 变量替换）
+      const processedMessages = await this.prepareMessages(messages, options, strategyVariables);
+
+      // 5. 检查是否为流式模式
       if (options.stream) {
         // 流式模式，返回AsyncGenerator
-        return strategy.execute(messages, options) as AsyncIterableIterator<any>;
+        return strategy.execute(processedMessages, options) as AsyncIterableIterator<any>;
       } else {
         // 普通模式，返回ChatResult
-        const result = await strategy.execute(messages, options) as any;
+        const result = await strategy.execute(processedMessages, options) as any;
 
-        // 3. 更新会话元数据（由ChatService处理，避免循环依赖）
+        // 6. 更新会话元数据（由ChatService处理，避免循环依赖）
         if (options.sessionId && result?.usage) {
           await this.updateSessionMetadata(options.sessionId, result.usage).catch(err => {
             logger.warn(`[ChatService] Failed to update session metadata: ${err.message}`);
           });
         }
 
-        // 4. ✅ 统一保存对话历史（非流式模式）
+        // 7. 统一保存对话历史（非流式模式）
         if (options.conversationId) {
           await this.saveConversationHistory(
             options.conversationId,
-            messages,
+            messages,  // 保存原始消息，不含系统提示词
             result.content,
-            result.rawThinkingProcess,  // ReAct返回的思考过程
-            options.selfThinking?.enabled  // 是否ReAct模式
+            result.rawThinkingProcess,
+            options.selfThinking?.enabled
           );
         }
 
@@ -444,71 +458,42 @@ export class ChatService {
         });
       }
 
-      // 🆕 检查并添加系统提示词（如果没有在messages中）- 流式模式也需要注入
-      const hasSystemMessage = messages.some(m => m.role === 'system');
-
-      if (!hasSystemMessage) {
-        // 获取系统提示词模板副本（从Markdown文件读取）
-        const systemPromptTemplate = this.systemPromptService.getSystemPromptTemplate();
-        logger.debug(`[ChatService] Streaming message - system prompt template length: ${systemPromptTemplate ? systemPromptTemplate.length : 0}`);
-        if (systemPromptTemplate) {
-          // 构建变量上下文
-          const variables: Record<string, string> = {
-            user_prompt: options.user_prompt || '',
-            current_time: new Date().toISOString()
-          };
-
-          // 使用VariableEngine进行变量替换，自动填充未找到的变量为空字符串
-          const variableEngine = new VariableEngine();
-          const renderedPrompt = await variableEngine.resolveAll(systemPromptTemplate, variables, {
-            fillEmptyOnMissing: true
-          });
-          logger.debug(`[ChatService] Streaming message - rendered system prompt: ${renderedPrompt}`);
-          messages = [
-            {
-              role: 'system',
-              content: renderedPrompt
-            },
-            ...messages
-          ];
-
-          logger.debug(`[ChatService] Applied system prompt for streaming (${renderedPrompt.length} chars)`);
-        }
-      }
-
-      // 选择策略并执行流式处理
+      // 1. 选择策略
       const strategy = await this.selectStrategy(options);
 
-      if (options.selfThinking?.enabled) {
-        // ReAct策略流式处理
-        for await (const chunk of strategy.stream(messages, options, abortController.signal)) {
-          if (abortController.signal.aborted) {
-            logger.debug(`[ChatService] Stream aborted for ${requestId}`);
-            break;
-          }
+      // 2. 调用策略的 prepare 方法获取需要注入的变量
+      let strategyVariables: Record<string, string> = {};
+      if (strategy.prepare) {
+        const prepareResult = await strategy.prepare(messages, options);
+        strategyVariables = prepareResult.variables;
+        logger.debug(`[ChatService] Strategy ${strategy.getName()} provided ${Object.keys(strategyVariables).length} variables`);
+      }
 
-          // 收集完整内容
-          if (chunk.startsWith('__THOUGHT__:')) {
-            collectedThinking.push(chunk);
-          } else {
-            fullContent += chunk;
-          }
+      // 3. 统一消息预处理（系统提示词注入 + 变量替换）
+      const processedMessages = await this.prepareMessages(messages, options, strategyVariables);
 
-          yield chunk;
+      // 4. 执行流式处理
+      for await (const chunk of strategy.stream(processedMessages, options, abortController.signal)) {
+        if (abortController.signal.aborted) {
+          logger.debug(`[ChatService] Stream aborted for ${requestId}`);
+          break;
         }
-      } else {
-        // 单轮策略流式处理
-        for await (const chunk of strategy.stream(messages, options, abortController.signal)) {
-          if (abortController.signal.aborted) {
-            logger.debug(`[ChatService] Stream aborted for ${requestId}`);
-            break;
-          }
 
-          // 收集完整内容
+        // 尝试解析 JSON 收集 thinking 和 content
+        try {
+          const parsed = JSON.parse(chunk);
+          if (parsed.reasoning_content) {
+            collectedThinking.push(parsed.reasoning_content);
+          }
+          if (parsed.content) {
+            fullContent += parsed.content;
+          }
+        } catch {
+          // 非 JSON 格式，直接收集为 content
           fullContent += chunk;
-
-          yield chunk;
         }
+
+        yield chunk;
       }
 
     } finally {
@@ -516,12 +501,12 @@ export class ChatService {
       this.requestTracker.unregister(requestId);
       logger.debug(`[ChatService] Stream completed for ${requestId}`);
 
-      // ✅ 统一保存对话历史（流式模式）
+      // 统一保存对话历史（流式模式）
       const conversationId = options.conversationId;
       if (conversationId && !abortController.signal.aborted) {
         await this.saveConversationHistory(
           conversationId,
-          messages,
+          messages,  // 保存原始消息，不含系统提示词
           fullContent,
           collectedThinking.length > 0 ? collectedThinking : undefined,
           options.selfThinking?.enabled
@@ -558,10 +543,10 @@ export class ChatService {
   }
 
   /**
-   * 获取变量解析器（供外部使用）
+   * 获取变量引擎（供外部使用）
    */
-  getVariableResolver(): VariableResolver {
-    return this.variableResolver;
+  getVariableEngine(): VariableEngine {
+    return this.variableEngine;
   }
 
   /**

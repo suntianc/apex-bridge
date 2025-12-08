@@ -15,6 +15,7 @@ export interface ILLMAdapter {
   chat(messages: Message[], options: ChatOptions, signal?: AbortSignal): Promise<LLMResponse>;
   streamChat(messages: Message[], options: ChatOptions, tools?: any[], signal?: AbortSignal): AsyncIterableIterator<string>;
   getModels(): Promise<string[]>;
+  embed?(texts: string[], model?: string): Promise<number[][]>;
 }
 
 /**
@@ -313,6 +314,53 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
     } catch (error: any) {
       logger.warn(`⚠️  Failed to get models from ${this.providerName}:`, error.message);
       return [this.config.defaultModel];
+    }
+  }
+
+  /**
+   * 生成文本向量嵌入（OpenAI 兼容格式）
+   */
+  async embed(texts: string[], model?: string): Promise<number[][]> {
+    try {
+      const requestBody = {
+        model: model || this.config.defaultModel,
+        input: texts
+      };
+
+      logger.debug(`[${this.providerName}] Embedding request`, {
+        model: requestBody.model,
+        textCount: texts.length
+      });
+
+      const response = await this.client.post('/embeddings', requestBody);
+
+      // OpenAI 格式: { data: [{ embedding: [...] }] }
+      if (response.data?.data) {
+        return response.data.data.map((item: any) => item.embedding);
+      }
+
+      // Ollama 格式: { embedding: [...] } 或 { embeddings: [[...]] }
+      if (response.data?.embedding) {
+        return [response.data.embedding];
+      }
+      if (response.data?.embeddings) {
+        return response.data.embeddings;
+      }
+
+      throw new Error('Unexpected embedding response format');
+    } catch (error: any) {
+      logger.error(`❌ ${this.providerName} embed error:`, error.message);
+      if (error.response) {
+        logger.error(`   HTTP状态: ${error.response.status}`);
+        try {
+          if (error.response.data && typeof error.response.data === 'object') {
+            logger.error(`   错误详情: ${JSON.stringify(error.response.data, null, 2)}`);
+          }
+        } catch (e) {
+          // 序列化失败
+        }
+      }
+      throw new Error(`${this.providerName} embedding failed: ${error.message}`);
     }
   }
 }

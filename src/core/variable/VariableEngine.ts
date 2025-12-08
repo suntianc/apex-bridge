@@ -1,15 +1,32 @@
 /**
- * Variable Engine Implementation - Simplified Version
- * 
- * 简化版的变量引擎实现
- * 职责：对固定格式{{placeholder}}进行简单的变量替换
- * 特点：无提供者模式、无缓存、无状态、直接替换
+ * Variable Engine Implementation - Unified Version
+ *
+ * 统一的变量引擎实现
+ * 职责：对固定格式{{placeholder}}进行变量替换
+ * 特点：支持缓存、批量处理、递归解析
  */
 
 import { logger } from '../../utils/logger';
+import type { Message } from '../../types';
+
+interface CacheEntry {
+  resolved: string;
+  timestamp: number;
+}
+
+export interface VariableEngineConfig {
+  /** 是否启用缓存（默认true） */
+  enableCache?: boolean;
+  /** 缓存TTL毫秒数（默认30000ms） */
+  cacheTtlMs?: number;
+  /** 是否启用递归解析（默认true） */
+  enableRecursion?: boolean;
+  /** 最大递归深度（默认10） */
+  maxRecursionDepth?: number;
+}
 
 /**
- * 变量引擎实现 - 简化版
+ * 变量引擎实现 - 统一版
  */
 export class VariableEngine {
   private options: {
@@ -18,13 +35,22 @@ export class VariableEngine {
     placeholderPattern: RegExp;
   };
 
-  constructor() {
-    // 简化配置，只保留必要的递归控制
+  // 缓存相关
+  private cache = new Map<string, CacheEntry>();
+  private enableCache: boolean;
+  private cacheTtlMs: number;
+
+  constructor(config?: VariableEngineConfig) {
+    // 配置选项
     this.options = {
-      enableRecursion: true,
-      maxRecursionDepth: 10,
+      enableRecursion: config?.enableRecursion ?? true,
+      maxRecursionDepth: config?.maxRecursionDepth ?? 10,
       placeholderPattern: /\{\{([^}]+)\}\}/g,
     };
+
+    // 缓存配置
+    this.enableCache = config?.enableCache ?? true;
+    this.cacheTtlMs = config?.cacheTtlMs ?? 30000; // 默认30秒
   }
 
   /**
@@ -220,7 +246,8 @@ export class VariableEngine {
    * 重置引擎（保持接口兼容，简化版无实际操作）
    */
   reset(): void {
-    logger.debug('[VariableEngine] Engine reset (no-op in simplified version)');
+    this.clearCache();
+    logger.debug('[VariableEngine] Engine reset');
   }
 
   /**
@@ -232,5 +259,125 @@ export class VariableEngine {
     placeholderPattern: RegExp;
   }> {
     return { ...this.options };
+  }
+
+  // ==================== 批量处理方法 ====================
+
+  /**
+   * 批量解析消息中的变量（带缓存）
+   * @param messages 消息数组
+   * @param variables 变量键值对映射
+   * @returns 解析后的消息数组
+   */
+  async resolveMessages(messages: Message[], variables: Record<string, string> = {}): Promise<Message[]> {
+    if (!messages || messages.length === 0) {
+      return [];
+    }
+
+    logger.debug(`[VariableEngine] Resolving variables in ${messages.length} messages`);
+
+    return Promise.all(
+      messages.map(msg => this.resolveMessage(msg, variables))
+    );
+  }
+
+  /**
+   * 解析单条消息（带缓存）
+   */
+  private async resolveMessage(msg: Message, variables: Record<string, string>): Promise<Message> {
+    if (!msg.content || typeof msg.content !== 'string') {
+      return msg;
+    }
+
+    const originalContent = msg.content;
+    const originalLength = originalContent.length;
+
+    // 如果启用缓存，检查缓存
+    if (this.enableCache) {
+      const cacheKey = `${originalContent}:${JSON.stringify(variables)}`;
+      const cached = this.cache.get(cacheKey);
+      if (cached) {
+        const age = Date.now() - cached.timestamp;
+        if (age < this.cacheTtlMs) {
+          logger.debug(`[VariableEngine] Cache hit (${msg.role}, ${age}ms old)`);
+          return { ...msg, content: cached.resolved };
+        } else {
+          this.cache.delete(cacheKey);
+        }
+      }
+    }
+
+    try {
+      const resolvedContent = await this.resolveAll(originalContent, variables);
+
+      if (originalLength !== resolvedContent.length) {
+        logger.debug(
+          `[VariableEngine] Variable resolved (${msg.role}): ${originalLength} → ${resolvedContent.length} chars`
+        );
+      }
+
+      // 存入缓存
+      if (this.enableCache) {
+        const cacheKey = `${originalContent}:${JSON.stringify(variables)}`;
+        this.cache.set(cacheKey, {
+          resolved: resolvedContent,
+          timestamp: Date.now()
+        });
+      }
+
+      return { ...msg, content: resolvedContent };
+    } catch (error: any) {
+      logger.warn(
+        `[VariableEngine] Variable resolution failed for message (${msg.role}), using original: ${error.message || error}`
+      );
+      return { ...msg, content: originalContent };
+    }
+  }
+
+  // ==================== 缓存管理方法 ====================
+
+  /**
+   * 清理缓存
+   */
+  clearCache(): void {
+    const size = this.cache.size;
+    this.cache.clear();
+    if (size > 0) {
+      logger.debug(`[VariableEngine] Cache cleared (${size} entries)`);
+    }
+  }
+
+  /**
+   * 获取缓存统计信息
+   */
+  getCacheStats(): { size: number; ttlMs: number; enabled: boolean } {
+    return {
+      size: this.cache.size,
+      ttlMs: this.cacheTtlMs,
+      enabled: this.enableCache
+    };
+  }
+
+  /**
+   * 清理过期缓存条目
+   */
+  cleanupExpiredCache(): number {
+    if (!this.enableCache) return 0;
+
+    const now = Date.now();
+    let cleanedCount = 0;
+
+    for (const [key, entry] of this.cache.entries()) {
+      if (now - entry.timestamp > this.cacheTtlMs) {
+        this.cache.delete(key);
+        cleanedCount++;
+      }
+    }
+
+    if (cleanedCount > 0) {
+      logger.debug(`[VariableEngine] Cleaned ${cleanedCount} expired cache entries`);
+    }
+
+    return cleanedCount;
   }
 }

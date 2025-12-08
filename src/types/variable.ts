@@ -1,9 +1,10 @@
 /**
- * Variable Engine Types - Simplified Version
+ * Variable Engine Types - Unified Version
  *
- * 简化版的变量引擎类型定义
- * 特点：移除提供者模式，只保留核心接口
+ * 统一版的变量引擎类型定义
  */
+
+import type { Message } from './index';
 
 /**
  * 变量上下文信息（简化版，现为可选）
@@ -18,17 +19,26 @@ export interface VariableContext {
 }
 
 /**
- * 变量引擎接口（简化版）
+ * 变量引擎接口（统一版）
  */
 export interface IVariableEngine {
   /** 解析内容中的所有变量 */
-  resolveAll(content: string, variables?: Record<string, string>): Promise<string>;
-  
+  resolveAll(content: string, variables?: Record<string, string>, options?: { fillEmptyOnMissing?: boolean }): Promise<string>;
+
+  /** 批量解析消息中的变量（带缓存） */
+  resolveMessages?(messages: Message[], variables?: Record<string, string>): Promise<Message[]>;
+
   /** 解析单个变量（可选实现） */
   resolveSingle?(content: string, key: string, variables?: Record<string, string>): Promise<string | null>;
-  
-  /** 重置引擎 */
+
+  /** 重置引擎（清理缓存） */
   reset(): void;
+
+  /** 清理缓存 */
+  clearCache?(): void;
+
+  /** 获取缓存统计信息 */
+  getCacheStats?(): { size: number; ttlMs: number; enabled: boolean };
 }
 
 /**

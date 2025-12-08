@@ -243,18 +243,25 @@ export class LLMManager {
         throw new Error('No Embedding model available');
       }
 
-      // 2. 构建 API URL
-      const apiUrl = model.apiEndpointSuffix 
-        ? buildApiUrl(model.providerBaseConfig.baseURL, model.apiEndpointSuffix)
-        : model.providerBaseConfig.baseURL;
+      // 2. 获取对应的适配器
+      const adapter = this.adapters.get(model.provider);
+      if (!adapter) {
+        throw new Error(`No adapter found for provider: ${model.provider}`);
+      }
 
-      // 3. 调用 Embedding API
+      // 3. 检查适配器是否支持 embed 方法
+      if (!adapter.embed) {
+        throw new Error(`Adapter for ${model.provider} does not support embedding`);
+      }
+
+      // 4. 调用 Embedding API
       logger.debug(`🔢 Using embedding model: ${model.modelName} (${model.provider}/${model.modelKey})`);
-      
-      // TODO: 实现实际的 embedding 调用
-      // 这里需要根据不同提供商的 API 格式调用
-      
-      throw new Error('Embedding not yet implemented');
+
+      const embeddings = await adapter.embed(texts, model.modelName);
+
+      logger.debug(`✅ Generated ${embeddings.length} embeddings with ${embeddings[0]?.length || 0} dimensions`);
+
+      return embeddings;
     } catch (error: any) {
       logger.error('❌ Embed failed:', error);
       throw error;

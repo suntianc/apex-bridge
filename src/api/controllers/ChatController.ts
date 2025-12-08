@@ -308,20 +308,42 @@ export class ChatController {
         // 🆕 解析LLM的嵌套JSON格式（如：{"content":"{\\"reasoning_content\\":\\"\\n\\"}"}）
         const parsedChunk = parseLLMChunk(chunk);
 
-        // 发送内容块（此时 chunk 必定是纯文本，回退模式）
-        const sseData = {
-          id: responseId,
-          object: 'chat.completion.chunk',
-          created: Math.floor(Date.now() / 1000),
-          model: actualModel,
-          choices: [{
-            index: 0,
-            delta:  { content: chunk },
-            finish_reason: null
-          }]
-        };
-
-        res.write(`data: ${JSON.stringify(sseData)}\n\n`);
+        // 根据解析结果构建 SSE 数据
+        if (parsedChunk.isReasoning) {
+          // 推理内容：使用 reasoning_content 字段（前端期望的格式）
+          const sseData = {
+            id: responseId,
+            object: 'chat.completion.chunk',
+            created: Math.floor(Date.now() / 1000),
+            model: actualModel,
+            choices: [{
+              index: 0,
+              delta: {
+                reasoning_content: parsedChunk.content,
+                content: null
+              },
+              finish_reason: null
+            }]
+          };
+          res.write(`data: ${JSON.stringify(sseData)}\n\n`);
+        } else {
+          // 普通内容
+          const sseData = {
+            id: responseId,
+            object: 'chat.completion.chunk',
+            created: Math.floor(Date.now() / 1000),
+            model: actualModel,
+            choices: [{
+              index: 0,
+              delta: {
+                reasoning_content: null,
+                content: parsedChunk.content
+              },
+              finish_reason: null
+            }]
+          };
+          res.write(`data: ${JSON.stringify(sseData)}\n\n`);
+        }
         chunkIndex++;
       }
 

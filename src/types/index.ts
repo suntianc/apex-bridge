@@ -29,6 +29,8 @@ export interface ChatOptions {
     additionalPrompts?: string[]; // 额外的提示词段落
     tools?: ToolDefinition[];    // 工具定义
     enableStreamThoughts?: boolean; // 是否流式输出思考过程
+    enableToolActionParsing?: boolean; // 是否启用 tool_action 标签解析（默认true）
+    toolActionTimeout?: number;  // tool_action 工具执行超时时间（毫秒，默认30000）
   };
   [key: string]: any;
 }

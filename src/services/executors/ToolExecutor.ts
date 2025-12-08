@@ -10,6 +10,7 @@ import {
   BuiltInTool,
   SkillTool
 } from '../../types/tool-system';
+// 注意：不在这里导入 BuiltInToolsRegistry 以避免循环依赖
 
 /**
  * 抽象工具执行器基类
@@ -141,19 +142,37 @@ export class ToolExecutorFactory {
    * @returns 内置工具执行器实例
    */
   static createBuiltInExecutor(): IToolExecutor {
-    // 这里将返回 BuiltInExecutor 实例
-    // 暂时返回一个占位符，后续实现
-    throw new Error('BuiltInExecutor not implemented yet');
+    // 使用延迟导入避免循环依赖
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { getBuiltInToolsRegistry } = require('../BuiltInToolsRegistry');
+    return getBuiltInToolsRegistry();
   }
 
   /**
    * 创建Skills沙箱执行器
-   * @returns Skills沙箱执行器实例
+   * @returns Skills沙箱执行器实例（暂时返回空执行器）
    */
   static createSkillsSandboxExecutor(): IToolExecutor {
-    // 这里将返回 SkillsSandboxExecutor 实例
-    // 暂时返回一个占位符，后续实现
-    throw new Error('SkillsSandboxExecutor not implemented yet');
+    // Skills 沙箱执行器暂未实现，返回空执行器
+    return new EmptyToolExecutor();
+  }
+}
+
+/**
+ * 空工具执行器（占位用）
+ * 用于 Skills 沙箱执行器未实现时的占位
+ */
+class EmptyToolExecutor extends BaseToolExecutor {
+  async execute(options: ToolExecuteOptions): Promise<ToolResult> {
+    return this.createErrorResult(
+      `Skills sandbox executor not implemented. Tool: ${options.name}`,
+      0,
+      'NOT_IMPLEMENTED'
+    );
+  }
+
+  listTools(): (BuiltInTool | SkillTool)[] {
+    return [];
   }
 }
 

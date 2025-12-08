@@ -1,13 +1,12 @@
 /**
  * ReActStrategy - ReAct聊天处理策略
  * 实现自我思考循环，支持工具调用和流式输出
- * 集成新工具系统：内置工具 + Skills外置工具
+ * 集成新工具系统：内置工具 + Skills外置工具 + tool_action标签解析
  */
 
 import type { Message, ChatOptions } from '../types';
-import type { ChatStrategy, ChatResult } from './ChatStrategy';
+import type { ChatStrategy, ChatResult, StrategyPrepareResult } from './ChatStrategy';
 import type { LLMManager } from '../core/LLMManager';
-import type { VariableResolver } from '../services/VariableResolver';
 import type { AceIntegrator } from '../services/AceIntegrator';
 import type { ConversationHistoryService } from '../services/ConversationHistoryService';
 import { ReActEngine } from '../core/stream-orchestrator/ReActEngine';
@@ -16,6 +15,7 @@ import { BuiltInToolsRegistry } from '../services/BuiltInToolsRegistry';
 import { ToolRetrievalService } from '../services/ToolRetrievalService';
 import { BuiltInExecutor } from '../services/executors/BuiltInExecutor';
 import { SkillsSandboxExecutor } from '../services/executors/SkillsSandboxExecutor';
+import { generateToolPrompt, ToolDispatcher } from '../core/tool-action';
 import type { Tool } from '../core/stream-orchestrator/types';
 import { logger } from '../utils/logger';
 
@@ -24,29 +24,30 @@ export class ReActStrategy implements ChatStrategy {
   private toolRetrievalService: ToolRetrievalService;
   private builtInExecutor: BuiltInExecutor;
   private skillsExecutor: SkillsSandboxExecutor;
-  private availableTools: any[] = [];  // ✅ 新增：可用工具列表
+  private toolDispatcher: ToolDispatcher;
+  private availableTools: any[] = [];
 
   constructor(
     private llmManager: LLMManager,
-    private variableResolver: VariableResolver,
     private aceIntegrator: AceIntegrator,
     private historyService: ConversationHistoryService
   ) {
     // 初始化工具系统组件
     this.builtInRegistry = new BuiltInToolsRegistry();
-    // 注意：ToolRetrievalService 需要 config，这里暂时用空配置，实际使用时会由外部传入
-    const tempConfig = {
-      vectorDbPath: '',
+    // ToolRetrievalService 配置（使用合理的默认路径）
+    const toolRetrievalConfig = {
+      vectorDbPath: './data/skills.lance',
       model: 'all-MiniLM-L6-v2',
       dimensions: 384,
       similarityThreshold: 0.6,
       cacheSize: 100
     };
-    this.toolRetrievalService = new ToolRetrievalService(tempConfig);
+    this.toolRetrievalService = new ToolRetrievalService(toolRetrievalConfig);
     this.builtInExecutor = new BuiltInExecutor();
     this.skillsExecutor = new SkillsSandboxExecutor();
+    this.toolDispatcher = new ToolDispatcher();
 
-    logger.info('ReActStrategy initialized with new tool system integration');
+    logger.info('ReActStrategy initialized with tool_action parsing support');
   }
 
   getName(): string {
@@ -61,7 +62,29 @@ export class ReActStrategy implements ChatStrategy {
   }
 
   /**
+   * 准备阶段：初始化工具系统并返回需要注入的变量
+   * ChatService 会在变量替换阶段使用这些变量
+   */
+  async prepare(messages: Message[], options: ChatOptions): Promise<StrategyPrepareResult> {
+    logger.debug(`[${this.getName()}] Preparing strategy - initializing tool system`);
+
+    // 1. 初始化工具系统（工具发现与注册）
+    await this.initializeToolSystem(messages);
+
+    // 2. 生成工具提示词内容
+    const toolPromptContent = this.generateToolPromptContent();
+
+    // 3. 返回需要注入的变量
+    return {
+      variables: {
+        available_tools: toolPromptContent
+      }
+    };
+  }
+
+  /**
    * 执行ReAct聊天处理
+   * 注意：messages 已由 ChatService 完成变量替换
    */
   async execute(messages: Message[], options: ChatOptions): Promise<ChatResult> {
     const startTime = Date.now();
@@ -69,30 +92,26 @@ export class ReActStrategy implements ChatStrategy {
 
     logger.info(`[${this.getName()}] Starting ReAct execution with new tool system`);
 
-    // 1. 工具发现与注册
-    await this.initializeToolSystem(messages);
-
-    // 2. 变量替换
-    messages = await this.variableResolver.resolve(messages);
-
-    // 3. 初始化 ReAct 引擎
+    // 初始化 ReAct 引擎（启用 tool_action 标签解析）
     const reactEngine = new ReActEngine({
       maxIterations: options.selfThinking?.maxIterations ?? 5,
       enableThinking: options.selfThinking?.enableStreamThoughts ?? true,
       maxConcurrentTools: 3,
+      enableToolActionParsing: options.selfThinking?.enableToolActionParsing ?? true,
+      toolActionTimeout: options.selfThinking?.toolActionTimeout ?? 30000,
       provider: options.provider,
       model: options.model,
       temperature: options.temperature,
       maxTokens: options.max_tokens
     });
 
-    // ✅ 新增：将可用工具传递给ReActEngine
+    // 将可用工具传递给ReActEngine
     if (this.availableTools.length > 0) {
       (reactEngine as any).tools = this.availableTools;
       logger.debug(`[${this.getName()}] Passed ${this.availableTools.length} tools to ReActEngine`);
     }
 
-    // 4. 执行 ReAct 循环
+    // 执行 ReAct 循环
     const thinkingProcess: string[] = [];
     let finalContent = '';
     let iterations = 0;
@@ -113,7 +132,7 @@ export class ReActStrategy implements ChatStrategy {
 
       logger.debug(`[${this.getName()}] ReAct completed in ${iterations} iterations`);
 
-      // 5. ACE Integration: 保存轨迹
+      // ACE Integration: 保存轨迹
       if (options.sessionId && this.aceIntegrator.isEnabled()) {
         await this.aceIntegrator.saveTrajectory({
           requestId: options.requestId || `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -148,6 +167,7 @@ export class ReActStrategy implements ChatStrategy {
 
   /**
    * 创建流式迭代器（ReAct流式版本）
+   * 注意：messages 已由 ChatService 完成变量替换
    */
   async *stream(
     messages: Message[],
@@ -156,14 +176,13 @@ export class ReActStrategy implements ChatStrategy {
   ): AsyncIterableIterator<any> {
     logger.debug(`[${this.getName()}] Streaming ReAct execution`);
 
-    // 变量替换
-    messages = await this.variableResolver.resolve(messages);
-
-    // 初始化 ReAct 引擎
+    // 初始化 ReAct 引擎（启用 tool_action 标签解析）
     const reactEngine = new ReActEngine({
       maxIterations: options.selfThinking?.maxIterations ?? 5,
       enableThinking: options.selfThinking?.enableStreamThoughts ?? true,
       maxConcurrentTools: 3,
+      enableToolActionParsing: options.selfThinking?.enableToolActionParsing ?? true,
+      toolActionTimeout: options.selfThinking?.toolActionTimeout ?? 30000,
       provider: options.provider,
       model: options.model,
       temperature: options.temperature,
@@ -185,21 +204,40 @@ export class ReActStrategy implements ChatStrategy {
       }
 
       // 流式输出事件
-      if (options.selfThinking?.enableStreamThoughts && event.type === 'reasoning') {
-        yield `__THOUGHT__:${JSON.stringify({ iteration: event.iteration, content: event.data })}`;
+      // 输出 JSON 格式字符串，与 SingleRoundStrategy 保持一致，便于前端 parseLLMChunk 解析
+      if (event.type === 'reasoning') {
+        const jsonChunk = JSON.stringify({ reasoning_content: event.data, content: null });
+        yield jsonChunk;
         collectedThinking.push(event.data);
       } else if (event.type === 'content') {
-        yield event.data;
+        const jsonChunk = JSON.stringify({ reasoning_content: null, content: event.data });
+        yield jsonChunk;
         collectedContent += event.data;
       }
     }
 
-    // ✅ ChaService会统一保存历史，策略层只返回数据
+    // ✅ ChatService会统一保存历史，策略层只返回数据
     // 返回收集的思考过程和内容
     return {
       content: collectedContent,
       rawThinkingProcess: collectedThinking
     };
+  }
+
+  /**
+   * 生成工具提示词内容（用于变量替换）
+   */
+  private generateToolPromptContent(): string {
+    const toolDescriptions = this.toolDispatcher.getAvailableTools();
+
+    if (toolDescriptions.length === 0) {
+      logger.debug(`[${this.getName()}] No tools available, returning empty prompt`);
+      return '当前没有可用的工具。';
+    }
+
+    const toolPromptText = generateToolPrompt(toolDescriptions);
+    logger.debug(`[${this.getName()}] Generated tool prompt with ${toolDescriptions.length} tools`);
+    return toolPromptText;
   }
 
   /**
@@ -212,34 +250,28 @@ export class ReActStrategy implements ChatStrategy {
       // 1. 加载所有内置工具到执行器
       const builtInTools = this.builtInRegistry.listAllTools();
       logger.debug(`[${this.getName()}] Found ${builtInTools.length} built-in tools`);
-      logger.debug(`[${this.getName()}] Loaded ${builtInTools.length} built-in tools`);
 
-      // 2. 向量检索相关Skills
-      const query = messages[messages.length - 1]?.content || '';
-      const relevantSkills = await this.toolRetrievalService.findRelevantSkills(
-        query,
-        10, // limit
-        0.6 // threshold
-      );
+      // 2. 尝试向量检索相关Skills（可选，失败不影响内置工具）
+      let relevantSkills: any[] = [];
+      try {
+        // ✅ 确保 ToolRetrievalService 已初始化（加载 embedding 模型配置）
+        await this.toolRetrievalService.initialize();
 
-      logger.debug(`[${this.getName()}] Found ${relevantSkills.length} relevant Skills for query: "${query.substring(0, 50)}..."`);
-
-      // 3. 注册检索到的Skills到Skills执行器
-      for (const skill of relevantSkills) {
-        // 创建Skills执行包装器
-        const skillExecuteWrapper = async (args: Record<string, any>) => {
-          const result = await this.skillsExecutor.execute({
-            name: skill.tool.name,
-            args
-          });
-          return result;
-        };
-
-        // 注册到Skills执行器
-        // 注意：Skills执行器内部会加载实际的Skills代码
+        const query = messages[messages.length - 1]?.content || '';
+        relevantSkills = await this.toolRetrievalService.findRelevantSkills(
+          query,
+          10, // limit
+          0.6 // threshold
+        );
+        logger.debug(`[${this.getName()}] Found ${relevantSkills.length} relevant Skills`);
+      } catch (skillError) {
+        // Skills 检索失败，降级处理：只使用内置工具
+        logger.warn(`[${this.getName()}] Skills retrieval failed, using built-in tools only:`,
+          skillError instanceof Error ? skillError.message : skillError);
+        relevantSkills = [];
       }
 
-      // ✅ 新增：构建工具列表传递给LLM
+      // 3. 构建工具列表（内置工具 + Skills）
       this.availableTools = [
         ...builtInTools.map(tool => ({
           type: 'function' as const,
@@ -261,22 +293,12 @@ export class ReActStrategy implements ChatStrategy {
 
       logger.info(`[${this.getName()}] Tool system initialized in ${Date.now() - startTime}ms`);
       logger.info(`[${this.getName()}] Available tools: ${builtInTools.length} built-in + ${relevantSkills.length} Skills`);
-      logger.info(`[${this.getName()}] Registered ${this.availableTools.length} tools for LLM`);
 
     } catch (error) {
-      logger.warn(`[${this.getName()}] Tool system initialization failed:`, error);
-      // 降级处理：继续执行，只是没有可用的工具
-      this.availableTools = []; // 确保清空工具列表
+      logger.error(`[${this.getName()}] Tool system initialization failed:`, error);
+      // 完全失败时，确保清空工具列表
+      this.availableTools = [];
     }
-  }
-
-  /**
-   * 注册工具到ReAct引擎
-   */
-  private registerToolsToReActEngine(reactEngine: ReActEngine, options: ChatOptions): void {
-    const builtInToolCount = this.builtInRegistry.listAllTools().length;
-    logger.debug(`[${this.getName()}] ReActEngine tool registration stub - ${builtInToolCount} built-in tools available`);
-    // TODO: 实现 ReActEngine 工具注册逻辑
   }
 
   /**
@@ -314,29 +336,5 @@ export class ReActStrategy implements ChatStrategy {
       logger.error(`[${this.getName()}] Tool execution failed: ${toolName}`, error);
       throw error;
     }
-  }
-
-  /**
-   * 执行自定义工具（由ChatService传递的工具定义）
-   */
-  private async executeCustomTool(toolName: string, params: Record<string, any>): Promise<any> {
-    logger.info(`[${this.getName()}] Executing custom tool: ${toolName}`, params);
-
-    // 这里可以扩展为支持更多自定义工具类型
-    // 目前主要处理options传递的工具定义
-    switch (toolName) {
-      case 'custom_business_logic':
-        return { result: 'Custom business result', params };
-      default:
-        throw new Error(`[${this.getName()}] Unknown custom tool: ${toolName}`);
-    }
-  }
-
-  /**
-   * 注册默认工具 (暂存函数 - 未实现)
-   */
-  private registerDefaultTools(_skillExecutor: any): void {
-    // 这里应该由ChatService传递默认工具，避免重复定义
-    // 暂时为空，由ChatService在初始化时传递
   }
 }

@@ -15,7 +15,7 @@ import * as os from 'os';
 import AdmZip from 'adm-zip';
 import { ToolError, ToolErrorCode } from '../../src/types/tool-system';
 import { LLMManager } from '../../src/core/LLMManager';
-import { VariableResolver } from '../../src/services/VariableResolver';
+import { VariableEngine } from '../../src/core/variable/VariableEngine';
 import { AceIntegrator } from '../../src/services/AceIntegrator';
 import { ConversationHistoryService } from '../../src/services/ConversationHistoryService';
 
