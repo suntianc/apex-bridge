@@ -51,7 +51,8 @@ export class ReActEngine {
       provider: options.provider ?? undefined,
       model: options.model ?? undefined,
       temperature: options.temperature ?? 0.7,
-      maxTokens: options.maxTokens ?? undefined
+      maxTokens: options.maxTokens ?? undefined,
+      signal: undefined
     };
   }
 
@@ -69,7 +70,8 @@ export class ReActEngine {
     runtimeOptions?: Partial<ReActOptions>
   ): AsyncGenerator<StreamEvent, string, void> {
     const options = { ...this.defaultOptions, ...runtimeOptions };
-    const signal = new AbortController().signal;
+    // 使用外部传入的 signal，如果没有则创建新的
+    const signal = options.signal || new AbortController().signal;
 
     try {
       for (let iteration = 0; iteration < options.maxIterations; iteration++) {
@@ -264,17 +266,23 @@ export class ReActEngine {
       // 因为没有原生 tool_calls，不能使用 role: 'tool' 格式
       const toolResultsText = detectedToolActions.map((action, index) => {
         const result = toolResults[index];
+        const status = result.success ? 'success' : 'error';
         const resultContent = result.success
           ? (typeof result.result === 'string' ? result.result : JSON.stringify(result.result))
-          : `Error: ${result.error}`;
-        return `[Tool: ${action.name}]\n${resultContent}`;
-      }).join('\n\n');
+          : result.error;
+        // 转义 CDATA 结束标记，防止内容中的 ]]> 导致 XML 解析错误
+        const safeResultContent = resultContent.replace(/]]>/g, ']]]]><![CDATA[');
+
+        return `<tool_output name="${action.name}" status="${status}">
+                  ${safeResultContent}
+                </tool_output>`;
+                      }).join('\n\n');
 
       // 将 assistant 输出的内容（包含 tool_action 标签）和工具结果添加到消息历史
       messages.push(assistantMessage);
       messages.push({
-        role: 'user',
-        content: `工具执行结果:\n\n${toolResultsText}\n\n请根据工具执行结果继续回答。`
+        role: 'system',
+        content: toolResultsText
       });
 
       return null;

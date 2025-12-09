@@ -94,7 +94,7 @@ export class ReActStrategy implements ChatStrategy {
 
     // 初始化 ReAct 引擎（启用 tool_action 标签解析）
     const reactEngine = new ReActEngine({
-      maxIterations: options.selfThinking?.maxIterations ?? 5,
+      maxIterations: options.selfThinking?.maxIterations ?? Number.MAX_SAFE_INTEGER,
       enableThinking: options.selfThinking?.enableStreamThoughts ?? true,
       maxConcurrentTools: 3,
       enableToolActionParsing: options.selfThinking?.enableToolActionParsing ?? true,
@@ -190,7 +190,7 @@ export class ReActStrategy implements ChatStrategy {
     });
 
     const llmClient = new LLMManagerAdapter(this.llmManager);
-    const stream = reactEngine.execute(messages, llmClient, {});
+    const stream = reactEngine.execute(messages, llmClient, { signal: abortSignal });
 
     // 收集用于历史记录的数据
     const collectedThinking: string[] = [];

@@ -37,6 +37,9 @@ export interface ReActOptions {
   /** 最大Token数 */
   maxTokens?: number;
 
+  /** 中止信号 */
+  signal?: AbortSignal;
+
   /** 其他LLM参数 */
   [key: string]: any;
 }
