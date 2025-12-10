@@ -60,6 +60,7 @@ export interface LLMProviderConfig {
   defaultModel: string;
   timeout?: number;
   maxRetries?: number;
+  proxy?: boolean | any;  // 代理配置（false 表示禁用代理）
 }
 
 // ABP-only: 运行时直接使用 AdminConfig 作为配置源

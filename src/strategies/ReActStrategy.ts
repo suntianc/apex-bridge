@@ -36,9 +36,9 @@ export class ReActStrategy implements ChatStrategy {
     this.builtInRegistry = new BuiltInToolsRegistry();
     // ToolRetrievalService 配置（使用合理的默认路径）
     const toolRetrievalConfig = {
-      vectorDbPath: './data/skills.lance',
+      vectorDbPath: './data',
       model: 'all-MiniLM-L6-v2',
-      dimensions: 384,
+      dimensions: 384, // 初始值，会在初始化时被实际模型维度覆盖
       similarityThreshold: 0.6,
       cacheSize: 100
     };

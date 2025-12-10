@@ -29,16 +29,25 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
   constructor(providerName: string, config: LLMProviderConfig) {
     this.providerName = providerName;
     this.config = config;
-    this.client = axios.create({
+
+    // 构建axios配置
+    const axiosConfig: any = {
       baseURL: config.baseURL,
       headers: {
         ...(config.apiKey && { 'Authorization': `Bearer ${config.apiKey}` }),
         'Content-Type': 'application/json'
       },
       timeout: config.timeout || 60000
-    });
+    };
 
-    logger.info(`✅ ${providerName} adapter initialized (${config.baseURL})`);
+    // 如果配置中指定了proxy，使用它
+    if (config.proxy !== undefined) {
+      axiosConfig.proxy = config.proxy;
+    }
+
+    this.client = axios.create(axiosConfig);
+
+    logger.info(`✅ ${providerName} adapter initialized (${config.baseURL}${config.proxy === false ? ', proxy disabled' : ''})`);
   }
 
   /**
@@ -240,7 +249,9 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
 
       logger.debug(`[${this.providerName}] Stream request`, {
         model: requestBody.model,
-        messageCount: messages.length
+        messageCount: messages.length,
+        hasTools: !!tools,
+        toolCount: tools?.length
       });
 
       const response = await this.client.post('/chat/completions', requestBody, {

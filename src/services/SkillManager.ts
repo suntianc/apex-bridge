@@ -78,15 +78,20 @@ export class SkillManager {
   ) {
     this.skillsBasePath = skillsBasePath;
     this.retrievalService = retrievalService || new ToolRetrievalService({
-      vectorDbPath: './.data/skills.lance',
+      vectorDbPath: './.data',
       model: 'all-MiniLM-L6-v2',
-      dimensions: 384,
+      dimensions: 384, // 初始值，会在初始化时被实际模型维度覆盖
       similarityThreshold: 0.6,
       cacheSize: 1000
     });
 
     logger.info('SkillManager initialized', {
       skillsBasePath
+    });
+
+    // 初始化时自动扫描并索引所有Skills
+    this.initializeSkillsIndex().catch(error => {
+      logger.error('Failed to initialize skills index during startup:', error);
     });
   }
 
@@ -692,6 +697,34 @@ export class SkillManager {
       byTag,
       recentlyInstalled: skills.skills.slice(0, 5).map(s => s.name)
     };
+  }
+
+  /**
+   * 获取ToolRetrievalService实例
+   */
+  getRetrievalService(): ToolRetrievalService {
+    return this.retrievalService;
+  }
+
+  /**
+   * 初始化Skills索引
+   * 在SkillManager创建时自动调用，扫描并索引所有已存在的Skills
+   */
+  private async initializeSkillsIndex(): Promise<void> {
+    logger.info('🔄 Initializing skills index during startup');
+
+    try {
+      // 等待检索服务初始化完成
+      await this.retrievalService.initialize();
+
+      // 扫描并索引所有Skills
+      await this.retrievalService.scanAndIndexAllSkills(this.skillsBasePath);
+
+      logger.info('✅ Skills index initialization completed');
+    } catch (error) {
+      logger.error('❌ Failed to initialize skills index:', error);
+      // 不抛出错误，避免影响系统启动
+    }
   }
 
   /**

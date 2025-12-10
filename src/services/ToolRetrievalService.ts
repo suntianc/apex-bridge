@@ -34,8 +34,8 @@ interface SkillsTable {
   tags: string[];
   path: string;
   version: string;
-  metadata: Record<string, any>;
-  vector: Float32Array;
+  metadata: string; // JSON字符串格式
+  vector: number[]; // 普通数组，不是 Float32Array
   indexedAt: Date;
 }
 
@@ -47,6 +47,8 @@ export class ToolRetrievalService {
   private table: lancedb.Table | null = null;
   private config: ToolRetrievalConfig;
   private isInitialized = false;
+  private dimensionsCache: number | null = null;
+  private llmConfigService: any = null;
 
   constructor(config: ToolRetrievalConfig) {
     this.config = config;
@@ -58,8 +60,58 @@ export class ToolRetrievalService {
   }
 
   /**
-   * 初始化LanceDB连接和向量表
+   * 获取实际的向量维度（从数据库配置的模型）
    */
+  private async getActualDimensions(): Promise<number> {
+    // 如果缓存中有，直接返回
+    if (this.dimensionsCache !== null) {
+      return this.dimensionsCache;
+    }
+
+    try {
+      // 延迟导入避免循环依赖
+      if (!this.llmConfigService) {
+        const { LLMConfigService } = await import('./LLMConfigService');
+        this.llmConfigService = LLMConfigService.getInstance();
+      }
+
+      // 获取默认的embedding模型
+      const embeddingModel = this.llmConfigService.getDefaultModel('embedding');
+
+      if (embeddingModel) {
+        // modelConfig 已经是解析好的对象
+        const dimensions = embeddingModel.modelConfig?.dimensions || this.config.dimensions;
+
+        logger.info(`Using actual embedding model dimensions: ${dimensions} (model: ${embeddingModel.modelName})`);
+
+        // 缓存维度
+        this.dimensionsCache = dimensions;
+        return dimensions;
+      }
+    } catch (error) {
+      logger.warn('Failed to get actual dimensions from database, using config default:', error);
+    }
+
+    // 回退到配置中的维度
+    return this.config.dimensions;
+  }
+
+  /**
+   * 更新配置维度（用于动态更新）
+   */
+  public async updateDimensions(dimensions: number): Promise<void> {
+    if (this.dimensionsCache !== dimensions) {
+      this.dimensionsCache = dimensions;
+      this.config.dimensions = dimensions;
+
+      logger.info(`Updated ToolRetrievalService dimensions to: ${dimensions}`);
+
+      // 如果已经初始化，需要重新初始化表结构
+      if (this.isInitialized && this.table) {
+        logger.warn('Dimensions updated after initialization, consider reinitializing the service');
+      }
+    }
+  }
   async initialize(): Promise<void> {
     if (this.isInitialized) {
       logger.debug('ToolRetrievalService is already initialized');
@@ -70,6 +122,13 @@ export class ToolRetrievalService {
 
     try {
       logger.info('Initializing ToolRetrievalService...');
+
+      // 获取实际的向量维度
+      const actualDimensions = await this.getActualDimensions();
+      if (actualDimensions !== this.config.dimensions) {
+        logger.info(`Updating dimensions from ${this.config.dimensions} to ${actualDimensions}`);
+        this.config.dimensions = actualDimensions;
+      }
 
       // 1. 连接到LanceDB
       await this.connectToLanceDB();
@@ -114,49 +173,124 @@ export class ToolRetrievalService {
   }
 
   /**
+   * 检查表的向量维度是否匹配
+   * 通过检查文件系统中的表结构来判断
+   */
+  private async checkTableDimensions(tableName: string): Promise<boolean> {
+    try {
+      logger.debug(`Checking table dimensions for: ${tableName}`);
+
+      // 通过尝试添加一个记录来检查维度是否匹配
+      // 如果维度不匹配，LanceDB会抛出错误
+      const tempTable = await this.db!.openTable(tableName);
+
+      try {
+        // 创建一个测试向量
+        const testVector = new Array(this.config.dimensions).fill(0.1);
+
+        // 尝试添加一个临时记录（使用临时ID避免冲突）
+        const tempId = `dimension-check-${Date.now()}`;
+        await tempTable.add([{
+          id: tempId,
+          name: 'Dimension Check',
+          description: 'Temporary record for dimension validation',
+          tags: [],
+          path: 'temp',
+          version: '1.0',
+          metadata: JSON.stringify({}), // 转换为JSON字符串以匹配schema
+          vector: testVector,
+          indexedAt: new Date()
+        }]);
+
+        // 如果成功，删除测试记录
+        await tempTable.delete(`id = '${tempId}'`);
+
+        logger.info(`Table dimensions match: ${this.config.dimensions}`);
+        return true;
+      } catch (insertError: any) {
+        // 检查是否是维度不匹配的错误
+        const errorMsg = insertError.message || '';
+        if (errorMsg.includes('dimension') || errorMsg.includes('length') ||
+            errorMsg.includes('schema') || errorMsg.includes('FixedSizeList')) {
+          logger.info(`Table dimensions do not match config. Config: ${this.config.dimensions}`);
+          logger.debug('Dimension mismatch error:', errorMsg);
+          return false;
+        }
+        // 其他错误，重新抛出
+        throw insertError;
+      }
+    } catch (error) {
+      logger.error('Failed to check table dimensions:', error);
+      return false;
+    }
+  }
+
+  /**
    * 初始化Skills向量表
    */
   private async initializeSkillsTable(): Promise<void> {
     try {
       const tableName = 'skills';
 
-      // 检查表是否存在
-      const tableNames = await this.getTableNames();
-
-      if (tableNames.includes(tableName)) {
-        // 表已存在，打开它
+      // 尝试直接打开表，如果失败则说明表不存在
+      try {
         this.table = await this.db!.openTable(tableName);
-        logger.info(`Opened existing table: ${tableName}`);
+        logger.info(`Table '${tableName}' exists, checking dimensions...`);
 
-        // 获取表中的记录数
-        const count = await this.getTableCount();
-        logger.info(`Table contains ${count} vector records`);
-      } else {
-        // 创建新表 - 使用 Apache Arrow Schema
-        const schema = new arrow.Schema([
-          new arrow.Field('id', new arrow.Utf8(), false),
-          new arrow.Field('name', new arrow.Utf8(), false),
-          new arrow.Field('description', new arrow.Utf8(), false),
-          new arrow.Field('tags', new arrow.List(
-            new arrow.Field('item', new arrow.Utf8(), true)
-          ), false),
-          new arrow.Field('path', new arrow.Utf8(), false),
-          new arrow.Field('version', new arrow.Utf8(), false),
-          new arrow.Field('metadata', new arrow.Utf8(), false), // 对象存储为JSON字符串
-          new arrow.Field('vector', new arrow.FixedSizeList(
-            this.config.dimensions,
-            new arrow.Field('item', new arrow.Float32(), true)
-          ), false),
-          new arrow.Field('indexedAt', new arrow.Timestamp(arrow.TimeUnit.MICROSECOND), false)
-        ]);
+        // 表已存在，检查维度是否匹配
+        const dimensionsMatch = await this.checkTableDimensions(tableName);
+        logger.info(`Dimension check result: ${dimensionsMatch ? 'MATCH' : 'MISMATCH'}`);
 
-        // 创建空表
-        this.table = await this.db!.createTable(tableName, [], { schema });
+        if (!dimensionsMatch) {
+          // 维度不匹配，需要重新创建表
+          logger.warn(`Table dimensions mismatch. Dropping and recreating table: ${tableName}`);
 
-        logger.info(`Created new table: ${tableName}`);
+          // 删除旧表
+          await this.db!.dropTable(tableName);
+          logger.info(`Dropped existing table: ${tableName}`);
+
+          // 继续创建新表
+        } else {
+          // 维度匹配，使用现有表
+          logger.info(`Using existing table: ${tableName}`);
+
+          // 获取表中的记录数
+          const count = await this.getTableCount();
+          logger.info(`Table contains ${count} vector records`);
+
+          // 创建向量索引
+          await this.createVectorIndex();
+          return;
+        }
+      } catch (openError: any) {
+        // 表不存在，继续创建新表
+        logger.info(`Table '${tableName}' does not exist (${openError.message}), will create new table`);
       }
 
-      // 创建向量索引（如果不存在）
+      // 创建新表 - 使用 Apache Arrow Schema
+      const schema = new arrow.Schema([
+        new arrow.Field('id', new arrow.Utf8(), false),
+        new arrow.Field('name', new arrow.Utf8(), false),
+        new arrow.Field('description', new arrow.Utf8(), false),
+        new arrow.Field('tags', new arrow.List(
+          new arrow.Field('item', new arrow.Utf8(), true)
+        ), false),
+        new arrow.Field('path', new arrow.Utf8(), false),
+        new arrow.Field('version', new arrow.Utf8(), false),
+        new arrow.Field('metadata', new arrow.Utf8(), false), // 对象存储为JSON字符串
+        new arrow.Field('vector', new arrow.FixedSizeList(
+          this.config.dimensions,
+          new arrow.Field('item', new arrow.Float32(), true)
+        ), false),
+        new arrow.Field('indexedAt', new arrow.Timestamp(arrow.TimeUnit.MICROSECOND), false)
+      ]);
+
+      // 创建空表
+      this.table = await this.db!.createTable(tableName, [], { schema });
+
+      logger.info(`Created new table: ${tableName} with ${this.config.dimensions} dimensions`);
+
+      // 创建向量索引
       await this.createVectorIndex();
 
     } catch (error) {
@@ -316,7 +450,7 @@ export class ToolRetrievalService {
       // 生成向量嵌入
       const vector = await this.getEmbedding(skill);
 
-      // 准备记录数据 - 向量转换为 Float32Array
+      // 准备记录数据 - 向量保持为普通数组格式（LanceDB要求）
       const record: SkillsTable = {
         id: skillId,
         name: skill.name,
@@ -324,8 +458,8 @@ export class ToolRetrievalService {
         tags: skill.tags || [],
         path: skill.path,
         version: skill.version || '1.0.0',
-        metadata: skill.metadata || {},
-        vector: new Float32Array(vector), // 转换为 Float32Array
+        metadata: JSON.stringify(skill.metadata || {}), // 转换为JSON字符串以匹配schema
+        vector: vector, // 保持为普通数组，不要转换为 Float32Array
         indexedAt: new Date()
       };
 
@@ -380,6 +514,20 @@ export class ToolRetrievalService {
     try {
       logger.info(`Searching relevant skills for query: "${query}"`);
 
+      // 确保服务已初始化
+      if (!this.isInitialized) {
+        logger.warn('ToolRetrievalService not initialized, initializing now...');
+        await this.initialize();
+      }
+
+      // 检查表是否存在
+      if (!this.table) {
+        throw new ToolError(
+          'Vector table is not initialized. Please call initialize() first.',
+          ToolErrorCode.VECTOR_DB_ERROR
+        );
+      }
+
       // 生成查询向量
       const queryVector = await this.getEmbedding({
         name: query,
@@ -388,7 +536,7 @@ export class ToolRetrievalService {
       });
 
       // 执行向量搜索
-      const results = await this.table!
+      const results = await this.table
         .search(queryVector)
         .limit(limit * 2) // 获取多一些结果以应用阈值过滤
         .toArray();
@@ -436,6 +584,19 @@ export class ToolRetrievalService {
         // 获取数据
         const data: SkillsTable = result.item || result;
 
+        // 解析metadata JSON字符串
+        let metadata = {};
+        try {
+          if (typeof data.metadata === 'string') {
+            metadata = JSON.parse(data.metadata);
+          } else {
+            metadata = data.metadata || {};
+          }
+        } catch (e) {
+          logger.warn('Failed to parse metadata JSON:', e);
+          metadata = {};
+        }
+
         // 转换为SkillTool格式
         const tool: SkillTool = {
           name: data.name,
@@ -444,7 +605,7 @@ export class ToolRetrievalService {
           tags: data.tags,
           version: data.version,
           path: data.path,
-          parameters: data.metadata?.parameters || { type: 'object', properties: {}, required: [] },
+          parameters: (metadata as any).parameters || { type: 'object', properties: {}, required: [] },
           enabled: true,
           level: 1
         };
@@ -732,12 +893,12 @@ export function getToolRetrievalService(
 ): ToolRetrievalService {
   if (!instance) {
     if (!config) {
-      // 使用默认配置
+      // 使用默认配置（维度会在初始化时动态获取）
       config = {
-        vectorDbPath: './.data/skills.lance',
+        vectorDbPath: './.data',
         model: 'all-MiniLM-L6-v2',
         cacheSize: 1000,
-        dimensions: 384,
+        dimensions: 384, // 初始值，会在初始化时被实际模型维度覆盖
         similarityThreshold: 0.6,
         maxResults: 10
       };

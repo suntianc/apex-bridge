@@ -93,7 +93,12 @@ export class ABPIntelliCore {
       const { LLMConfigService } = await import('./services/LLMConfigService');
       LLMConfigService.getInstance(); // 触发 DB 初始化
       logger.info('✅ LLMConfigService initialized (SQLite database ready)');
-      
+
+      // 初始化SkillManager（确保在ChatService之前）
+      const { SkillManager } = await import('./services/SkillManager');
+      const skillManager = SkillManager.getInstance();
+      logger.info('✅ SkillManager initialized (skills will be indexed automatically)');
+
       // 2. 核心引擎初始化
       // ⏳ 关键调整：先创建 ProtocolEngine，然后等待完全初始化
       const memBefore = process.memoryUsage();

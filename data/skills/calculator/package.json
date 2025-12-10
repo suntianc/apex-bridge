@@ -1,0 +1,36 @@
+{
+  "name": "calculator-skill",
+  "version": "1.0.0",
+  "description": "Simple calculator skill for ApexBridge",
+  "main": "scripts/execute.ts",
+  "scripts": {
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "build": "tsc",
+    "dev": "ts-node scripts/execute.ts"
+  },
+  "keywords": [
+    "calculator",
+    "math",
+    "skill",
+    "apex-bridge"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/jest": "^29.5.0",
+    "@types/node": "^20.0.0",
+    "jest": "^29.5.0",
+    "ts-jest": "^29.1.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.0.0"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/tests/**/*.test.ts"
+    ]
+  }
+}

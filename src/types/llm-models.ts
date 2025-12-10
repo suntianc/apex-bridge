@@ -25,6 +25,7 @@ export interface ProviderBaseConfig {
   timeout?: number;                      // 超时时间（毫秒）
   maxRetries?: number;                   // 最大重试次数
   customHeaders?: Record<string, string>; // 自定义请求头
+  proxy?: boolean | any;                 // 代理配置（false 表示禁用代理）
   [key: string]: any;                    // 其他自定义配置
 }
 

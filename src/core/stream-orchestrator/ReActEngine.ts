@@ -23,6 +23,7 @@ import type {
   ReActRuntimeContext
 } from './types';
 import { logger } from '../../utils/logger';
+import { log } from 'console';
 
 export class ReActEngine {
   private toolExecutor: ToolExecutor;
@@ -271,6 +272,7 @@ export class ReActEngine {
           ? (typeof result.result === 'string' ? result.result : JSON.stringify(result.result))
           : result.error;
         // 转义 CDATA 结束标记，防止内容中的 ]]> 导致 XML 解析错误
+        logger.info(`resultContent: ${resultContent}`);
         const safeResultContent = resultContent.replace(/]]>/g, ']]]]><![CDATA[');
 
         return `<tool_output name="${action.name}" status="${status}">
@@ -281,7 +283,7 @@ export class ReActEngine {
       // 将 assistant 输出的内容（包含 tool_action 标签）和工具结果添加到消息历史
       messages.push(assistantMessage);
       messages.push({
-        role: 'system',
+        role: 'user',
         content: toolResultsText
       });
 

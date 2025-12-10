@@ -190,5 +190,7 @@ user-data/
 data/*.db
 data/*.db-shm
 data/*.db-wal
+data/ace/*
+data/skills.lance/*
 # Runtime logs
 logs/*.log
