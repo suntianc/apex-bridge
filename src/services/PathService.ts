@@ -37,7 +37,7 @@ export class PathService {
         process.env.APEX_BRIDGE_CONFIG_DIR || path.join(rootDir, 'config')
       ),
       dataDir: path.resolve(
-        process.env.APEX_BRIDGE_DATA_DIR || path.join(rootDir, 'data')
+        process.env.APEX_BRIDGE_DATA_DIR || path.join(rootDir, '.data')
       ),
       logDir: path.resolve(
         process.env.APEX_BRIDGE_LOG_DIR || path.join(rootDir, 'logs')
