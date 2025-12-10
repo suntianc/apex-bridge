@@ -390,7 +390,7 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
    * 获取Skills路径
    */
   private getSkillPath(skillName: string): string {
-    const basePath = './data/skills'; // 应该从配置读取
+    const basePath = './.data/skills'; // 使用统一的数据目录
     return path.join(basePath, skillName);
   }
 

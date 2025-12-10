@@ -187,10 +187,11 @@ users/
 profiles/
 user-data/
 # Database files
-data/*.db
-data/*.db-shm
-data/*.db-wal
-data/ace/*
-data/skills.lance/*
+.data/*.db
+.data/*.db-shm
+.data/*.db-wal
+.data/ace/*
+.data/skills.lance/*
+.data/skills/*
 # Runtime logs
 logs/*.log

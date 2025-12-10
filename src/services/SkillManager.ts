@@ -73,7 +73,7 @@ export class SkillManager {
    * @param retrievalService 检索服务实例
    */
   protected constructor(
-    skillsBasePath: string = './data/skills',
+    skillsBasePath: string = './.data/skills',
     retrievalService?: ToolRetrievalService
   ) {
     this.skillsBasePath = skillsBasePath;

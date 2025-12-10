@@ -627,7 +627,7 @@ export class ToolRetrievalService {
   /**
    * 扫描并索引所有已安装的Skills
    */
-  async scanAndIndexAllSkills(skillsDir: string = './data/skills'): Promise<void> {
+  async scanAndIndexAllSkills(skillsDir: string = './.data/skills'): Promise<void> {
     try {
       logger.info(`Scanning skills directory: ${skillsDir}`);
 
