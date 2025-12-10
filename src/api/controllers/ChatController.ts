@@ -7,6 +7,7 @@ import { Request, Response } from 'express';
 import { ChatService } from '../../services/ChatService';
 import { LLMManager as LLMClient } from '../../core/LLMManager';
 import { InterruptRequest, InterruptResponse } from '../../types/request-abort';
+import { LLMModelType } from '../../types/llm-models';
 import { Message } from '../../types';
 import { logger } from '../../utils/logger';
 import { parseChatRequest } from '../../api/validators/chat-request-validator';
@@ -81,7 +82,7 @@ export class ChatController {
     try {
       const llmClient = await this.getLLMClient();
       const models = llmClient.getAllModels();
-      const defaultModel = models.find(m => m.type === 'NLP');
+      const defaultModel = models.find(m => m.type === LLMModelType.NLP);
       if (defaultModel) {
         logger.debug(`[ChatController.getActualModel] Using default model: ${defaultModel.id}`);
         return defaultModel.id;

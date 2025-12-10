@@ -29,7 +29,8 @@ import {
   chatCompletionSchema,
   modelsListSchema,
   interruptRequestSchema,
-  simpleStreamSchema
+  simpleStreamSchema,
+  validateModelBeforeAddSchema
 } from './api/middleware/validationSchemas';
 // 清理中间件
 import { createSanitizationMiddleware } from './api/middleware/sanitizationMiddleware';
@@ -276,7 +277,13 @@ export class ABPIntelliCore {
     
     // 提供商管理
     this.app.get('/api/llm/providers', ProviderController.listProviders);
+    this.app.get('/api/llm/providers/adapters', ProviderController.listAdapters);
     this.app.get('/api/llm/providers/:id', ProviderController.getProvider);
+    this.app.post('/api/llm/providers/test-connect', ProviderController.testProviderConnection);
+    this.app.post('/api/llm/providers/validate-model',
+      createValidationMiddleware(validateModelBeforeAddSchema),
+      ProviderController.validateModelBeforeAdd
+    );
     this.app.post('/api/llm/providers', ProviderController.createProvider);
     this.app.put('/api/llm/providers/:id', ProviderController.updateProvider);
     this.app.delete('/api/llm/providers/:id', ProviderController.deleteProvider);

@@ -313,7 +313,7 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
       return models.map((m: any) => m.id || m.name);
     } catch (error: any) {
       logger.warn(`⚠️  Failed to get models from ${this.providerName}:`, error.message);
-      return [this.config.defaultModel];
+      throw error;
     }
   }
 

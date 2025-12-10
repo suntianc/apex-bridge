@@ -246,3 +246,50 @@ export const interruptRequestSchema: ValidationSchema = {
     }
   }
 };
+
+/**
+ * 模型预添加验证模式
+ */
+export const validateModelBeforeAddSchema: ValidationSchema = {
+  body: {
+    type: 'object',
+    required: ['provider', 'baseConfig', 'model'],
+    properties: {
+      provider: {
+        type: 'string',
+        enum: ['openai', 'deepseek', 'zhipu', 'claude', 'ollama', 'custom']
+      },
+      baseConfig: {
+        type: 'object',
+        required: ['apiKey'],
+        properties: {
+          apiKey: {
+            type: 'string',
+            minLength: 1
+          },
+          baseURL: {
+            type: 'string',
+            format: 'uri',
+            pattern: '^https?://'
+          },
+          timeout: {
+            type: 'integer',
+            minimum: 1000,
+            maximum: 60000
+          },
+          maxRetries: {
+            type: 'integer',
+            minimum: 0,
+            maximum: 5
+          }
+        }
+      },
+      model: {
+        type: 'string',
+        pattern: '^[a-zA-Z0-9._-]+$',
+        minLength: 1,
+        maxLength: 100
+      }
+    }
+  }
+};

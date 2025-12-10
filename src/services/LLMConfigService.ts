@@ -178,10 +178,12 @@ export class LLMConfigService {
     // 验证输入
     this.validateProviderInput(input);
 
-    // 检查是否已存在
-    const existing = this.getProviderByKey(input.provider);
-    if (existing) {
-      throw new Error(`Provider already exists: ${input.provider}`);
+    // 检查是否已存在（非Custom类型只允许一个实例）
+    if (input.provider !== 'custom') {
+      const existing = this.getProviderByKey(input.provider);
+      if (existing) {
+        throw new Error(`Provider already exists: ${input.provider}. Each provider type can only have one instance, except for Custom providers.`);
+      }
     }
 
     const now = Date.now();

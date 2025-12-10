@@ -15,6 +15,30 @@ import { logger } from '../../../utils/logger';
 
 export class LLMAdapterFactory {
   /**
+   * 供应商名称映射表
+   */
+  private static readonly PROVIDER_NAMES: Record<string, string> = {
+    openai: 'OpenAI',
+    deepseek: 'DeepSeek',
+    zhipu: '智谱AI',
+    claude: 'Claude',
+    ollama: 'Ollama',
+    custom: 'Custom'
+  };
+
+  /**
+   * 供应商默认 baseURL 映射表
+   */
+  private static readonly PROVIDER_DEFAULT_BASEURLS: Record<string, string> = {
+    openai: 'https://api.openai.com/v1',
+    deepseek: 'https://api.deepseek.com/v1',
+    zhipu: 'https://open.bigmodel.cn/api/paas/v4',
+    claude: 'https://api.anthropic.com/v1',
+    ollama: 'http://localhost:11434/v1',
+    custom: 'https://api.openai.com/v1' // Custom 默认使用 OpenAI 格式
+  };
+
+  /**
    * 根据provider创建适配器
    */
   static create(provider: string, config: LLMProviderConfig): ILLMAdapter {
@@ -42,6 +66,17 @@ export class LLMAdapterFactory {
    */
   static getSupportedProviders(): string[] {
     return ['openai', 'deepseek', 'zhipu', 'claude', 'ollama', 'custom'];
+  }
+
+  /**
+   * 获取支持的适配器供应商列表（包含显示名称和默认baseURL）
+   */
+  static getSupportedAdapters(): Array<{name: string, provider: string, defaultBaseURL: string}> {
+    return Object.entries(this.PROVIDER_NAMES).map(([provider, name]) => ({
+      name,
+      provider,
+      defaultBaseURL: this.PROVIDER_DEFAULT_BASEURLS[provider] || ''
+    }));
   }
 }
 
