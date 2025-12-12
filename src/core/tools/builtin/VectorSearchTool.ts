@@ -27,7 +27,7 @@ export interface VectorSearchArgs {
  */
 export class VectorSearchTool {
   private static readonly DEFAULT_LIMIT = 5;
-  private static readonly DEFAULT_THRESHOLD = 0.6;
+  private static readonly DEFAULT_THRESHOLD = 0.15;
   private static readonly MAX_LIMIT = 20;
 
   /**
@@ -126,22 +126,53 @@ export class VectorSearchTool {
     args: VectorSearchArgs
   ): string {
     if (results.length === 0) {
-      return `No relevant tools found for query: "${args.query}"`;
+      return `No relevant Skills found for query: "${args.query}"`;
     }
 
-    let output = `Vector Search Results for: "${args.query}"\n`;
-    output += `Found ${results.length} relevant tool(s)\n\n`;
+    let output = `Found ${results.length} relevant Skill(s) for: "${args.query}"\n\n`;
 
     results.forEach((result, index) => {
       output += this.formatResult(result, index + 1, args);
     });
 
     output += '\n';
-    output += 'Usage Example:\n';
-    output += `To use one of these tools, include it in your tool_calls array.\n`;
-    output += `Example: {"tool": "${results[0]?.tool?.name || 'tool-name'}", "arguments": {...}}`;
+    output += '=== How to Use These Skills ===\n\n';
+
+    // 检查第一个结果是否有可执行脚本
+    const firstTool = results[0]?.tool;
+    const hasExecuteScript = firstTool?.path && this.checkIfExecutable(firstTool.path);
+
+    if (hasExecuteScript) {
+      output += '✓ Executable Skill: Use tool_action to execute\n';
+      output += `Example:\n`;
+      output += `<tool_action name="${firstTool.name}">\n`;
+      if (firstTool.parameters?.properties) {
+        const firstParam = Object.keys(firstTool.parameters.properties)[0];
+        if (firstParam) {
+          output += `  <${firstParam} value="your-value" />\n`;
+        }
+      }
+      output += `</tool_action>\n\n`;
+    } else {
+      output += '✓ Knowledge Skill: Use read-skill to get full documentation\n';
+      output += `Example:\n`;
+      output += `<tool_action name="read-skill">\n`;
+      output += `  <skillName value="${firstTool?.name || 'skill-name'}" />\n`;
+      output += `</tool_action>\n\n`;
+    }
+
+    output += 'Note: After reading the Skill documentation, you can apply the knowledge to help the user.\n';
 
     return output;
+  }
+
+  /**
+   * 检查 Skill 是否可执行（简单检查，实际检查在运行时）
+   */
+  private static checkIfExecutable(_skillPath: string): boolean {
+    // 这里只是一个提示，实际的可执行性检查在 SkillsSandboxExecutor 中
+    // 我们假设有 path 的 Skill 可能是可执行的
+    return true;
   }
 
   /**
@@ -157,22 +188,29 @@ export class VectorSearchTool {
     args: VectorSearchArgs
   ): string {
     const tool = result.tool;
-    let output = `${index}. ${tool.name}\n`;
+
+    // 判断 Skill 类型
+    const isExecutable = tool.parameters &&
+                        tool.parameters.properties &&
+                        Object.keys(tool.parameters.properties).length > 0;
+    const skillType = isExecutable ? '🔧 Executable' : '📚 Knowledge';
+
+    let output = `${index}. ${tool.name} [${skillType}]\n`;
     output += `   Score: ${(result.score * 100).toFixed(2)}%\n`;
     output += `   Description: ${tool.description}\n`;
     output += `   Category: ${tool.category || 'N/A'}\n`;
 
-    if (tool.tags && tool.tags.length > 0) {
+    if (tool.tags && Array.isArray(tool.tags) && tool.tags.length > 0) {
       output += `   Tags: ${tool.tags.join(', ')}\n`;
     }
 
-    if (tool.parameters && tool.parameters.properties) {
+    if (isExecutable && tool.parameters.properties) {
       output += `   Parameters:\n`;
       const properties = tool.parameters.properties;
       const required = tool.parameters.required || [];
 
       Object.entries(properties).forEach(([paramName, paramSchema]) => {
-        const schema: any = paramSchema; // 添加类型断言
+        const schema: any = paramSchema;
         const isRequired = required.includes(paramName);
         const requiredMarker = isRequired ? ' (required)' : '';
         output += `     - ${paramName}${requiredMarker}: ${schema.description}\n`;
@@ -189,6 +227,8 @@ export class VectorSearchTool {
           output += `       Enum: ${schema.enum.join(', ')}\n`;
         }
       });
+    } else if (!isExecutable) {
+      output += `   Type: Knowledge-based Skill (use read-skill to get full documentation)\n`;
     }
 
     if (args.includeMetadata && tool.metadata) {
@@ -241,7 +281,7 @@ export class VectorSearchTool {
           },
           threshold: {
             type: 'number',
-            description: 'Similarity threshold (0.0 to 1.0, default: 0.6). Higher values = more strict matching',
+            description: 'Similarity threshold (0.0 to 1.0, default: 0.15). Higher values = more strict matching',
             default: this.DEFAULT_THRESHOLD,
             minimum: 0.0,
             maximum: 1.0

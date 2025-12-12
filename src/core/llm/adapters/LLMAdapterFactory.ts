@@ -34,7 +34,7 @@ export class LLMAdapterFactory {
     deepseek: 'https://api.deepseek.com/v1',
     zhipu: 'https://open.bigmodel.cn/api/paas/v4',
     claude: 'https://api.anthropic.com/v1',
-    ollama: 'http://localhost:11434/v1',
+    ollama: 'http://localhost:11434',
     custom: 'https://api.openai.com/v1' // Custom 默认使用 OpenAI 格式
   };
 

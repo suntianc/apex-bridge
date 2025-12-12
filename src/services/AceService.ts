@@ -3,6 +3,7 @@ import { LLMManager } from '../core/LLMManager';
 import { ApexLLMAdapter } from '../core/ace/ApexLLMAdapter';
 import { ConfigService } from './ConfigService';
 import { LLMConfigService } from './LLMConfigService';
+import { PathService } from './PathService';
 import { logger } from '../utils/logger';
 import path from 'path';
 import fs from 'fs';
@@ -46,8 +47,9 @@ export class AceService {
         logger.info('🚀 Initializing ACE Engine...');
 
         try {
-            // 1. Prepare storage configuration (paths are relative to project root)
-            const dataDir = path.join(process.cwd(), 'data', 'ace');
+            // 1. Prepare storage configuration (使用 PathService 统一管理路径)
+            const pathService = PathService.getInstance();
+            const dataDir = path.join(pathService.getDataDir(), 'ace');
             if (!fs.existsSync(dataDir)) {
                 fs.mkdirSync(dataDir, { recursive: true });
             }

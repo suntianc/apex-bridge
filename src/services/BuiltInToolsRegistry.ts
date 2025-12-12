@@ -14,6 +14,7 @@ import { BaseToolExecutor } from './executors/ToolExecutor';
 import { createFileReadTool } from '../core/tools/builtin/FileReadTool';
 import { createFileWriteTool } from '../core/tools/builtin/FileWriteTool';
 import { createVectorSearchTool } from '../core/tools/builtin/VectorSearchTool';
+import { createReadSkillTool } from '../core/tools/builtin/ReadSkillTool';
 import { createPlatformDetectorTool } from '../core/tools/builtin/PlatformDetectorTool';
 import { logger } from '../utils/logger';
 
@@ -41,6 +42,9 @@ export class BuiltInToolsRegistry extends BaseToolExecutor {
 
     // 注册搜索工具
     this.registerTool(createVectorSearchTool());
+
+    // 注册 Skill 工具
+    this.registerTool(createReadSkillTool());
 
     // 注册系统工具
     this.registerTool(createPlatformDetectorTool());
@@ -397,6 +401,7 @@ export const BUILTIN_TOOL_NAMES = {
   FILE_READ: 'file-read',
   FILE_WRITE: 'file-write',
   VECTOR_SEARCH: 'vector-search',
+  READ_SKILL: 'read-skill',
   PLATFORM_DETECTOR: 'platform-detector',
   DATETIME: 'datetime',
   CALCULATION: 'calculation'

@@ -20,6 +20,7 @@ import {
   ToolErrorCode
 } from '../../types/tool-system';
 import { logger } from '../../utils/logger';
+import { getSkillManager } from '../SkillManager';
 
 /**
  * 执行统计记录
@@ -97,7 +98,7 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
       logger.debug(`Skills arguments:`, options.args);
 
       // 检查Skills是否存在
-      const skillPath = this.getSkillPath(toolName);
+      const skillPath = await this.getSkillPath(toolName);
       const executeScript = path.join(skillPath, 'scripts', 'execute.js');
 
       if (!(await this.fileExists(executeScript))) {
@@ -261,6 +262,9 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
         // 检查是否有错误
         if (code !== 0 || signal) {
           logger.warn(`Skills ${toolName} exited with code ${code}, signal ${signal}`);
+          if (stderr && stderr.trim()) {
+            logger.warn(`Skills ${toolName} stderr output:\n${stderr}`);
+          }
         }
 
         const finalExitCode = code ?? (signal ? -1 : 0);
@@ -327,8 +331,9 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
     cwd: string,
     env: NodeJS.ProcessEnv
   ): any {
+    // 注意：不设置 cwd，使用脚本的绝对路径
+    // workspace 只用于技能执行时的临时文件操作
     return {
-      cwd,
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: false, // 不使用shell，防止注入
@@ -388,10 +393,27 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
 
   /**
    * 获取Skills路径
+   * 通过SkillManager查询Skill的实际路径，支持name与目录名不一致的情况
    */
-  private getSkillPath(skillName: string): string {
-    const basePath = './.data/skills'; // 使用统一的数据目录
-    return path.join(basePath, skillName);
+  private async getSkillPath(skillName: string): Promise<string> {
+    try {
+      // 尝试通过SkillManager查询Skill
+      const skillManager = getSkillManager();
+      const skill = await skillManager.getSkillByName(skillName);
+
+      if (skill && skill.path) {
+        return skill.path;
+      }
+
+      // 如果找不到，尝试使用目录名直接拼接（兼容旧逻辑）
+      const basePath = './.data/skills';
+      return path.join(basePath, skillName);
+    } catch (error) {
+      // 如果查询失败，回退到直接拼接
+      logger.debug(`Failed to query skill path from SkillManager: ${error}`);
+      const basePath = './.data/skills';
+      return path.join(basePath, skillName);
+    }
   }
 
   /**

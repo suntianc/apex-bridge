@@ -9,6 +9,7 @@ import * as arrow from 'apache-arrow';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { createHash } from 'crypto';
+import matter from 'gray-matter';
 import {
   ToolRetrievalConfig,
   SkillTool,
@@ -509,7 +510,7 @@ export class ToolRetrievalService {
   async findRelevantSkills(
     query: string,
     limit: number = 5,
-    threshold: number = 0.6
+    threshold: number = 0.4
   ): Promise<ToolRetrievalResult[]> {
     try {
       logger.info(`Searching relevant skills for query: "${query}"`);
@@ -574,10 +575,23 @@ export class ToolRetrievalService {
     for (const result of resultArray.slice(0, limit)) {
       try {
         // 获取相似度分数
-        const score = result.score || result.similarity || 0;
+        // LanceDB 返回的是 _distance (L2距离)，需要转换为相似度
+        // 相似度 = 1 - distance (对于归一化向量)
+        let score: number;
+        if (result._distance !== undefined) {
+          // LanceDB 返回的是距离，转换为相似度
+          score = Math.max(0, 1 - result._distance);
+        } else if (result.score !== undefined) {
+          score = result.score;
+        } else if (result.similarity !== undefined) {
+          score = result.similarity;
+        } else {
+          score = 0;
+        }
 
         // 应用阈值过滤
         if (score < threshold) {
+          logger.debug(`Filtered out result with score ${score.toFixed(4)} < threshold ${threshold}`);
           continue;
         }
 
@@ -735,70 +749,19 @@ export class ToolRetrievalService {
     // 读取文件
     const content = await fs.readFile(skillMdPath, 'utf8');
 
-    // 解析YAML Frontmatter（简化版本）
-    const yamlMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
+    // 使用 gray-matter 解析 YAML Frontmatter
+    const parsed = matter(content);
 
-    if (!yamlMatch) {
-      throw new Error('No YAML Frontmatter found in SKILL.md');
-    }
-
-    const yamlContent = yamlMatch[1];
-
-    // 简单的YAML解析（实际项目中应该使用专门的YAML解析库）
-    const metadata = this.parseSimpleYaml(yamlContent);
-
-    if (!metadata.name || !metadata.description) {
+    if (!parsed.data.name || !parsed.data.description) {
       throw new Error('SKILL.md must contain name and description');
     }
 
     return {
-      name: metadata.name,
-      description: metadata.description,
-      tags: metadata.tags || [],
-      version: metadata.version || '1.0.0'
+      name: parsed.data.name,
+      description: parsed.data.description,
+      tags: Array.isArray(parsed.data.tags) ? parsed.data.tags : [],
+      version: parsed.data.version || '1.0.0'
     };
-  }
-
-  /**
-   * 简单的YAML解析（用于演示）
-   */
-  private parseSimpleYaml(yamlContent: string): Record<string, any> {
-    const result: Record<string, any> = {};
-    const lines = yamlContent.split('\n');
-
-    for (const line of lines) {
-      const match = line.match(/^([^:]+):\s*(.+)$/);
-      if (match) {
-        const key = match[1].trim();
-        let value = match[2].trim();
-
-        // 处理数组
-        if (value.startsWith('[') && value.endsWith(']')) {
-          value = value.substring(1, value.length - 1);
-          result[key] = value.split(',').map((v: string) => v.trim());
-        }
-        // 处理字符串
-        else if (value.startsWith('"') && value.endsWith('"')) {
-          result[key] = value.substring(1, value.length - 1);
-        } else if (value.startsWith("'") && value.endsWith("'")) {
-          result[key] = value.substring(1, value.length - 1);
-        }
-        // 处理数字
-        else if (/^-?\d+\.?\d*$/.test(value)) {
-          result[key] = parseFloat(value);
-        }
-        // 处理布尔值
-        else if (value === 'true' || value === 'false') {
-          result[key] = value === 'true';
-        }
-        // 普通字符串
-        else {
-          result[key] = value;
-        }
-      }
-    }
-
-    return result;
   }
 
   /**

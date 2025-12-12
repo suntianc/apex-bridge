@@ -66,6 +66,7 @@ export class SkillManager {
   private static instance: SkillManager | null = null;
   private readonly skillsBasePath: string;
   private readonly retrievalService: ToolRetrievalService;
+  private initializationPromise: Promise<void> | null = null;
 
   /**
    * 创建SkillManager实例
@@ -81,7 +82,7 @@ export class SkillManager {
       vectorDbPath: './.data',
       model: 'all-MiniLM-L6-v2',
       dimensions: 384, // 初始值，会在初始化时被实际模型维度覆盖
-      similarityThreshold: 0.6,
+      similarityThreshold: 0.4,
       cacheSize: 1000
     });
 
@@ -89,9 +90,11 @@ export class SkillManager {
       skillsBasePath
     });
 
-    // 初始化时自动扫描并索引所有Skills
-    this.initializeSkillsIndex().catch(error => {
+    // 启动异步初始化，但不阻塞构造函数
+    this.initializationPromise = this.initializeSkillsIndex().catch(error => {
       logger.error('Failed to initialize skills index during startup:', error);
+      // 即使失败也标记为完成，避免永久阻塞
+      throw error;
     });
   }
 
@@ -707,6 +710,24 @@ export class SkillManager {
   }
 
   /**
+   * 等待初始化完成
+   * 外部调用者可以使用此方法等待Skills索引初始化完成
+   * @returns Promise，在初始化完成时resolve
+   */
+  async waitForInitialization(): Promise<void> {
+    if (this.initializationPromise) {
+      try {
+        await this.initializationPromise;
+      } catch (error) {
+        // 初始化失败，但不阻止系统继续运行
+        logger.warn('Skills initialization failed, but system will continue', {
+          error: error instanceof Error ? error.message : error
+        });
+      }
+    }
+  }
+
+  /**
    * 初始化Skills索引
    * 在SkillManager创建时自动调用，扫描并索引所有已存在的Skills
    */
@@ -723,7 +744,8 @@ export class SkillManager {
       logger.info('✅ Skills index initialization completed');
     } catch (error) {
       logger.error('❌ Failed to initialize skills index:', error);
-      // 不抛出错误，避免影响系统启动
+      // 抛出错误，让waitForInitialization捕获
+      throw error;
     }
   }
 

@@ -189,7 +189,6 @@ export class ChatService {
 
     // 3. 统一变量替换
     processedMessages = await this.variableEngine.resolveMessages(processedMessages, variables);
-    logger.info(`[ChatService] ${processedMessages}`);
     logger.debug(`[ChatService] Variable replacement completed with ${Object.keys(variables).length} variables`);
 
     return processedMessages;

@@ -16,7 +16,9 @@ import { ToolRetrievalService } from '../services/ToolRetrievalService';
 import { BuiltInExecutor } from '../services/executors/BuiltInExecutor';
 import { SkillsSandboxExecutor } from '../services/executors/SkillsSandboxExecutor';
 import { generateToolPrompt, ToolDispatcher } from '../core/tool-action';
+import { getSkillManager } from '../services/SkillManager';
 import type { Tool } from '../core/stream-orchestrator/types';
+import type { SkillTool, BuiltInTool } from '../types/tool-system';
 import { logger } from '../utils/logger';
 
 export class ReActStrategy implements ChatStrategy {
@@ -34,15 +36,12 @@ export class ReActStrategy implements ChatStrategy {
   ) {
     // 初始化工具系统组件
     this.builtInRegistry = new BuiltInToolsRegistry();
-    // ToolRetrievalService 配置（使用合理的默认路径）
-    const toolRetrievalConfig = {
-      vectorDbPath: './data',
-      model: 'all-MiniLM-L6-v2',
-      dimensions: 384, // 初始值，会在初始化时被实际模型维度覆盖
-      similarityThreshold: 0.6,
-      cacheSize: 100
-    };
-    this.toolRetrievalService = new ToolRetrievalService(toolRetrievalConfig);
+
+    // 使用 SkillManager 中已经初始化好的 ToolRetrievalService 实例
+    // 避免创建重复的数据库和实例
+    const skillManager = getSkillManager();
+    this.toolRetrievalService = skillManager.getRetrievalService();
+
     this.builtInExecutor = new BuiltInExecutor();
     this.skillsExecutor = new SkillsSandboxExecutor();
     this.toolDispatcher = new ToolDispatcher();
@@ -264,6 +263,11 @@ export class ReActStrategy implements ChatStrategy {
           0.6 // threshold
         );
         logger.debug(`[${this.getName()}] Found ${relevantSkills.length} relevant Skills`);
+
+        // 将检索到的Skills注册为代理工具，使其可以通过ToolDispatcher访问
+        for (const skill of relevantSkills) {
+          this.registerSkillAsBuiltInTool(skill.tool);
+        }
       } catch (skillError) {
         // Skills 检索失败，降级处理：只使用内置工具
         logger.warn(`[${this.getName()}] Skills retrieval failed, using built-in tools only:`,
@@ -336,5 +340,39 @@ export class ReActStrategy implements ChatStrategy {
       logger.error(`[${this.getName()}] Tool execution failed: ${toolName}`, error);
       throw error;
     }
+  }
+
+  /**
+   * 将Skill注册为内置工具代理
+   * 这样Skill就可以通过ToolDispatcher访问
+   */
+  private registerSkillAsBuiltInTool(skill: SkillTool): void {
+    // 创建代理工具，执行时调用Skills执行器
+    const proxyTool: BuiltInTool = {
+      name: skill.name,
+      description: skill.description,
+      type: 'BUILTIN' as any, // 强制设置为BUILTIN类型
+      category: skill.tags?.join(', ') || 'skill',
+      enabled: true,
+      level: skill.level,
+      parameters: skill.parameters,
+      execute: async (args: Record<string, any>) => {
+        const result = await this.skillsExecutor.execute({
+          name: skill.name,
+          args
+        });
+
+        return {
+          success: result.success,
+          output: result.success ? result.output : result.error,
+          duration: result.duration,
+          exitCode: result.exitCode
+        };
+      }
+    };
+
+    // 注册到内置工具注册表
+    this.builtInRegistry.registerTool(proxyTool);
+    logger.debug(`[${this.getName()}] Registered skill proxy: ${skill.name}`);
   }
 }

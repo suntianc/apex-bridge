@@ -2,6 +2,11 @@
  * ApexBridge Server - 主服务器入口（ABP-only）
  */
 
+// 加载环境变量（必须在其他导入之前）
+import dotenv from 'dotenv';
+import path from 'path';
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+
 import express from 'express';
 import cors from 'cors';
 import { Server } from 'http';
@@ -97,7 +102,10 @@ export class ABPIntelliCore {
       // 初始化SkillManager（确保在ChatService之前）
       const { SkillManager } = await import('./services/SkillManager');
       const skillManager = SkillManager.getInstance();
-      logger.info('✅ SkillManager initialized (skills will be indexed automatically)');
+
+      // 等待Skills索引初始化完成
+      await skillManager.waitForInitialization();
+      logger.info('✅ SkillManager initialized and skills indexed');
 
       // 2. 核心引擎初始化
       // ⏳ 关键调整：先创建 ProtocolEngine，然后等待完全初始化

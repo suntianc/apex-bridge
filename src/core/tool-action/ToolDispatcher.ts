@@ -17,6 +17,7 @@ import type {
   ToolResult
 } from '../../types/tool-system';
 import { BuiltInToolsRegistry, getBuiltInToolsRegistry } from '../../services/BuiltInToolsRegistry';
+import { SkillsSandboxExecutor } from '../../services/executors/SkillsSandboxExecutor';
 import { logger } from '../../utils/logger';
 
 /**
@@ -34,10 +35,15 @@ const DEFAULT_CONFIG: Required<DispatcherConfig> = {
 export class ToolDispatcher {
   private config: Required<DispatcherConfig>;
   private builtInRegistry: BuiltInToolsRegistry;
+  private skillExecutor: SkillsSandboxExecutor;
 
   constructor(config: DispatcherConfig = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.builtInRegistry = getBuiltInToolsRegistry();
+    this.skillExecutor = new SkillsSandboxExecutor({
+      timeout: this.config.timeout,
+      maxConcurrency: this.config.maxConcurrency
+    });
   }
 
   /**
@@ -59,12 +65,19 @@ export class ToolDispatcher {
         return await this.executeBuiltIn(builtInTool, parameters, startTime);
       }
 
-      // 2. 工具不存在
+      // 2. 尝试执行 Skill（可执行型 Skill）
+      logger.debug(`[ToolDispatcher] Trying to execute as Skill: ${name}`);
+      const skillResult = await this.executeSkill(name, parameters, startTime);
+      if (skillResult) {
+        return skillResult;
+      }
+
+      // 3. 工具不存在
       logger.warn(`[ToolDispatcher] Tool not found: ${name}`);
       return {
         success: false,
         toolName: name,
-        error: `Tool not found: ${name}`,
+        error: `Tool not found: ${name}. This tool is neither a built-in tool nor an executable Skill.`,
         executionTime: Date.now() - startTime
       };
 
@@ -118,6 +131,63 @@ export class ToolDispatcher {
       error: result.success ? undefined : result.error,
       executionTime
     };
+  }
+
+  /**
+   * 执行 Skill（可执行型 Skill）
+   */
+  private async executeSkill(
+    name: string,
+    parameters: Record<string, string>,
+    startTime: number
+  ): Promise<ToolExecutionResult | null> {
+    try {
+      logger.debug(`[ToolDispatcher] Attempting to execute Skill: ${name}`);
+
+      // 转换参数（Skills 也需要类型转换）
+      const typedArgs = this.convertParameters(parameters, null);
+
+      // 执行 Skill
+      const result = await this.skillExecutor.execute({
+        name,
+        args: typedArgs
+      });
+
+      const executionTime = Date.now() - startTime;
+
+      // 如果 Skill 不存在，返回 null（让调度器继续尝试其他路径）
+      if (!result.success && result.error?.includes('not found')) {
+        logger.debug(`[ToolDispatcher] Skill not found: ${name}`);
+        return null;
+      }
+
+      // Skill 存在但执行失败
+      return {
+        success: result.success,
+        toolName: name,
+        result: result.success ? result.output : undefined,
+        error: result.success ? undefined : result.error,
+        executionTime
+      };
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      // 如果是 Skill 不存在的错误，返回 null
+      if (errorMessage.includes('not found') || errorMessage.includes('does not exist')) {
+        logger.debug(`[ToolDispatcher] Skill does not exist: ${name}`);
+        return null;
+      }
+
+      // 其他错误，返回失败结果
+      logger.error(`[ToolDispatcher] Skill execution error: ${name}`, error);
+      return {
+        success: false,
+        toolName: name,
+        error: errorMessage,
+        executionTime: Date.now() - startTime
+      };
+    }
   }
 
   /**

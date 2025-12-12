@@ -42,7 +42,8 @@
 
 2. **触发行动 (Action)**:
    使用 `<tool_action>` 标签触发工具。不要附加任何多余解释。
-   格式（严禁带代码标签 "```xml"）：
+   严禁使用代码标签输出工具调用格式： "```xml"
+   格式如下：
    `<tool_action name="tool_name">{"param_key": "param_value"}</tool_action>`
 
 3. **等待反馈 (Wait)**:
