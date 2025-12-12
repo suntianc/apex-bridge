@@ -29,6 +29,11 @@ export class ReActStrategy implements ChatStrategy {
   private toolDispatcher: ToolDispatcher;
   private availableTools: any[] = [];
 
+  // 自动注销机制：追踪动态注册Skills的最后访问时间
+  private dynamicSkillsLastAccess: Map<string, number> = new Map();
+  private cleanupTimer: NodeJS.Timeout | null = null;
+  private readonly SKILL_TIMEOUT_MS = 5 * 60 * 1000; // 5分钟
+
   constructor(
     private llmManager: LLMManager,
     private aceIntegrator: AceIntegrator,
@@ -46,7 +51,10 @@ export class ReActStrategy implements ChatStrategy {
     this.skillsExecutor = new SkillsSandboxExecutor();
     this.toolDispatcher = new ToolDispatcher();
 
-    logger.info('ReActStrategy initialized with tool_action parsing support');
+    // 启动自动清理定时器
+    this.startCleanupTimer();
+
+    logger.info('ReActStrategy initialized with tool_action parsing support and auto-cleanup');
   }
 
   getName(): string {
@@ -298,6 +306,11 @@ export class ReActStrategy implements ChatStrategy {
       logger.info(`[${this.getName()}] Tool system initialized in ${Date.now() - startTime}ms`);
       logger.info(`[${this.getName()}] Available tools: ${builtInTools.length} built-in + ${relevantSkills.length} Skills`);
 
+      // 记录动态技能状态
+      if (relevantSkills.length > 0) {
+        logger.info(`[${this.getName()}] ${this.getDynamicSkillsStatus()}`);
+      }
+
     } catch (error) {
       logger.error(`[${this.getName()}] Tool system initialization failed:`, error);
       // 完全失败时，确保清空工具列表
@@ -357,6 +370,9 @@ export class ReActStrategy implements ChatStrategy {
       level: skill.level,
       parameters: skill.parameters,
       execute: async (args: Record<string, any>) => {
+        // 更新最后访问时间
+        this.dynamicSkillsLastAccess.set(skill.name, Date.now());
+
         const result = await this.skillsExecutor.execute({
           name: skill.name,
           args
@@ -371,8 +387,95 @@ export class ReActStrategy implements ChatStrategy {
       }
     };
 
+    // 记录技能注册时间和最后访问时间
+    const now = Date.now();
+    this.dynamicSkillsLastAccess.set(skill.name, now);
+
     // 注册到内置工具注册表
     this.builtInRegistry.registerTool(proxyTool);
-    logger.debug(`[${this.getName()}] Registered skill proxy: ${skill.name}`);
+    logger.debug(`[${this.getName()}] Registered skill proxy: ${skill.name} at ${new Date(now).toISOString()}`);
+  }
+
+  /**
+   * 启动自动清理定时器
+   * 每分钟检查一次，超过5分钟未使用的Skills将被自动注销
+   */
+  private startCleanupTimer(): void {
+    this.cleanupTimer = setInterval(() => {
+      this.cleanupUnusedSkills();
+    }, 60 * 1000); // 每分钟执行一次
+
+    logger.info(`[${this.getName()}] Auto-cleanup timer started (interval: 60s, timeout: 5min)`);
+  }
+
+  /**
+   * 清理超过5分钟未使用的Skills
+   * 减少上下文占用，优化性能
+   */
+  private cleanupUnusedSkills(): void {
+    const now = Date.now();
+    const skillsToRemove: string[] = [];
+
+    // 找出超过5分钟未使用的技能
+    for (const [skillName, lastAccessTime] of this.dynamicSkillsLastAccess.entries()) {
+      if (now - lastAccessTime > this.SKILL_TIMEOUT_MS) {
+        skillsToRemove.push(skillName);
+      }
+    }
+
+    if (skillsToRemove.length > 0) {
+      logger.info(`[${this.getName()}] Auto-cleanup starting: ${this.getDynamicSkillsStatus()}`);
+
+      for (const skillName of skillsToRemove) {
+        // 从动态追踪中移除
+        this.dynamicSkillsLastAccess.delete(skillName);
+
+        // 从内置工具注册表中注销
+        this.builtInRegistry.unregisterTool(skillName);
+
+        // 从可用工具列表中移除
+        this.availableTools = this.availableTools.filter(
+          tool => tool.function.name !== skillName
+        );
+
+        logger.info(`[${this.getName()}] Auto-unregistered unused skill: ${skillName}`);
+      }
+
+      logger.info(`[${this.getName()}] Auto-cleanup completed: ${skillsToRemove.length} skills removed`);
+      logger.info(`[${this.getName()}] Remaining active skills: ${this.dynamicSkillsLastAccess.size}`);
+    }
+  }
+
+  /**
+   * 停止自动清理定时器
+   * 用于资源清理
+   */
+  private stopCleanupTimer(): void {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
+      logger.info(`[${this.getName()}] Auto-cleanup timer stopped`);
+    }
+  }
+
+  /**
+   * 获取当前动态注册技能的状态
+   * 用于调试和监控
+   */
+  private getDynamicSkillsStatus(): string {
+    const now = Date.now();
+    const statuses: string[] = [];
+
+    for (const [skillName, lastAccessTime] of this.dynamicSkillsLastAccess.entries()) {
+      const age = Math.floor((now - lastAccessTime) / 1000);
+      const timeStr = age < 60 ? `${age}s ago` :
+                     age < 3600 ? `${Math.floor(age / 60)}m ago` :
+                     `${Math.floor(age / 3600)}h ago`;
+      statuses.push(`${skillName} (${timeStr})`);
+    }
+
+    return statuses.length > 0
+      ? `Active skills: ${statuses.join(', ')}`
+      : 'No active dynamic skills';
   }
 }
