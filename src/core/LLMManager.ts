@@ -25,8 +25,8 @@ export class LLMManager {
   constructor() {
     this.configService = LLMConfigService.getInstance();
     this.modelRegistry = ModelRegistry.getInstance();
-    
-    logger.info('🤖 Initializing LLM Manager (new architecture)...');
+
+    logger.debug('🤖 Initializing LLM Manager (new architecture)...');
     this.loadProviders();
   }
 

@@ -34,7 +34,7 @@ export class BuiltInToolsRegistry extends BaseToolExecutor {
    * 初始化内置工具
    */
   private initializeBuiltinTools(): void {
-    logger.info('Initializing built-in tools registry...');
+    logger.debug('Initializing built-in tools registry...');
 
     // 注册文件系统工具
     this.registerTool(createFileReadTool());
@@ -53,7 +53,7 @@ export class BuiltInToolsRegistry extends BaseToolExecutor {
     // this.registerTool(createDateTimeTool());
     // this.registerTool(createCalculationTool());
 
-    logger.info(`Registered ${this.tools.size} built-in tools`);
+    logger.debug(`Registered ${this.tools.size} built-in tools`);
   }
 
   /**
