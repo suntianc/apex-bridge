@@ -45,7 +45,7 @@ export class ConversationHistoryService {
     this.db.pragma('foreign_keys = ON');
 
     this.initializeDatabase();
-    logger.info(`✅ ConversationHistoryService initialized (database: ${this.dbPath})`);
+    logger.debug(`ConversationHistoryService initialized (database: ${this.dbPath})`);
   }
 
   /**

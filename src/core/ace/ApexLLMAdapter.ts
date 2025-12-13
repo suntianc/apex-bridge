@@ -1,4 +1,3 @@
-import { BaseLLM } from 'ace-engine-core';
 import { LLMManager } from '../LLMManager';
 import { Message } from '../../types';
 import { logger } from '../../utils/logger';
@@ -18,10 +17,10 @@ export interface ApexLLMAdapterConfig {
 }
 
 /**
- * Adapter to bridge ACE Engine's BaseLLM interface with ApexBridge's LLMManager
+ * Adapter to bridge AceCore with ApexBridge's LLMManager
  * Implements the "Dual-Channel" strategy for model routing
  */
-export class ApexLLMAdapter implements BaseLLM {
+export class ApexLLMAdapter {
   constructor(
     private llmManager: LLMManager,
     private config: ApexLLMAdapterConfig

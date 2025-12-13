@@ -17,7 +17,7 @@ export class BuiltInExecutor extends BaseToolExecutor {
 
   constructor() {
     super();
-    logger.info('BuiltInExecutor initialized');
+    logger.debug('BuiltInExecutor initialized');
   }
 
   /**

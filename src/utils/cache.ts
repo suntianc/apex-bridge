@@ -357,3 +357,269 @@ export function createPermanentCache<T = any>(maxSize?: number): Cache<T> {
   });
 }
 
+// ========== ACE服务专用缓存工具 ==========
+
+import { EventEmitter } from 'events';
+
+/**
+ * Simple async lock for concurrency control
+ * Prevents race conditions in async operations
+ */
+export class AsyncLock {
+  private locks = new Map<string, Promise<void>>();
+
+  /**
+   * Acquire lock and execute callback
+   */
+  async withLock<T>(key: string, callback: () => Promise<T>): Promise<T> {
+    // Wait for existing lock
+    while (this.locks.has(key)) {
+      await this.locks.get(key);
+    }
+
+    // Create new lock
+    let releaseLock: () => void;
+    const lockPromise = new Promise<void>(resolve => {
+      releaseLock = resolve;
+    });
+
+    this.locks.set(key, lockPromise);
+
+    try {
+      return await callback();
+    } finally {
+      this.locks.delete(key);
+      releaseLock!();
+    }
+  }
+
+  /**
+   * Check if a key is currently locked
+   */
+  isLocked(key: string): boolean {
+    return this.locks.has(key);
+  }
+
+  /**
+   * Clear all locks
+   */
+  clear(): void {
+    this.locks.clear();
+  }
+}
+
+/**
+ * Read-Write Lock for concurrent read access with exclusive write
+ */
+export class ReadWriteLock {
+  private readers = 0;
+  private writers = 0;
+  private pendingWriters = 0;
+  private events = new EventEmitter();
+
+  async acquireRead(): Promise<() => void> {
+    // Wait if there's a writer or pending writer
+    while (this.writers > 0 || this.pendingWriters > 0) {
+      await new Promise<void>(resolve => {
+        this.events.once('readReady', resolve);
+      });
+    }
+
+    this.readers++;
+
+    return () => {
+      this.readers--;
+      if (this.readers === 0) {
+        this.events.emit('writeReady');
+      }
+    };
+  }
+
+  async acquireWrite(): Promise<() => void> {
+    this.pendingWriters++;
+
+    // Wait for all readers and writers to finish
+    while (this.readers > 0 || this.writers > 0) {
+      await new Promise<void>(resolve => {
+        this.events.once('writeReady', resolve);
+      });
+    }
+
+    this.pendingWriters--;
+    this.writers++;
+
+    return () => {
+      this.writers--;
+      this.events.emit('readReady');
+      this.events.emit('writeReady');
+    };
+  }
+
+  /**
+   * Execute callback with read lock
+   */
+  async withReadLock<T>(callback: () => Promise<T>): Promise<T> {
+    const release = await this.acquireRead();
+    try {
+      return await callback();
+    } finally {
+      release();
+    }
+  }
+
+  /**
+   * Execute callback with write lock
+   */
+  async withWriteLock<T>(callback: () => Promise<T>): Promise<T> {
+    const release = await this.acquireWrite();
+    try {
+      return await callback();
+    } finally {
+      release();
+    }
+  }
+
+  /**
+   * Destroy and cleanup
+   */
+  destroy(): void {
+    this.events.removeAllListeners();
+  }
+}
+
+/**
+ * Event listener tracker for preventing memory leaks
+ * Tracks listeners and provides cleanup functionality
+ */
+export class EventListenerTracker {
+  private listeners: Array<{
+    emitter: EventEmitter;
+    event: string;
+    listener: (...args: any[]) => void;
+  }> = [];
+
+  /**
+   * Add a tracked listener
+   */
+  addListener(
+    emitter: EventEmitter,
+    event: string,
+    listener: (...args: any[]) => void
+  ): void {
+    emitter.on(event, listener);
+    this.listeners.push({ emitter, event, listener });
+  }
+
+  /**
+   * Add a tracked once listener
+   */
+  addOnceListener(
+    emitter: EventEmitter,
+    event: string,
+    listener: (...args: any[]) => void
+  ): void {
+    const wrappedListener = (...args: any[]) => {
+      // Remove from tracking after execution
+      const idx = this.listeners.findIndex(
+        l => l.emitter === emitter && l.event === event && l.listener === wrappedListener
+      );
+      if (idx !== -1) {
+        this.listeners.splice(idx, 1);
+      }
+      listener(...args);
+    };
+
+    emitter.once(event, wrappedListener);
+    this.listeners.push({ emitter, event, listener: wrappedListener });
+  }
+
+  /**
+   * Remove all tracked listeners
+   */
+  removeAll(): void {
+    for (const { emitter, event, listener } of this.listeners) {
+      emitter.removeListener(event, listener);
+    }
+    this.listeners = [];
+  }
+
+  /**
+   * Get number of tracked listeners
+   */
+  size(): number {
+    return this.listeners.length;
+  }
+}
+
+/**
+ * LRU Map - 简化版LRU缓存，基于Map插入顺序
+ * 适用于需要O(1)性能的场景
+ */
+export class LRUMap<K, V> {
+  private cache = new Map<K, V>();
+
+  constructor(private maxSize: number = 1000) {
+    if (maxSize <= 0) {
+      throw new Error('LRU map maxSize must be positive');
+    }
+  }
+
+  get(key: K): V | undefined {
+    const value = this.cache.get(key);
+    if (value !== undefined) {
+      // Move to end (most recently used)
+      this.cache.delete(key);
+      this.cache.set(key, value);
+    }
+    return value;
+  }
+
+  set(key: K, value: V): void {
+    if (this.cache.has(key)) {
+      this.cache.delete(key);
+    } else {
+      // Evict if at capacity
+      while (this.cache.size >= this.maxSize) {
+        const oldest = this.cache.keys().next().value;
+        if (oldest !== undefined) {
+          this.cache.delete(oldest);
+        } else {
+          break;
+        }
+      }
+    }
+    this.cache.set(key, value);
+  }
+
+  has(key: K): boolean {
+    return this.cache.has(key);
+  }
+
+  delete(key: K): boolean {
+    return this.cache.delete(key);
+  }
+
+  clear(): void {
+    this.cache.clear();
+  }
+
+  size(): number {
+    return this.cache.size;
+  }
+
+  keys(): IterableIterator<K> {
+    return this.cache.keys();
+  }
+
+  values(): IterableIterator<V> {
+    return this.cache.values();
+  }
+
+  entries(): IterableIterator<[K, V]> {
+    return this.cache.entries();
+  }
+
+  forEach(callback: (value: V, key: K) => void): void {
+    this.cache.forEach(callback);
+  }
+}

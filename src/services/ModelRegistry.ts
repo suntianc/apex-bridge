@@ -31,7 +31,7 @@ export class ModelRegistry {
     this.refreshInterval = 60000; // 60 秒刷新间隔
 
     this.refreshCache();
-    logger.info('✅ ModelRegistry initialized');
+    logger.debug('ModelRegistry initialized');
   }
 
   /**

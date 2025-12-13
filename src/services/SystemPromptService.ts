@@ -78,7 +78,7 @@ export class SystemPromptService {
           enabled: true,
           version: '1.0.0'
         };
-        logger.info('[SystemPromptService] Markdown config loaded');
+        logger.debug('[SystemPromptService] Markdown config loaded');
       } else {
         // JSON文件：解析为配置对象
         this.config = JSON.parse(content);

@@ -47,7 +47,7 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
 
     this.client = axios.create(axiosConfig);
 
-    logger.info(`✅ ${providerName} adapter initialized (${config.baseURL}${config.proxy === false ? ', proxy disabled' : ''})`);
+    logger.debug(`${providerName} adapter initialized (${config.baseURL}${config.proxy === false ? ', proxy disabled' : ''})`);
   }
 
   /**

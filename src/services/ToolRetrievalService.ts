@@ -140,7 +140,7 @@ export class ToolRetrievalService {
       this.isInitialized = true;
 
       const duration = Date.now() - startTime;
-      logger.info(`ToolRetrievalService initialized in ${duration}ms`);
+      logger.debug(`ToolRetrievalService initialized in ${duration}ms`);
 
     } catch (error) {
       logger.error('ToolRetrievalService initialization failed:', error);

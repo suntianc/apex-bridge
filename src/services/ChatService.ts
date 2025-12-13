@@ -24,6 +24,8 @@ import { AceIntegrator } from './AceIntegrator';
 import type { ChatStrategy } from '../strategies/ChatStrategy';
 import { SingleRoundStrategy } from '../strategies/SingleRoundStrategy';
 import { ReActStrategy } from '../strategies/ReActStrategy';
+import { AceStrategyOrchestrator } from '../strategies/AceStrategyOrchestrator';
+import type { AceEthicsGuard } from './AceEthicsGuard';
 import type { Tool } from '../core/stream-orchestrator/types';
 import { LLMManagerAdapter } from '../core/stream-orchestrator/LLMAdapter';
 import { parseAggregatedContent } from '../api/utils/stream-parser';
@@ -53,6 +55,12 @@ export class ChatService {
   // 🆕 策略数组
   private strategies: ChatStrategy[];
 
+  // 🆕 P1阶段：ACE策略编排器（L4执行功能层）
+  private aceOrchestrator: AceStrategyOrchestrator;
+
+  // 🆕 P3阶段：ACE伦理守卫（L1渴望层）
+  private ethicsGuard: AceEthicsGuard;
+
   constructor(
     private protocolEngine: ProtocolEngine,
     llmManager: LLMManager, // 必需参数
@@ -75,8 +83,8 @@ export class ChatService {
     // 初始化变量引擎（30秒缓存）
     this.variableEngine = new VariableEngine({ cacheTtlMs: 30000 });
 
-    // 初始化ACE集成器
-    this.aceIntegrator = new AceIntegrator(this.aceService);
+    // 初始化ACE集成器（P0阶段：传递LLMManager用于思考过程压缩）
+    this.aceIntegrator = new AceIntegrator(this.aceService, this.llmManager);
 
     // 初始化策略（构造时立即初始化，因为LLMManager已传入）
     // 注意：策略不再需要 variableEngine，变量注入由 ChatService 统一处理
@@ -86,12 +94,26 @@ export class ChatService {
     ];
     logger.debug('[ChatService] Chat strategies initialized');
 
+    // 🆕 P1阶段：初始化ACE策略编排器（L4执行功能层）
+    this.aceOrchestrator = new AceStrategyOrchestrator(
+      this.aceIntegrator,
+      this.strategies,
+      this.llmManager,
+      this.sessionManager
+    );
+    logger.debug('[ChatService] AceStrategyOrchestrator initialized (L4 layer)');
+
+    // 🆕 P3阶段：初始化ACE伦理守卫（L1渴望层）
+    // 注意：AceEthicsGuard会在AceIntegrator中初始化，然后注入到这里
+    this.ethicsGuard = (this.aceIntegrator as any).ethicsGuard || new (require('./AceEthicsGuard').AceEthicsGuard)(this.llmManager, this.aceIntegrator);
+    logger.debug('[ChatService] AceEthicsGuard initialized (L1 layer)');
+
     // 尝试初始化 ACE (非阻塞)
     this.aceService.initialize().catch(err => {
       logger.warn(`[ChatService] Failed to auto-init ACE: ${err.message}`);
     });
 
-    logger.info('✅ ChatService initialized (using ProtocolEngine unified variable engine)');
+    logger.debug('ChatService initialized');
   }
 
   /**
@@ -312,6 +334,42 @@ export class ChatService {
     logger.info(`[ChatService] Processing message (requestId: ${requestId}, stream: ${options.stream || false})`);
 
     try {
+      // 🆕 P3阶段：用户请求前伦理审查（L1层）
+      const userRequest = messages[messages.length - 1]?.content || '';
+      if (userRequest.trim()) {
+        const reviewResult = await this.ethicsGuard.reviewStrategy({
+          goal: `User request: ${userRequest.substring(0, 100)}`,
+          plan: 'Process user request',
+          layer: 'L6_TASK_EXECUTION'
+        });
+
+        if (!reviewResult.approved) {
+          logger.warn(`[ChatService] L1伦理审查未通过: ${reviewResult.reason}`);
+
+          // 向L1层报告阻止
+          await this.aceIntegrator.sendToLayer('ASPIRATIONAL', {
+            type: 'USER_REQUEST_REJECTED',
+            content: `用户请求被拒绝`,
+            metadata: {
+              reason: reviewResult.reason,
+              suggestions: reviewResult.suggestions,
+              requestId,
+              timestamp: Date.now()
+            }
+          });
+
+          // 返回伦理阻止响应
+          return {
+            content: `抱歉，我不能处理此请求：${reviewResult.reason}${reviewResult.suggestions ? `\n\n建议：${reviewResult.suggestions.join('; ')}` : ''}`,
+            iterations: 0,
+            blockedByEthics: true,
+            ethicsReview: reviewResult,
+            ethicsLayer: 'L1_ASPIRATIONAL'
+          };
+        }
+
+        logger.info('[ChatService] L1伦理审查通过，继续处理');
+      }
       // 1. 获取或创建会话（必须在处理消息之前）
       const conversationId = options.conversationId as string | undefined;
 
@@ -330,7 +388,33 @@ export class ChatService {
         logger.debug('[ChatService] Processing message without session (no conversationId)');
       }
 
-      // 2. 选择策略
+      // 🆕 P1阶段：检查是否启用ACE编排模式
+      if (this.shouldUseACEOrchestration(messages, options)) {
+        logger.info('[ChatService] Using ACE orchestration mode (L4 layer)');
+        const result = await this.aceOrchestrator.orchestrate(messages, options);
+
+        // 更新会话元数据
+        if (options.sessionId && result?.usage) {
+          await this.updateSessionMetadata(options.sessionId, result.usage).catch(err => {
+            logger.warn(`[ChatService] Failed to update session metadata: ${err.message}`);
+          });
+        }
+
+        // 保存对话历史
+        if (options.conversationId) {
+          await this.saveConversationHistory(
+            options.conversationId,
+            messages,
+            result.content,
+            result.rawThinkingProcess,
+            options.selfThinking?.enabled
+          );
+        }
+
+        return result;
+      }
+
+      // 2. 选择策略（原有逻辑，保持向后兼容）
       const strategy = await this.selectStrategy(options);
 
       // 3. 调用策略的 prepare 方法获取需要注入的变量
@@ -377,6 +461,77 @@ export class ChatService {
       logger.error('❌ Error in ChatService.processMessage:', error);
       throw error;
     }
+  }
+
+  /**
+   * 🆕 P1阶段：判断是否使用ACE编排模式
+   * 支持显式启用和自动检测复杂任务
+   */
+  private shouldUseACEOrchestration(
+    messages: Message[],
+    options: ChatOptions
+  ): boolean {
+    // 流式模式暂不支持ACE编排
+    if (options.stream) {
+      return false;
+    }
+
+    // 显式启用ACE编排
+    if (options.aceOrchestration?.enabled) {
+      return true;
+    }
+
+    // 显式禁用
+    if (options.aceOrchestration?.enabled === false) {
+      return false;
+    }
+
+    // 自动检测：不进行自动检测，需要显式启用
+    // 这样可以保持向后兼容性，避免意外触发编排模式
+    return false;
+  }
+
+  /**
+   * 🆕 P1阶段：任务复杂度评估（供外部调用或未来扩展）
+   * 评估用户请求的复杂度，返回0-1之间的分数
+   */
+  estimateTaskComplexity(query: string): number {
+    let score = 0;
+
+    // 关键词检测
+    const complexKeywords = [
+      '项目', '系统', '应用', '网站', '平台',
+      '开发', '构建', '实现', '设计',
+      '完整', '全面', '综合'
+    ];
+
+    complexKeywords.forEach(keyword => {
+      if (query.includes(keyword)) {
+        score += 0.15;
+      }
+    });
+
+    // 长度检测
+    if (query.length > 100) {
+      score += 0.2;
+    } else if (query.length > 50) {
+      score += 0.1;
+    }
+
+    // 多步骤检测
+    const stepKeywords = ['首先', '然后', '接着', '最后', '第一', '第二', '第三'];
+    stepKeywords.forEach(keyword => {
+      if (query.includes(keyword)) {
+        score += 0.1;
+      }
+    });
+
+    // 列表检测（1. 2. 或 - 等）
+    if (/\d+[\.\)]\s|^[-*]\s/m.test(query)) {
+      score += 0.2;
+    }
+
+    return Math.min(score, 1.0);
   }
 
   /**
@@ -523,7 +678,9 @@ export class ChatService {
       activeRequests: this.requestTracker.getActiveRequestCount(),
       sessionCount: this.sessionManager.getSessionCount(),
       llmManagerReady: !!this.llmManager,
-      strategies: this.strategies ? this.strategies.map(s => s.getName()) : []
+      strategies: this.strategies ? this.strategies.map(s => s.getName()) : [],
+      // 🆕 P1阶段：ACE编排器状态
+      aceOrchestratorReady: !!this.aceOrchestrator
     };
   }
 
@@ -546,6 +703,13 @@ export class ChatService {
    */
   getVariableEngine(): VariableEngine {
     return this.variableEngine;
+  }
+
+  /**
+   * 🆕 P1阶段：获取ACE策略编排器（供外部使用）
+   */
+  getAceOrchestrator(): AceStrategyOrchestrator {
+    return this.aceOrchestrator;
   }
 
   /**

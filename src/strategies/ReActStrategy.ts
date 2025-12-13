@@ -54,7 +54,7 @@ export class ReActStrategy implements ChatStrategy {
     // 启动自动清理定时器
     this.startCleanupTimer();
 
-    logger.info('ReActStrategy initialized with tool_action parsing support and auto-cleanup');
+    logger.debug('ReActStrategy initialized');
   }
 
   getName(): string {
@@ -99,6 +99,17 @@ export class ReActStrategy implements ChatStrategy {
 
     logger.info(`[${this.getName()}] Starting ReAct execution with new tool system`);
 
+    // P0阶段：确保有sessionId（ACE功能需要）
+    if (options.selfThinking?.enabled && !options.sessionId) {
+      options.sessionId = `ace_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      logger.debug(`[${this.getName()}] Generated sessionId for ACE: ${options.sessionId}`);
+    }
+
+    // P0阶段：L5上下文管理 - 维护"当前任务"的聚焦上下文（最近3轮对话）
+    if (options.sessionId && this.aceIntegrator.isEnabled()) {
+      await this.manageL5Context(options.sessionId, messages, options);
+    }
+
     // 初始化 ReAct 引擎（启用 tool_action 标签解析）
     const reactEngine = new ReActEngine({
       maxIterations: options.selfThinking?.maxIterations ?? Number.MAX_SAFE_INTEGER,
@@ -135,12 +146,14 @@ export class ReActStrategy implements ChatStrategy {
         } else if (event.type === 'content') {
           finalContent += event.data;
         }
+        // 注意：工具执行由ReActEngine内部处理，这里只关注思考过程和最终内容
       }
 
       logger.debug(`[${this.getName()}] ReAct completed in ${iterations} iterations`);
 
-      // ACE Integration: 保存轨迹
+      // P0阶段：ACE集成 - 保存轨迹和L5思考记录
       if (options.sessionId && this.aceIntegrator.isEnabled()) {
+        // 保存完整轨迹（现有功能）
         await this.aceIntegrator.saveTrajectory({
           requestId: options.requestId || `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
           sessionId: options.sessionId,
@@ -149,6 +162,21 @@ export class ReActStrategy implements ChatStrategy {
           thinkingProcess: thinkingProcess,
           iterations: iterations,
           isReAct: true
+        });
+
+        // P0阶段：L5思考过程记录（最新思考）
+        if (thinkingProcess.length > 0) {
+          const lastThought = thinkingProcess[thinkingProcess.length - 1];
+          await this.aceIntegrator.recordThought(options.sessionId, {
+            content: finalContent,
+            reasoning: lastThought
+          });
+        }
+
+        // P0阶段：任务完成后清理
+        await this.aceIntegrator.completeTask(options.sessionId, {
+          summary: `Task completed in ${iterations} iterations`,
+          outcome: finalContent ? 'success' : 'partial'
         });
 
         // 更新会话活动时间
@@ -183,6 +211,9 @@ export class ReActStrategy implements ChatStrategy {
   ): AsyncIterableIterator<any> {
     logger.debug(`[${this.getName()}] Streaming ReAct execution`);
 
+    // 初始化工具系统
+    await this.initializeToolSystem(messages);
+
     // 初始化 ReAct 引擎（启用 tool_action 标签解析）
     const reactEngine = new ReActEngine({
       maxIterations: options.selfThinking?.maxIterations ?? 5,
@@ -195,6 +226,10 @@ export class ReActStrategy implements ChatStrategy {
       temperature: options.temperature,
       maxTokens: options.max_tokens
     });
+
+    // 将工具传递给 ReActEngine
+    reactEngine.tools = this.availableTools;
+    logger.debug(`[${this.getName()}] Passed ${this.availableTools.length} tools to ReActEngine`);
 
     const llmClient = new LLMManagerAdapter(this.llmManager);
     const stream = reactEngine.execute(messages, llmClient, { signal: abortSignal });
@@ -303,7 +338,7 @@ export class ReActStrategy implements ChatStrategy {
         }))
       ];
 
-      logger.info(`[${this.getName()}] Tool system initialized in ${Date.now() - startTime}ms`);
+      logger.debug(`[${this.getName()}] Tool system initialized in ${Date.now() - startTime}ms`);
       logger.info(`[${this.getName()}] Available tools: ${builtInTools.length} built-in + ${relevantSkills.length} Skills`);
 
       // 记录动态技能状态
@@ -405,7 +440,7 @@ export class ReActStrategy implements ChatStrategy {
       this.cleanupUnusedSkills();
     }, 60 * 1000); // 每分钟执行一次
 
-    logger.info(`[${this.getName()}] Auto-cleanup timer started (interval: 60s, timeout: 5min)`);
+    logger.debug(`[${this.getName()}] Auto-cleanup timer started (interval: 60s, timeout: 5min)`);
   }
 
   /**
@@ -424,7 +459,7 @@ export class ReActStrategy implements ChatStrategy {
     }
 
     if (skillsToRemove.length > 0) {
-      logger.info(`[${this.getName()}] Auto-cleanup starting: ${this.getDynamicSkillsStatus()}`);
+      logger.debug(`[${this.getName()}] Auto-cleanup starting: ${this.getDynamicSkillsStatus()}`);
 
       for (const skillName of skillsToRemove) {
         // 从动态追踪中移除
@@ -477,5 +512,44 @@ export class ReActStrategy implements ChatStrategy {
     return statuses.length > 0
       ? `Active skills: ${statuses.join(', ')}`
       : 'No active dynamic skills';
+  }
+
+  // ========== P0阶段新增：L5/L6层集成 ==========
+
+  /**
+   * P0阶段：L5上下文管理
+   * 维护"当前任务"的聚焦上下文（最近3轮对话）
+   */
+  private async manageL5Context(
+    sessionId: string,
+    currentMessages: Message[],
+    options: ChatOptions
+  ): Promise<void> {
+    try {
+      // 限制L5上下文窗口：最近3轮对话（user+assistant对 = 6条消息）
+      const recentMessages = currentMessages.slice(-6);
+
+      if (this.aceIntegrator.isEnabled()) {
+        const contextSummary = recentMessages
+          .map(m => `${m.role}: ${m.content.substring(0, 100)}`)
+          .join('\n');
+
+        // 记录到L5 Scratchpad
+        await this.aceIntegrator.sendToLayer('COGNITIVE_CONTROL', {
+          type: 'CONTEXT_UPDATE',
+          content: `Current task context:\n${contextSummary}`,
+          metadata: {
+            messageCount: recentMessages.length,
+            timestamp: Date.now(),
+            sessionId
+          }
+        });
+
+        logger.debug(`[${this.getName()}] L5 context updated for session: ${sessionId}`);
+      }
+    } catch (error: any) {
+      logger.warn(`[${this.getName()}] Failed to manage L5 context: ${error.message}`);
+      // 不抛出错误，避免影响主流程
+    }
   }
 }

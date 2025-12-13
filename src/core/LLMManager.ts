@@ -55,13 +55,13 @@ export class LLMManager {
           });
           
           this.adapters.set(provider.provider, adapter);
-          logger.info(`✅ Loaded provider: ${provider.provider} (${provider.name})`);
+          logger.debug(`Loaded provider: ${provider.provider} (${provider.name})`);
         } catch (error: any) {
           logger.error(`❌ Failed to create adapter for ${provider.provider}:`, error.message);
         }
       }
 
-      logger.info(`✅ Loaded ${this.adapters.size} LLM providers`);
+      logger.debug(`Loaded ${this.adapters.size} LLM providers`);
     } catch (error: any) {
       logger.error('❌ Failed to load providers:', error);
     }

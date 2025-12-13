@@ -60,7 +60,7 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
     // 确保工作区目录存在
     this.ensureWorkspaceDirectory();
 
-    logger.info('SkillsSandboxExecutor initialized', {
+    logger.debug('SkillsSandboxExecutor initialized', {
       timeout: this.executionOptions.timeout,
       maxOutputSize: this.executionOptions.maxOutputSize,
       memoryLimit: this.executionOptions.memoryLimit,

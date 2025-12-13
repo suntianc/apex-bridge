@@ -86,7 +86,7 @@ export class SkillManager {
       cacheSize: 1000
     });
 
-    logger.info('SkillManager initialized', {
+    logger.debug('SkillManager initialized', {
       skillsBasePath
     });
 
@@ -732,7 +732,7 @@ export class SkillManager {
    * 在SkillManager创建时自动调用，扫描并索引所有已存在的Skills
    */
   private async initializeSkillsIndex(): Promise<void> {
-    logger.info('🔄 Initializing skills index during startup');
+    logger.debug('Initializing skills index during startup');
 
     try {
       // 等待检索服务初始化完成
@@ -741,7 +741,7 @@ export class SkillManager {
       // 扫描并索引所有Skills
       await this.retrievalService.scanAndIndexAllSkills(this.skillsBasePath);
 
-      logger.info('✅ Skills index initialization completed');
+      logger.debug('Skills index initialization completed');
     } catch (error) {
       logger.error('❌ Failed to initialize skills index:', error);
       // 抛出错误，让waitForInitialization捕获

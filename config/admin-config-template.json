@@ -2,31 +2,36 @@
   "setup_completed": true,
   "api": {
     "host": "0.0.0.0",
-    "port": 8088
+    "port": 3000,
+    "cors": {
+      "origin": "*",
+      "credentials": true
+    }
+  },
+  "llm": {
+    "providers": [],
+    "defaultProvider": "openai",
+    "timeout": 30000,
+    "maxRetries": 3
   },
   "auth": {
-    "enabled": false,
-    "apiKey": "default-api-key",
-    "apiKeys": []
-  },
-  "rag": {
     "enabled": true,
-    "storagePath": "./vector_store",
-    "workDir": "./vector_store",
-    "vectorizer": {
-      "baseURL": "https://api.siliconflow.cn/v1/embeddings",
-      "apiKey": "sk-gyhahquvzizscnxjidcrgbnrhagynisltnwrvssxwkdnlnit",
-      "model": "Qwen/Qwen3-Embedding-0.6B",
-      "dimensions": 1023
-    }
+    "apiKey": "",
+    "jwtSecret": "your-secret-key",
+    "jwtExpiresIn": "24h"
+  },
+  "performance": {
+    "workerPoolSize": 4,
+    "requestTimeout": 60000,
+    "maxRequestSize": "50mb"
   },
   "redis": {
     "enabled": false,
-    "host": "127.0.0.1",
+    "host": "localhost",
     "port": 6379,
     "db": 0,
     "keyPrefix": "apex_bridge:",
-    "connectTimeoutMs": 10000,
+    "connectTimeout": 10000,
     "lazyConnect": true,
     "maxRetriesPerRequest": 3,
     "retryDelayOnFailover": 100
@@ -44,10 +49,62 @@
   },
   "ace": {
     "enabled": true,
-    "evolutionModel": {
-      "provider": "deepseek",
-      "model": "deepseek-chat"
+    "orchestration": {
+      "enabled": true,
+      "mode": "full"
     },
-    "reflectionStrategy": "on_failure"
+    "layers": {
+      "l1": {
+        "enabled": true,
+        "constitutionPath": "./config/constitution.md",
+        "modelSource": "sqlite"
+      },
+      "l2": {
+        "enabled": true,
+        "modelSource": "sqlite"
+      },
+      "l3": {
+        "enabled": true,
+        "modelSource": "sqlite"
+      },
+      "l4": {
+        "enabled": true,
+        "modelSource": "sqlite"
+      },
+      "l5": {
+        "enabled": true,
+        "modelSource": "sqlite",
+        "fallbackToEvolution": true
+      },
+      "l6": {
+        "enabled": true,
+        "useLLM": false
+      }
+    },
+    "memory": {
+      "provider": "lancedb",
+      "vectorDbPath": "./.data",
+      "collectionPrefix": "apex_bridge"
+    },
+    "optimization": {
+      "fastTrackSimpleTasks": true,
+      "l5ScratchpadCompression": true,
+      "l6NonLLMExecution": true
+    },
+    "skills": {
+      "autoCleanupEnabled": true,
+      "cleanupTimeoutMs": 300000,
+      "maxActiveSkills": 50
+    },
+    "localImplementation": {
+      "enabled": true,
+      "aceCore": {
+        "reflectionCycleInterval": 60000,
+        "maxSessionAge": 86400000
+      },
+      "useEventBus": true,
+      "useLLMManager": true,
+      "useSQLiteConfig": true
+    }
   }
 }

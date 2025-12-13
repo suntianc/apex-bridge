@@ -17,7 +17,7 @@ export class OllamaAdapter extends BaseOpenAICompatibleAdapter {
 
     super('Ollama', enhancedConfig);
 
-    logger.info('Ollama adapter initialized with proxy disabled for local requests');
+    logger.debug('Ollama adapter initialized');
   }
 
   /**

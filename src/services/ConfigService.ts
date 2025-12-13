@@ -158,11 +158,138 @@ export interface AdminConfig {
     rateLimit?: RateLimitSettings;
   };
 
+  // ACE架构配置
+  ace?: AceConfig;
+
   // 🆕 自我思考循环配置（ReAct模式）
   // 注意：ReAct 模式通过 XML 标签协议判断任务完成，不再需要独立的评估器配置
   // 所有配置通过 API 请求参数传递（systemPrompt, additionalPrompts, tools 等）
 
   [key: string]: any;
+}
+
+/**
+ * ACE架构配置接口
+ */
+export interface AceConfig {
+  enabled?: boolean;
+  orchestration?: AceOrchestrationConfig;
+  layers?: AceLayersConfig;
+  memory?: AceMemoryConfig;
+  optimization?: AceOptimizationConfig;
+  skills?: AceSkillsConfig;
+  localImplementation?: AceLocalImplementationConfig;
+}
+
+/**
+ * ACE编排配置
+ */
+export interface AceOrchestrationConfig {
+  enabled?: boolean;
+  mode?: 'full' | 'minimal' | 'custom';
+}
+
+/**
+ * ACE层级配置（L1-L6）
+ */
+export interface AceLayersConfig {
+  l1?: AceLayerL1Config;
+  l2?: AceLayerL2Config;
+  l3?: AceLayerL3Config;
+  l4?: AceLayerL4Config;
+  l5?: AceLayerL5Config;
+  l6?: AceLayerL6Config;
+}
+
+/**
+ * L1层级配置（渴望层 - 道德约束）
+ */
+export interface AceLayerL1Config {
+  enabled?: boolean;
+  constitutionPath?: string;
+  modelSource?: 'sqlite';
+}
+
+/**
+ * L2层级配置（全球战略层）
+ */
+export interface AceLayerL2Config {
+  enabled?: boolean;
+  modelSource?: 'sqlite';
+}
+
+/**
+ * L3层级配置（代理模型层）
+ */
+export interface AceLayerL3Config {
+  enabled?: boolean;
+  modelSource?: 'sqlite';
+}
+
+/**
+ * L4层级配置（执行功能层）
+ */
+export interface AceLayerL4Config {
+  enabled?: boolean;
+  modelSource?: 'sqlite';
+}
+
+/**
+ * L5层级配置（认知控制层）
+ */
+export interface AceLayerL5Config {
+  enabled?: boolean;
+  modelSource?: 'sqlite';
+  fallbackToEvolution?: boolean;
+}
+
+/**
+ * L6层级配置（任务执行层）
+ */
+export interface AceLayerL6Config {
+  enabled?: boolean;
+  useLLM?: boolean;
+}
+
+/**
+ * ACE内存配置
+ */
+export interface AceMemoryConfig {
+  provider?: 'lancedb' | 'memory' | 'custom';
+  vectorDbPath?: string;
+  collectionPrefix?: string;
+}
+
+/**
+ * ACE优化配置
+ */
+export interface AceOptimizationConfig {
+  fastTrackSimpleTasks?: boolean;
+  l5ScratchpadCompression?: boolean;
+  l6NonLLMExecution?: boolean;
+}
+
+/**
+ * ACE技能系统配置
+ */
+export interface AceSkillsConfig {
+  autoCleanupEnabled?: boolean;
+  cleanupTimeoutMs?: number;
+  maxActiveSkills?: number;
+}
+
+/**
+ * ACE本地化实现配置
+ */
+export interface AceLocalImplementationConfig {
+  enabled?: boolean;
+  aceCore?: {
+    reflectionCycleInterval?: number;
+    maxSessionAge?: number;
+  };
+  useEventBus?: boolean;
+  useLLMManager?: boolean;
+  useSQLiteConfig?: boolean;
 }
 
 /**
@@ -493,8 +620,9 @@ export class ConfigService {
   /**
    * 验证配置
    */
-  public validateConfig(config: AdminConfig): { valid: boolean; errors: string[] } {
+  public validateConfig(config: AdminConfig): { valid: boolean; errors: string[]; warnings?: string[] } {
     const errors: string[] = [];
+    const warnings: string[] = [];
 
     try {
       // 基础验证
@@ -514,9 +642,15 @@ export class ConfigService {
         errors.push('api.port 必须在 1-65535 范围内');
       }
 
+      // ACE配置验证
+      if (config.ace) {
+        this.validateAceConfig(config.ace, errors, warnings);
+      }
+
       return {
         valid: errors.length === 0,
-        errors
+        errors,
+        warnings: warnings.length > 0 ? warnings : undefined
       };
     } catch (error) {
       logger.error('配置验证失败:', error);
@@ -524,6 +658,166 @@ export class ConfigService {
         valid: false,
         errors: ['配置验证过程中发生错误']
       };
+    }
+  }
+
+  /**
+   * 验证ACE配置
+   */
+  private validateAceConfig(aceConfig: AceConfig, errors: string[], warnings: string[]): void {
+    // 验证层级配置
+    if (aceConfig.layers) {
+      this.validateAceLayers(aceConfig.layers, errors, warnings);
+    }
+
+    // 验证内存配置
+    if (aceConfig.memory) {
+      this.validateAceMemory(aceConfig.memory, errors, warnings);
+    }
+
+    // 验证优化配置
+    if (aceConfig.optimization) {
+      this.validateAceOptimization(aceConfig.optimization, errors, warnings);
+    }
+
+    // 验证技能配置
+    if (aceConfig.skills) {
+      this.validateAceSkills(aceConfig.skills, errors, warnings);
+    }
+
+    // 验证本地化实现配置
+    if (aceConfig.localImplementation) {
+      this.validateAceLocalImplementation(aceConfig.localImplementation, errors, warnings);
+    }
+  }
+
+  /**
+   * 验证ACE层级配置
+   */
+  private validateAceLayers(layers: AceLayersConfig, errors: string[], warnings: string[]): void {
+    const layerNames = ['l1', 'l2', 'l3', 'l4', 'l5', 'l6'];
+
+    for (const layerName of layerNames) {
+      const layer = (layers as any)[layerName];
+      if (layer && layer.enabled) {
+        // 验证L1层宪法文件路径
+        if (layerName === 'l1' && layer.constitutionPath) {
+          if (typeof layer.constitutionPath !== 'string') {
+            errors.push(`ace.layers.${layerName}.constitutionPath 必须是字符串`);
+          } else if (!layer.constitutionPath.startsWith('./')) {
+            warnings.push(`ace.layers.${layerName}.constitutionPath 建议使用相对路径`);
+          }
+        }
+
+        // 验证模型来源
+        if (layer.modelSource && layer.modelSource !== 'sqlite') {
+          errors.push(`ace.layers.${layerName}.modelSource 只支持 sqlite`);
+        }
+
+        // L5层fallbackToEvolution验证
+        if (layerName === 'l5' && typeof layer.fallbackToEvolution !== 'boolean') {
+          warnings.push(`ace.layers.${layerName}.fallbackToEvolution 建议设置为布尔值`);
+        }
+
+        // L6层useLLM验证
+        if (layerName === 'l6' && typeof layer.useLLM !== 'boolean') {
+          warnings.push(`ace.layers.${layerName}.useLLM 建议设置为布尔值`);
+        }
+      }
+    }
+  }
+
+  /**
+   * 验证ACE内存配置
+   */
+  private validateAceMemory(memory: AceMemoryConfig, errors: string[], warnings: string[]): void {
+    if (memory.provider) {
+      const validProviders = ['lancedb', 'memory', 'custom'];
+      if (!validProviders.includes(memory.provider)) {
+        errors.push(`ace.memory.provider 必须是: ${validProviders.join(', ')} 中的一个`);
+      }
+    }
+
+    if (memory.vectorDbPath && typeof memory.vectorDbPath !== 'string') {
+      errors.push('ace.memory.vectorDbPath 必须是字符串');
+    }
+
+    if (memory.collectionPrefix && typeof memory.collectionPrefix !== 'string') {
+      errors.push('ace.memory.collectionPrefix 必须是字符串');
+    }
+  }
+
+  /**
+   * 验证ACE优化配置
+   */
+  private validateAceOptimization(optimization: AceOptimizationConfig, errors: string[], warnings: string[]): void {
+    if (typeof optimization.fastTrackSimpleTasks !== 'boolean') {
+      warnings.push('ace.optimization.fastTrackSimpleTasks 建议设置为布尔值');
+    }
+
+    if (typeof optimization.l5ScratchpadCompression !== 'boolean') {
+      warnings.push('ace.optimization.l5ScratchpadCompression 建议设置为布尔值');
+    }
+
+    if (typeof optimization.l6NonLLMExecution !== 'boolean') {
+      warnings.push('ace.optimization.l6NonLLMExecution 建议设置为布尔值');
+    }
+  }
+
+  /**
+   * 验证ACE技能配置
+   */
+  private validateAceSkills(skills: AceSkillsConfig, errors: string[], warnings: string[]): void {
+    if (typeof skills.autoCleanupEnabled !== 'boolean') {
+      warnings.push('ace.skills.autoCleanupEnabled 建议设置为布尔值');
+    }
+
+    if (skills.cleanupTimeoutMs && typeof skills.cleanupTimeoutMs !== 'number') {
+      errors.push('ace.skills.cleanupTimeoutMs 必须是数字');
+    } else if (skills.cleanupTimeoutMs && skills.cleanupTimeoutMs < 0) {
+      errors.push('ace.skills.cleanupTimeoutMs 必须大于0');
+    }
+
+    if (skills.maxActiveSkills && typeof skills.maxActiveSkills !== 'number') {
+      errors.push('ace.skills.maxActiveSkills 必须是数字');
+    } else if (skills.maxActiveSkills && skills.maxActiveSkills < 1) {
+      errors.push('ace.skills.maxActiveSkills 必须大于0');
+    }
+  }
+
+  /**
+   * 验证ACE本地化实现配置
+   */
+  private validateAceLocalImplementation(localImpl: AceLocalImplementationConfig, errors: string[], warnings: string[]): void {
+    if (typeof localImpl.enabled !== 'boolean') {
+      warnings.push('ace.localImplementation.enabled 建议设置为布尔值');
+    }
+
+    // 验证AceCore配置
+    if (localImpl.aceCore) {
+      if (localImpl.aceCore.reflectionCycleInterval && typeof localImpl.aceCore.reflectionCycleInterval !== 'number') {
+        errors.push('ace.localImplementation.aceCore.reflectionCycleInterval 必须是数字');
+      } else if (localImpl.aceCore.reflectionCycleInterval && localImpl.aceCore.reflectionCycleInterval < 1000) {
+        warnings.push('ace.localImplementation.aceCore.reflectionCycleInterval 建议大于1000毫秒');
+      }
+
+      if (localImpl.aceCore.maxSessionAge && typeof localImpl.aceCore.maxSessionAge !== 'number') {
+        errors.push('ace.localImplementation.aceCore.maxSessionAge 必须是数字');
+      } else if (localImpl.aceCore.maxSessionAge && localImpl.aceCore.maxSessionAge < 60000) {
+        warnings.push('ace.localImplementation.aceCore.maxSessionAge 建议大于60000毫秒');
+      }
+    }
+
+    if (typeof localImpl.useEventBus !== 'boolean') {
+      warnings.push('ace.localImplementation.useEventBus 建议设置为布尔值');
+    }
+
+    if (typeof localImpl.useLLMManager !== 'boolean') {
+      warnings.push('ace.localImplementation.useLLMManager 建议设置为布尔值');
+    }
+
+    if (typeof localImpl.useSQLiteConfig !== 'boolean') {
+      warnings.push('ace.localImplementation.useSQLiteConfig 建议设置为布尔值');
     }
   }
 }

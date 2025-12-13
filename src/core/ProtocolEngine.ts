@@ -59,10 +59,10 @@ export class ProtocolEngine {
     };
     
     this.abpParser = new ABPProtocolParser(abpConfig);
-    logger.info('✅ ABPProtocolParser initialized');
+    logger.debug('ABPProtocolParser initialized');
     
     this.variableEngine = createVariableEngine();
-    logger.info('✅ VariableEngine initialized');
+    logger.debug('VariableEngine initialized');
   }
 
   /**
@@ -144,7 +144,7 @@ export class ProtocolEngine {
           
           const memAfter = process.memoryUsage();
           logger.info(`[Memory] After RAG Service init - RSS: ${Math.round(memAfter.rss / 1024 / 1024)}MB, Delta: +${Math.round((memAfter.rss - memBefore.rss) / 1024 / 1024)}MB`);
-          logger.info('✅ RAG Service initialized (abp-rag-sdk)');
+          logger.debug('RAG Service initialized');
         } catch (error: any) {
           logger.warn(`⚠️ RAG service initialization failed: ${error?.message || error}`);
           // 即使 RAG 失败，也不应该阻断后续 Providers 的注册

@@ -67,22 +67,19 @@ export class ABPIntelliCore {
     this.configService = ConfigService.getInstance();
     const adminConfig = this.configService.readConfig();
     
-    logger.info('🧠 ApexBridge Server initializing (ABP-only)...');
+    logger.info('🧠 ApexBridge Server initializing...');
   }
-  
+
   async initialize(): Promise<void> {
     try {
       // 1. 基础服务初始化 (Config, Path, DB)
-      logger.info('📋 Initializing base services...');
-      
-      // 确保路径服务最先就绪
       const pathService = PathService.getInstance();
       pathService.ensureAllDirs();
-      logger.info('✅ All required directories ensured');
-      
+      logger.debug('✅ All required directories ensured');
+
       // 统一使用 ConfigService 读取配置
       const config = this.configService.readConfig();
-      
+
       // 验证配置（如果设置未完成，跳过严格验证）
       if (!this.configService.isSetupCompleted()) {
         logger.warn('⚠️ Configuration not fully setup (missing API Key)');
@@ -92,12 +89,12 @@ export class ABPIntelliCore {
           throw new Error(`Configuration errors:\n${validation.errors.join('\n')}`);
         }
       }
-      logger.info('✅ Configuration loaded and validated');
-      
+      logger.debug('✅ Configuration loaded');
+
       // 初始化LLM配置服务（确保SQLite数据库和表已创建）
       const { LLMConfigService } = await import('./services/LLMConfigService');
       LLMConfigService.getInstance(); // 触发 DB 初始化
-      logger.info('✅ LLMConfigService initialized (SQLite database ready)');
+      logger.debug('✅ LLMConfigService initialized');
 
       // 初始化SkillManager（确保在ChatService之前）
       const { SkillManager } = await import('./services/SkillManager');
@@ -105,33 +102,24 @@ export class ABPIntelliCore {
 
       // 等待Skills索引初始化完成
       await skillManager.waitForInitialization();
-      logger.info('✅ SkillManager initialized and skills indexed');
+      logger.debug('✅ SkillManager initialized');
 
       // 2. 核心引擎初始化
-      // ⏳ 关键调整：先创建 ProtocolEngine，然后等待完全初始化
-      const memBefore = process.memoryUsage();
-      logger.info(`[Memory] Before Protocol Engine init - RSS: ${Math.round(memBefore.rss / 1024 / 1024)}MB, Heap: ${Math.round(memBefore.heapUsed / 1024 / 1024)}MB`);
-      
       this.protocolEngine = new ProtocolEngine(config);
-      await this.protocolEngine.initialize(); // 等待引擎完全就绪
-      
-      const memAfter = process.memoryUsage();
-      logger.info(`[Memory] After Protocol Engine init - RSS: ${Math.round(memAfter.rss / 1024 / 1024)}MB, Heap: ${Math.round(memAfter.heapUsed / 1024 / 1024)}MB`);
-      logger.info(`[Memory] Protocol Engine memory delta - RSS: +${Math.round((memAfter.rss - memBefore.rss) / 1024 / 1024)}MB, Heap: +${Math.round((memAfter.heapUsed - memBefore.heapUsed) / 1024 / 1024)}MB`);
-      logger.info('✅ Protocol Engine initialized');
+      await this.protocolEngine.initialize();
+      logger.debug('✅ Protocol Engine initialized');
 
       // 3. 业务服务初始化 (ChatService)
-      // 注意：LLMManager现在需要在构造时传入，不再支持懒加载
       const { LLMManager } = await import('./core/LLMManager');
       const llmManager = new LLMManager();
-      logger.info('✅ LLMManager initialized');
+      logger.debug('✅ LLMManager initialized');
 
       this.chatService = new ChatService(
         this.protocolEngine,
-        llmManager, // 必需参数，直接传入LLMManager实例
+        llmManager,
         this.eventBus
       );
-      logger.info('✅ ChatService initialized');
+      logger.debug('✅ ChatService initialized');
       
       // 4. 接口层初始化 (WebSocket & HTTP Routes)
       // ⚠️ 关键调整：先初始化 ChatService，再初始化 WS，最后绑定 Server
@@ -153,8 +141,6 @@ export class ABPIntelliCore {
       const apiPort = config.api.port || 8088;
       this.server.listen(apiPort, apiHost, () => {
         logger.info(`🚀 ApexBridge running on http://${apiHost}:${apiPort}`);
-        logger.info(`📦 Loaded ${this.protocolEngine!.getPluginCount()} plugins`);
-        logger.info(`🎯 Ready to accept connections`);
       });
       
       // 8. 设置优雅关闭
@@ -318,6 +304,13 @@ export class ABPIntelliCore {
      */
     this.app.use('/api/skills', skillRoutes);
 
+    /**
+     * ACE层级模型配置API
+     * 管理ACE架构L1-L6层级模型配置
+     */
+    const aceLayerRoutes = await import('./api/routes/aceLayerRoutes');
+    this.app.use('/api/ace/layers', aceLayerRoutes.default);
+
     // 健康检查
     this.app.get('/health', (req, res) => {
       res.json({
@@ -331,38 +324,23 @@ export class ABPIntelliCore {
 
     // 错误处理（必须最后注册）
     this.app.use(errorHandler);
-    
-    logger.info('✅ Routes configured');
+
+    logger.debug('✅ Routes configured');
   }
 
   /**
    * 设置WebSocket服务器（使用独立实现）
-   * ⚠️ 注意：此时 HTTP Server 还没 listen，这是安全的
    */
   private setupWebSocket(config: AdminConfig): void {
     if (!this.chatService) {
       throw new Error('ChatService must be initialized before WebSocket');
     }
-    
-    logger.info('🌐 Setting up WebSocket server...');
 
     try {
-      // 创建聊天频道实例
       this.chatChannel = new ChatChannel(this.chatService);
-
-      // 创建精简版WebSocket管理器（仅支持聊天功能）
       this.websocketManager = new WebSocketManager(config, this.chatChannel);
-
-      // 绑定到 HTTP Server（此时 HTTP Server 还没 listen，这是安全的）
       this.websocketManager.initialize(this.server);
-
-      logger.info('✅ WebSocket server configured (ABP-only chat implementation)');
-      logger.info(`📡 WebSocket endpoints (1 channel, chat-only):`);
-      logger.info(`   - /chat/api_key=<your_api_key>`);
-      logger.info(`   - /v1/chat/api_key=<your_api_key>`);
-
-      logger.info('✅ WebSocket server ready (chat-only)');
-      
+      logger.debug('✅ WebSocket server ready');
     } catch (error) {
       logger.error('❌ Failed to setup WebSocket server:', error);
       throw error;

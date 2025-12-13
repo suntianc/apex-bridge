@@ -50,7 +50,7 @@ export class LLMConfigService {
     this.db.pragma('foreign_keys = ON');
 
     this.initializeDatabase();
-    logger.info(`✅ LLMConfigService initialized (database: ${this.dbPath})`);
+    logger.debug(`LLMConfigService initialized (database: ${this.dbPath})`);
   }
 
   /**
@@ -118,7 +118,38 @@ export class LLMConfigService {
       CREATE INDEX IF NOT EXISTS idx_model_type_default ON llm_models(model_type, is_default);
     `);
 
-    logger.debug('✅ LLM v2 tables initialized');
+    // 扩展模型表，添加ACE层级标记字段（先检查列是否存在）
+    const columns = this.db
+      .prepare("PRAGMA table_info(llm_models)")
+      .all() as Array<{ name: string }>;
+    const columnNames = new Set(columns.map((c) => c.name));
+
+    const aceLayerColumns = [
+      'is_ace_layer_l1',
+      'is_ace_layer_l2',
+      'is_ace_layer_l3',
+      'is_ace_layer_l4',
+      'is_ace_layer_l5',
+      'is_ace_layer_l6',
+    ];
+
+    for (const col of aceLayerColumns) {
+      if (!columnNames.has(col)) {
+        this.db.exec(`ALTER TABLE llm_models ADD COLUMN ${col} INTEGER DEFAULT 0`);
+      }
+    }
+
+    // ACE层级索引
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_model_ace_l1 ON llm_models(is_ace_layer_l1);
+      CREATE INDEX IF NOT EXISTS idx_model_ace_l2 ON llm_models(is_ace_layer_l2);
+      CREATE INDEX IF NOT EXISTS idx_model_ace_l3 ON llm_models(is_ace_layer_l3);
+      CREATE INDEX IF NOT EXISTS idx_model_ace_l4 ON llm_models(is_ace_layer_l4);
+      CREATE INDEX IF NOT EXISTS idx_model_ace_l5 ON llm_models(is_ace_layer_l5);
+      CREATE INDEX IF NOT EXISTS idx_model_ace_l6 ON llm_models(is_ace_layer_l6);
+    `);
+
+    logger.debug('✅ LLM v2 tables initialized with ACE layer support');
   }
 
   // ==================== 提供商管理 ====================

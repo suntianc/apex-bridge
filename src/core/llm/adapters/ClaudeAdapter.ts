@@ -22,7 +22,7 @@ export class ClaudeAdapter implements ILLMAdapter {
       timeout: this.config.timeout || 60000
     });
 
-    logger.info(`✅ Claude adapter initialized (${this.config.baseURL})`);
+    logger.debug(`Claude adapter initialized (${this.config.baseURL})`);
   }
 
   async chat(messages: Message[], options: ChatOptions, signal?: AbortSignal): Promise<LLMResponse> {

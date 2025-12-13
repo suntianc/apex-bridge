@@ -620,7 +620,10 @@ export class ChatController {
         }
 
         const effectiveCutoffTime = cutoffTime ?? (Date.now() - 60 * 60 * 1000); // 默认1小时前
-        conversationIds = await engine.getActiveSessions(effectiveCutoffTime);
+        const sessions = await engine.getActiveSessions();
+        conversationIds = sessions
+          .filter(s => s.lastActivity >= effectiveCutoffTime)
+          .map(s => s.sessionId);
       }
 
       // 获取会话详细信息（统一的ACE会话格式）
@@ -755,7 +758,7 @@ export class ChatController {
       // 获取遥测日志
       if (type === 'all' || type === 'telemetry') {
         try {
-          history.telemetry = await engine.getTelemetryBySession(sessionId, limitNum);
+          history.telemetry = engine.getTelemetryBySession(sessionId);
         } catch (error: any) {
           logger.warn(`[ChatController] Failed to get telemetry: ${error.message}`);
           history.telemetry = [];
@@ -765,7 +768,7 @@ export class ChatController {
       // 获取指令日志
       if (type === 'all' || type === 'directives') {
         try {
-          history.directives = await engine.getDirectivesBySession(sessionId, limitNum);
+          history.directives = engine.getDirectivesBySession(sessionId);
         } catch (error: any) {
           logger.warn(`[ChatController] Failed to get directives: ${error.message}`);
           history.directives = [];

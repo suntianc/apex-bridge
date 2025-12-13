@@ -57,7 +57,7 @@ export class WebSocketManager implements IWebSocketManager {
     // 创建WebSocket服务器（直接绑定到HTTP server）
     this.wss = new WebSocketServer({ server });
     
-    logger.info('✅ WebSocket Server created and bound to HTTP server');
+    logger.debug('WebSocket Server created');
     
     // 设置连接处理器
     this.setupConnectionHandler();
@@ -65,7 +65,7 @@ export class WebSocketManager implements IWebSocketManager {
     // 🆕 启动心跳检测
     this.setupHeartbeat();
     
-    logger.info('✅ WebSocket Manager initialized');
+    logger.debug('WebSocket Manager initialized');
   }
   
   /**
@@ -115,7 +115,7 @@ export class WebSocketManager implements IWebSocketManager {
       ws.close(1003, 'Unknown path');
     });
     
-    logger.info('✅ Connection handler registered');
+    logger.debug('Connection handler registered');
   }
 
   /**

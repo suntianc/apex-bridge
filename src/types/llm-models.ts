@@ -142,6 +142,13 @@ export interface LLMModelFull extends LLMModelV2 {
   providerName: string;       // 提供商名称
   providerBaseConfig: ProviderBaseConfig; // 提供商基础配置
   providerEnabled: boolean;   // 提供商是否启用
+  // ACE层级标记字段
+  isAceLayerL1?: boolean;     // 是否为L1层模型
+  isAceLayerL2?: boolean;     // 是否为L2层模型
+  isAceLayerL3?: boolean;     // 是否为L3层模型
+  isAceLayerL4?: boolean;     // 是否为L4层模型
+  isAceLayerL5?: boolean;     // 是否为L5层模型
+  isAceLayerL6?: boolean;     // 是否为L6层模型
 }
 
 /**
