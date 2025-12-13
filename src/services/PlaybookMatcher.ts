@@ -435,14 +435,73 @@ ${playbookList}
   }
 
   private parsePlaybookFromVector(tool: any): StrategicPlaybook | null {
-    // 从向量存储中解析Playbook
-    // 实际实现需要根据存储格式调整
-    return null;
+    if (tool.metadata?.type !== 'strategic_playbook') {
+      return null;
+    }
+
+    const metadata = tool.metadata;
+    try {
+      const playbook: StrategicPlaybook = {
+        id: metadata.playbookId,
+        name: metadata.name || tool.name,
+        description: metadata.description || tool.description,
+        type: metadata.playbookType || 'problem_solving',
+        version: metadata.version || '1.0.0',
+        status: metadata.status || 'active',
+        context: {
+          domain: metadata.domain || 'general',
+          scenario: metadata.scenario || 'unspecified',
+          complexity: 'medium',
+          stakeholders: []
+        },
+        trigger: {
+          type: 'event',
+          condition: 'Automatically extracted from strategic learning'
+        },
+        actions: metadata.actions || [],
+        sourceLearningIds: metadata.sourceLearningIds || [],
+        createdAt: metadata.createdAt || Date.now(),
+        lastUpdated: Date.now(),
+        lastOptimized: metadata.lastOptimized || Date.now(),
+        metrics: metadata.metrics || {
+          successRate: 0,
+          usageCount: 0,
+          averageOutcome: 0,
+          lastUsed: 0,
+          timeToResolution: 0,
+          userSatisfaction: 0
+        },
+        optimizationCount: metadata.optimizationCount || 0,
+        parentId: metadata.parentId,
+        tags: tool.tags || ['playbook'],
+        author: metadata.author || 'auto-extracted',
+        reviewers: metadata.reviewers || []
+      };
+
+      return playbook;
+    } catch (error) {
+      logger.error('[PlaybookMatcher] Failed to parse playbook from vector:', error);
+      return null;
+    }
   }
 
   private async getPlaybookById(id: string): Promise<StrategicPlaybook | null> {
-    // 从存储中获取Playbook
-    // 实际实现需要根据存储系统调整
-    return null;
+    try {
+      // 从向量存储中检索
+      const searchResult = await this.toolRetrievalService.findRelevantSkills(
+        `playbook ${id}`,
+        1,
+        0.99
+      );
+
+      if (searchResult.length > 0) {
+        return this.parsePlaybookFromVector(searchResult[0].tool);
+      }
+
+      return null;
+    } catch (error) {
+      logger.error('[PlaybookMatcher] Failed to get playbook by id:', error);
+      return null;
+    }
   }
 }

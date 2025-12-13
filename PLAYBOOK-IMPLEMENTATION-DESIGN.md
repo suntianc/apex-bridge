@@ -28,6 +28,8 @@
 │  - 提取与提炼        │  - 智能匹配与推荐                  │
 │  - 版本管理          │  - 序列优化                        │
 │  - 生命周期管理      │  - 相似性分析                      │
+│  - parsePlaybook     │  - parsePlaybook (向量重建)        │
+│  - getPlaybookById   │  - getPlaybookById                │
 ├─────────────────────────────────────────────────────────┤
 │         AceStrategyManager (L2全球战略层)                 │
 │  - 战略学习存储      │  - 自动提炼Playbook                │
@@ -36,6 +38,7 @@
 │               LanceDB (向量存储)                          │
 │  - Playbook索引      │  - 语义检索                        │
 │  - 相似性搜索        │  - 性能指标                        │
+│  - 完整metadata      │  - 对象重建                        │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -113,10 +116,12 @@
 
   // 性能指标
   metrics: {
-    successRate: number;      // 0-1
-    usageCount: number;
-    averageOutcome: number;   // 1-10
-    lastUsed: number;
+    successRate: number;        // 成功率 (0-1)
+    usageCount: number;         // 使用次数
+    averageOutcome: number;     // 平均效果评分 (1-10)
+    lastUsed: number;           // 最后使用时间
+    timeToResolution: number;   // 平均解决时间（毫秒）
+    userSatisfaction: number;   // 用户满意度 (1-10)
   };
 }
 ```
@@ -198,7 +203,8 @@ L6任务执行 → L5认知控制 → L4任务编排 → L3能力管理 → L2�
 ### 7.2 缓存策略
 - **Playbook缓存**：24小时TTL，1000个Playbook上限
 - **执行记录缓存**：24小时TTL，按session分组
-- **向量检索**：LanceDB实时检索，LRU缓存
+- **向量检索**：LanceDB实时检索，使用TTL缓存管理
+- **存储格式**：完整metadata存储，支持从向量存储重建Playbook对象
 
 ## 八、演进路径
 
@@ -207,11 +213,15 @@ L6任务执行 → L5认知控制 → L4任务编排 → L3能力管理 → L2�
 - [x] PlaybookManager实现
 - [x] 自动提炼机制
 - [x] 与ACE架构集成
+- [x] 完整metadata存储（支持对象重建）
+- [x] PlaybookMatcher实现
 
 ### 8.2 Phase 2：智能增强
-- [ ] PlaybookMatcher多维度匹配
-- [ ] 序列优化算法
-- [ ] 相似Playbook推荐
+- [x] PlaybookMatcher多维度匹配
+- [x] 序列优化算法
+- [x] 相似Playbook推荐
+- [x] parsePlaybookFromVector实现（从向量存储重建对象）
+- [x] getPlaybookById实现（根据ID检索Playbook）
 - [ ] A/B测试框架
 
 ### 8.3 Phase 3：高级特性
@@ -229,10 +239,18 @@ L6任务执行 → L5认知控制 → L4任务编排 → L3能力管理 → L2�
 ## 九、总结
 
 Playbook机制是ACE架构从"被动学习"向"主动进化"的关键跃迁。通过：
-1. **自动提炼**：将隐性知识显性化
-2. **智能匹配**：快速找到最佳策略
-3. **持续优化**：基于反馈不断改进
-4. **版本管理**：追踪策略演进
+1. **自动提炼**：将隐性知识显性化（LLM模式识别）
+2. **智能匹配**：快速找到最佳策略（多维度评估算法）
+3. **持续优化**：基于反馈不断改进（动态优化建议）
+4. **版本管理**：追踪策略演进（父子版本关系）
+5. **完整存储**：从向量存储重建对象（parsePlaybookFromVector）
+6. **高效检索**：根据ID快速定位（getPlaybookById）
+
+**当前实现状态**：
+- ✅ Phase 1: 基础功能（100%完成）
+- ✅ Phase 2: 智能增强（83%完成，5/6功能已完成）
+- ⏳ Phase 3: 高级特性（0%完成）
+- ⏳ Phase 4: 生态系统（0%完成）
 
 最终实现：**从战术到战略的跨越，从经验到系统的升华**。
 

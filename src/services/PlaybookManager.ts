@@ -348,10 +348,23 @@ export class PlaybookManager {
       metadata: {
         type: 'strategic_playbook',
         playbookId: playbook.id,
+        name: playbook.name,
+        description: playbook.description,
+        playbookType: playbook.type,
         version: playbook.version,
         status: playbook.status,
+        domain: playbook.context.domain,
+        scenario: playbook.context.scenario,
+        actions: playbook.actions,
+        sourceLearningIds: playbook.sourceLearningIds,
         metrics: playbook.metrics,
-        createdAt: playbook.createdAt
+        optimizationCount: playbook.optimizationCount,
+        parentId: playbook.parentId,
+        lastOptimized: playbook.lastOptimized,
+        author: playbook.author,
+        reviewers: playbook.reviewers,
+        createdAt: playbook.createdAt,
+        lastUpdated: playbook.lastUpdated
       }
     });
   }
@@ -361,9 +374,51 @@ export class PlaybookManager {
       return null;
     }
 
-    // 这里需要从metadata重建完整的playbook对象
-    // 实际实现中可能需要额外的查询
-    return null; // 简化处理
+    const metadata = tool.metadata;
+    try {
+      // 从metadata重建完整的playbook对象
+      const playbook: StrategicPlaybook = {
+        id: metadata.playbookId,
+        name: tool.name,
+        description: tool.description,
+        type: metadata.playbookType || 'problem_solving',
+        version: metadata.version || '1.0.0',
+        status: metadata.status || 'active',
+        context: {
+          domain: metadata.domain || 'general',
+          scenario: metadata.scenario || 'unspecified',
+          complexity: 'medium',
+          stakeholders: []
+        },
+        trigger: {
+          type: 'event',
+          condition: 'Automatically extracted from strategic learning'
+        },
+        actions: metadata.actions || [],
+        sourceLearningIds: metadata.sourceLearningIds || [],
+        createdAt: metadata.createdAt || Date.now(),
+        lastUpdated: Date.now(),
+        lastOptimized: metadata.lastOptimized || Date.now(),
+        metrics: metadata.metrics || {
+          successRate: 0,
+          usageCount: 0,
+          averageOutcome: 0,
+          lastUsed: 0,
+          timeToResolution: 0,
+          userSatisfaction: 0
+        },
+        optimizationCount: metadata.optimizationCount || 0,
+        parentId: metadata.parentId,
+        tags: tool.tags || ['playbook'],
+        author: metadata.author || 'auto-extracted',
+        reviewers: metadata.reviewers || []
+      };
+
+      return playbook;
+    } catch (error) {
+      logger.error('[PlaybookManager] Failed to parse playbook from vector:', error);
+      return null;
+    }
   }
 
   private buildExtractionPrompt(learning: StrategicLearning, context?: string): string {
