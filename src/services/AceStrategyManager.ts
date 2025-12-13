@@ -18,6 +18,8 @@ import { AceIntegrator } from './AceIntegrator';
 import { ToolRetrievalService } from './ToolRetrievalService';
 import { LLMManager } from '../core/LLMManager';
 import type { AceEthicsGuard } from './AceEthicsGuard';
+import { PlaybookManager } from './PlaybookManager';
+import { PlaybookMatcher } from './PlaybookMatcher';
 import { logger } from '../utils/logger';
 import { Cache, createCache } from '../utils/cache';
 
@@ -72,6 +74,16 @@ export class AceStrategyManager {
    */
   private cleanupInterval: NodeJS.Timeout | null = null;
 
+  /**
+   * Playbook管理器 - 自动从战略学习提炼Playbook
+   */
+  private playbookManager: PlaybookManager;
+
+  /**
+   * Playbook匹配引擎 - 智能推荐Playbook
+   */
+  private playbookMatcher: PlaybookMatcher;
+
   constructor(
     private aceIntegrator: AceIntegrator,
     private toolRetrievalService: ToolRetrievalService,
@@ -83,10 +95,14 @@ export class AceStrategyManager {
       AceStrategyManager.MAX_STRATEGIC_CONTEXTS
     );
 
+    // 初始化Playbook系统
+    this.playbookManager = new PlaybookManager(this, this.toolRetrievalService, this.llmManager);
+    this.playbookMatcher = new PlaybookMatcher(this.toolRetrievalService, this.llmManager);
+
     // 启动定期清理
     this.startPeriodicCleanup();
 
-    logger.info('[AceStrategyManager] Initialized with TTL cache for strategic contexts');
+    logger.info('[AceStrategyManager] Initialized with TTL cache and Playbook system');
   }
 
   /**
@@ -231,6 +247,11 @@ export class AceStrategyManager {
 
       // 更新世界模型
       await this.updateWorldModelFromLearning(outcome);
+
+      // 🆕 自动从战略学习提炼Playbook
+      if (outcome.outcome === 'success' && outcome.learnings.length > 0) {
+        await this.extractPlaybookFromLearning(strategicLearning, sessionId);
+      }
 
       // 触发L2的战略调整（使用本地事件总线）
       await this.triggerStrategicAdjustment(sessionId, outcome);
@@ -603,5 +624,121 @@ Please provide a JSON response with:
    */
   private getEthicsGuard(): AceEthicsGuard | null {
     return (this.aceIntegrator as any).ethicsGuard || null;
+  }
+
+  // ========== Playbook系统集成方法 ==========
+
+  /**
+   * 从战略学习自动提炼Playbook
+   * 这是ACE L2层的核心进化能力
+   */
+  private async extractPlaybookFromLearning(
+    learning: StrategicLearning,
+    sessionId: string
+  ): Promise<void> {
+    try {
+      // 只对成功案例提炼Playbook
+      if (learning.outcome !== 'success') {
+        logger.debug(`[AceStrategyManager] Skipping playbook extraction for ${learning.outcome} outcome`);
+        return;
+      }
+
+      // 获取会话上下文
+      const sessionContext = await this.getSessionContext(sessionId);
+
+      // 使用PlaybookManager提炼Playbook
+      const playbook = await this.playbookManager.extractPlaybookFromLearning(
+        learning,
+        sessionContext
+      );
+
+      if (playbook) {
+        // 向L2层报告Playbook生成
+        await this.aceIntegrator.sendToLayer('GLOBAL_STRATEGY', {
+          type: 'PLAYBOOK_CREATED',
+          content: `New playbook extracted: ${playbook.name}`,
+          metadata: {
+            playbookId: playbook.id,
+            playbookType: playbook.type,
+            sourceLearningId: learning.id,
+            sessionId,
+            timestamp: Date.now()
+          }
+        });
+
+        logger.info(`[AceStrategyManager] Extracted playbook: ${playbook.name} (${playbook.id})`);
+      }
+    } catch (error: any) {
+      logger.error('[AceStrategyManager] Failed to extract playbook from learning:', error);
+    }
+  }
+
+  /**
+   * 获取会话上下文（用于Playbook提炼）
+   */
+  private async getSessionContext(sessionId: string): Promise<string> {
+    try {
+      // 从AceIntegrator获取会话轨迹
+      // 这里简化处理，实际实现可以从轨迹中提取更多上下文
+      return `Session: ${sessionId}`;
+    } catch (error) {
+      logger.error('[AceStrategyManager] Failed to get session context:', error);
+      return '';
+    }
+  }
+
+  /**
+   * 搜索可用的Playbook（供外部调用）
+   */
+  async searchPlaybooks(
+    query: string,
+    options?: {
+      type?: string;
+      minSuccessRate?: number;
+      limit?: number;
+    }
+  ) {
+    return this.playbookManager.searchPlaybooks(query, options);
+  }
+
+  /**
+   * 匹配Playbook（供外部调用）
+   */
+  async matchPlaybooks(
+    context: {
+      userQuery: string;
+      sessionHistory?: string[];
+      currentState?: string;
+      userProfile?: any;
+    }
+  ) {
+    return this.playbookMatcher.matchPlaybooks(context);
+  }
+
+  /**
+   * 获取Playbook统计信息
+   */
+  getPlaybookStats() {
+    return this.playbookManager.getPlaybookStats();
+  }
+
+  /**
+   * 记录Playbook执行（供外部调用）
+   */
+  async recordPlaybookExecution(
+    playbookId: string,
+    sessionId: string,
+    outcome: 'success' | 'failure' | 'partial' | 'abandoned',
+    notes?: string
+  ) {
+    await this.playbookManager.recordExecution({
+      playbookId,
+      sessionId,
+      startedAt: Date.now(),
+      outcome,
+      actualSteps: 0,
+      totalSteps: 0,
+      notes: notes || ''
+    });
   }
 }
