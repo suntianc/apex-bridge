@@ -61,7 +61,11 @@ export class PlaybookMatcher {
         .filter((p): p is StrategicPlaybook => p !== null);
 
       // 3. 过滤无效的Playbook
-      const validPlaybooks = playbooks.filter(p => p.status === 'active');
+      // 包含active和archived状态的Playbook
+      // - active: 正常检索权重
+      // - archived: 降低权重但不排除（个人知识库永久资产）
+      // - deprecated: 排除（明确低效）
+      const validPlaybooks = playbooks.filter(p => p.status === 'active' || p.status === 'archived');
 
       // 4. 计算匹配分数
       const matches = await Promise.all(
@@ -77,6 +81,15 @@ export class PlaybookMatcher {
       logger.info(
         `[PlaybookMatcher] Found ${sortedMatches.length} matches for query: "${context.userQuery.substring(0, 50)}..."`
       );
+
+      // 为每个匹配的Playbook输出激活日志
+      sortedMatches.forEach(match => {
+        const playbook = match.playbook;
+        const successRate = Math.round(playbook.metrics.successRate * 100);
+        const playbookName = this.formatPlaybookName(playbook);
+
+        logger.info(`📖 Activated Strategy: ${playbookName} (Success: ${successRate}%)`);
+      });
 
       return sortedMatches;
     } catch (error) {
@@ -220,6 +233,10 @@ export class PlaybookMatcher {
     let score = 0;
     const matchReasons: string[] = [];
 
+    // 检查是否为失败衍生的Playbook（风险规避型）
+    const isFailureDerived = playbook.tags.includes('failure-derived') ||
+                             playbook.tags.includes('risk-avoidance');
+
     // 1. 文本相似度 (30%)
     const textSimilarity = await this.calculateTextSimilarity(
       context.userQuery,
@@ -230,10 +247,21 @@ export class PlaybookMatcher {
       matchReasons.push(`文本相似度高 (${(textSimilarity * 100).toFixed(0)}%)`);
     }
 
-    // 2. 成功率 (25%)
-    score += playbook.metrics.successRate * 0.25;
-    if (playbook.metrics.successRate > 0.8) {
-      matchReasons.push(`高成功率 (${(playbook.metrics.successRate * 100).toFixed(0)}%)`);
+    // 2. 失败衍生Playbook的特殊处理
+    if (isFailureDerived) {
+      // 风险规避Playbook主要看场景匹配度，而不是成功率
+      // 给予更高的上下文匹配权重
+      const contextMatch = this.calculateContextMatch(playbook, context);
+      score += contextMatch * 0.4; // 风险规避型更看重上下文匹配
+      if (contextMatch > 0.6) {
+        matchReasons.push('风险规避场景匹配');
+      }
+    } else {
+      // 2. 成功率 (25%) - 仅对常规Playbook
+      score += playbook.metrics.successRate * 0.25;
+      if (playbook.metrics.successRate > 0.8) {
+        matchReasons.push(`高成功率 (${(playbook.metrics.successRate * 100).toFixed(0)}%)`);
+      }
     }
 
     // 3. 使用频率 (15%)
@@ -255,6 +283,17 @@ export class PlaybookMatcher {
     score += contextMatch * 0.15;
     if (contextMatch > 0.6) {
       matchReasons.push('上下文高度匹配');
+    }
+
+    // 失败衍生Playbook的特别标记
+    if (isFailureDerived) {
+      matchReasons.push('失败经验衍生（风险规避）');
+    }
+
+    // archived状态的Playbook应用权重惩罚（但不排除）
+    if (playbook.status === 'archived') {
+      score *= 0.7; // 降低30%权重，但仍可检索
+      matchReasons.push('已归档（降低权重）');
     }
 
     return {
@@ -503,5 +542,26 @@ ${playbookList}
       logger.error('[PlaybookMatcher] Failed to get playbook by id:', error);
       return null;
     }
+  }
+
+  /**
+   * 格式化Playbook名称为 [类型-具体名称] 的格式
+   */
+  private formatPlaybookName(playbook: StrategicPlaybook): string {
+    // 类型映射：将英文类型转换为中文
+    const typeMap: Record<string, string> = {
+      'negotiation': '谈判',
+      'problem_solving': '问题解决',
+      'crisis': '危机处理',
+      'growth': '成长策略',
+      'product_launch': '产品发布',
+      'customer_success': '客户成功',
+      'risk_avoidance': '风险规避',
+      'crisis_prevention': '危机预防',
+      'problem_prevention': '问题预防'
+    };
+
+    const typeInChinese = typeMap[playbook.type] || playbook.type;
+    return `[${typeInChinese}-${playbook.name}]`;
   }
 }

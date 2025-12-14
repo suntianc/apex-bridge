@@ -42,7 +42,7 @@ export class ReActEngine {
     });
 
     this.defaultOptions = {
-      maxIterations: options.maxIterations ?? 10,
+      maxIterations: options.maxIterations ?? 50,
       timeoutMs: options.timeoutMs ?? 300_000,
       enableThinking: options.enableThinking ?? true,
       maxConcurrentTools: options.maxConcurrentTools ?? 3,
@@ -275,7 +275,8 @@ export class ReActEngine {
         logger.info(`resultContent: ${resultContent}`);
         const safeResultContent = resultContent.replace(/]]>/g, ']]]]><![CDATA[');
 
-        return `<tool_output name="${action.name}" status="${status}">
+        return `[SYSTEM_FEEDBACK]
+                <tool_output name="${action.name}" status="${status}">
                   ${safeResultContent}
                 </tool_output>`;
                       }).join('\n\n');

@@ -285,7 +285,7 @@ Content-Type: application/json
   "messages": [{"role": "user", "content": "Search for information"}],
   "selfThinking": {
     "enabled": true,
-    "maxIterations": 5,
+    // maxIterations未设置，使用默认值（50次）
     "tools": [{"name": "search", "description": "Search knowledge base"}]
   }
 }

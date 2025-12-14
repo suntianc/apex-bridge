@@ -107,7 +107,7 @@ import { ReActEngine } from '../stream-orchestrator/ReActEngine';
 const engine = new ReActEngine({
   enableToolActionParsing: true,  // 启用标签解析（默认true）
   toolActionTimeout: 30000,       // 工具超时时间（默认30秒）
-  maxIterations: 5
+  // maxIterations未设置，使用默认值（50次）
 });
 ```
 

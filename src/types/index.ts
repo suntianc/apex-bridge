@@ -23,7 +23,7 @@ export interface ChatOptions {
   // 🆕 自我思考循环配置（ReAct模式）
   selfThinking?: {
     enabled?: boolean;           // 是否启用自我思考循环（ReAct模式）
-    maxIterations?: number;      // 最大思考循环次数（默认5）
+    maxIterations?: number;      // 最大思考循环次数（默认50）
     includeThoughtsInResponse?: boolean; // 是否在响应中包含思考过程（默认true）
     systemPrompt?: string;       // 可注入的基础系统提示词
     additionalPrompts?: string[]; // 额外的提示词段落

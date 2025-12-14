@@ -3,10 +3,10 @@ skills:
     path: "./data/skills"
     vectorDbPath: "./.data/skills.lance"
   retrieval:
-    model: "all-MiniLM-L6-v2"
+    model: "nomic-embed-text"
     cacheSize: 1000
-    dimensions: 384
-    similarityThreshold: 0.6
+    dimensions: 768
+    similarityThreshold: 0.40  # 从0.20提升至0.40，过滤噪声，优化语义搜索
   execution:
     timeout: 60000
     maxOutputSize: 10485760  # 10MB

@@ -63,7 +63,7 @@ graph TD
 ```typescript
 selfThinking: {
   enabled: boolean;           // 启用多轮思考
-  maxIterations: number;      // 最大迭代次数（默认5）
+  maxIterations: number;      // 最大迭代次数（默认无限制）
   includeThoughtsInResponse: boolean; // 是否包含思考过程
   systemPrompt: string;       // 自定义系统提示词
   additionalPrompts: string[]; // 额外提示词
@@ -179,7 +179,7 @@ if (options.stream) {
 
 ### ReAct策略优化
 - **并发工具执行**: 支持最多3个并发工具调用
-- **迭代限制**: 默认最多5轮迭代，防止无限循环
+- **迭代限制**: 默认最多50轮迭代，防止无限循环
 - **超时控制**: 支持总超时和单轮超时设置
 - **内存管理**: 及时清理思考缓冲区和工具状态
 
@@ -223,11 +223,11 @@ if (options.stream) {
 
 ### ReAct策略使用
 ```typescript
-// 启用多轮思考
+// 启用多轮思考（默认50次）
 const options = {
   selfThinking: {
     enabled: true,
-    maxIterations: 5,
+    // maxIterations未设置，使用默认值（50次）
     includeThoughtsInResponse: true,
     tools: [{
       name: "search",

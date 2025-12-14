@@ -606,7 +606,7 @@ You must return valid JSON matching the specified format.`;
       selfThinking: taskDef.requiresToolCall ? {
         enabled: true,
         includeThoughtsInResponse: false, // 编排模式下不输出思考过程
-        maxIterations: 10,
+        maxIterations: 50,
         enableStreamThoughts: true,
         enableToolActionParsing: true
       } : originalOptions.selfThinking,

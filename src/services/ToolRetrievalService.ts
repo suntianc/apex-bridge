@@ -510,7 +510,7 @@ export class ToolRetrievalService {
   async findRelevantSkills(
     query: string,
     limit: number = 5,
-    threshold: number = 0.4
+    threshold: number = 0.40  // 从0.20提升至0.40，过滤噪声，优化语义搜索
   ): Promise<ToolRetrievalResult[]> {
     try {
       logger.info(`Searching relevant skills for query: "${query}"`);
@@ -537,10 +537,13 @@ export class ToolRetrievalService {
       });
 
       // 执行向量搜索
-      const results = await this.table
-        .search(queryVector)
-        .limit(limit * 2) // 获取多一些结果以应用阈值过滤
-        .toArray();
+      // 使用余弦相似度进行搜索
+      const vectorQuery = this.table.query()
+        .nearestTo(queryVector)  // 使用nearestTo进行向量搜索
+        .distanceType('cosine')  // 设置距离类型为余弦相似度
+        .limit(limit * 2); // 获取多一些结果以应用阈值过滤
+
+      const results = await vectorQuery.toArray();
 
       // 格式化和过滤结果
       const formattedResults = await this.formatSearchResults(results, limit, threshold);
@@ -575,11 +578,13 @@ export class ToolRetrievalService {
     for (const result of resultArray.slice(0, limit)) {
       try {
         // 获取相似度分数
-        // LanceDB 返回的是 _distance (L2距离)，需要转换为相似度
-        // 相似度 = 1 - distance (对于归一化向量)
+        // LanceDB 返回的是 _distance (余弦距离)，需要转换为相似度
+        // 余弦相似度 = 1 - distance
         let score: number;
         if (result._distance !== undefined) {
-          // LanceDB 返回的是距离，转换为相似度
+          // LanceDB 返回的是距离（余弦距离），转换为相似度
+          // 余弦距离范围 [0, 2]，所以相似度 = 1 - distance/2 或 1 - distance
+          // 根据LanceDB文档，余弦相似度搜索时distance已经是余弦距离
           score = Math.max(0, 1 - result._distance);
         } else if (result.score !== undefined) {
           score = result.score;
@@ -859,10 +864,10 @@ export function getToolRetrievalService(
       // 使用默认配置（维度会在初始化时动态获取）
       config = {
         vectorDbPath: './.data',
-        model: 'all-MiniLM-L6-v2',
+        model: 'nomic-embed-text',
         cacheSize: 1000,
-        dimensions: 384, // 初始值，会在初始化时被实际模型维度覆盖
-        similarityThreshold: 0.6,
+        dimensions: 768, // 初始值，会在初始化时被实际模型维度覆盖
+        similarityThreshold: 0.40,  // 从0.20提升至0.40，过滤噪声，优化语义搜索
         maxResults: 10
       };
     }

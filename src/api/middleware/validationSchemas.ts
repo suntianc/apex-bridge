@@ -111,8 +111,8 @@ export const chatCompletionSchema: ValidationSchema = {
           maxIterations: {
             type: 'integer',
             minimum: 1,
-            maximum: 20,
-            default: 5
+            maximum: 100,
+            default: 50
           },
           includeThoughtsInResponse: {
             type: 'boolean',

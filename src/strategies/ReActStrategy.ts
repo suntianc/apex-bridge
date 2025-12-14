@@ -112,7 +112,7 @@ export class ReActStrategy implements ChatStrategy {
 
     // 初始化 ReAct 引擎（启用 tool_action 标签解析）
     const reactEngine = new ReActEngine({
-      maxIterations: options.selfThinking?.maxIterations ?? Number.MAX_SAFE_INTEGER,
+      maxIterations: options.selfThinking?.maxIterations ?? 50,
       enableThinking: options.selfThinking?.enableStreamThoughts ?? true,
       maxConcurrentTools: 3,
       enableToolActionParsing: options.selfThinking?.enableToolActionParsing ?? true,
@@ -216,7 +216,7 @@ export class ReActStrategy implements ChatStrategy {
 
     // 初始化 ReAct 引擎（启用 tool_action 标签解析）
     const reactEngine = new ReActEngine({
-      maxIterations: options.selfThinking?.maxIterations ?? 5,
+      maxIterations: options.selfThinking?.maxIterations ?? 50,
       enableThinking: options.selfThinking?.enableStreamThoughts ?? true,
       maxConcurrentTools: 3,
       enableToolActionParsing: options.selfThinking?.enableToolActionParsing ?? true,

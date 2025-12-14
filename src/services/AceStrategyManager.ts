@@ -18,6 +18,7 @@ import { AceIntegrator } from './AceIntegrator';
 import { ToolRetrievalService } from './ToolRetrievalService';
 import { LLMManager } from '../core/LLMManager';
 import type { AceEthicsGuard } from './AceEthicsGuard';
+import type { StrategicPlaybook } from '../types/playbook';
 import { PlaybookManager } from './PlaybookManager';
 import { PlaybookMatcher } from './PlaybookMatcher';
 import { logger } from '../utils/logger';
@@ -111,6 +112,7 @@ export class AceStrategyManager {
   private startPeriodicCleanup(): void {
     this.cleanupInterval = setInterval(() => {
       this.cleanupExpiredContexts();
+      this.evaluateAndUpdatePlaybookStatuses();
     }, AceStrategyManager.CLEANUP_INTERVAL_MS);
 
     // 确保不阻止进程退出
@@ -249,8 +251,13 @@ export class AceStrategyManager {
       await this.updateWorldModelFromLearning(outcome);
 
       // 🆕 自动从战略学习提炼Playbook
+      // 成功案例提炼为"最佳实践"Playbook
       if (outcome.outcome === 'success' && outcome.learnings.length > 0) {
         await this.extractPlaybookFromLearning(strategicLearning, sessionId);
+      }
+      // 失败案例提炼为"避免错误"Playbook（反向学习）
+      else if (outcome.outcome === 'failure' && outcome.learnings.length > 0) {
+        await this.extractFailurePlaybookFromLearning(strategicLearning, sessionId);
       }
 
       // 触发L2的战略调整（使用本地事件总线）
@@ -620,6 +627,166 @@ Please provide a JSON response with:
   }
 
   /**
+   * 定期评估并更新Playbook状态
+   * 个人知识库管理：只淘汰明确低效的，保留长期资产
+   */
+  private async evaluateAndUpdatePlaybookStatuses(): Promise<void> {
+    try {
+      // 获取所有Playbook
+      const playbooks = await this.searchPlaybooks('', { limit: 1000 });
+
+      let archivedCount = 0;
+      let deprecatedCount = 0;
+      let reactivatedCount = 0;
+
+      for (const playbook of playbooks) {
+        const shouldArchive = this.shouldArchivePlaybook(playbook);
+        const shouldDeprecate = this.shouldDeprecatePlaybook(playbook);
+        const shouldReactivate = this.shouldReactivatePlaybook(playbook);
+
+        // 第一步：长期未用的标记为archived（降低权重，不淘汰）
+        if (shouldArchive && playbook.status === 'active') {
+          await this.playbookManager.updatePlaybook(playbook.id, {
+            status: 'archived'
+          });
+          archivedCount++;
+          logger.info(`[AceStrategyManager] Playbook archived (long-term unused): ${playbook.name} (id: ${playbook.id})`);
+
+          // 向L2层报告归档事件
+          await this.aceIntegrator.sendToLayer('GLOBAL_STRATEGY', {
+            type: 'PLAYBOOK_ARCHIVED',
+            content: `Playbook "${playbook.name}" has been archived due to long-term non-use`,
+            metadata: {
+              playbookId: playbook.id,
+              daysSinceLastUsed: (Date.now() - playbook.metrics.lastUsed) / (24 * 60 * 60 * 1000),
+              usageCount: playbook.metrics.usageCount,
+              reason: '长期未使用（180天+）',
+              timestamp: Date.now()
+            }
+          });
+        }
+        // 第二步：明确低效的标记为deprecated（真正淘汰）
+        else if (shouldDeprecate && playbook.status === 'active') {
+          await this.playbookManager.updatePlaybook(playbook.id, {
+            status: 'deprecated'
+          });
+          deprecatedCount++;
+          logger.info(`[AceStrategyManager] Playbook deprecated (low performance): ${playbook.name} (id: ${playbook.id})`);
+
+          // 向L2层报告淘汰事件
+          await this.aceIntegrator.sendToLayer('GLOBAL_STRATEGY', {
+            type: 'PLAYBOOK_DEPRECATED',
+            content: `Playbook "${playbook.name}" has been deprecated due to low performance`,
+            metadata: {
+              playbookId: playbook.id,
+              successRate: playbook.metrics.successRate,
+              usageCount: playbook.metrics.usageCount,
+              reason: this.getDeprecationReason(playbook),
+              timestamp: Date.now()
+            }
+          });
+        }
+        // 第三步：重新激活archived或deprecated的Playbook
+        else if (shouldReactivate && (playbook.status === 'archived' || playbook.status === 'deprecated')) {
+          await this.playbookManager.updatePlaybook(playbook.id, {
+            status: 'active'
+          });
+          reactivatedCount++;
+          logger.info(`[AceStrategyManager] Playbook reactivated: ${playbook.name} (id: ${playbook.id})`);
+        }
+      }
+
+      if (archivedCount > 0 || deprecatedCount > 0 || reactivatedCount > 0) {
+        logger.info(`[AceStrategyManager] Playbook status update: ${archivedCount} archived, ${deprecatedCount} deprecated, ${reactivatedCount} reactivated`);
+      }
+    } catch (error) {
+      logger.error('[AceStrategyManager] Failed to evaluate playbook statuses:', error);
+    }
+  }
+
+  /**
+   * 判断Playbook是否应该被归档（长期未用）
+   * 注意：个人知识库是永久资产，不因时间久远而失效
+   * 只对长期未用的标记为archived，降低检索权重，但不淘汰
+   */
+  private shouldArchivePlaybook(playbook: StrategicPlaybook): boolean {
+    // 连续180天未使用，且使用次数少于5次 → 标记为archived（降低权重，不淘汰）
+    const daysSinceLastUsed = (Date.now() - playbook.metrics.lastUsed) / (24 * 60 * 60 * 1000);
+    if (daysSinceLastUsed > 180 && playbook.metrics.usageCount < 5) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * 判断Playbook是否应该被淘汰
+   * 只有明确低效的才会被淘汰：低成功率或用户明确不满
+   */
+  private shouldDeprecatePlaybook(playbook: StrategicPlaybook): boolean {
+    // 成功率低于30%，且使用次数超过10次 → 明确低效，淘汰
+    if (playbook.metrics.successRate < 0.3 && playbook.metrics.usageCount > 10) {
+      return true;
+    }
+
+    // 用户满意度低于2分（1-10分制），且反馈超过5次 → 明确不满，淘汰
+    if (playbook.metrics.userSatisfaction < 2 && playbook.metrics.usageCount > 5) {
+      return true;
+    }
+
+    // 优化超过5次仍然低效（成功率<40%）→ 多次优化仍无效，淘汰
+    if (playbook.optimizationCount > 5 && playbook.metrics.successRate < 0.4) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * 判断已淘汰或已归档的Playbook是否应该重新激活
+   */
+  private shouldReactivatePlaybook(playbook: StrategicPlaybook): boolean {
+    // 成功率提升到50%以上 → 可以重新激活
+    if (playbook.metrics.successRate > 0.5) {
+      return true;
+    }
+
+    // 用户满意度提升到5分以上 → 可以重新激活
+    if (playbook.metrics.userSatisfaction > 5) {
+      return true;
+    }
+
+    // 重新开始使用（使用次数>5）→ 可以重新激活
+    if (playbook.metrics.usageCount > 5) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * 获取Playbook淘汰原因
+   * 注意：时间未使用是归档原因，不是淘汰原因
+   */
+  private getDeprecationReason(playbook: StrategicPlaybook): string {
+    const reasons: string[] = [];
+
+    if (playbook.metrics.successRate < 0.3 && playbook.metrics.usageCount > 10) {
+      reasons.push('成功率过低（<30%）');
+    }
+
+    if (playbook.metrics.userSatisfaction < 2 && playbook.metrics.usageCount > 5) {
+      reasons.push('用户满意度极低（<2分）');
+    }
+
+    if (playbook.optimizationCount > 5 && playbook.metrics.successRate < 0.4) {
+      reasons.push('多次优化仍低效（成功率<40%）');
+    }
+
+    return reasons.join('; ');
+  }
+
+  /**
    * 获取伦理守卫实例
    */
   private getEthicsGuard(): AceEthicsGuard | null {
@@ -674,6 +841,62 @@ Please provide a JSON response with:
   }
 
   /**
+   * 从失败案例提炼"避免错误"Playbook
+   * 失败经验同样宝贵，可以转化为反向学习指南
+   */
+  private async extractFailurePlaybookFromLearning(
+    learning: StrategicLearning,
+    sessionId: string
+  ): Promise<void> {
+    try {
+      // 只对失败案例提炼"反向Playbook"
+      if (learning.outcome !== 'failure') {
+        logger.debug(`[AceStrategyManager] Skipping failure playbook extraction for ${learning.outcome} outcome`);
+        return;
+      }
+
+      // 获取会话上下文
+      const sessionContext = await this.getSessionContext(sessionId);
+
+      // 使用LLM分析失败案例，提炼"避免错误"的策略
+      const prompt = this.buildFailureExtractionPrompt(learning, sessionContext);
+
+      const response = await this.llmManager.chat([
+        {
+          role: 'user',
+          content: prompt
+        }
+      ], { stream: false });
+
+      const content = response.choices[0]?.message?.content || '';
+      const failurePlaybook = this.parseFailurePlaybookFromLLMResponse(content, learning);
+
+      if (failurePlaybook) {
+        // 创建"避免错误"类型的Playbook
+        const playbook = await this.playbookManager.createPlaybook(failurePlaybook);
+
+        // 向L2层报告失败Playbook生成
+        await this.aceIntegrator.sendToLayer('GLOBAL_STRATEGY', {
+          type: 'FAILURE_PLAYBOOK_CREATED',
+          content: `New failure-derived playbook created: ${playbook.name}`,
+          metadata: {
+            playbookId: playbook.id,
+            playbookType: playbook.type,
+            sourceLearningId: learning.id,
+            sessionId,
+            isFailureDerived: true,
+            timestamp: Date.now()
+          }
+        });
+
+        logger.info(`[AceStrategyManager] Extracted failure playbook: ${playbook.name} (${playbook.id})`);
+      }
+    } catch (error: any) {
+      logger.error('[AceStrategyManager] Failed to extract failure playbook from learning:', error);
+    }
+  }
+
+  /**
    * 获取会话上下文（用于Playbook提炼）
    */
   private async getSessionContext(sessionId: string): Promise<string> {
@@ -684,6 +907,99 @@ Please provide a JSON response with:
     } catch (error) {
       logger.error('[AceStrategyManager] Failed to get session context:', error);
       return '';
+    }
+  }
+
+  /**
+   * 构建失败案例提炼Prompt
+   * 将失败经验转化为"避免错误"的反向指南
+   */
+  private buildFailureExtractionPrompt(learning: StrategicLearning, context?: string): string {
+    return `
+分析以下失败案例，提炼出"避免错误"的反向Playbook：
+
+失败摘要: ${learning.summary}
+失败原因: ${learning.learnings.join('; ')}
+${context ? `\n上下文: ${context}` : ''}
+
+请提炼出以下信息（JSON格式）：
+{
+  "name": "避免[具体错误]的策略",
+  "description": "详细描述（1-2句话，说明如何避免此错误）",
+  "type": "playbook类型（risk_avoidance/crisis_prevention/problem_prevention）",
+  "context": {
+    "domain": "应用领域",
+    "scenario": "具体场景",
+    "complexity": "low/medium/high",
+    "stakeholders": ["角色1", "角色2"]
+  },
+  "trigger": {
+    "type": "event/state/pattern",
+    "condition": "触发条件描述",
+    "threshold": 0.8
+  },
+  "actions": [
+    {
+      "step": 1,
+      "description": "具体的预防行动",
+      "expectedOutcome": "预期结果",
+      "resources": ["资源1", "资源2"]
+    }
+  ],
+  "tags": ["risk-avoidance", "failure-derived", "prevention"],
+  "rationale": "基于失败案例提炼的预防策略说明"
+}
+
+注意：
+1. 重点提炼"如何避免"此类错误
+2. 将失败经验转化为正面指导
+3. 提供具体的预防措施
+`;
+  }
+
+  /**
+   * 解析LLM返回的失败Playbook
+   */
+  private parseFailurePlaybookFromLLMResponse(
+    response: string,
+    learning: StrategicLearning
+  ): Omit<StrategicPlaybook, 'id' | 'createdAt' | 'lastUpdated'> | null {
+    try {
+      // 提取JSON部分
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        return null;
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+
+      return {
+        name: parsed.name,
+        description: parsed.description,
+        type: parsed.type || 'problem_solving',
+        version: '1.0.0',
+        status: 'active',
+        context: parsed.context,
+        trigger: parsed.trigger,
+        actions: parsed.actions,
+        sourceLearningIds: [learning.id],
+        lastOptimized: Date.now(),
+        optimizationCount: 0,
+        metrics: {
+          successRate: 0, // 失败案例初始成功率为0，但会随使用更新
+          usageCount: 0,
+          averageOutcome: 0,
+          lastUsed: 0,
+          timeToResolution: 0,
+          userSatisfaction: 0
+        },
+        tags: parsed.tags || ['risk-avoidance', 'failure-derived'],
+        author: 'failure-analysis',
+        reviewers: []
+      };
+    } catch (error) {
+      logger.error('[AceStrategyManager] Failed to parse failure playbook from LLM response:', error);
+      return null;
     }
   }
 

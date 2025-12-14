@@ -52,7 +52,7 @@ export interface StrategicPlaybook {
   description: string;
   type: PlaybookType;
   version: string;
-  status: 'active' | 'deprecated' | 'testing';
+  status: 'active' | 'deprecated' | 'archived' | 'testing';
 
   // 核心组件
   context: PlaybookContext;

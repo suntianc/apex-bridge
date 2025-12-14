@@ -27,7 +27,7 @@ export interface VectorSearchArgs {
  */
 export class VectorSearchTool {
   private static readonly DEFAULT_LIMIT = 5;
-  private static readonly DEFAULT_THRESHOLD = 0.15;
+  private static readonly DEFAULT_THRESHOLD = 0.40;  // 使用Nomic模型，提高至0.40，过滤噪声，优化语义搜索
   private static readonly MAX_LIMIT = 20;
 
   /**
@@ -281,7 +281,7 @@ export class VectorSearchTool {
           },
           threshold: {
             type: 'number',
-            description: 'Similarity threshold (0.0 to 1.0, default: 0.15). Higher values = more strict matching',
+            description: 'Similarity threshold (0.0 to 1.0, default: 0.40). Higher values = more strict matching',
             default: this.DEFAULT_THRESHOLD,
             minimum: 0.0,
             maximum: 1.0

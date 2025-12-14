@@ -18,7 +18,7 @@ export interface Tool {
  * ReAct 配置选项
  */
 export interface ReActOptions {
-  /** 最大迭代次数（默认 10） */
+  /** 最大迭代次数（默认 50） */
   maxIterations?: number;
 
   /** 总超时时间（毫秒，默认 5 分钟） */
