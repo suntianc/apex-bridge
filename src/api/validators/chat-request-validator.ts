@@ -58,8 +58,37 @@ export function parseChatRequest(body: any): ValidationResult<ChatRequestOptions
       if (!msg.role || !['system', 'user', 'assistant'].includes(msg.role)) {
         return { success: false, error: `Invalid message role: ${msg.role}` };
       }
-      if (typeof msg.content !== 'string') {
-        return { success: false, error: 'message content must be a string' };
+
+      // 验证content格式：支持string或ContentPart[]
+      if (typeof msg.content === 'string') {
+        // 文本内容
+        if (msg.content.length === 0) {
+          return { success: false, error: 'message content cannot be empty' };
+        }
+      } else if (Array.isArray(msg.content)) {
+        // 多模态内容
+        if (msg.content.length === 0) {
+          return { success: false, error: 'message content array cannot be empty' };
+        }
+
+        // 验证每个ContentPart
+        for (const part of msg.content) {
+          if (!part.type || !['text', 'image_url'].includes(part.type)) {
+            return { success: false, error: `Invalid content part type: ${part.type}` };
+          }
+
+          if (part.type === 'text') {
+            if (typeof part.text !== 'string' || part.text.length === 0) {
+              return { success: false, error: 'text part must have non-empty text' };
+            }
+          } else if (part.type === 'image_url') {
+            if (!part.image_url) {
+              return { success: false, error: 'image_url part must have image_url' };
+            }
+          }
+        }
+      } else {
+        return { success: false, error: 'message content must be a string or array' };
       }
     }
 

@@ -224,7 +224,7 @@ export class PlaybookManager {
         }
       ], { stream: false });
 
-      const content = response.choices[0]?.message?.content || '';
+      const content = (response.choices[0]?.message?.content as string) || '';
       const extracted = this.parsePlaybookFromLLMResponse(content, learning);
 
       if (extracted) {

@@ -178,7 +178,7 @@ export class PlaybookMatcher {
         }
       ], { stream: false });
 
-      const content = response.choices[0]?.message?.content || '';
+      const content = (response.choices[0]?.message?.content as string) || '';
       const sequence = this.parseSequenceFromResponse(content, initialMatches);
 
       // 第三步：计算估计成功率
@@ -186,7 +186,7 @@ export class PlaybookMatcher {
 
       return {
         sequence,
-        rationale: this.extractRationale(content),
+        rationale: this.extractRationale(content as string),
         estimatedSuccessRate
       };
 

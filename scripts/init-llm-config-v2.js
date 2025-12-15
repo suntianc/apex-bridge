@@ -57,7 +57,7 @@ db.exec(`
     UNIQUE(provider_id, model_key),
     CHECK(enabled IN (0, 1)),
     CHECK(is_default IN (0, 1)),
-    CHECK(model_type IN ('nlp', 'embedding', 'rerank', 'image', 'audio', 'other'))
+    CHECK(model_type IN ('nlp', 'embedding', 'rerank', 'image', 'multimodal', 'audio', 'other'))
   );
   
   CREATE INDEX IF NOT EXISTS idx_provider ON llm_providers(provider);
@@ -144,6 +144,47 @@ const providers = [
         apiEndpointSuffix: '/embeddings',
         enabled: true,
         isDefault: true
+      },
+      {
+        modelKey: 'gpt-4o',
+        modelName: 'GPT-4o (多模态)',
+        modelType: 'multimodal',
+        modelConfig: { contextWindow: 128000, maxTokens: 4096 },
+        apiEndpointSuffix: '/chat/completions',
+        enabled: false,
+        isDefault: false
+      }
+    ]
+  },
+  {
+    provider: 'qwen',
+    name: 'Qwen (通义千问)',
+    description: '阿里云通义千问 VL 模型',
+    baseConfig: {
+      apiKey: process.env.QWEN_API_KEY || 'sk-your-qwen-api-key',
+      baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      timeout: 60000,
+      maxRetries: 3
+    },
+    enabled: false,
+    models: [
+      {
+        modelKey: 'qwen2-vl-72b-instruct',
+        modelName: 'Qwen2-VL 72B',
+        modelType: 'multimodal',
+        modelConfig: { contextWindow: 128000, maxTokens: 4096 },
+        apiEndpointSuffix: '/chat/completions',
+        enabled: false,
+        isDefault: true
+      },
+      {
+        modelKey: 'qwen-turbo',
+        modelName: 'Qwen Turbo',
+        modelType: 'nlp',
+        modelConfig: { contextWindow: 8000, maxTokens: 2000 },
+        apiEndpointSuffix: '/chat/completions',
+        enabled: false,
+        isDefault: false
       }
     ]
   }

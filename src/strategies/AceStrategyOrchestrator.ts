@@ -25,6 +25,7 @@ import type { SessionManager } from '../services/SessionManager';
 import type { AceEthicsGuard } from '../services/AceEthicsGuard';
 import { logger } from '../utils/logger';
 import { LRUMap } from '../utils/cache';
+import { extractTextFromMessage } from '../utils/message-utils';
 
 /**
  * 任务状态枚举
@@ -282,7 +283,7 @@ export class AceStrategyOrchestrator {
         max_tokens: 2000
       });
 
-      const rawContent = response.choices[0]?.message?.content || '{"tasks":[],"reasoning":""}';
+      const rawContent = (response.choices[0]?.message?.content as string) || '{"tasks":[],"reasoning":""}';
       const decomposition = this.parseDecompositionResult(rawContent);
 
       logger.info(`[AceStrategyOrchestrator] Decomposed into ${decomposition.tasks.length} tasks`);
@@ -479,7 +480,7 @@ export class AceStrategyOrchestrator {
     const historyContext = messages
       .slice(0, -1)
       .filter(m => m.role !== 'system')
-      .map(m => `${m.role}: ${m.content.substring(0, 200)}`)
+      .map(m => `${m.role}: ${extractTextFromMessage(m).substring(0, 200)}`)
       .join('\n');
 
     return `
@@ -828,9 +829,10 @@ You must return valid JSON matching the specified format.`;
     return {
       content: results.map((r, i) => {
         // 过滤掉失败消息的前缀
-        const content = r.content.startsWith('[Task ') && r.content.includes('failed')
-          ? r.content
-          : r.content;
+        const contentStr = r.content;
+        const content = contentStr.startsWith('[Task ') && contentStr.includes('failed')
+          ? contentStr
+          : contentStr;
         return content;
       }).join('\n\n---\n\n'),
       iterations: results.reduce((sum, r) => sum + (r.iterations || 0), 0),
@@ -849,7 +851,7 @@ You must return valid JSON matching the specified format.`;
    */
   private extractUserQuery(messages: Message[]): string {
     const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
-    return lastUserMessage?.content || '';
+    return lastUserMessage ? extractTextFromMessage(lastUserMessage) : '';
   }
 
   /**

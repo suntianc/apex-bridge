@@ -60,13 +60,13 @@ export const PROVIDER_ENDPOINT_MAPPINGS: EndpointMapping = {
   /**
    * Ollama (本地模型)
    * 文档: https://github.com/ollama/ollama/blob/main/docs/api.md
-   * 
-   * 注意: Ollama 的端点格式与 OpenAI 不同
+   *
+   * 注意: Ollama 支持 OpenAI 兼容格式 (/v1/*)
    */
   ollama: {
-    nlp: '/api/chat',
-    embedding: '/api/embeddings'
-    // Ollama 特有的端点格式
+    nlp: '/chat/completions',
+    embedding: '/embeddings'
+    // 使用OpenAI兼容的端点格式
   },
 
   /**

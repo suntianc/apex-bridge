@@ -26,15 +26,17 @@ import { LLMConfigService } from './LLMConfigService';
 let llmManagerInstance: any = null;
 
 /**
- * Skills向量表接口
+ * 工具向量表接口（支持 Skills 和 MCP 工具）
  */
-interface SkillsTable {
+interface ToolsTable {
   id: string;
   name: string;
   description: string;
   tags: string[];
-  path: string;
-  version: string;
+  path?: string; // Skills 的路径，MCP 工具可能没有
+  version?: string; // Skills 的版本，MCP 工具可能没有
+  source?: string; // MCP 服务器 ID 或 skill 名称
+  toolType: 'skill' | 'mcp'; // 工具类型
   metadata: string; // JSON字符串格式
   vector: number[]; // 普通数组，不是 Float32Array
   indexedAt: Date;
@@ -259,6 +261,9 @@ export class ToolRetrievalService {
           const count = await this.getTableCount();
           logger.info(`Table contains ${count} vector records`);
 
+          // 检查是否需要添加新字段（MCP支持）
+          await this.checkAndAddMissingFields(tableName);
+
           // 创建向量索引
           await this.createVectorIndex();
           return;
@@ -268,7 +273,7 @@ export class ToolRetrievalService {
         logger.info(`Table '${tableName}' does not exist (${openError.message}), will create new table`);
       }
 
-      // 创建新表 - 使用 Apache Arrow Schema
+      // 创建新表 - 使用 Apache Arrow Schema（支持 Skills 和 MCP 工具）
       const schema = new arrow.Schema([
         new arrow.Field('id', new arrow.Utf8(), false),
         new arrow.Field('name', new arrow.Utf8(), false),
@@ -276,8 +281,10 @@ export class ToolRetrievalService {
         new arrow.Field('tags', new arrow.List(
           new arrow.Field('item', new arrow.Utf8(), true)
         ), false),
-        new arrow.Field('path', new arrow.Utf8(), false),
-        new arrow.Field('version', new arrow.Utf8(), false),
+        new arrow.Field('path', new arrow.Utf8(), true), // 可选，Skill 才有
+        new arrow.Field('version', new arrow.Utf8(), true), // 可选，Skill 才有
+        new arrow.Field('source', new arrow.Utf8(), true), // MCP 服务器 ID 或 skill 名称
+        new arrow.Field('toolType', new arrow.Utf8(), false), // 'skill' | 'mcp'
         new arrow.Field('metadata', new arrow.Utf8(), false), // 对象存储为JSON字符串
         new arrow.Field('vector', new arrow.FixedSizeList(
           this.config.dimensions,
@@ -297,6 +304,75 @@ export class ToolRetrievalService {
     } catch (error) {
       logger.error('Failed to initialize Skills table:', error);
       throw error;
+    }
+  }
+
+  /**
+   * 检查并添加缺失的字段（为MCP支持）
+   */
+  private async checkAndAddMissingFields(tableName: string): Promise<void> {
+    try {
+      // 尝试插入一个包含所有字段的测试记录
+      const testVector = new Array(this.config.dimensions).fill(0.0);
+
+      const testRecord = {
+        id: `field-check-${Date.now()}`,
+        name: 'Field Check',
+        description: 'Checking for missing fields',
+        tags: [],
+        path: null,
+        version: null,
+        source: null, // MCP 字段
+        toolType: 'mcp', // MCP 字段
+        metadata: '{}',
+        vector: testVector,
+        indexedAt: new Date()
+      };
+
+      await this.table!.add([testRecord]);
+      logger.info('All fields (including MCP fields) are present');
+
+      // 删除测试记录
+      await this.table!.delete(`id == "${testRecord.id}"`);
+
+    } catch (error: any) {
+      // 检查是否是字段缺失错误
+      if (error.message && error.message.includes('Found field not in schema')) {
+        logger.warn('Table is missing MCP-related fields. Recreating table...');
+
+        // 删除旧表并重新创建
+        await this.db!.dropTable(tableName);
+        logger.info(`Dropped existing table for recreation: ${tableName}`);
+
+        // 重新创建表
+        const schema = new arrow.Schema([
+          new arrow.Field('id', new arrow.Utf8(), false),
+          new arrow.Field('name', new arrow.Utf8(), false),
+          new arrow.Field('description', new arrow.Utf8(), false),
+          new arrow.Field('tags', new arrow.List(
+            new arrow.Field('item', new arrow.Utf8(), true)
+          ), false),
+          new arrow.Field('path', new arrow.Utf8(), true),
+          new arrow.Field('version', new arrow.Utf8(), true),
+          new arrow.Field('source', new arrow.Utf8(), true), // MCP 服务器 ID 或 skill 名称
+          new arrow.Field('toolType', new arrow.Utf8(), false), // 'skill' | 'mcp'
+          new arrow.Field('metadata', new arrow.Utf8(), false),
+          new arrow.Field('vector', new arrow.FixedSizeList(
+            this.config.dimensions,
+            new arrow.Field('item', new arrow.Float32(), true)
+          ), false),
+          new arrow.Field('indexedAt', new arrow.Timestamp(arrow.TimeUnit.MICROSECOND), false)
+        ]);
+
+        this.table = await this.db!.createTable(tableName, [], { schema });
+        logger.info(`Recreated table: ${tableName} with MCP support`);
+
+        // 重新创建索引
+        await this.createVectorIndex();
+      } else {
+        // 其他错误，重新抛出
+        throw error;
+      }
     }
   }
 
@@ -452,13 +528,15 @@ export class ToolRetrievalService {
       const vector = await this.getEmbedding(skill);
 
       // 准备记录数据 - 向量保持为普通数组格式（LanceDB要求）
-      const record: SkillsTable = {
+      const record: ToolsTable = {
         id: skillId,
         name: skill.name,
         description: skill.description,
         tags: skill.tags || [],
         path: skill.path,
         version: skill.version || '1.0.0',
+        source: skill.name,
+        toolType: 'skill',
         metadata: JSON.stringify(skill.metadata || {}), // 转换为JSON字符串以匹配schema
         vector: vector, // 保持为普通数组，不要转换为 Float32Array
         indexedAt: new Date()
@@ -601,7 +679,7 @@ export class ToolRetrievalService {
         }
 
         // 获取数据
-        const data: SkillsTable = result.item || result;
+        const data: ToolsTable = result.item || result;
 
         // 解析metadata JSON字符串
         let metadata = {};
@@ -616,18 +694,37 @@ export class ToolRetrievalService {
           metadata = {};
         }
 
-        // 转换为SkillTool格式
-        const tool: SkillTool = {
-          name: data.name,
-          description: data.description,
-          type: ToolType.SKILL,
-          tags: data.tags,
-          version: data.version,
-          path: data.path,
-          parameters: (metadata as any).parameters || { type: 'object', properties: {}, required: [] },
-          enabled: true,
-          level: 1
-        };
+        // 根据工具类型返回不同格式
+        let tool: any;
+
+        if (data.toolType === 'mcp') {
+          // MCP 工具格式
+          tool = {
+            name: data.name,
+            description: data.description,
+            type: 'mcp' as const,
+            source: data.source,
+            tags: data.tags,
+            metadata: {
+              ...metadata,
+              version: data.version,
+              path: data.path
+            }
+          };
+        } else {
+          // Skill 工具格式（保持向后兼容）
+          tool = {
+            name: data.name,
+            description: data.description,
+            type: ToolType.SKILL,
+            tags: data.tags,
+            version: data.version,
+            path: data.path,
+            parameters: (metadata as any).parameters || { type: 'object', properties: {}, required: [] },
+            enabled: true,
+            level: 1
+          };
+        }
 
         formatted.push({
           tool,
@@ -835,6 +932,106 @@ export class ToolRetrievalService {
   }
 
   /**
+   * 索引多个工具（支持 Skills 和 MCP 工具）
+   * @param tools 工具数组
+   */
+  async indexTools(tools: any[]): Promise<void> {
+    try {
+      logger.info(`[ToolRetrieval] Indexing ${tools.length} tools...`);
+
+      const records: ToolsTable[] = [];
+
+      for (const tool of tools) {
+        try {
+          // 生成唯一ID
+          const toolId = this.generateToolId(tool);
+
+          // 获取工具的向量嵌入
+          const vector = await this.getEmbeddingForTool(tool);
+
+          // 准备记录数据
+          const record: ToolsTable = {
+            id: toolId,
+            name: tool.name,
+            description: tool.description,
+            tags: tool.tags || [],
+            path: tool.path, // Skill 可能有，MCP 工具没有
+            version: tool.version, // Skill 可能有，MCP 工具没有
+            source: tool.source || tool.name, // MCP 服务器 ID 或 skill 名称
+            toolType: tool.type || 'skill', // 默认为 skill
+            metadata: JSON.stringify(tool.metadata || {}),
+            vector: vector,
+            indexedAt: new Date()
+          };
+
+          records.push(record);
+        } catch (error) {
+          logger.error(`[ToolRetrieval] Failed to index tool ${tool.name}:`, error);
+          // 继续索引其他工具
+        }
+      }
+
+      if (records.length > 0) {
+        // 删除已存在的记录
+        for (const record of records) {
+          await this.removeTool(record.id);
+        }
+
+        // 批量插入
+        await this.table!.add(records as unknown as Record<string, unknown>[]);
+
+        logger.info(`[ToolRetrieval] Successfully indexed ${records.length} tools`);
+      } else {
+        logger.warn('[ToolRetrieval] No tools were indexed');
+      }
+    } catch (error) {
+      logger.error('[ToolRetrieval] Failed to index tools:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 生成工具ID（支持 Skills 和 MCP 工具）
+   */
+  private generateToolId(tool: any): string {
+    const source = tool.source || tool.name;
+    return createHash('md5')
+      .update(`${tool.type}:${source}:${tool.name}`)
+      .digest('hex');
+  }
+
+  /**
+   * 获取工具的向量嵌入（统一处理 Skills 和 MCP 工具）
+   */
+  private async getEmbeddingForTool(tool: any): Promise<number[]> {
+    // 构造工具的文本描述
+    const text = `${tool.name}\n${tool.description}\n${(tool.tags || []).join(' ')}`;
+
+    // 使用现有的getEmbedding方法
+    // 需要构造一个类似SkillTool的对象
+    const mockSkill = {
+      name: tool.name,
+      description: tool.description,
+      tags: tool.tags || [],
+      metadata: tool.metadata || {}
+    };
+
+    return this.getEmbedding(mockSkill);
+  }
+
+  /**
+   * 从向量表中删除工具
+   */
+  async removeTool(toolId: string): Promise<void> {
+    try {
+      await this.table!.delete(`id = "${toolId}"`);
+      logger.debug(`[ToolRetrieval] Removed tool: ${toolId}`);
+    } catch (error) {
+      logger.error(`[ToolRetrieval] Failed to remove tool ${toolId}:`, error);
+    }
+  }
+
+  /**
    * 格式化错误信息
    */
   private formatError(error: any): string {
@@ -864,7 +1061,7 @@ export function getToolRetrievalService(
       // 使用默认配置（维度会在初始化时动态获取）
       config = {
         vectorDbPath: './.data',
-        model: 'nomic-embed-text',
+        model: 'nomic-embed-text:latest',
         cacheSize: 1000,
         dimensions: 768, // 初始值，会在初始化时被实际模型维度覆盖
         similarityThreshold: 0.40,  // 从0.20提升至0.40，过滤噪声，优化语义搜索

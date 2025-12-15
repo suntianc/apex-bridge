@@ -16,7 +16,7 @@ export const chatCompletionSchema: ValidationSchema = {
     properties: {
       model: {
         type: 'string',
-        pattern: '^[a-zA-Z0-9._-]+$',
+        pattern: '^[a-zA-Z0-9._:-]+$',
         maxLength: 100
       },
       messages: {
@@ -32,8 +32,37 @@ export const chatCompletionSchema: ValidationSchema = {
               enum: ['system', 'user', 'assistant']
             },
             content: {
-              type: 'string',
-              maxLength: 100000
+              anyOf: [
+                { type: 'string', maxLength: 100000 },
+                {
+                  type: 'array',
+                  maxItems: 50,
+                  items: {
+                    type: 'object',
+                    required: ['type'],
+                    properties: {
+                      type: {
+                        type: 'string',
+                        enum: ['text', 'image_url']
+                      },
+                      text: {
+                        type: 'string',
+                        maxLength: 50000
+                      },
+                      image_url: {
+                        type: 'object',
+                        properties: {
+                          url: {
+                            type: 'string',
+                            maxLength: 10000000  // ✅ 修复：增加到10MB，支持大型图片的base64编码
+                          }
+                        },
+                        required: ['url']
+                      }
+                    }
+                  }
+                }
+              ]
             },
             name: {
               type: 'string',
@@ -209,7 +238,7 @@ export const simpleStreamSchema: ValidationSchema = {
       },
       model: {
         type: 'string',
-        pattern: '^[a-zA-Z0-9._-]+$',
+        pattern: '^[a-zA-Z0-9._:-]+$',
         maxLength: 100
       },
       temperature: {

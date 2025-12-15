@@ -83,6 +83,44 @@ export class ConversationHistoryService {
   }
 
   /**
+   * 格式化多模态消息内容为可读格式
+   * 将 content 数组转换为 "文本内容\n<img>base64...</img>\n<img>base64...</img>"
+   */
+  private formatMultimodalContent(content: string | any[]): string {
+    if (typeof content === 'string') {
+      return content;
+    }
+
+    if (Array.isArray(content)) {
+      const parts: string[] = [];
+
+      for (const part of content) {
+        if (part.type === 'text' && part.text) {
+          parts.push(part.text);
+        } else if (part.type === 'image_url') {
+          // 提取图片URL
+          let imageUrl: string = '';
+          if (typeof part.image_url === 'string') {
+            imageUrl = part.image_url;
+          } else if (part.image_url?.url) {
+            imageUrl = part.image_url.url;
+          }
+
+          if (imageUrl) {
+            // 使用XML标签包裹图片，方便后续解析和渲染
+            parts.push(`<img>${imageUrl}</img>`);
+          }
+        }
+      }
+
+      return parts.join('\n');
+    }
+
+    // 其他类型（如对象），回退到JSON序列化
+    return JSON.stringify(content);
+  }
+
+  /**
    * 保存消息到历史记录
    * @param conversationId 对话ID
    * @param messages 消息列表
@@ -98,10 +136,14 @@ export class ConversationHistoryService {
         for (const msg of msgs) {
           // Message 类型可能没有 metadata 属性，使用类型断言或可选链
           const metadata = (msg as any).metadata ? JSON.stringify((msg as any).metadata) : null;
+
+          // 🐾 格式化多模态消息内容
+          const contentToStore = this.formatMultimodalContent(msg.content);
+
           stmt.run(
             conversationId,
             msg.role,
-            msg.content,
+            contentToStore,
             Date.now(),
             metadata
           );

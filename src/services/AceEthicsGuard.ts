@@ -13,6 +13,7 @@
 import type { LLMManager } from '../core/LLMManager';
 import type { AceIntegrator } from './AceIntegrator';
 import { logger } from '../utils/logger';
+import { extractTextFromMessage } from '../utils/message-utils';
 
 export interface EthicalRule {
   id: string;
@@ -241,7 +242,7 @@ export class AceEthicsGuard {
       }
     ], { stream: false });
 
-    const content = response.choices[0]?.message?.content || '{}';
+    const content = (response.choices[0]?.message?.content as string) || '{}';
 
     try {
       const result = JSON.parse(content);

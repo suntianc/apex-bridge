@@ -75,9 +75,18 @@ Use this to load a Skill's core context and file index.
 
 Use this to read detailed guides, templates, or code examples found in a Skill's index.
 
+**Important**: When referencing relative paths within Skill documentation, you MUST use the `basePath` parameter to specify the Skill directory path!
+
 ```xml
+<!-- Example 1: Read file with relative path in Skill directory -->
 <tool_action name="file-read">
-  <filePath value="path/to/file.md" />
+  <path value="docs/readme.md" />
+  <basePath value=".data/skills/my-skill" />
+</tool_action>
+
+<!-- Example 2: Read file with absolute path (no basePath needed) -->
+<tool_action name="file-read">
+  <path value="/absolute/path/to/file.md" />
 </tool_action>
 ```
 

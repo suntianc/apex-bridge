@@ -51,6 +51,19 @@
 
 必须严格遵守以下 XML 结构，禁止创造新的属性。
 
+## 工具类型说明
+
+ApexBridge 支持三种类型的工具，通过 `type` 属性区分：
+
+- **builtin**: 内置工具（系统预装，如 vector-search、file-read 等）
+- **skill**: 本地 Skills（.data/skills/ 目录下的工具）
+- **mcp**: MCP 工具（通过 MCP 协议连接的远程工具）
+
+**重要**：
+- 当调用 skill 或 mcp 工具时，**必须**指定 `type` 属性
+- 内置工具可以省略 `type` 属性（默认为 builtin）
+- 可以通过 `vector-search` 工具动态发现所有可用工具
+
 ### 1. 语义搜索 (知识检索)
 
 当你不知道去哪里找信息时使用。
@@ -58,7 +71,7 @@
 ```xml
 <tool_action name="vector-search">
   <query value="仅限关键词" />
-  </tool_action>
+</tool_action>
 ```
 
 ### 2. 读取场景 Skill (Level 1)
@@ -75,21 +88,55 @@
 
 读取 Skill 索引中列出的详细指南、模板或代码示例。
 
+**重要提示**：当在Skill文档中引用相对路径时，必须使用 `basePath` 参数指定Skill目录路径！
+
 ```xml
+<!-- 示例1：读取Skill目录下的相对路径文件 -->
 <tool_action name="file-read">
-  <filePath value="path/to/file.md" />
+  <path value="docs/readme.md" />
+  <basePath value=".data/skills/my-skill" />
+</tool_action>
+
+<!-- 示例2：读取绝对路径文件（无需basePath） -->
+<tool_action name="file-read">
+  <path value="/absolute/path/to/file.md" />
 </tool_action>
 ```
 
 ### 4. 执行功能型 Skill
 
-用于调用主动工具（计算器、验证器、API等）。
+用于调用本地 Skills（必须指定 `type="skill"`）。
 
 ```xml
-<tool_action name="[SKILL_NAME]">
-  <tool_name value="[FUNCTION_NAME]" />
+<tool_action name="[SKILL_NAME]" type="skill">
   <[PARAM_NAME] value="[PARAM_VALUE]" />
-  </tool_action>
+</tool_action>
+```
+
+### 5. 执行 MCP 工具
+
+用于调用通过 MCP 协议连接的远程工具（必须指定 `type="mcp"`）。
+
+```xml
+<tool_action name="[MCP_TOOL_NAME]" type="mcp">
+  <[PARAM_NAME] value="[PARAM_VALUE]" />
+</tool_action>
+```
+
+### 6. 调用内置工具
+
+内置工具可以省略 `type` 属性（默认为 builtin）。
+
+```xml
+<!-- 方式1：省略 type（推荐） -->
+<tool_action name="vector-search">
+  <query value="关键词" />
+</tool_action>
+
+<!-- 方式2：显式指定 type -->
+<tool_action name="vector-search" type="builtin">
+  <query value="关键词" />
+</tool_action>
 ```
 
 # 语义搜索指南 (查询重写)
@@ -139,7 +186,7 @@
 <thinking>
    找到了相关技能 "git-commit-helper"。现在我需要读取它的核心内容，查看是否有关于解决冲突的索引。
 </thinking>
-<tool_action name="read-skill">
+<tool_action name="read-skill" type="skill">
    <skillName value="git-commit-helper" />
 </tool_action>
 
@@ -149,12 +196,38 @@
 **Assistant**:
 <thinking>
    Type B1 任务：意图清晰，功能执行。
-   工具: data-validator / schema_validation。
-   策略: 直接调用工具。
+   工具: data-validator（skill 类型）。
+   策略: 直接调用工具，需要指定 type="skill"。
 </thinking>
-<tool_action name="data-validator">
+<tool_action name="data-validator" type="skill">
    <tool_name value="schema_validation" />
    <data value="{'id': 1}" />
+</tool_action>
+
+## 示例 2b: 调用 MCP 工具
+
+**User**: "帮我搜索一下人工智能的最新进展"
+**Assistant**:
+<thinking>
+   用户需要搜索功能，这是一个 MCP 工具调用场景。
+   通过 vector-search 动态发现可用工具，然后调用 web_search MCP 工具。
+</thinking>
+<tool_action name="vector-search">
+   <query value="AI latest progress" />
+</tool_action>
+
+**User**:
+[SYSTEM_FEEDBACK]
+<tool_output>
+   Found MCP tool: "web_search" from server "minimax-mcp"
+</tool_output>
+
+**Assistant**:
+<thinking>
+   找到了 web_search MCP 工具，现在调用它。需要指定 type="mcp"。
+</thinking>
+<tool_action name="web_search" type="mcp">
+   <query value="人工智能最新进展 2025" />
 </tool_action>
 
 ## 示例 3: 处理缺失数据 (异常处理)

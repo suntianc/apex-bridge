@@ -28,6 +28,7 @@ import { AceStrategyOrchestrator } from '../strategies/AceStrategyOrchestrator';
 import type { AceEthicsGuard } from './AceEthicsGuard';
 import type { Tool } from '../core/stream-orchestrator/types';
 import { LLMManagerAdapter } from '../core/stream-orchestrator/LLMAdapter';
+import { extractTextFromMessage } from '../utils/message-utils';
 import { parseAggregatedContent } from '../api/utils/stream-parser';
 import { VariableEngine } from '../core/variable/VariableEngine';
 
@@ -178,6 +179,26 @@ export class ChatService {
   ): Promise<Message[]> {
     let processedMessages = [...messages];
 
+    // 🔍 DEBUG: 检查输入消息中的图片数据
+    const inputImageCount = messages.filter(m =>
+      Array.isArray(m.content) && m.content.some(p => p.type === 'image_url')
+    ).length;
+    if (inputImageCount > 0) {
+      logger.debug(`[ChatService.prepareMessages] Input has ${inputImageCount} multimodal messages`);
+      messages.forEach((msg, idx) => {
+        if (Array.isArray(msg.content)) {
+          msg.content.forEach((part, pIdx) => {
+            if (part.type === 'image_url') {
+              const url = typeof part.image_url === 'string' ? part.image_url : part.image_url?.url;
+              if (url) {
+                logger.debug(`[ChatService.prepareMessages] Input msg[${idx}].content[${pIdx}]: ${url.length} chars, has ;base64,: ${url.includes(';base64,')}`);
+              }
+            }
+          });
+        }
+      });
+    }
+
     // 1. 注入系统提示词（如果没有）
     const hasSystemMessage = processedMessages.some(m => m.role === 'system');
     if (!hasSystemMessage) {
@@ -212,6 +233,26 @@ export class ChatService {
     // 3. 统一变量替换
     processedMessages = await this.variableEngine.resolveMessages(processedMessages, variables);
     logger.debug(`[ChatService] Variable replacement completed with ${Object.keys(variables).length} variables`);
+
+    // 🔍 DEBUG: 检查输出消息中的图片数据
+    const outputImageCount = processedMessages.filter(m =>
+      Array.isArray(m.content) && m.content.some(p => p.type === 'image_url')
+    ).length;
+    if (outputImageCount > 0) {
+      logger.debug(`[ChatService.prepareMessages] Output has ${outputImageCount} multimodal messages`);
+      processedMessages.forEach((msg, idx) => {
+        if (Array.isArray(msg.content)) {
+          msg.content.forEach((part, pIdx) => {
+            if (part.type === 'image_url') {
+              const url = typeof part.image_url === 'string' ? part.image_url : part.image_url?.url;
+              if (url) {
+                logger.debug(`[ChatService.prepareMessages] Output msg[${idx}].content[${pIdx}]: ${url.length} chars, has ;base64,: ${url.includes(';base64,')}`);
+              }
+            }
+          });
+        }
+      });
+    }
 
     return processedMessages;
   }
@@ -335,7 +376,7 @@ export class ChatService {
 
     try {
       // 🆕 P3阶段：用户请求前伦理审查（L1层）
-      const userRequest = messages[messages.length - 1]?.content || '';
+      const userRequest = extractTextFromMessage(messages[messages.length - 1]) || '';
       if (userRequest.trim()) {
         const reviewResult = await this.ethicsGuard.reviewStrategy({
           goal: `User request: ${userRequest.substring(0, 100)}`,

@@ -285,7 +285,25 @@ export class VariableEngine {
    * 解析单条消息（带缓存）
    */
   private async resolveMessage(msg: Message, variables: Record<string, string>): Promise<Message> {
+    // 🐾 多模态消息直接返回，不做任何处理
     if (!msg.content || typeof msg.content !== 'string') {
+      // 🔍 DEBUG: 检查多模态消息是否完整
+      if (Array.isArray(msg.content)) {
+        const imageCount = msg.content.filter(p => p.type === 'image_url').length;
+        if (imageCount > 0) {
+          logger.debug(`[VariableEngine] Multimodal message detected, passing through unchanged (${imageCount} images)`);
+
+          // 验证图片数据完整性
+          msg.content.forEach((part, idx) => {
+            if (part.type === 'image_url') {
+              const url = typeof part.image_url === 'string' ? part.image_url : part.image_url?.url;
+              if (url) {
+                logger.debug(`[VariableEngine] Image #${idx}: ${url.length} chars, has ;base64, marker: ${url.includes(';base64,')}`);
+              }
+            }
+          });
+        }
+      }
       return msg;
     }
 

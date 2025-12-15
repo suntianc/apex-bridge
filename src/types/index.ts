@@ -4,8 +4,14 @@
 
 export interface Message {
   role: 'system' | 'user' | 'assistant';
-  content: string;
+  content: string | ContentPart[];
   name?: string;
+}
+
+export interface ContentPart {
+  type: 'text' | 'image_url';
+  text?: string;
+  image_url?: string | { url: string };
 }
 
 export interface ChatOptions {

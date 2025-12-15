@@ -4,11 +4,22 @@
  */
 
 /**
+ * 工具类型枚举
+ */
+export enum ToolType {
+  SKILL = 'skill',
+  MCP = 'mcp',
+  BUILTIN = 'builtin'
+}
+
+/**
  * 工具调用解析结果
  */
 export interface ToolActionCall {
   /** 工具名称 */
   name: string;
+  /** 工具类型 */
+  type: ToolType;
   /** 参数键值对 */
   parameters: Record<string, string>;
   /** 原始标签文本 */

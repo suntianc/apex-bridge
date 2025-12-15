@@ -32,6 +32,29 @@ export class ChatController {
     try {
       const body = req.body;
 
+      // 🔍 DEBUG: 检查原始请求中的消息格式
+      if (body.messages && Array.isArray(body.messages)) {
+        const multimodalCount = body.messages.filter((m: any) =>
+          Array.isArray(m.content) && m.content.some((p: any) => p.type === 'image_url')
+        ).length;
+        if (multimodalCount > 0) {
+          logger.debug(`[ChatController] Received ${multimodalCount} multimodal messages`);
+          body.messages.forEach((msg: any, idx: number) => {
+            if (Array.isArray(msg.content)) {
+              logger.debug(`[ChatController] Message[${idx}] has array content with ${msg.content.length} parts`);
+              msg.content.forEach((part: any, pIdx: number) => {
+                if (part.type === 'image_url') {
+                  const url = typeof part.image_url === 'string' ? part.image_url : part.image_url?.url;
+                  if (url) {
+                    logger.debug(`[ChatController] Message[${idx}].content[${pIdx}]: image_url with ${url.length} chars, has ;base64,: ${url.includes(';base64,')}`);
+                  }
+                }
+              });
+            }
+          });
+        }
+      }
+
       const validation = parseChatRequest(body);
       if (!validation.success) {
         logger.warn('[ChatController] Invalid request:', validation.error);
@@ -46,6 +69,16 @@ export class ChatController {
 
       const options = validation.data;
       const messages = body.messages;
+
+      // 🔍 DEBUG: 检查验证后的消息格式
+      const multimodalAfterValidation = messages.filter((m: any) =>
+        Array.isArray(m.content) && m.content.some((p: any) => p.type === 'image_url')
+      ).length;
+      if (multimodalAfterValidation > 0) {
+        logger.debug(`[ChatController] After validation: ${multimodalAfterValidation} multimodal messages`);
+      } else if (body.messages.some((m: any) => Array.isArray(m.content))) {
+        logger.warn('[ChatController] ⚠️ Multimodal messages lost after validation!');
+      }
 
       if (options.stream) {
         await this.handleStreamResponse(res, messages, options);

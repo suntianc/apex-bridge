@@ -3,17 +3,18 @@
  *
  * 解析 LLM 输出中的 tool_action 标签格式工具调用
  * 标签格式:
- *   <tool_action name="工具名称">
+ *   <tool_action name="工具名称" type="skill|mcp|builtin">
  *     <参数名 value="参数值" />
  *   </tool_action>
  */
 
-import type { ToolActionCall, ParseResult, TextSegment } from './types';
+import { ToolActionCall, ParseResult, TextSegment, ToolType } from './types';
+import { logger } from '../../utils/logger';
 
 export class ToolActionParser {
-  // 匹配完整的 tool_action 标签
+  // 匹配完整的 action 标签（支持 tool_action 向后兼容）
   private static readonly TAG_REGEX =
-    /<tool_action\s+name="([^"]+)">([\s\S]*?)<\/tool_action>/g;
+    /<(action|tool_action)\s+name="([^"]+)"(?:\s+type="([^"]+)")?\s*>([\s\S]*?)<\/\1>/g;
 
   // 匹配参数子标签 - 支持两种格式:
   // 1. 自闭合: <param value="xxx" />
@@ -22,7 +23,7 @@ export class ToolActionParser {
     /<(\w+)\s+value="([^"]*)"(?:\s*\/>|\s*><\/\1>)/g;
 
   // 检测未闭合的标签开始 - 更宽松的匹配
-  private static readonly PENDING_TAG_REGEX = /<tool_action[^>]*>/;
+  private static readonly PENDING_TAG_REGEX = /<(action|tool_action)[^>]*>/;
 
   /**
    * 解析文本中的所有工具调用
@@ -40,7 +41,7 @@ export class ToolActionParser {
     ToolActionParser.TAG_REGEX.lastIndex = 0;
 
     while ((match = ToolActionParser.TAG_REGEX.exec(text)) !== null) {
-      const [fullMatch, toolName, content] = match;
+      const [fullMatch, tagName, toolName, toolType, content] = match;
       const startIndex = match.index;
       const endIndex = startIndex + fullMatch.length;
 
@@ -56,8 +57,21 @@ export class ToolActionParser {
       // 解析参数
       const parameters = this.extractParameters(content);
 
+      // 确定工具类型（默认为 builtin，如果明确指定则使用指定类型）
+      let type: ToolType = ToolType.BUILTIN;
+      if (toolType) {
+        // 验证类型有效性
+        const validTypes = Object.values(ToolType);
+        if (validTypes.includes(toolType as ToolType)) {
+          type = toolType as ToolType;
+        } else {
+          logger.warn(`[ToolActionParser] Invalid tool type: ${toolType}, using default: builtin`);
+        }
+      }
+
       toolCalls.push({
         name: toolName,
+        type,
         parameters,
         rawText: fullMatch,
         startIndex,
@@ -155,11 +169,23 @@ export class ToolActionParser {
       return null;
     }
 
-    const [fullMatch, toolName, content] = match;
+    const [fullMatch, tagName, toolName, toolType, content] = match;
     const parameters = this.extractParameters(content);
+
+    // 确定工具类型
+    let type: ToolType = ToolType.BUILTIN;
+    if (toolType) {
+      const validTypes = Object.values(ToolType);
+      if (validTypes.includes(toolType as ToolType)) {
+        type = toolType as ToolType;
+      } else {
+        logger.warn(`[ToolActionParser] Invalid tool type: ${toolType}, using default: builtin`);
+      }
+    }
 
     return {
       name: toolName,
+      type,
       parameters,
       rawText: fullMatch,
       startIndex: 0,

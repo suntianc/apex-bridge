@@ -9,6 +9,7 @@ import type { LLMManager } from '../core/LLMManager';
 import type { AceIntegrator } from '../services/AceIntegrator';
 import type { ConversationHistoryService } from '../services/ConversationHistoryService';
 import { logger } from '../utils/logger';
+import { extractTextFromMessage } from '../utils/message-utils';
 
 export class SingleRoundStrategy implements ChatStrategy {
   constructor(
@@ -37,7 +38,7 @@ export class SingleRoundStrategy implements ChatStrategy {
 
     // 调用LLM
     const llmResponse = await this.llmManager.chat(messages, options);
-    const aiContent = llmResponse.choices[0]?.message?.content || '';
+    const aiContent = (llmResponse.choices[0]?.message?.content as string) || '';
 
     logger.debug(`[${this.getName()}] LLM Response: ${aiContent.substring(0, 200)}...`);
 

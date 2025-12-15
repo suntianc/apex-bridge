@@ -12,6 +12,7 @@ export enum LLMModelType {
   EMBEDDING = 'embedding',   // 文本向量化
   RERANK = 'rerank',        // 结果重排序
   IMAGE = 'image',          // 图像生成
+  MULTIMODAL = 'multimodal', // 多模态（文本+图像）
   AUDIO = 'audio',          // 语音处理
   OTHER = 'other'           // 其他类型
 }

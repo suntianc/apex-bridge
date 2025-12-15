@@ -20,6 +20,7 @@ import { getSkillManager } from '../services/SkillManager';
 import type { Tool } from '../core/stream-orchestrator/types';
 import type { SkillTool, BuiltInTool } from '../types/tool-system';
 import { logger } from '../utils/logger';
+import { extractTextFromMessage } from '../utils/message-utils';
 
 export class ReActStrategy implements ChatStrategy {
   private builtInRegistry: BuiltInToolsRegistry;
@@ -299,7 +300,7 @@ export class ReActStrategy implements ChatStrategy {
         // ✅ 确保 ToolRetrievalService 已初始化（加载 embedding 模型配置）
         await this.toolRetrievalService.initialize();
 
-        const query = messages[messages.length - 1]?.content || '';
+        const query = messages[messages.length - 1] ? extractTextFromMessage(messages[messages.length - 1]) : '';
         relevantSkills = await this.toolRetrievalService.findRelevantSkills(
           query,
           10, // limit
@@ -531,7 +532,7 @@ export class ReActStrategy implements ChatStrategy {
 
       if (this.aceIntegrator.isEnabled()) {
         const contextSummary = recentMessages
-          .map(m => `${m.role}: ${m.content.substring(0, 100)}`)
+          .map(m => `${m.role}: ${extractTextFromMessage(m).substring(0, 100)}`)
           .join('\n');
 
         // 记录到L5 Scratchpad

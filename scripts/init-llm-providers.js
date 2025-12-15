@@ -97,11 +97,11 @@ const providers = [
     name: 'Ollama 本地模型',
     config: {
       baseURL: 'http://localhost:11434',
-      defaultModel: 'llama2',
+      defaultModel: 'qwen3-vl:4b',
       timeout: 120000
     },
     enabled: false,
-    description: '本地部署，无需 API Key'
+    description: '本地部署Open，支持AI兼容格式，无需 API Key'
   }
 ];
 

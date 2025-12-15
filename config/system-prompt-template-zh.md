@@ -75,9 +75,18 @@
 
 读取 Skill 索引中列出的详细指南、模板或代码示例。
 
+**重要提示**：当在Skill文档中引用相对路径时，必须使用 `basePath` 参数指定Skill目录路径！
+
 ```xml
+<!-- 示例1：读取Skill目录下的相对路径文件 -->
 <tool_action name="file-read">
-  <filePath value="path/to/file.md" />
+  <path value="docs/readme.md" />
+  <basePath value=".data/skills/my-skill" />
+</tool_action>
+
+<!-- 示例2：读取绝对路径文件（无需basePath） -->
+<tool_action name="file-read">
+  <path value="/absolute/path/to/file.md" />
 </tool_action>
 ```
 

@@ -47,6 +47,8 @@ import { createSecurityLoggerMiddleware } from './api/middleware/securityLoggerM
 import { createAuditLoggerMiddleware } from './api/middleware/auditLoggerMiddleware';
 // Skills管理路由
 import skillRoutes from './api/routes/skillRoutes';
+// MCP管理路由
+import mcpRoutes from './api/routes/mcpRoutes';
 
 export class ABPIntelliCore {
   private app: express.Application;
@@ -103,6 +105,11 @@ export class ABPIntelliCore {
       // 等待Skills索引初始化完成
       await skillManager.waitForInitialization();
       logger.debug('✅ SkillManager initialized');
+
+      // 从数据库加载已注册的MCP服务器
+      const { mcpIntegration } = await import('./services/MCPIntegrationService');
+      await mcpIntegration.loadServersFromDatabase();
+      logger.debug('✅ MCP servers loaded from database');
 
       // 2. 核心引擎初始化
       this.protocolEngine = new ProtocolEngine(config);
@@ -172,15 +179,32 @@ export class ABPIntelliCore {
     }));
     
     // Body解析
-    this.app.use(express.json({ limit: process.env.MAX_REQUEST_SIZE || '50mb' }));
-    this.app.use(express.urlencoded({ extended: true }));
-    
+    this.app.use(express.json({ limit: process.env.MAX_REQUEST_SIZE || '100mb' }));  // ✅ 增加到 100MB
+    this.app.use(express.urlencoded({ extended: true, limit: '100mb' }));
+
+    // 🔍 DEBUG: 在最早的地方记录请求
+    this.app.use((req, res, next) => {
+      if (req.path === '/v1/chat/completions' && req.method === 'POST') {
+        logger.debug(`[Server] Received POST /v1/chat/completions`);
+        logger.debug(`[Server] Body present: ${!!req.body}`);
+        logger.debug(`[Server] Content-Type: ${req.headers['content-type']}`);
+        if (req.body?.messages) {
+          logger.debug(`[Server] Messages count: ${req.body.messages.length}`);
+          const multimodal = req.body.messages.filter((m: any) =>
+            Array.isArray(m.content) && m.content.some((p: any) => p.type === 'image_url')
+          ).length;
+          logger.debug(`[Server] Multimodal messages: ${multimodal}`);
+        }
+      }
+      next();
+    });
+
     // 限流保护
     this.app.use(rateLimitMiddleware);
     
     // 输入清理（在验证之前，清理潜在危险字符）
     this.app.use(createSanitizationMiddleware({
-      skipFields: ['password', 'apiKey', 'token']
+      skipFields: ['password', 'apiKey', 'token', 'url']  // ✅ 跳过 url 字段（包括 image_url.url）
     }));
     
     const securityLogEnvLevel = (process.env.SECURITY_LOG_LEVEL || 'warn').toLowerCase();
@@ -218,9 +242,9 @@ export class ABPIntelliCore {
     // 创建控制器（LLMClient采用懒加载）
     const chatController = new ChatController(this.chatService, null as any);
 
-    // 聊天API（添加验证中间件）
+    // 聊天API（临时禁用 AJV 验证中间件，只使用 parseChatRequest）
     this.app.post('/v1/chat/completions',
-      createValidationMiddleware(chatCompletionSchema),
+      // createValidationMiddleware(chatCompletionSchema),  // ❌ 临时禁用：可能截断大型图片数据
       (req, res) => chatController.chatCompletions(req, res)
     );
 
@@ -305,6 +329,12 @@ export class ABPIntelliCore {
     this.app.use('/api/skills', skillRoutes);
 
     /**
+     * MCP管理API
+     * 管理MCP服务器的生命周期：注册、注销、工具调用
+     */
+    this.app.use('/api/mcp', mcpRoutes);
+
+    /**
      * ACE层级模型配置API
      * 管理ACE架构L1-L6层级模型配置
      */
@@ -372,6 +402,10 @@ export class ABPIntelliCore {
       if (this.protocolEngine) {
         await this.protocolEngine.shutdown();
       }
+
+      // 关闭MCP服务
+      const { mcpIntegration } = await import('./services/MCPIntegrationService');
+      await mcpIntegration.shutdown();
 
       logger.info('👋 ApexBridge shut down successfully');
       process.exit(0);

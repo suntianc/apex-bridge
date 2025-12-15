@@ -15,6 +15,7 @@ import { LLMManager } from '../core/LLMManager';
 import type { Message } from '../types';
 import { logger } from '../utils/logger';
 import { LRUMap, EventListenerTracker } from '../utils/cache';
+import { extractTextFromMessage } from '../utils/message-utils';
 
 /**
  * 轨迹参数接口
@@ -180,7 +181,9 @@ export class AceIntegrator {
       return;
     }
 
-    const userQuery = params.messages.find(m => m.role === 'user')?.content || '';
+    const userQuery = params.messages.find(m => m.role === 'user')
+      ? extractTextFromMessage(params.messages.find(m => m.role === 'user')!)
+      : '';
 
     const trajectory: Trajectory = {
       task_id: params.requestId,
@@ -492,7 +495,7 @@ export class AceIntegrator {
         content: `Summarize the following reasoning process into 2-3 sentences:\n\n${scratchpad}`
       }], { stream: false });
 
-      return response.choices[0]?.message?.content || scratchpad;
+      return (response.choices[0]?.message?.content as string) || scratchpad;
     } catch (error) {
       logger.warn('[AceIntegrator] Failed to compress thoughts, using original text');
       return scratchpad;

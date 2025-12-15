@@ -419,7 +419,7 @@ Please provide a JSON response with:
         content: prompt
       }], { stream: false });
 
-      const content = response.choices[0]?.message?.content || '{}';
+      const content = (response.choices[0]?.message?.content as string) || '{}';
 
       try {
         const result = JSON.parse(content);
@@ -868,7 +868,7 @@ Please provide a JSON response with:
         }
       ], { stream: false });
 
-      const content = response.choices[0]?.message?.content || '';
+      const content = (response.choices[0]?.message?.content as string) || '';
       const failurePlaybook = this.parseFailurePlaybookFromLLMResponse(content, learning);
 
       if (failurePlaybook) {

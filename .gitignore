@@ -192,5 +192,6 @@ user-data/
 .data/*.db-wal
 .data/ace/*
 .data/skills.lance/*
+.data/skills/*/.vectorized
 # Runtime logs
 logs/*.log

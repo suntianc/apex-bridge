@@ -19,6 +19,8 @@ export interface FileReadArgs {
   maxSize?: number;
   /** 是否解析JSON */
   parseJson?: boolean;
+  /** 基础路径（用于解析相对路径），如Skill目录路径 */
+  basePath?: string;
 }
 
 /**
@@ -47,8 +49,8 @@ export class FileReadTool {
       // 参数验证
       this.validateArgs(args);
 
-      // 安全路径检查
-      const safePath = await this.getSafePath(args.path);
+      // 安全路径检查（支持basePath）
+      const safePath = await this.getSafePath(args.path, args.basePath);
 
       // 检查文件存在性和可读性
       await this.checkFileAccess(safePath);
@@ -106,14 +108,25 @@ export class FileReadTool {
   /**
    * 获取安全路径（防止目录遍历攻击）
    */
-  private static async getSafePath(inputPath: string): Promise<string> {
+  private static async getSafePath(inputPath: string, basePath?: string): Promise<string> {
     // 标准化路径
     const normalizedPath = path.normalize(inputPath);
 
     // 解析为绝对路径
-    const absolutePath = path.isAbsolute(normalizedPath)
-      ? normalizedPath
-      : path.resolve(process.cwd(), normalizedPath);
+    let absolutePath: string;
+    if (path.isAbsolute(normalizedPath)) {
+      absolutePath = normalizedPath;
+    } else if (basePath) {
+      // 如果提供了basePath，相对于basePath解析
+      const normalizedBasePath = path.normalize(basePath);
+      const absoluteBasePath = path.isAbsolute(normalizedBasePath)
+        ? normalizedBasePath
+        : path.resolve(process.cwd(), normalizedBasePath);
+      absolutePath = path.resolve(absoluteBasePath, normalizedPath);
+    } else {
+      // 默认相对于当前工作目录解析
+      absolutePath = path.resolve(process.cwd(), normalizedPath);
+    }
 
     // 检查是否包含路径遍历字符
     if (normalizedPath.includes('..') || absolutePath.includes('..')) {
@@ -242,6 +255,10 @@ export class FileReadTool {
             type: 'boolean',
             description: '是否自动解析JSON内容',
             default: false
+          },
+          basePath: {
+            type: 'string',
+            description: '基础路径，用于解析相对路径。例如在Skill中可传入技能目录路径，使相对路径相对于Skill目录解析'
           }
         },
         required: ['path']

@@ -1,146 +1,272 @@
-# 🏠 ApexBridge - 轻量级ABP聊天服务
+# ApexBridge
 
-[![Status](https://img.shields.io/badge/Status-Active-brightgreen)](https://github.com/suntianc/apex-bridge)
-[![Version](https://img.shields.io/badge/Version-v1.0.1-blue)](https://github.com/suntianc/apex-bridge/releases)
+> **AI Bridge Protocol** - 连接 LLM 与工具的轻量级智能桥梁
+
+[![Version](https://img.shields.io/badge/Version-1.0.1-blue)](https://github.com/suntianc/apex-bridge/releases)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178c6)](https://www.typescriptlang.org/)
 [![License](https://img.shields.io/badge/License-Apache--2.0-green.svg)](LICENSE)
 
-**一款专注于ABP协议和LLM集成的轻量级聊天服务，支持多LLM提供商、Skills体系、RAG检索和实时流式对话**
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      ApexBridge                              │
+├─────────────────────────────────────────────────────────────┤
+│   LLM Providers      Skills System      MCP Integration     │
+│   ┌───────────┐      ┌───────────┐      ┌───────────┐       │
+│   │ OpenAI    │      │ Direct    │      │ stdio     │       │
+│   │ DeepSeek  │      │ Internal  │      │ JSON-RPC  │       │
+│   │ Zhipu     │      │ Sandbox   │      │ Tools     │       │
+│   │ Ollama    │      └───────────┘      └───────────┘       │
+│   │ Claude    │              │                │             │
+│   └───────────┘              └────────┬───────┘             │
+│          │                            │                     │
+│          └─────────────┬──────────────┘                     │
+│                        │                                    │
+│              ┌─────────▼─────────┐                          │
+│              │  Unified Search   │  ← LanceDB Vector        │
+│              │  (vector-search)  │                          │
+│              └─────────┬─────────┘                          │
+│                        │                                    │
+│              ┌─────────▼─────────┐                          │
+│              │   <tool_action>   │  ← Unified Tool Calling  │
+│              │   type=skill|mcp  │                          │
+│              └───────────────────┘                          │
+└─────────────────────────────────────────────────────────────┘
+```
 
-[🚀 快速开始](#-快速开始) | [📖 完整文档](./docs/README.md) | [🔧 API参考](./docs/04-TESTING/ACE-MANUAL-TESTING-GUIDE.md)
+## What is ApexBridge?
 
-## 🌟 项目特色
+ApexBridge 是一个**轻量级 AI 桥接服务**，让 LLM 与外部工具无缝对话。它不只是一个 API 代理，而是一个完整的智能体框架：
 
-- **🧠 企业级ABP协议引擎** - 完全自主实现的ABP协议栈，无外部依赖
-- **🎛️ 多LLM统一管理** - 适配器模式支持OpenAI、DeepSeek、智谱、Ollama等主流LLM
-- **🧩 Skills 能力体系** - 轻量级技能执行框架，支持Direct/Internal双模式
-- **🔍 原生RAG检索** - 集成向量搜索引擎，支持文档检索和知识库
-- **🛡️ 全链路安全防护** - API Key认证、智能限流、安全审计
-- **⚡ 实时流式通信** - WebSocket双向通信，支持请求中断
-- **🏗️ ACE架构** - L1-L6层级化认知架构，实现自主智能体
+- **多轮思考** - ReAct 策略支持最多 50 轮迭代推理
+- **工具发现** - 向量语义搜索自动匹配最佳工具
+- **双轨并行** - Skills 本地工具 + MCP 远程工具统一调度
+- **流式输出** - WebSocket 实时推送，支持中断
 
-## 🚀 快速开始
+## Quick Start
 
-### 安装依赖
 ```bash
+# 安装
 npm install
-```
 
-### 启动开发服务器
-```bash
-npm run dev
-```
-
-### 测试API
-```bash
-curl http://localhost:8088/health
-```
-
-## 📚 文档导航
-
-### 📖 核心文档
-- **[项目说明](./docs/00-README/README.md)** - 详细的项目介绍
-- **[ACE架构实现](./docs/01-ARCHITECTURE/ACE架构实现方案/ACE架构能力实现方案.md)** - ACE架构完整方案
-- **[配置指南](./docs/03-CONFIGURATION/ACE-CONFIG.md)** - ACE架构配置说明
-
-### 🧪 测试与验证
-- **[快速测试指南](./docs/04-TESTING/TESTING-QUICKSTART.md)** - 5分钟快速上手
-- **[完整测试手册](./docs/04-TESTING/ACE-MANUAL-TESTING-GUIDE.md)** - 详细测试指南
-- **[最终验证报告](./docs/04-TESTING/ACE-FINAL-VERIFICATION-REPORT.md)** - 实施成果验证
-
-### 🔧 故障排查
-- **[内存泄漏修复](./docs/05-TROUBLESHOOTING/ACE-MEMORY-LEAK-FIXES.md)** - 内存问题解决方案
-- **[代码审查报告](./docs/05-TROUBLESHOOTING/ACE-IMPLEMENTATION-REVIEW-REPORT.md)** - 代码质量审查
-
-## 🏗️ ACE架构
-
-ApexBridge已实现完整的ACE（分层认知模型）架构，包含六个层级：
-
-| 层级 | 名称 | 核心职责 | 文档位置 |
-|------|------|----------|----------|
-| **L1** | 渴望层 | 道德约束、价值观审查 | [P3阶段设计](./docs/01-ARCHITECTURE/ACE架构实现方案/05-P3阶段详细设计-激活L1层.md) |
-| **L2** | 全球战略层 | 长期规划、世界模型 | [P2阶段设计](./docs/01-ARCHITECTURE/ACE架构实现方案/04-P2阶段详细设计-激活L2L3层.md) |
-| **L3** | 代理模型层 | 自我认知、能力管理 | [P2阶段设计](./docs/01-ARCHITECTURE/ACE架构实现方案/04-P2阶段详细设计-激活L2L3层.md) |
-| **L4** | 执行功能层 | 任务拆解、流程控制 | [P1阶段设计](./docs/01-ARCHITECTURE/ACE架构实现方案/03-P1阶段详细设计-激活L4层.md) |
-| **L5** | 认知控制层 | 逻辑推理、思维链 | [P0阶段设计](./docs/01-ARCHITECTURE/ACE架构实现方案/02-P0阶段详细设计-激活L5L6层.md) |
-| **L6** | 任务起诉层 | 感知输入、行动输出 | [P0阶段设计](./docs/01-ARCHITECTURE/ACE架构实现方案/02-P0阶段详细设计-激活L5L6层.md) |
-
-## 📊 项目状态
-
-- **当前版本**: v1.0.1
-- **维护状态**: 🟢 活跃维护
-- **ACE架构**: ✅ 完整实现（L1-L6）
-- **测试覆盖率**: 94.1%
-- **外部依赖**: 0个（完全本地化）
-
-## 🎯 核心价值
-
-1. **突破上下文限制** - 层级化管理支持无限长对话历史
-2. **长期记忆能力** - 跨会话的上下文连续性
-3. **复杂任务拆解** - DAG管理支持超长任务
-4. **自我修正能力** - 动态管理技能，自动规避故障
-5. **道德可控性** - 宪法约束满足企业合规
-6. **零外部依赖** - 完全自包含，无供应链风险
-
-## 📈 技术栈
-
-- **语言**: TypeScript 5.0+
-- **运行时**: Node.js ≥ 16.0.0
-- **框架**: Express.js
-- **数据库**: SQLite (配置) + LanceDB (向量)
-- **架构**: ACE (L1-L6分层认知模型)
-
-## 📝 开发指南
-
-### 目录结构
-```
-├── src/              # 源代码
-├── docs/             # 📚 完整文档中心
-├── config/           # 配置文件
-├── tests/            # 测试套件
-└── scripts/          # 工具脚本
-```
-
-### 常用命令
-```bash
 # 开发
-npm run dev          # 启动开发服务器
-npm run build        # TypeScript编译
-npm start            # 运行生产版本
+npm run dev
 
 # 测试
-npm test             # 运行所有测试
-npm run test:watch   # 监视模式
-npm run test:coverage # 覆盖率报告
-
-# 代码质量
-npm run lint         # ESLint检查
-npm run format       # Prettier格式化
+curl -X POST http://localhost:8088/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-api-key" \
+  -d '{"messages": [{"role": "user", "content": "Hello"}]}'
 ```
 
-## 🤝 贡献指南
+## Core Features
 
-我们欢迎所有形式的贡献！
+### 1. Multi-LLM Support
 
-1. **Fork 项目**
-2. **创建特性分支** (`git checkout -b feature/AmazingFeature`)
-3. **提交更改** (`git commit -m 'feat: 添加新功能'`)
-4. **推送到分支** (`git push origin feature/AmazingFeature`)
-5. **创建 Pull Request**
+```typescript
+// 6 个主流 LLM 提供商，统一适配器接口
+const providers = ['openai', 'deepseek', 'zhipu', 'ollama', 'claude', 'custom'];
 
-详细贡献指南请查看: [贡献指南](./docs/00-README/README.md#contributing)
+// 运行时热切换
+POST /api/llm/providers
+POST /api/llm/providers/:id/models
+```
 
-## 📞 技术支持
+### 2. Skills System
 
-- **GitHub Issues**: [报告问题](https://github.com/suntianc/apex-bridge/issues)
-- **GitHub Discussions**: [技术讨论](https://github.com/suntianc/apex-bridge/discussions)
-- **Email**: suntianc@gmail.com
+```yaml
+# .data/skills/my-skill/SKILL.md
+---
+name: my-skill
+description: A custom skill
+kind: Direct
+tools:
+  - name: execute
+    parameters:
+      - name: input
+        type: string
+---
+Skill execution instructions...
+```
 
-## 📄 许可证
+### 3. MCP Integration
 
-本项目采用 [Apache License 2.0](LICENSE) 许可证
+```bash
+# 注册 MCP 服务器
+curl -X POST http://localhost:8088/api/mcp/servers \
+  -d '{"id": "minimax", "type": "stdio", "command": "uvx", "args": ["minimax-mcp"]}'
+
+# 工具自动向量化，支持语义搜索
+```
+
+### 4. Unified Tool Calling
+
+```xml
+<!-- LLM 统一工具调用格式 -->
+<tool_action name="web_search" type="mcp">
+  <query value="latest AI news" />
+</tool_action>
+
+<tool_action name="file-read" type="builtin">
+  <path value="/path/to/file" />
+</tool_action>
+
+<tool_action name="git-commit-helper" type="skill">
+  <message value="feat: add feature" />
+</tool_action>
+```
+
+### 5. ReAct Strategy
+
+```
+用户: "帮我查询北京天气并写入文件"
+
+思考 → 发现工具 → 调用 weather-query → 思考 → 调用 file-write → 完成
+  ↑                                                              │
+  └──────────────────── 最多 50 轮迭代 ──────────────────────────┘
+```
+
+## Architecture
+
+```
+src/
+├── core/                    # 核心引擎
+│   ├── ProtocolEngine.ts    # ABP 协议解析
+│   ├── LLMManager.ts        # LLM 适配器管理
+│   ├── llm/adapters/        # 6 个 LLM 适配器
+│   ├── tool-action/         # 工具调用系统
+│   │   ├── ToolActionParser.ts   # <tool_action> 解析
+│   │   └── ToolDispatcher.ts     # 类型路由调度
+│   └── tools/builtin/       # 内置工具
+│
+├── services/                # 业务服务
+│   ├── ChatService.ts       # 聊天协调器 (~200行)
+│   ├── SkillManager.ts      # Skills 管理
+│   ├── MCPIntegrationService.ts  # MCP 集成
+│   └── ToolRetrievalService.ts   # 向量检索
+│
+├── strategies/              # 策略模式
+│   ├── ReActStrategy.ts     # 多轮思考 (selfThinking=true)
+│   └── SingleRoundStrategy.ts    # 单轮快速响应
+│
+└── api/                     # REST/WebSocket
+    ├── controllers/         # 控制器
+    ├── routes/              # 路由
+    └── websocket/           # 实时通信
+```
+
+## API Reference
+
+### Chat API (OpenAI Compatible)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/v1/chat/completions` | 聊天完成 |
+| POST | `/v1/chat/simple-stream` | 简化流式 |
+| POST | `/v1/interrupt` | 中断请求 |
+| GET | `/v1/models` | 模型列表 |
+
+### LLM Config API
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET/POST | `/api/llm/providers` | 提供商管理 |
+| GET/POST | `/api/llm/providers/:id/models` | 模型管理 |
+| GET | `/api/llm/models/default` | 默认模型 |
+
+### MCP API
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET/POST | `/api/mcp/servers` | 服务器管理 |
+| GET | `/api/mcp/servers/:id/tools` | 工具列表 |
+| POST | `/api/mcp/tools/call` | 调用工具 |
+| GET | `/api/mcp/health` | 健康检查 |
+
+### WebSocket
+
+```javascript
+// 连接
+ws://localhost:8088/chat/api_key=your-key
+
+// 消息
+{ "type": "chat", "data": { "messages": [...] } }
+```
+
+## Configuration
+
+```bash
+# .env
+API_KEY=your-api-key
+PORT=8088
+LOG_LEVEL=info
+
+# config/admin-config.json - 主配置
+# config/system-prompt.md - 系统提示词
+```
+
+## Data Storage
+
+| Database | Location | Purpose |
+|----------|----------|---------|
+| SQLite | `.data/llm_providers.db` | LLM 配置 |
+| SQLite | `.data/mcp_servers.db` | MCP 服务器 |
+| SQLite | `.data/conversation_history.db` | 对话历史 |
+| LanceDB | `.data/vector_store/` | 向量索引 |
+
+## Development
+
+```bash
+# 开发服务器
+npm run dev
+
+# 构建
+npm run build
+
+# 测试
+npm test
+npm run test:coverage
+
+# 代码质量
+npm run lint
+npm run format
+```
+
+## Design Patterns
+
+| Pattern | Application |
+|---------|-------------|
+| **Adapter** | LLM 多提供商适配 |
+| **Strategy** | ReAct/SingleRound 策略切换 |
+| **Factory** | 适配器创建、执行器创建 |
+| **Singleton** | ConfigService, EventBus |
+| **Observer** | 事件总线、MCP 状态监控 |
+
+## Docs
+
+```
+docs/
+├── 00-README/           # 项目说明
+├── 01-ARCHITECTURE/     # 架构设计
+├── 02-IMPLEMENTATION/   # 实现细节
+├── 03-CONFIGURATION/    # 配置指南
+├── 04-TESTING/          # 测试指南
+├── 05-TROUBLESHOOTING/  # 故障排查
+├── 06-REFERENCES/       # 参考资料
+└── 07-MCP/              # MCP 集成
+```
+
+## Tech Stack
+
+- **Runtime**: Node.js ≥ 16
+- **Language**: TypeScript 5.0+
+- **Framework**: Express.js
+- **Database**: SQLite + LanceDB
+- **Protocol**: MCP (Model Context Protocol)
+
+## License
+
+[Apache License 2.0](LICENSE)
 
 ---
 
-**如果 ApexBridge 对您有帮助，请给我们一个 ⭐️ Star！**
-
-[![Star History Chart](https://api.star-history.com/svg?repos=suntianc/apex-bridge&type=Date)](https://star-history.com/#suntianc/apex-bridge&Date)
+**Made with curiosity and caffeine** | [Issues](https://github.com/suntianc/apex-bridge/issues) | [Discussions](https://github.com/suntianc/apex-bridge/discussions)

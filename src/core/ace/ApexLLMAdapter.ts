@@ -48,7 +48,7 @@ export class ApexLLMAdapter {
         stream: false // ACE Core expects complete response
       });
 
-      return response.choices[0]?.message?.content || '';
+      return (response.choices[0]?.message?.content as string) || '';
     } catch (error: any) {
       logger.error(`[ACE Adapter] Generate failed: ${error.message}`);
       throw error;

@@ -5,11 +5,12 @@
  * 复用现有 ToolExecutorManager 基础设施
  */
 
-import type {
-  ToolActionCall,
-  ToolExecutionResult,
-  DispatcherConfig,
-  ToolDescription
+import {
+  type ToolActionCall,
+  type ToolExecutionResult,
+  type DispatcherConfig,
+  type ToolDescription,
+  ToolType
 } from './types';
 import type {
   BuiltInTool,
@@ -18,6 +19,7 @@ import type {
 } from '../../types/tool-system';
 import { BuiltInToolsRegistry, getBuiltInToolsRegistry } from '../../services/BuiltInToolsRegistry';
 import { SkillsSandboxExecutor } from '../../services/executors/SkillsSandboxExecutor';
+import { mcpIntegration } from '../../services/MCPIntegrationService';
 import { logger } from '../../utils/logger';
 
 /**
@@ -53,33 +55,35 @@ export class ToolDispatcher {
    */
   async dispatch(toolCall: ToolActionCall): Promise<ToolExecutionResult> {
     const startTime = Date.now();
-    const { name, parameters } = toolCall;
+    const { name, type, parameters } = toolCall;
 
-    logger.info(`[ToolDispatcher] Dispatching tool call: ${name}`);
+    logger.info(`[ToolDispatcher] Dispatching tool call: ${name} (type: ${type})`);
     logger.debug(`[ToolDispatcher] Parameters:`, parameters);
 
     try {
-      // 1. 检查内置工具
-      const builtInTool = this.builtInRegistry.getTool(name);
-      if (builtInTool && builtInTool.enabled) {
-        return await this.executeBuiltIn(builtInTool, parameters, startTime);
-      }
+      // 根据工具类型路由到不同的执行器
+      switch (type) {
+        case ToolType.BUILTIN:
+          logger.debug(`[ToolDispatcher] Executing as built-in tool: ${name}`);
+          return await this.executeBuiltInTool(name, parameters, startTime);
 
-      // 2. 尝试执行 Skill（可执行型 Skill）
-      logger.debug(`[ToolDispatcher] Trying to execute as Skill: ${name}`);
-      const skillResult = await this.executeSkill(name, parameters, startTime);
-      if (skillResult) {
-        return skillResult;
-      }
+        case ToolType.SKILL:
+          logger.debug(`[ToolDispatcher] Executing as Skill: ${name}`);
+          return await this.executeSkillTool(name, parameters, startTime);
 
-      // 3. 工具不存在
-      logger.warn(`[ToolDispatcher] Tool not found: ${name}`);
-      return {
-        success: false,
-        toolName: name,
-        error: `Tool not found: ${name}. This tool is neither a built-in tool nor an executable Skill.`,
-        executionTime: Date.now() - startTime
-      };
+        case ToolType.MCP:
+          logger.debug(`[ToolDispatcher] Executing as MCP tool: ${name}`);
+          return await this.executeMCPTool(name, parameters, startTime);
+
+        default:
+          logger.warn(`[ToolDispatcher] Unknown tool type: ${type}`);
+          return {
+            success: false,
+            toolName: name,
+            error: `Unknown tool type: ${type}`,
+            executionTime: Date.now() - startTime
+          };
+      }
 
     } catch (error) {
       const executionTime = Date.now() - startTime;
@@ -92,6 +96,84 @@ export class ToolDispatcher {
         toolName: name,
         error: errorMessage,
         executionTime
+      };
+    }
+  }
+
+  /**
+   * 执行内置工具
+   */
+  private async executeBuiltInTool(name: string, parameters: Record<string, string>, startTime: number): Promise<ToolExecutionResult> {
+    const builtInTool = this.builtInRegistry.getTool(name);
+    if (builtInTool && builtInTool.enabled) {
+      return await this.executeBuiltIn(builtInTool, parameters, startTime);
+    }
+
+    logger.warn(`[ToolDispatcher] Built-in tool not found or disabled: ${name}`);
+    return {
+      success: false,
+      toolName: name,
+      error: `Built-in tool not found or disabled: ${name}`,
+      executionTime: Date.now() - startTime
+    };
+  }
+
+  /**
+   * 执行 Skill 工具
+   */
+  private async executeSkillTool(name: string, parameters: Record<string, string>, startTime: number): Promise<ToolExecutionResult> {
+    logger.debug(`[ToolDispatcher] Trying to execute as Skill: ${name}`);
+    const skillResult = await this.executeSkill(name, parameters, startTime);
+    if (skillResult) {
+      return skillResult;
+    }
+
+    logger.warn(`[ToolDispatcher] Skill not found: ${name}`);
+    return {
+      success: false,
+      toolName: name,
+      error: `Skill not found: ${name}`,
+      executionTime: Date.now() - startTime
+    };
+  }
+
+  /**
+   * 执行 MCP 工具
+   */
+  private async executeMCPTool(name: string, parameters: Record<string, string>, startTime: number): Promise<ToolExecutionResult> {
+    try {
+      logger.info(`[ToolDispatcher] Calling MCP tool: ${name}`);
+
+      // 调用 MCP 工具
+      const result = await mcpIntegration.callTool({
+        toolName: name,
+        arguments: parameters
+      });
+
+      const executionTime = Date.now() - startTime;
+
+      if (result.success) {
+        return {
+          success: true,
+          toolName: name,
+          result: result.content,
+          executionTime
+        };
+      } else {
+        return {
+          success: false,
+          toolName: name,
+          error: result.error?.message || 'MCP tool execution failed',
+          executionTime
+        };
+      }
+    } catch (error: any) {
+      logger.error(`[ToolDispatcher] MCP tool execution failed: ${name}`, error);
+      return {
+        success: false,
+        toolName: name,
+        error: error.message || 'MCP tool execution failed',
+        executionTime: Date.now() - startTime
       };
     }
   }

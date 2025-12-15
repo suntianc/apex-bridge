@@ -60,15 +60,43 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
   /**
    * 构建请求体（子类可覆盖）
    * 🆕 支持新的配置结构
+   * 🆕 支持多模态消息（文本+图像）
    */
   protected buildRequestBody(messages: Message[], options: ChatOptions): any {
     const { provider, ...apiOptions } = options;
     const filteredOptions = this.filterOptions(apiOptions);
 
+    // 🐾 处理消息格式（支持多模态）
+    const processedMessages = messages.map(msg => {
+      if (Array.isArray(msg.content)) {
+        // 多模态消息：转换为OpenAI兼容格式
+        return {
+          ...msg,
+          content: msg.content.map(part => {
+            if (part.type === 'image_url') {
+              return {
+                type: 'image_url',
+                image_url: part.image_url
+              };
+            }
+            return {
+              type: 'text',
+              text: part.text || ''
+            };
+          })
+        };
+      }
+      // 纯文本消息
+      return {
+        ...msg,
+        content: msg.content
+      };
+    });
+
     // 🐾 构建基础请求体
     const requestBody: any = {
       model: options.model || this.config.defaultModel,
-      messages,
+      messages: processedMessages,
       stream: false,
       ...filteredOptions
     };
@@ -203,10 +231,35 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
       const { provider, ...apiOptions } = options;
       const filteredOptions = this.filterOptions(apiOptions);
 
+      // 🐾 处理消息格式（支持多模态）
+      const processedMessages = messages.map(msg => {
+        if (Array.isArray(msg.content)) {
+          return {
+            ...msg,
+            content: msg.content.map(part => {
+              if (part.type === 'image_url') {
+                return {
+                  type: 'image_url',
+                  image_url: part.image_url
+                };
+              }
+              return {
+                type: 'text',
+                text: part.text || ''
+              };
+            })
+          };
+        }
+        return {
+          ...msg,
+          content: msg.content
+        };
+      });
+
       // 🐾 构建基础请求体（与 buildRequestBody 保持一致）
       const requestBody: any = {
         model: options.model || this.config.defaultModel,
-        messages,
+        messages: processedMessages,
         stream: true,
         ...filteredOptions
       };
