@@ -106,6 +106,26 @@ export interface ToolExecutionResult {
   error?: string;
   /** 执行耗时（毫秒） */
   executionTime: number;
+
+  // 🆕 工具调用详情（成功时）
+  tool_details?: {
+    tool_name: string;
+    input_params: Record<string, any>;
+    output_content: string;
+    output_metadata?: {
+      token_count?: number;
+      execution_time_ms?: number;
+      rate_limit_remaining?: number;
+    };
+  };
+
+  // 🆕 错误详情（失败时）
+  error_details?: {
+    error_type: string;
+    error_message: string;
+    error_stack?: string;
+    context?: Record<string, any>;
+  };
 }
 
 /**

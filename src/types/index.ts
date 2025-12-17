@@ -2,6 +2,9 @@
  * ApexBridge (ABP-only) - TypeScript类型定义
  */
 
+// 重新导出 ace-core 类型
+export type * from './ace-core.d.ts';
+
 export interface Message {
   role: 'system' | 'user' | 'assistant';
   content: string | ContentPart[];
@@ -110,3 +113,15 @@ export interface ToolDefinition {
 
 // 配置接口统一导出（可选，也可以直接从各模块导入）
 export * from './config';
+
+// 导出 Reflector 相关类型
+export * from './reflector';
+
+// 导出 Playbook 相关类型
+export * from './playbook';
+
+// 导出 Playbook 维护相关类型
+export * from './playbook-maintenance';
+
+// 导出 Playbook 强制执行相关类型
+export * from './playbook-execution';

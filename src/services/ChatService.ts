@@ -31,6 +31,11 @@ import { LLMManagerAdapter } from '../core/stream-orchestrator/LLMAdapter';
 import { extractTextFromMessage } from '../utils/message-utils';
 import { parseAggregatedContent } from '../api/utils/stream-parser';
 import { VariableEngine } from '../core/variable/VariableEngine';
+import { PlaybookExecutor } from './PlaybookExecutor';
+import { PlaybookMatcher } from './PlaybookMatcher';
+import { PlaybookManager } from './PlaybookManager';
+import { ToolDispatcher } from '../core/tool-action/ToolDispatcher';
+import { ExecutionContext } from '../types/playbook-execution';
 
 export class ChatService {
 
@@ -61,6 +66,12 @@ export class ChatService {
 
   // 🆕 P3阶段：ACE伦理守卫（L1渴望层）
   private ethicsGuard: AceEthicsGuard;
+
+  // 🆕 Stage 3.5: Playbook 强制执行
+  private playbookExecutor: PlaybookExecutor;
+  private playbookMatcher: PlaybookMatcher;
+  private playbookManager: PlaybookManager;
+  private toolDispatcher: ToolDispatcher;
 
   constructor(
     private protocolEngine: ProtocolEngine,
@@ -108,6 +119,17 @@ export class ChatService {
     // 注意：AceEthicsGuard会在AceIntegrator中初始化，然后注入到这里
     this.ethicsGuard = (this.aceIntegrator as any).ethicsGuard || new (require('./AceEthicsGuard').AceEthicsGuard)(this.llmManager, this.aceIntegrator);
     logger.debug('[ChatService] AceEthicsGuard initialized (L1 layer)');
+
+    // 🆕 Stage 3.5: 初始化 Playbook 强制执行相关组件
+    this.toolDispatcher = new ToolDispatcher();
+    this.playbookManager = new PlaybookManager(
+      (this.aceService as any).strategyManager,
+      (this.protocolEngine as any).toolRetrievalService,
+      this.llmManager
+    );
+    this.playbookMatcher = new PlaybookMatcher((this.protocolEngine as any).toolRetrievalService, this.llmManager);
+    this.playbookExecutor = new PlaybookExecutor(this.toolDispatcher, this.llmManager);
+    logger.debug('[ChatService] Playbook forced execution components initialized');
 
     // 尝试初始化 ACE (非阻塞)
     this.aceService.initialize().catch(err => {
@@ -455,10 +477,93 @@ export class ChatService {
         return result;
       }
 
-      // 2. 选择策略（原有逻辑，保持向后兼容）
+      // 2. 🆕 Stage 3.5: 检查 Playbook 强制执行
+      const userQuery = extractTextFromMessage(messages[messages.length - 1]) || '';
+
+      if (userQuery.trim() && !options.stream) {
+        try {
+          // 检索 Playbook
+          const playbooks = await this.playbookMatcher.matchPlaybooks({
+            userQuery,
+            sessionHistory: []
+          }, { maxRecommendations: 1, minMatchScore: 0.8, considerMetrics: true, considerRecency: true, considerSimilarity: true });
+
+          // 如果匹配到高置信度 Playbook，强制执行
+          if (playbooks.length > 0 && playbooks[0].matchScore >= 0.8) {
+            const playbook = playbooks[0].playbook;
+
+            logger.info(`[ChatService] 使用 Playbook 强制执行: ${playbook.name} (置信度: ${playbook.metrics.successRate})`);
+
+            // 转换为 Plan
+            const plan = this.playbookExecutor.convertPlaybookToPlan(playbook);
+
+            // 强制执行
+            const context: ExecutionContext = {
+              messages,
+              options,
+              intermediate_results: new Map()
+            };
+
+            const result = await this.playbookExecutor.executePlan(plan, context);
+
+            // 如果成功，返回结果并更新统计
+            if (result.success) {
+              await this.playbookManager.recordExecutionForced({
+                playbookId: playbook.id,
+                sessionId: options.sessionId || 'unknown',
+                outcome: 'success',
+                duration: result.duration
+              });
+
+              // 更新会话元数据
+              if (options.sessionId) {
+                await this.updateSessionMetadata(options.sessionId, { total_tokens: 0 }).catch(err => {
+                  logger.warn(`[ChatService] Failed to update session metadata: ${err.message}`);
+                });
+              }
+
+              // 保存对话历史
+              if (options.conversationId) {
+                await this.saveConversationHistory(
+                  options.conversationId,
+                  messages,
+                  result.output,
+                  undefined,
+                  false
+                );
+              }
+
+              return {
+                content: result.output,
+                usage: { total_tokens: 0 },
+                duration: result.duration,
+                iterations: result.steps_completed,
+                used_playbook: true,
+                playbook_name: playbook.name
+              };
+            } else {
+              // 失败：记录失败并回退到 ReAct
+              logger.warn(`[ChatService] Playbook 执行失败（${result.reason}），回退到 ReAct`);
+
+              await this.playbookManager.recordExecutionForced({
+                playbookId: playbook.id,
+                sessionId: options.sessionId || 'unknown',
+                outcome: 'failure',
+                duration: result.duration,
+                reason: result.reason
+              });
+            }
+          }
+        } catch (error: any) {
+          logger.error('[ChatService] Playbook 强制执行失败，回退到常规策略:', error);
+          // 发生错误时继续使用常规策略
+        }
+      }
+
+      // 3. 选择策略（原有逻辑，保持向后兼容）
       const strategy = await this.selectStrategy(options);
 
-      // 3. 调用策略的 prepare 方法获取需要注入的变量
+      // 4. 调用策略的 prepare 方法获取需要注入的变量
       let strategyVariables: Record<string, string> = {};
       if (strategy.prepare) {
         const prepareResult = await strategy.prepare(messages, options);

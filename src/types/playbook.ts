@@ -61,6 +61,7 @@ export interface StrategicPlaybook {
 
   // 知识来源
   sourceLearningIds: string[]; // 来源的StrategicLearning IDs
+  sourceTrajectoryIds?: string[]; // 来源的Trajectory IDs（批量提取使用）
   createdAt: number;
   lastUpdated: number;
   lastOptimized: number;
@@ -140,4 +141,28 @@ export interface PlaybookRecommendationConfig {
   considerMetrics: boolean;
   considerRecency: boolean;
   considerSimilarity: boolean;
+}
+
+// ========== Stage 2: Generator 批量升级类型 ==========
+
+/**
+ * Trajectory 聚类结果
+ */
+export interface TrajectoryCluster {
+  cluster_id: string;
+  trajectories: any[];  // Trajectory from ace-core.d.ts
+  common_keywords: string[];
+  common_tools: string[];
+  representative_input: string;  // 代表性用户输入
+  confidence: number;  // 0-1，基于簇内相似度
+}
+
+/**
+ * 批量提取配置
+ */
+export interface BatchExtractionOptions {
+  minClusterSize: number;  // 最小簇大小（默认 3）
+  minSimilarity: number;   // 最小相似度（默认 0.7）
+  maxClusters: number;     // 最大簇数量（默认 10）
+  lookbackDays: number;    // 回溯天数（默认 7）
 }

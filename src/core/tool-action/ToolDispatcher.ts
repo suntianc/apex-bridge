@@ -21,6 +21,8 @@ import { BuiltInToolsRegistry, getBuiltInToolsRegistry } from '../../services/Bu
 import { SkillsSandboxExecutor } from '../../services/executors/SkillsSandboxExecutor';
 import { mcpIntegration } from '../../services/MCPIntegrationService';
 import { logger } from '../../utils/logger';
+import { ErrorClassifier } from '../../utils/error-classifier';
+import { ErrorType } from '../../types/trajectory';
 
 /**
  * 默认配置
@@ -152,28 +154,80 @@ export class ToolDispatcher {
 
       const executionTime = Date.now() - startTime;
 
+      // 🆕 成功情况：返回详细信息
       if (result.success) {
+        const outputContent = String(result.content || '');
         return {
           success: true,
           toolName: name,
           result: result.content,
-          executionTime
-        };
-      } else {
-        return {
-          success: false,
-          toolName: name,
-          error: result.error?.message || 'MCP tool execution failed',
-          executionTime
+          executionTime,
+          tool_details: {
+            tool_name: name,
+            input_params: parameters,
+            output_content: outputContent,
+            output_metadata: {
+              token_count: ErrorClassifier.estimateTokens(outputContent),
+              execution_time_ms: executionTime
+            }
+          }
         };
       }
+
+      // 🆕 失败情况：分类错误类型
+      const errorType = ErrorClassifier.classifyError(new Error(result.error?.message || 'MCP tool execution failed'));
+      const errorDetails = {
+        error_type: errorType,
+        error_message: result.error?.message || 'MCP tool execution failed',
+        context: {
+          tool_name: name,
+          input_params: parameters,
+          timestamp: Date.now(),
+          execution_time_ms: executionTime
+        }
+      };
+
+      logger.error(`[ToolDispatcher] MCP tool execution failed: ${name}`, {
+        error_type: errorType,
+        error_message: result.error?.message,
+        params: parameters
+      });
+
+      return {
+        success: false,
+        toolName: name,
+        error: result.error?.message || 'MCP tool execution failed',
+        executionTime,
+        error_details: errorDetails
+      };
+
     } catch (error: any) {
-      logger.error(`[ToolDispatcher] MCP tool execution failed: ${name}`, error);
+      // 🆕 捕获异常：分类错误类型
+      const errorType = ErrorClassifier.classifyError(error);
+      const errorDetails = {
+        error_type: errorType,
+        error_message: error.message || 'MCP tool execution failed',
+        error_stack: error.stack,
+        context: {
+          tool_name: name,
+          input_params: parameters,
+          timestamp: Date.now(),
+          execution_time_ms: Date.now() - startTime
+        }
+      };
+
+      logger.error(`[ToolDispatcher] MCP tool execution failed: ${name}`, {
+        error_type: errorType,
+        error_message: error.message,
+        stack: error.stack
+      });
+
       return {
         success: false,
         toolName: name,
         error: error.message || 'MCP tool execution failed',
-        executionTime: Date.now() - startTime
+        executionTime: Date.now() - startTime,
+        error_details: errorDetails
       };
     }
   }
@@ -206,12 +260,51 @@ export class ToolDispatcher {
 
     const executionTime = Date.now() - startTime;
 
+    // 🆕 成功情况：返回详细信息
+    if (result.success) {
+      const outputContent = String(result.output || '');
+      return {
+        success: true,
+        toolName: tool.name,
+        result: result.output,
+        executionTime,
+        tool_details: {
+          tool_name: tool.name,
+          input_params: typedArgs,
+          output_content: outputContent,
+          output_metadata: {
+            token_count: ErrorClassifier.estimateTokens(outputContent),
+            execution_time_ms: executionTime
+          }
+        }
+      };
+    }
+
+    // 🆕 失败情况：分类错误类型
+    const errorType = ErrorClassifier.classifyError(new Error(result.error));
+    const errorDetails = {
+      error_type: errorType,
+      error_message: result.error || 'Unknown error',
+      context: {
+        tool_name: tool.name,
+        input_params: typedArgs,
+        timestamp: Date.now(),
+        execution_time_ms: executionTime
+      }
+    };
+
+    logger.error(`[ToolDispatcher] Built-in tool execution failed: ${tool.name}`, {
+      error_type: errorType,
+      error_message: result.error,
+      params: typedArgs
+    });
+
     return {
-      success: result.success,
+      success: false,
       toolName: tool.name,
-      result: result.success ? result.output : undefined,
-      error: result.success ? undefined : result.error,
-      executionTime
+      error: result.error,
+      executionTime,
+      error_details: errorDetails
     };
   }
 
@@ -243,13 +336,51 @@ export class ToolDispatcher {
         return null;
       }
 
-      // Skill 存在但执行失败
+      // 🆕 成功情况：返回详细信息
+      if (result.success) {
+        const outputContent = String(result.output || '');
+        return {
+          success: true,
+          toolName: name,
+          result: result.output,
+          executionTime,
+          tool_details: {
+            tool_name: name,
+            input_params: typedArgs,
+            output_content: outputContent,
+            output_metadata: {
+              token_count: ErrorClassifier.estimateTokens(outputContent),
+              execution_time_ms: executionTime
+            }
+          }
+        };
+      }
+
+      // 🆕 失败情况：分类错误类型
+      const errorType = ErrorClassifier.classifyError(new Error(result.error));
+      const errorDetails = {
+        error_type: errorType,
+        error_message: result.error || 'Unknown error',
+        context: {
+          tool_name: name,
+          input_params: typedArgs,
+          timestamp: Date.now(),
+          execution_time_ms: executionTime
+        }
+      };
+
+      logger.error(`[ToolDispatcher] Skill execution failed: ${name}`, {
+        error_type: errorType,
+        error_message: result.error,
+        params: typedArgs
+      });
+
       return {
-        success: result.success,
+        success: false,
         toolName: name,
-        result: result.success ? result.output : undefined,
-        error: result.success ? undefined : result.error,
-        executionTime
+        error: result.error,
+        executionTime,
+        error_details: errorDetails
       };
 
     } catch (error) {
@@ -261,13 +392,32 @@ export class ToolDispatcher {
         return null;
       }
 
-      // 其他错误，返回失败结果
-      logger.error(`[ToolDispatcher] Skill execution error: ${name}`, error);
+      // 🆕 其他错误，分类并记录详细信息
+      const errorType = ErrorClassifier.classifyError(error);
+      const errorDetails = {
+        error_type: errorType,
+        error_message: errorMessage,
+        error_stack: error instanceof Error ? error.stack : undefined,
+        context: {
+          tool_name: name,
+          input_params: this.convertParameters(parameters, null),
+          timestamp: Date.now(),
+          execution_time_ms: Date.now() - startTime
+        }
+      };
+
+      logger.error(`[ToolDispatcher] Skill execution error: ${name}`, {
+        error_type: errorType,
+        error_message: errorMessage,
+        stack: error instanceof Error ? error.stack : undefined
+      });
+
       return {
         success: false,
         toolName: name,
         error: errorMessage,
-        executionTime: Date.now() - startTime
+        executionTime: Date.now() - startTime,
+        error_details: errorDetails
       };
     }
   }

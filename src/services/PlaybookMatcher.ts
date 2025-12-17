@@ -4,6 +4,7 @@
  */
 
 import { StrategicPlaybook, PlaybookMatch, PlaybookRecommendationConfig } from '../types/playbook';
+import { DuplicatePlaybookPair, ArchiveCandidate } from '../types/playbook-maintenance';
 import { ToolRetrievalService } from './ToolRetrievalService';
 import { LLMManager } from '../core/LLMManager';
 import { logger } from '../utils/logger';
@@ -563,5 +564,264 @@ ${playbookList}
 
     const typeInChinese = typeMap[playbook.type] || playbook.type;
     return `[${typeInChinese}-${playbook.name}]`;
+  }
+
+  // ========== Stage 3: Curator 知识库维护方法 ==========
+
+  /**
+   * 🆕 维护 Playbook 知识库（主入口）
+   */
+  async maintainPlaybookKnowledgeBase(): Promise<{ merged: number; archived: number }> {
+    logger.info('[Curator] 开始知识库维护');
+
+    let mergedCount = 0;
+    let archivedCount = 0;
+
+    try {
+      // 1. 去重与合并
+      const duplicates = await this.findDuplicates();
+      logger.info(`[Curator] 发现 ${duplicates.length} 对重复 Playbook`);
+
+      for (const pair of duplicates) {
+        if (pair.recommendation === 'merge') {
+          await this.mergePlaybooks(pair.playbook1, pair.playbook2);
+          mergedCount++;
+        }
+      }
+
+      // 2. 自动归档
+      const candidates = await this.findArchiveCandidates();
+      logger.info(`[Curator] 发现 ${candidates.length} 个归档候选`);
+
+      for (const candidate of candidates) {
+        await this.archivePlaybook(candidate.playbook.id);
+        archivedCount++;
+      }
+
+      logger.info(`[Curator] 维护完成: 合并 ${mergedCount} 个, 归档 ${archivedCount} 个`);
+
+      return { merged: mergedCount, archived: archivedCount };
+
+    } catch (error: any) {
+      logger.error('[Curator] 维护失败', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 🆕 查找重复 Playbook
+   */
+  async findDuplicates(threshold: number = 0.9): Promise<DuplicatePlaybookPair[]> {
+    const allPlaybooks = await this.getAllPlaybooks({ status: 'active' });
+    const duplicates: DuplicatePlaybookPair[] = [];
+    const processed = new Set<string>();
+
+    for (const playbook1 of allPlaybooks) {
+      if (processed.has(playbook1.id)) continue;
+
+      // 查找相似 Playbook
+      const similar = await this.findSimilarPlaybooks(playbook1.id, 5);
+
+      for (const match of similar) {
+        if (match.matchScore >= threshold && !processed.has(match.playbook.id)) {
+          duplicates.push({
+            playbook1,
+            playbook2: match.playbook,
+            similarity: match.matchScore,
+            recommendation: this.shouldMerge(playbook1, match.playbook) ? 'merge' : 'keep_both'
+          });
+
+          processed.add(playbook1.id);
+          processed.add(match.playbook.id);
+        }
+      }
+    }
+
+    return duplicates;
+  }
+
+  /**
+   * 🆕 判断是否应该合并
+   */
+  private shouldMerge(pb1: StrategicPlaybook, pb2: StrategicPlaybook): boolean {
+    // 如果名称完全相同或高度相似（编辑距离 <3），建议合并
+    const nameDistance = this.levenshteinDistance(pb1.name, pb2.name);
+    if (nameDistance < 3) return true;
+
+    // 如果工具列表相同，建议合并
+    const tools1 = new Set(pb1.context.stakeholders || []);
+    const tools2 = new Set(pb2.context.stakeholders || []);
+    const sameTools = [...tools1].every(t => tools2.has(t)) && [...tools2].every(t => tools1.has(t));
+    if (sameTools) return true;
+
+    return false;
+  }
+
+  /**
+   * 🆕 合并 Playbook
+   */
+  async mergePlaybooks(pb1: StrategicPlaybook, pb2: StrategicPlaybook): Promise<void> {
+    // 保留成功率更高的版本
+    const keeper = pb1.metrics.successRate >= pb2.metrics.successRate ? pb1 : pb2;
+    const removed = keeper === pb1 ? pb2 : pb1;
+
+    logger.info(`[Curator] 合并 Playbook: 保留 ${keeper.id}, 移除 ${removed.id}`);
+
+    // 合并统计数据
+    const mergedMetrics = {
+      successRate: (
+        keeper.metrics.successRate * keeper.metrics.usageCount +
+        removed.metrics.successRate * removed.metrics.usageCount
+      ) / (keeper.metrics.usageCount + removed.metrics.usageCount),
+      usageCount: keeper.metrics.usageCount + removed.metrics.usageCount,
+      timeToResolution: (
+        keeper.metrics.timeToResolution * keeper.metrics.usageCount +
+        removed.metrics.timeToResolution * removed.metrics.usageCount
+      ) / (keeper.metrics.usageCount + removed.metrics.usageCount),
+      lastUsed: Math.max(keeper.metrics.lastUsed, removed.metrics.lastUsed),
+      averageOutcome: (
+        keeper.metrics.averageOutcome * keeper.metrics.usageCount +
+        removed.metrics.averageOutcome * removed.metrics.usageCount
+      ) / (keeper.metrics.usageCount + removed.metrics.usageCount),
+      userSatisfaction: (
+        keeper.metrics.userSatisfaction * keeper.metrics.usageCount +
+        removed.metrics.userSatisfaction * removed.metrics.usageCount
+      ) / (keeper.metrics.usageCount + removed.metrics.usageCount)
+    };
+
+    // 合并来源 Trajectory
+    const mergedSources = [
+      ...(keeper.sourceTrajectoryIds || []),
+      ...(removed.sourceTrajectoryIds || [])
+    ];
+
+    // 更新保留的 Playbook
+    await this.updatePlaybook(keeper.id, {
+      metrics: mergedMetrics,
+      sourceTrajectoryIds: Array.from(new Set(mergedSources)),
+      lastUpdated: Date.now()
+    });
+
+    // 删除被移除的 Playbook
+    await this.deletePlaybook(removed.id);
+  }
+
+  /**
+   * 🆕 查找归档候选
+   */
+  async findArchiveCandidates(): Promise<ArchiveCandidate[]> {
+    const allPlaybooks = await this.getAllPlaybooks({ status: 'active' });
+    const candidates: ArchiveCandidate[] = [];
+    const now = Date.now();
+
+    for (const playbook of allPlaybooks) {
+      const daysSinceUsed = (now - playbook.metrics.lastUsed) / (24 * 60 * 60 * 1000);
+
+      // 归档条件: 90 天未使用 AND 成功率 <50%
+      if (daysSinceUsed > 90 && playbook.metrics.successRate < 0.5) {
+        candidates.push({
+          playbook,
+          reason: `${Math.round(daysSinceUsed)} 天未使用且成功率 ${(playbook.metrics.successRate * 100).toFixed(1)}%`,
+          days_since_last_used: daysSinceUsed,
+          success_rate: playbook.metrics.successRate
+        });
+      }
+    }
+
+    return candidates;
+  }
+
+  /**
+   * 🆕 归档 Playbook
+   */
+  async archivePlaybook(playbookId: string): Promise<void> {
+    await this.updatePlaybook(playbookId, {
+      status: 'archived',
+      lastUpdated: Date.now()
+    });
+
+    logger.info(`[Curator] Playbook 已归档: ${playbookId}`);
+  }
+
+  /**
+   * 辅助方法：Levenshtein 编辑距离
+   */
+  private levenshteinDistance(str1: string, str2: string): number {
+    const m = str1.length;
+    const n = str2.length;
+    const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+
+    for (let i = 0; i <= m; i++) dp[i][0] = i;
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        if (str1[i - 1] === str2[j - 1]) {
+          dp[i][j] = dp[i - 1][j - 1];
+        } else {
+          dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+        }
+      }
+    }
+
+    return dp[m][n];
+  }
+
+  // ========== 辅助方法 ==========
+
+  /**
+   * 获取所有 Playbook（带过滤）
+   */
+  private async getAllPlaybooks(filters?: { status?: string }): Promise<StrategicPlaybook[]> {
+    try {
+      // 从向量存储中检索所有 Playbook
+      const searchResult = await this.toolRetrievalService.findRelevantSkills(
+        'strategic_playbook',
+        1000,  // 获取大量结果
+        0.1    // 低阈值，获取更多候选
+      );
+
+      const playbooks = searchResult
+        .map(r => this.parsePlaybookFromVector(r.tool))
+        .filter((p): p is StrategicPlaybook => p !== null);
+
+      // 应用过滤器
+      if (filters?.status) {
+        return playbooks.filter(p => p.status === filters.status);
+      }
+
+      return playbooks;
+    } catch (error) {
+      logger.error('[PlaybookMatcher] Failed to get all playbooks:', error);
+      return [];
+    }
+  }
+
+  /**
+   * 更新 Playbook
+   */
+  private async updatePlaybook(playbookId: string, updates: Partial<StrategicPlaybook>): Promise<void> {
+    try {
+      // TODO: 实现具体的更新逻辑
+      // 需要与实际存储系统集成（LanceDB/SQLite）
+      logger.debug(`[PlaybookMatcher] Update playbook ${playbookId}`, updates);
+    } catch (error) {
+      logger.error('[PlaybookMatcher] Failed to update playbook:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 删除 Playbook
+   */
+  private async deletePlaybook(playbookId: string): Promise<void> {
+    try {
+      // TODO: 实现具体的删除逻辑
+      // 需要与实际存储系统集成（LanceDB/SQLite）
+      logger.debug(`[PlaybookMatcher] Delete playbook ${playbookId}`);
+    } catch (error) {
+      logger.error('[PlaybookMatcher] Failed to delete playbook:', error);
+      throw error;
+    }
   }
 }

@@ -1,0 +1,20 @@
+{
+  "id": "test-learning-001",
+  "summary": "成功处理用户反馈分析任务",
+  "learnings": [
+    "使用 feedback-analyzer 工具提取关键问题",
+    "通过 LLM 聚类分析将问题归类",
+    "生成具体的改进方案建议"
+  ],
+  "outcome": "success",
+  "timestamp": 1734336000000,
+  "context": {
+    "domain": "数据分析",
+    "skillsUsed": ["feedback-analyzer", "llm-clustering"],
+    "duration": 8500
+  },
+  "metadata": {
+    "taskType": "feedback-analysis",
+    "dataSize": 45
+  }
+}
