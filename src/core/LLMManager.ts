@@ -216,45 +216,56 @@ export class LLMManager {
 
   /**
    * 文本向量化（使用 Embedding 模型）
+   * 采用两级优先级选择模型：
+   * 1. 优先级1：SQLite 中配置的默认 embedding 模型（is_default = 1）
+   * 2. 优先级2：.env 配置中的 EMBEDDING_PROVIDER 和 EMBEDDING_MODEL
    */
-  async embed(texts: string[], options?: { provider?: string; model?: string }): Promise<number[][]> {
+  async embed(texts: string[]): Promise<number[][]> {
     try {
-      // 1. 确定使用哪个 Embedding 模型
-      let model: LLMModelFull | null = null;
+      // 1. 优先级1：SQLite 全局默认 embedding 模型
+      let model = this.modelRegistry.getDefaultModel(LLMModelType.EMBEDDING);
 
-      if (options?.provider && options?.model) {
-        model = this.modelRegistry.findModel(options.provider, options.model);
-      } else if (options?.provider) {
-        const provider = this.configService.getProviderByKey(options.provider);
-        if (provider) {
-          const models = this.configService.listModels({
-            providerId: provider.id,
-            modelType: LLMModelType.EMBEDDING,
-            isDefault: true,
-            enabled: true
-          });
-          model = models[0] || null;
-        }
-      } else {
-        model = this.modelRegistry.getDefaultModel(LLMModelType.EMBEDDING);
-      }
-
+      // 2. 优先级2：回退到 .env 配置
       if (!model) {
-        throw new Error('No Embedding model available');
+        const envProvider = process.env.EMBEDDING_PROVIDER;
+        const envModel = process.env.EMBEDDING_MODEL;
+
+        if (envProvider && envModel) {
+          model = this.modelRegistry.findModel(envProvider, envModel);
+          if (model) {
+            logger.info(`[LLMManager] Using .env embedding config: ${envProvider}/${envModel}`);
+          }
+        } else if (envModel && !envProvider) {
+          // 尝试从模型名称推断 provider
+          const match = envModel.match(/^([a-zA-Z0-9]+)-/);
+          if (match) {
+            const inferredProvider = match[1];
+            logger.info(`[LLMManager] Using .env model with inferred provider: ${inferredProvider}/${envModel}`);
+            model = this.modelRegistry.findModel(inferredProvider, envModel);
+          }
+        }
       }
 
-      // 2. 获取对应的适配器
+      // 3. 验证模型可用性
+      if (!model) {
+        throw new Error(
+          'No embedding model available. ' +
+          'Please configure an embedding model in SQLite (set is_default=1) or set EMBEDDING_PROVIDER and EMBEDDING_MODEL in .env'
+        );
+      }
+
+      // 4. 获取对应的适配器
       const adapter = this.adapters.get(model.provider);
       if (!adapter) {
         throw new Error(`No adapter found for provider: ${model.provider}`);
       }
 
-      // 3. 检查适配器是否支持 embed 方法
+      // 5. 检查适配器是否支持 embed 方法
       if (!adapter.embed) {
         throw new Error(`Adapter for ${model.provider} does not support embedding`);
       }
 
-      // 4. 调用 Embedding API
+      // 6. 调用 Embedding API
       logger.debug(`🔢 Using embedding model: ${model.modelName} (${model.provider}/${model.modelKey})`);
 
       const embeddings = await adapter.embed(texts, model.modelName);

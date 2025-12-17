@@ -820,4 +820,232 @@ export class ConfigService {
       warnings.push('ace.localImplementation.useSQLiteConfig 建议设置为布尔值');
     }
   }
+
+  /**
+   * 获取系统级配置（从环境变量读取）
+   * 包括：端口、路径、安全、运行环境等
+   */
+  public getSystemConfig(): SystemConfig {
+    const port = parseInt(process.env.PORT || '3000', 10);
+    const autostart = process.env.APEX_BRIDGE_AUTOSTART !== 'false';
+
+    return {
+      port,
+      autostart,
+      paths: {
+        rootDir: process.env.APEX_BRIDGE_ROOT_DIR || process.cwd(),
+        configDir: process.env.APEX_BRIDGE_CONFIG_DIR || path.join(process.cwd(), 'config'),
+        dataDir: process.env.APEX_BRIDGE_DATA_DIR || path.join(process.cwd(), '.data'),
+        logDir: process.env.APEX_BRIDGE_LOG_DIR || path.join(process.cwd(), 'logs'),
+        vectorStoreDir: process.env.APEX_BRIDGE_VECTOR_STORE_DIR || path.join(process.cwd(), '.data/lancedb')
+      },
+      security: {
+        abpApiKey: process.env.ABP_API_KEY || '',
+        jwtSecret: process.env.JWT_SECRET || '',
+        constitutionPath: process.env.CONSTITUTION_PATH || './config/constitution.md'
+      },
+      environment: {
+        nodeEnv: process.env.NODE_ENV || 'development',
+        logLevel: process.env.LOG_LEVEL || 'info',
+        logFile: process.env.LOG_FILE || './logs/apex-bridge.log',
+        maxRequestSize: process.env.MAX_REQUEST_SIZE || '100mb',
+        securityLogLevel: process.env.SECURITY_LOG_LEVEL || 'warn',
+        securityLogEnabled: process.env.SECURITY_LOG_ENABLED !== 'false',
+        verboseLogging: process.env.VERBOSE_LOGGING === 'true'
+      },
+      // LLM 配置已迁移到 SQLite，支持动态配置
+      database: {
+        sqlitePath: process.env.SQLITE_PATH || './.data/llm_providers.db',
+        lancedbPath: process.env.LANCEDB_PATH || './.data/lancedb'
+      },
+      playbook: {
+        extractionTimeout: parseInt(process.env.PLAYBOOK_EXTRACTION_TIMEOUT || '30000', 10),
+        similarityThreshold: parseFloat(process.env.PLAYBOOK_SIMILARITY_THRESHOLD || '0.5'),
+        maxRecommendations: parseInt(process.env.PLAYBOOK_MAX_RECOMMENDATIONS || '5', 10)
+      }
+    };
+  }
+
+  /**
+   * 获取应用级配置（从 JSON 读取）
+   * 包括：功能开关、业务策略、ACE架构等
+   */
+  public getAppConfig(): Partial<AdminConfig> {
+    const config = this.readConfig();
+    return {
+      setup_completed: config.setup_completed,
+      api: {
+        host: config.api?.host || '0.0.0.0',
+        cors: config.api?.cors || { origin: '*', credentials: true }
+      },
+      llm: {
+        providers: config.llm?.providers || [],
+        defaultProvider: config.llm?.defaultProvider || 'openai',
+        timeout: config.llm?.timeout || 30000,
+        maxRetries: config.llm?.maxRetries || 3
+      },
+      auth: {
+        enabled: config.auth?.enabled || false,
+        jwtExpiresIn: config.auth?.jwtExpiresIn || '24h'
+      },
+      performance: {
+        workerPoolSize: config.performance?.workerPoolSize || 4,
+        requestTimeout: config.performance?.requestTimeout || 60000
+      },
+      redis: config.redis,
+      security: config.security,
+      ace: config.ace,
+      playbook: config.playbook
+    };
+  }
+
+  /**
+   * 获取完整配置（env 优先，JSON 作为后备）
+   * 推荐使用此方法获取配置
+   */
+  public getFullConfig(): FullConfig {
+    const systemConfig = this.getSystemConfig();
+    const appConfig = this.getAppConfig();
+
+    return {
+      // 系统级配置（env 优先）
+      port: systemConfig.port,
+      autostart: systemConfig.autostart,
+      paths: systemConfig.paths,
+      systemSecurity: systemConfig.security,
+      environment: systemConfig.environment,
+      database: systemConfig.database,
+      playbookConfig: systemConfig.playbook,
+
+      // 应用级配置（JSON）
+      // 注意：LLM 配置从 SQLite 动态读取，不在此处
+      setup_completed: appConfig.setup_completed,
+      api: appConfig.api,
+      auth: {
+        ...appConfig.auth,
+        // 关键：从 env 覆盖敏感信息
+        apiKey: systemConfig.security.abpApiKey,
+        jwtSecret: systemConfig.security.jwtSecret
+      },
+      performance: {
+        ...appConfig.performance,
+        maxRequestSize: systemConfig.environment.maxRequestSize
+      },
+      redis: appConfig.redis,
+      appSecurity: appConfig.security,
+      ace: {
+        ...appConfig.ace,
+        layers: appConfig.ace?.layers ? {
+          ...appConfig.ace.layers,
+          l1: {
+            ...appConfig.ace.layers.l1,
+            constitutionPath: systemConfig.security.constitutionPath
+          }
+        } : undefined
+      },
+      playbook: appConfig.playbook
+    };
+  }
+
+  /**
+   * 验证系统级配置（环境变量）
+   * 在启动时调用，检查关键环境变量
+   */
+  public validateSystemConfig(): { valid: boolean; errors: string[]; warnings: string[] } {
+    const systemConfig = this.getSystemConfig();
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    // 检查必填的环境变量
+    if (!systemConfig.security.abpApiKey) {
+      errors.push('ABP_API_KEY 未设置（环境变量）');
+    }
+
+    if (!systemConfig.security.jwtSecret) {
+      errors.push('JWT_SECRET 未设置（环境变量）');
+    }
+
+    // LLM 配置已迁移到 SQLite，不再检查环境变量
+
+    // 检查端口范围
+    if (systemConfig.port < 1 || systemConfig.port > 65535) {
+      errors.push(`PORT 必须在 1-65535 范围内，当前值：${systemConfig.port}`);
+    }
+
+    // 检查路径
+    if (!systemConfig.paths.rootDir) {
+      errors.push('APEX_BRIDGE_ROOT_DIR 未设置');
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+      warnings
+    };
+  }
+}
+
+/**
+ * 系统级配置接口
+ */
+interface SystemConfig {
+  port: number;
+  autostart: boolean;
+  paths: {
+    rootDir: string;
+    configDir: string;
+    dataDir: string;
+    logDir: string;
+    vectorStoreDir: string;
+  };
+  security: {
+    abpApiKey: string;
+    jwtSecret: string;
+    constitutionPath: string;
+  };
+  environment: {
+    nodeEnv: string;
+    logLevel: string;
+    logFile: string;
+    maxRequestSize: string;
+    securityLogLevel: string;
+    securityLogEnabled: boolean;
+    verboseLogging: boolean;
+  };
+  // LLM 配置已迁移到 SQLite，支持动态配置
+  database: {
+    sqlitePath: string;
+    lancedbPath: string;
+  };
+  playbook: {
+    extractionTimeout: number;
+    similarityThreshold: number;
+    maxRecommendations: number;
+  };
+}
+
+/**
+ * 完整配置接口（系统级 + 应用级）
+ * 使用别名避免属性冲突
+ */
+interface FullConfig {
+  // 系统级配置
+  port: number;
+  autostart: boolean;
+  paths: SystemConfig['paths'];
+  systemSecurity: SystemConfig['security'];
+  environment: SystemConfig['environment'];
+  database: SystemConfig['database'];
+  playbookConfig: SystemConfig['playbook'];
+
+  // 应用级配置
+  // 注意：LLM 配置从 SQLite 动态读取，不在此接口中
+  setup_completed?: boolean;
+  api?: AdminConfig['api'];
+  auth?: AdminConfig['auth'];
+  performance?: AdminConfig['performance'];
+  redis?: AdminConfig['redis'];
+  appSecurity?: AdminConfig['security'];
+  ace?: AdminConfig['ace'];
+  playbook?: AdminConfig['playbook'];
 }

@@ -14,7 +14,7 @@ import { RAGService } from 'abp-rag-sdk';
  * 扩展配置接口
  * 用于支持 RAG 和 ABP 配置，避免过度使用 as any
  */
-interface ExtendedAdminConfig extends AdminConfig {
+export interface ExtendedAdminConfig extends AdminConfig {
   abp?: Partial<ABPProtocolConfig>;
   rag?: {
     enabled: boolean;

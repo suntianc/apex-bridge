@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 /**
  * 初始化 LLM 配置 v2 架构
- * 
+ *
  * 使用方法:
  *   node scripts/init-llm-config-v2.js
+ *
+ * 注意：此脚本会从环境变量读取 API 密钥配置
+ * 请确保已正确设置 .env 文件中的相关环境变量
  */
 
 const Database = require('better-sqlite3');
@@ -25,6 +28,34 @@ console.log('='.repeat(70));
 console.log('');
 console.log('📦 数据库路径:', dbPath);
 console.log('');
+
+// 🔍 检查环境变量配置
+console.log('🔍 检查环境变量配置...\n');
+
+const requiredEnvVars = [
+  'OPENAI_API_KEY',
+  'DEEPSEEK_API_KEY',
+  'QWEN_API_KEY'
+];
+
+const availableEnvVars = requiredEnvVars.filter(varName => {
+  const value = process.env[varName];
+  return value && value !== '' && !value.includes('your-*-api-key-here');
+});
+
+if (availableEnvVars.length > 0) {
+  console.log('✅ 已配置的环境变量:');
+  availableEnvVars.forEach(varName => {
+    const value = process.env[varName];
+    const masked = value.substring(0, 7) + '...' + value.substring(value.length - 4);
+    console.log(`   ✓ ${varName}: ${masked}`);
+  });
+  console.log('');
+} else {
+  console.log('⚠️  未检测到已配置的环境变量，将使用默认值');
+  console.log('   请检查 .env 文件中的相关配置');
+  console.log('');
+}
 
 // 初始化表结构（如果不存在）
 db.exec(`

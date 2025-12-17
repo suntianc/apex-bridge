@@ -383,22 +383,31 @@ export class MCPServerManager extends EventEmitter {
 
         this.emit('status-changed', this.status);
 
-        // 关闭客户端
+        // 1. 先关闭 MCP 客户端连接（优雅关闭）
         if (this.client) {
-          await this.client.close();
+          try {
+            await this.client.close();
+          } catch (e) {
+            // 忽略关闭时的错误
+            logger.debug(`[MCP] Client close error (ignored): ${e}`);
+          }
           this.client = undefined;
         }
 
-        // 关闭传输层
+        // 2. 关闭传输层
         if (this.transport) {
-          await this.transport.close();
+          try {
+            await this.transport.close();
+          } catch (e) {
+            // 忽略关闭时的错误
+            logger.debug(`[MCP] Transport close error (ignored): ${e}`);
+          }
           this.transport = undefined;
         }
 
-        // 终止进程
-        if (this.process) {
-          this.process.kill('SIGTERM');
-          this.process = undefined;
+        // 3. 优雅终止子进程
+        if (this.process && !this.process.killed) {
+          await this.gracefulKillProcess();
         }
 
         this.metrics.endTime = new Date();
@@ -427,5 +436,48 @@ export class MCPServerManager extends EventEmitter {
 
       this.emit('status-changed', this.status);
     }
+  }
+
+  /**
+   * 优雅终止子进程
+   * 先发送 SIGTERM，等待进程退出，超时后强制 SIGKILL
+   */
+  private async gracefulKillProcess(): Promise<void> {
+    if (!this.process) return;
+
+    const proc = this.process;
+    const serverId = this.config.id;
+
+    return new Promise<void>((resolve) => {
+      let killed = false;
+
+      // 监听进程退出
+      const onExit = () => {
+        killed = true;
+        resolve();
+      };
+
+      proc.once('exit', onExit);
+      proc.once('close', onExit);
+
+      // 关闭 stdin 以通知子进程关闭
+      if (proc.stdin && !proc.stdin.destroyed) {
+        proc.stdin.end();
+      }
+
+      // 发送 SIGTERM
+      proc.kill('SIGTERM');
+
+      // 设置超时，3秒后强制 SIGKILL
+      setTimeout(() => {
+        if (!killed && proc && !proc.killed) {
+          logger.warn(`[MCP] Server ${serverId} did not exit gracefully, forcing SIGKILL`);
+          proc.kill('SIGKILL');
+        }
+        resolve();
+      }, 3000);
+    }).finally(() => {
+      this.process = undefined;
+    });
   }
 }

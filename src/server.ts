@@ -11,7 +11,7 @@ import express from 'express';
 import cors from 'cors';
 import { Server } from 'http';
 import { WebSocketServer } from 'ws';
-import { ProtocolEngine } from './core/ProtocolEngine';
+import { ProtocolEngine, ExtendedAdminConfig } from './core/ProtocolEngine';
 // 向后兼容
 import { LLMManager as LLMClient } from './core/LLMManager';
 import { EventBus } from './core/EventBus';
@@ -69,8 +69,7 @@ export class ABPIntelliCore {
     this.server = new Server(this.app);
     this.eventBus = EventBus.getInstance();
     this.configService = ConfigService.getInstance();
-    const adminConfig = this.configService.readConfig();
-    
+
     logger.info('🧠 ApexBridge Server initializing...');
   }
 
@@ -81,10 +80,29 @@ export class ABPIntelliCore {
       pathService.ensureAllDirs();
       logger.debug('✅ All required directories ensured');
 
-      // 统一使用 ConfigService 读取配置
+      // 统一使用 getFullConfig 读取配置（env 优先）
+      const fullConfig = this.configService.getFullConfig();
       const config = this.configService.readConfig();
 
-      // 验证配置（如果设置未完成，跳过严格验证）
+      // 创建 ExtendedAdminConfig（合并系统级和应用级配置）
+      const extendedConfig: ExtendedAdminConfig = {
+        ...config,
+        port: fullConfig.port,
+        maxRequestSize: fullConfig.environment.maxRequestSize
+      } as ExtendedAdminConfig;
+
+      // 验证系统级配置（环境变量）
+      const systemValidation = this.configService.validateSystemConfig();
+      if (!systemValidation.valid) {
+        logger.error('❌ System configuration errors:');
+        systemValidation.errors.forEach(err => logger.error(`   - ${err}`));
+        throw new Error('System configuration validation failed');
+      }
+      if (systemValidation.warnings.length > 0) {
+        systemValidation.warnings.forEach(warn => logger.warn(`⚠️ ${warn}`));
+      }
+
+      // 验证应用级配置（如果设置未完成，跳过严格验证）
       if (!this.configService.isSetupCompleted()) {
         logger.warn('⚠️ Configuration not fully setup (missing API Key)');
       } else {
@@ -114,7 +132,7 @@ export class ABPIntelliCore {
       logger.debug('✅ MCP servers loaded from database');
 
       // 2. 核心引擎初始化
-      this.protocolEngine = new ProtocolEngine(config);
+      this.protocolEngine = new ProtocolEngine(extendedConfig);
       await this.protocolEngine.initialize();
       logger.debug('✅ Protocol Engine initialized');
 
@@ -132,22 +150,22 @@ export class ABPIntelliCore {
       
       // 4. 接口层初始化 (WebSocket & HTTP Routes)
       // ⚠️ 关键调整：先初始化 ChatService，再初始化 WS，最后绑定 Server
-      this.setupWebSocket(config);
-      
+      this.setupWebSocket(extendedConfig);
+
       // 注入 WS Manager 到 ChatService
       if (this.websocketManager) {
         this.chatService.setWebSocketManager(this.websocketManager);
       }
-      
+
       // 5. 设置中间件
       this.setupMiddleware();
-      
+
       // 6. 设置路由
       await this.setupRoutes();
-      
+
       // 7. 启动HTTP服务器（所有初始化完成后才启动）
-      const apiHost = config.api.host || '0.0.0.0';
-      const apiPort = config.api.port || 8088;
+      const apiHost = extendedConfig.api?.host || '0.0.0.0';
+      const apiPort = fullConfig.port; // ✅ 从系统配置读取
       this.server.listen(apiPort, apiHost, () => {
         logger.info(`🚀 ApexBridge running on http://${apiHost}:${apiPort}`);
       });
