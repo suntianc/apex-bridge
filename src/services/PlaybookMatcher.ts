@@ -3,13 +3,16 @@
  * 基于上下文和模式匹配，智能推荐最佳Playbook
  */
 
-import { StrategicPlaybook, PlaybookMatch, PlaybookRecommendationConfig } from '../types/playbook';
+import { StrategicPlaybook, PlaybookMatch, PlaybookRecommendationConfig } from '../core/playbook/types';
 import { DuplicatePlaybookPair, ArchiveCandidate } from '../types/playbook-maintenance';
 import { ToolRetrievalService } from './ToolRetrievalService';
 import { LLMManager } from '../core/LLMManager';
+import { TypeVocabularyService } from './TypeVocabularyService';
+import { SimilarityService } from './SimilarityService';
+import { TypeSignal, TypeVocabulary, MatchingContext } from '../core/playbook/types';
 import { logger } from '../utils/logger';
 
-interface MatchingContext {
+interface LegacyMatchingContext {
   userQuery: string;
   sessionHistory?: string[];
   currentState?: string;
@@ -29,15 +32,21 @@ export class PlaybookMatcher {
   private static readonly DEFAULT_CONFIG: PlaybookRecommendationConfig = {
     maxRecommendations: 5,
     minMatchScore: 0.5,
-    considerMetrics: true,
-    considerRecency: true,
-    considerSimilarity: true
+    useDynamicTypes: false,
+    useSimilarityMatching: true,
+    similarityThreshold: 0.7
   };
+
+  private typeVocabularyService: TypeVocabularyService;
+  private similarityService: SimilarityService;
 
   constructor(
     private toolRetrievalService: ToolRetrievalService,
     private llmManager: LLMManager
-  ) {}
+  ) {
+    this.typeVocabularyService = TypeVocabularyService.getInstance();
+    this.similarityService = SimilarityService.getInstance();
+  }
 
   /**
    * 匹配最佳Playbook
@@ -114,7 +123,7 @@ export class PlaybookMatcher {
       }
 
       // 构建相似性查询
-      const similarityQuery = `similar to ${target.name} ${target.type} ${target.context.domain}`;
+      const similarityQuery = `similar to ${target.name} ${target.context.domain} ${target.description}`;
 
       const candidates = await this.toolRetrievalService.findRelevantSkills(
         similarityQuery,
@@ -153,12 +162,21 @@ export class PlaybookMatcher {
   }> {
     try {
       // 第一步：获取初始匹配
-      const initialMatches = await this.matchPlaybooks(context, {
+      // 转换 MatchingContext 为 LegacyMatchingContext 以保持兼容性
+      const legacyContext: LegacyMatchingContext = {
+        userQuery: context.userQuery,
+        sessionHistory: [],
+        currentState: '',
+        userProfile: undefined,
+        constraints: undefined
+      };
+
+      const initialMatches = await this.matchPlaybooks(legacyContext, {
         maxRecommendations: 10,
         minMatchScore: 0.4,
-        considerMetrics: true,
-        considerRecency: true,
-        considerSimilarity: true
+        useDynamicTypes: false,
+        useSimilarityMatching: true,
+        similarityThreshold: 0.7
       });
 
       if (initialMatches.length === 0) {
@@ -203,7 +221,7 @@ export class PlaybookMatcher {
 
   // ========== 私有方法 ==========
 
-  private buildSearchQuery(context: MatchingContext): string {
+  private buildSearchQuery(context: LegacyMatchingContext): string {
     const parts: string[] = [context.userQuery];
 
     // 添加历史上下文
@@ -229,7 +247,7 @@ export class PlaybookMatcher {
 
   private async calculateMatchScore(
     playbook: StrategicPlaybook,
-    context: MatchingContext
+    context: LegacyMatchingContext
   ): Promise<PlaybookMatch> {
     let score = 0;
     const matchReasons: string[] = [];
@@ -324,7 +342,7 @@ export class PlaybookMatcher {
 
   private calculateContextMatch(
     playbook: StrategicPlaybook,
-    context: MatchingContext
+    context: LegacyMatchingContext
   ): number {
     let match = 0;
 
@@ -359,7 +377,7 @@ export class PlaybookMatcher {
   ): string {
     const playbookList = matches.map((m, i) => `
 ${i + 1}. ${m.playbook.name}
-   类型: ${m.playbook.type}
+   描述: ${m.playbook.description}
    成功率: ${(m.playbook.metrics.successRate * 100).toFixed(0)}%
    步骤数: ${m.playbook.actions.length}
    匹配分数: ${(m.matchScore * 100).toFixed(0)}%
@@ -370,7 +388,7 @@ ${i + 1}. ${m.playbook.name}
 
 用户查询: ${context.userQuery}
 目标结果: ${targetOutcome}
-${context.currentState ? `当前状态: ${context.currentState}` : ''}
+${context.domain ? `领域: ${context.domain}` : ''}
 
 候选Playbook:
 ${playbookList}
@@ -434,30 +452,24 @@ ${playbookList}
   ): Promise<PlaybookMatch> {
     let score = 0;
 
-    // 类型相似性
-    if (playbook.type === target.type) {
-      score += 0.4;
-    }
-
     // 领域相似性
     if (playbook.context.domain === target.context.domain) {
-      score += 0.3;
+      score += 0.4;
     }
 
     // 复杂度相似性
     if (playbook.context.complexity === target.context.complexity) {
-      score += 0.2;
+      score += 0.3;
     }
 
     // 标签重叠
     const tagOverlap = this.calculateTagOverlap(playbook.tags, target.tags);
-    score += tagOverlap * 0.1;
+    score += tagOverlap * 0.3;
 
     return {
       playbook,
       matchScore: Math.min(score, 1),
       matchReasons: [
-        playbook.type === target.type ? '类型匹配' : '',
         playbook.context.domain === target.context.domain ? '领域匹配' : '',
         `标签重叠 ${(tagOverlap * 100).toFixed(0)}%`
       ].filter(Boolean),
@@ -485,7 +497,7 @@ ${playbookList}
         id: metadata.playbookId,
         name: metadata.name || tool.name,
         description: metadata.description || tool.description,
-        type: metadata.playbookType || 'problem_solving',
+        type: metadata.type || 'problem_solving',
         version: metadata.version || '1.0.0',
         status: metadata.status || 'active',
         context: {
@@ -504,18 +516,22 @@ ${playbookList}
         lastUpdated: Date.now(),
         lastOptimized: metadata.lastOptimized || Date.now(),
         metrics: metadata.metrics || {
-          successRate: 0,
           usageCount: 0,
-          averageOutcome: 0,
+          successRate: 0,
+          avgSatisfaction: 0,
           lastUsed: 0,
-          timeToResolution: 0,
-          userSatisfaction: 0
+          avgExecutionTime: 0
         },
         optimizationCount: metadata.optimizationCount || 0,
         parentId: metadata.parentId,
         tags: tool.tags || ['playbook'],
         author: metadata.author || 'auto-extracted',
-        reviewers: metadata.reviewers || []
+        reviewers: metadata.reviewers || [],
+        type_tags: metadata.type_tags,
+        type_confidence: metadata.type_confidence,
+        prompt_template_id: metadata.prompt_template_id,
+        guidance_level: metadata.guidance_level,
+        guidance_steps: metadata.guidance_steps
       };
 
       return playbook;
@@ -546,24 +562,20 @@ ${playbookList}
   }
 
   /**
-   * 格式化Playbook名称为 [类型-具体名称] 的格式
+   * 格式化Playbook名称为 [领域-具体名称] 的格式
    */
   private formatPlaybookName(playbook: StrategicPlaybook): string {
-    // 类型映射：将英文类型转换为中文
-    const typeMap: Record<string, string> = {
-      'negotiation': '谈判',
-      'problem_solving': '问题解决',
-      'crisis': '危机处理',
-      'growth': '成长策略',
-      'product_launch': '产品发布',
-      'customer_success': '客户成功',
-      'risk_avoidance': '风险规避',
-      'crisis_prevention': '危机预防',
-      'problem_prevention': '问题预防'
+    // 领域映射：将英文领域转换为中文
+    const domainMap: Record<string, string> = {
+      'general': '通用',
+      'business': '商业',
+      'technical': '技术',
+      'management': '管理',
+      'strategy': '策略'
     };
 
-    const typeInChinese = typeMap[playbook.type] || playbook.type;
-    return `[${typeInChinese}-${playbook.name}]`;
+    const domainInChinese = domainMap[playbook.context.domain] || playbook.context.domain;
+    return `[${domainInChinese}-${playbook.name}]`;
   }
 
   // ========== Stage 3: Curator 知识库维护方法 ==========
@@ -669,36 +681,32 @@ ${playbookList}
 
     // 合并统计数据
     const mergedMetrics = {
+      usageCount: keeper.metrics.usageCount + removed.metrics.usageCount,
       successRate: (
         keeper.metrics.successRate * keeper.metrics.usageCount +
         removed.metrics.successRate * removed.metrics.usageCount
       ) / (keeper.metrics.usageCount + removed.metrics.usageCount),
-      usageCount: keeper.metrics.usageCount + removed.metrics.usageCount,
-      timeToResolution: (
-        keeper.metrics.timeToResolution * keeper.metrics.usageCount +
-        removed.metrics.timeToResolution * removed.metrics.usageCount
+      avgSatisfaction: (
+        (keeper.metrics.avgSatisfaction || 0) * keeper.metrics.usageCount +
+        (removed.metrics.avgSatisfaction || 0) * removed.metrics.usageCount
       ) / (keeper.metrics.usageCount + removed.metrics.usageCount),
       lastUsed: Math.max(keeper.metrics.lastUsed, removed.metrics.lastUsed),
-      averageOutcome: (
-        keeper.metrics.averageOutcome * keeper.metrics.usageCount +
-        removed.metrics.averageOutcome * removed.metrics.usageCount
-      ) / (keeper.metrics.usageCount + removed.metrics.usageCount),
-      userSatisfaction: (
-        keeper.metrics.userSatisfaction * keeper.metrics.usageCount +
-        removed.metrics.userSatisfaction * removed.metrics.usageCount
+      avgExecutionTime: (
+        (keeper.metrics.avgExecutionTime || 0) * keeper.metrics.usageCount +
+        (removed.metrics.avgExecutionTime || 0) * removed.metrics.usageCount
       ) / (keeper.metrics.usageCount + removed.metrics.usageCount)
     };
 
     // 合并来源 Trajectory
     const mergedSources = [
-      ...(keeper.sourceTrajectoryIds || []),
-      ...(removed.sourceTrajectoryIds || [])
+      ...(keeper.sourceLearningIds || []),
+      ...(removed.sourceLearningIds || [])
     ];
 
     // 更新保留的 Playbook
     await this.updatePlaybook(keeper.id, {
       metrics: mergedMetrics,
-      sourceTrajectoryIds: Array.from(new Set(mergedSources)),
+      sourceLearningIds: Array.from(new Set(mergedSources)),
       lastUpdated: Date.now()
     });
 
@@ -823,5 +831,498 @@ ${playbookList}
       logger.error('[PlaybookMatcher] Failed to delete playbook:', error);
       throw error;
     }
+  }
+
+  // ========== 动态类型匹配方法 ==========
+
+  /**
+   * 多标签动态匹配 - 支持动态类型标签的智能匹配
+   *
+   * 该方法通过以下步骤实现动态类型匹配：
+   * 1. 从用户查询中提取类型信号
+   * 2. 基于类型信号检索候选 Playbook
+   * 3. 计算多维度匹配分数（完全匹配、语义相似、共现模式、上下文、频率）
+   * 4. 按分数排序并返回最佳匹配
+   *
+   * @param context 匹配上下文（包含用户查询、域、场景等）
+   * @param config 推荐配置（可自定义阈值和参数）
+   * @returns 匹配的 Playbook 列表，按分数降序排列
+   */
+  async matchPlaybooksDynamic(
+    context: MatchingContext,
+    config: PlaybookRecommendationConfig = PlaybookMatcher.DEFAULT_CONFIG
+  ): Promise<PlaybookMatch[]> {
+    try {
+      logger.info('[PlaybookMatcher] 开始动态类型匹配', {
+        query: context.userQuery?.substring(0, 50),
+        useDynamicTypes: config.useDynamicTypes
+      });
+
+      // 1. 获取动态类型词汇表
+      const typeVocabulary = await this.typeVocabularyService.getAllTags();
+
+      if (typeVocabulary.length === 0) {
+        logger.warn('[PlaybookMatcher] 类型词汇表为空，使用回退策略');
+        return this.fallbackVectorSearchLegacy(context, config);
+      }
+
+      // 2. 从查询中提取类型信号
+      const typeSignals = await this.extractTypeSignals(context.userQuery, typeVocabulary);
+
+      logger.debug('[PlaybookMatcher] 提取到类型信号', {
+        signalCount: typeSignals.size,
+        topSignals: Array.from(typeSignals.entries())
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 5)
+          .map(([tag, strength]) => `${tag}:${strength.toFixed(2)}`)
+      });
+
+      // 3. 基于类型信号检索候选 Playbook
+      const typeBasedCandidates = await this.findPlaybooksByTypeSignals(typeSignals);
+
+      logger.debug('[PlaybookMatcher] 基于类型信号检索候选', {
+        candidateCount: typeBasedCandidates.length
+      });
+
+      if (typeBasedCandidates.length === 0) {
+        logger.warn('[PlaybookMatcher] 未找到基于类型信号的候选，使用回退策略');
+        return this.fallbackVectorSearchLegacy(context, config);
+      }
+
+      // 4. 计算多标签匹配分数
+      const matches = await Promise.all(
+        typeBasedCandidates.map(pb => this.calculateMultiTagMatchScore(pb, context, typeSignals))
+      );
+
+      // 5. 过滤和排序
+      const sortedMatches = matches
+        .filter(m => m.matchScore >= config.minMatchScore)
+        .sort((a, b) => b.matchScore - a.matchScore)
+        .slice(0, config.maxRecommendations);
+
+      logger.info(
+        `[PlaybookMatcher] 动态匹配完成，找到 ${sortedMatches.length} 个匹配结果`
+      );
+
+      // 记录匹配详情
+      sortedMatches.forEach((match, index) => {
+        const playbook = match.playbook;
+        logger.info(
+          `[PlaybookMatcher] 匹配 #${index + 1}: ${playbook.name} (分数: ${(match.matchScore * 100).toFixed(1)}%)`
+        );
+      });
+
+      return sortedMatches;
+
+    } catch (error) {
+      logger.error('[PlaybookMatcher] 动态匹配失败，使用回退策略', error);
+      return this.fallbackVectorSearchLegacy(context, config);
+    }
+  }
+
+  /**
+   * 计算多标签匹配分数 - 支持多维度评分算法
+   *
+   * 评分维度：
+   * 1. 完全匹配 (权重 1.0) - 类型标签完全匹配
+   * 2. 语义相似 (权重 0.8) - 标签语义相似
+   * 3. 共现模式 (权重 0.6) - 标签共现统计
+   * 4. 上下文匹配 (权重 0.2) - 场景、域等上下文
+   * 5. 使用频率 (权重 0.1) - Playbook 使用统计
+   *
+   * @param playbook 待评估的 Playbook
+   * @param context 匹配上下文
+   * @param typeSignals 从查询中提取的类型信号
+   * @returns 包含详细分数的匹配结果
+   */
+  private async calculateMultiTagMatchScore(
+    playbook: StrategicPlaybook,
+    context: MatchingContext,
+    typeSignals: Map<string, number>
+  ): Promise<PlaybookMatch> {
+    let totalScore = 0;
+    const matchReasons: string[] = [];
+    const tagScores: Array<{ tag: string; score: number; matchType: 'exact' | 'similar' | 'cooccurrence' }> = [];
+
+    const playbookTags = playbook.type_tags || [];
+    const playbookConfidences = playbook.type_confidence || {};
+
+    // 1. 标签完全匹配 (权重 1.0)
+    for (const tag of playbookTags) {
+      const signalStrength = typeSignals.get(tag) || 0;
+      const confidence = playbookConfidences[tag] || 0.5;
+
+      if (signalStrength > 0.7) {
+        const score = signalStrength * confidence * 1.0;
+        totalScore += score;
+        tagScores.push({ tag, score, matchType: 'exact' });
+        matchReasons.push(`标签 "${tag}" 完全匹配 (${(score * 100).toFixed(0)}%)`);
+      }
+    }
+
+    // 2. 标签语义相似匹配 (权重 0.8)
+    for (const tag of playbookTags) {
+      const similarTags = await this.similarityService.getSimilarTags(tag, 0.7);
+
+      for (const similar of similarTags) {
+        const similarTagName = similar.tag1 === tag ? similar.tag2 : similar.tag1;
+        const signalStrength = typeSignals.get(similarTagName) || 0;
+
+        if (signalStrength > 0.6) {
+          const confidence = playbookConfidences[tag] || 0.5;
+          const score = signalStrength * confidence * similar.similarity_score * 0.8;
+          totalScore += score;
+          tagScores.push({ tag, score: score / 0.8, matchType: 'similar' });
+          matchReasons.push(`标签 "${tag}" 语义相似 "${similarTagName}" (${(score * 100).toFixed(0)}%)`);
+        }
+      }
+    }
+
+    // 3. 标签共现模式匹配 (权重 0.6)
+    const cooccurrenceScore = await this.calculateCooccurrenceScore(playbookTags, typeSignals);
+    if (cooccurrenceScore > 0) {
+      totalScore += cooccurrenceScore * 0.6;
+      matchReasons.push(`标签共现模式匹配 (${(cooccurrenceScore * 100 * 0.6).toFixed(0)}%)`);
+    }
+
+    // 4. 上下文匹配 (权重 0.2)
+    const contextScore = this.calculateContextMatchLegacy(playbook, context as any) * 0.2;
+    if (contextScore > 0) {
+      totalScore += contextScore;
+      matchReasons.push(`上下文匹配 (${(contextScore * 100).toFixed(0)}%)`);
+    }
+
+    // 5. 使用频率 (权重 0.1)
+    const usageScore = Math.min(playbook.metrics.usageCount / 100, 1) * 0.1;
+    if (usageScore > 0) {
+      totalScore += usageScore;
+      matchReasons.push(`使用频率 (${playbook.metrics.usageCount}次)`);
+    }
+
+    // 6. 时效性 (权重 0.1)
+    const recencyScore = this.calculateRecencyScore(playbook.metrics.lastUsed) * 0.1;
+    if (recencyScore > 0) {
+      totalScore += recencyScore;
+      matchReasons.push(`最近更新 (${(recencyScore * 100).toFixed(0)}%)`);
+    }
+
+    // archived 状态的 Playbook 应用权重惩罚（但不排除）
+    if (playbook.status === 'archived') {
+      totalScore *= 0.7;
+      matchReasons.push('已归档（降低权重）');
+    }
+
+    // 归一化到 [0, 1]
+    const normalizedScore = Math.min(totalScore, 1);
+
+    return {
+      playbook,
+      matchScore: normalizedScore,
+      matchReasons,
+      applicableSteps: playbook.actions.map((_, i) => i),
+      tagScores
+    };
+  }
+
+  /**
+   * 提取类型信号 - 从用户查询中识别潜在的类型标签
+   *
+   * 通过以下方式提取信号：
+   * 1. 关键词匹配 - 查询与类型关键词的直接匹配
+   * 2. 语义分析 - 考虑同义词和相关词
+   * 3. 信号强度计算 - 匹配关键词数 / 总关键词数
+   *
+   * @param query 用户查询文本
+   * @param typeVocabulary 类型词汇表
+   * @returns 类型信号映射，key 为标签名，value 为信号强度 [0-1]
+   */
+  private async extractTypeSignals(
+    query: string,
+    typeVocabulary: TypeVocabulary[]
+  ): Promise<Map<string, number>> {
+    const signals = new Map<string, number>();
+    const queryLower = query.toLowerCase();
+
+    // 分词预处理
+    const queryWords = this.tokenizeQuery(queryLower);
+
+    logger.debug('[PlaybookMatcher] 开始提取类型信号', {
+      queryLength: query.length,
+      queryWords: queryWords.slice(0, 10)
+    });
+
+    for (const type of typeVocabulary) {
+      let matchCount = 0;
+      const matchedKeywords: string[] = [];
+
+      // 检查关键词匹配
+      for (const keyword of type.keywords) {
+        const keywordLower = keyword.toLowerCase();
+
+        // 直接匹配
+        if (queryLower.includes(keywordLower)) {
+          matchCount++;
+          matchedKeywords.push(keyword);
+          continue;
+        }
+
+        // 模糊匹配（包含关系）
+        for (const queryWord of queryWords) {
+          if (queryWord.length < 2) continue; // 跳过单字符
+
+          // 检查是否包含或被包含
+          if (keywordLower.includes(queryWord) || queryWord.includes(keywordLower)) {
+            matchCount += 0.5; // 模糊匹配权重较低
+            matchedKeywords.push(keyword);
+            break;
+          }
+        }
+      }
+
+      // 计算信号强度
+      // 基础强度 = 匹配关键词数 / 总关键词数
+      const baseStrength = type.keywords.length > 0
+        ? matchCount / type.keywords.length
+        : 0;
+
+      // 增强因子：如果类型置信度高，增强信号强度
+      const confidenceBoost = type.confidence * 0.2;
+
+      // 增强因子：如果 playbook 数量多，增强信号强度
+      const playbookCountBoost = Math.min(type.playbook_count / 100, 0.3);
+
+      // 最终信号强度
+      const signalStrength = Math.min(baseStrength + confidenceBoost + playbookCountBoost, 1);
+
+      if (signalStrength > 0) {
+        signals.set(type.tag_name, signalStrength);
+
+        logger.debug('[PlaybookMatcher] 类型信号匹配', {
+          tag: type.tag_name,
+          matchedKeywords,
+          signalStrength: signalStrength.toFixed(3)
+        });
+      }
+    }
+
+    return signals;
+  }
+
+  /**
+   * 基于类型信号检索 Playbook - 智能检索策略
+   *
+   * 检索策略：
+   * 1. 选择信号强度 > 0.5 的强信号标签
+   * 2. 取前 5 个最强信号
+   * 3. 基于这些标签查询关联的 Playbook
+   * 4. 如果没有强信号，回退到向量检索
+   *
+   * @param typeSignals 类型信号映射
+   * @returns 候选 Playbook 列表
+   */
+  private async findPlaybooksByTypeSignals(
+    typeSignals: Map<string, number>
+  ): Promise<StrategicPlaybook[]> {
+    // 选择强信号标签
+    const strongSignals = Array.from(typeSignals.entries())
+      .filter(([_, strength]) => strength > 0.5)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5) // 取前 5 个强信号
+      .map(([tag, _]) => tag);
+
+    logger.debug('[PlaybookMatcher] 强信号标签', {
+      strongSignalCount: strongSignals.length,
+      tags: strongSignals
+    });
+
+    if (strongSignals.length === 0) {
+      logger.warn('[PlaybookMatcher] 没有强信号标签，回退到向量检索');
+      return await this.fallbackVectorSearch();
+    }
+
+    // TODO: 实现基于类型标签的 Playbook 查询
+    // 这里需要与实际的存储系统集成
+    // 目前使用向量检索作为替代
+
+    logger.info('[PlaybookMatcher] 基于类型标签查询 Playbook', {
+      tagCount: strongSignals.length,
+      tags: strongSignals
+    });
+
+    // 回退到向量检索（临时实现）
+    return await this.fallbackVectorSearch();
+  }
+
+  /**
+   * 计算标签共现分数 - 分析标签组合的统计意义
+   *
+   * 共现分析：
+   * 1. 计算 Playbook 中标签两两之间的相似度
+   2. 结合类型信号的强度
+   3. 得出标签组合的整体分数
+   *
+   * @param playbookTags Playbook 的标签列表
+   * @param typeSignals 类型信号映射
+   * @returns 共现分数 [0-1]
+   */
+  private async calculateCooccurrenceScore(
+    playbookTags: string[],
+    typeSignals: Map<string, number>
+  ): Promise<number> {
+    if (playbookTags.length < 2) {
+      return 0;
+    }
+
+    let totalCooccurrence = 0;
+    let pairCount = 0;
+
+    // 计算所有标签对的共现分数
+    for (let i = 0; i < playbookTags.length; i++) {
+      for (let j = i + 1; j < playbookTags.length; j++) {
+        const tag1 = playbookTags[i];
+        const tag2 = playbookTags[j];
+
+        try {
+          // 获取标签相似度
+          const similarity = await this.similarityService.calculateSimilarity(tag1, tag2);
+          const signal1 = typeSignals.get(tag1) || 0;
+          const signal2 = typeSignals.get(tag2) || 0;
+
+          // 共现分数 = 相似度 * 平均信号强度
+          const pairScore = similarity * (signal1 + signal2) / 2;
+          totalCooccurrence += pairScore;
+          pairCount++;
+
+        } catch (error) {
+          logger.warn('[PlaybookMatcher] 计算共现分数失败', {
+            tag1,
+            tag2,
+            error: error instanceof Error ? error.message : 'unknown'
+          });
+        }
+      }
+    }
+
+    const cooccurrenceScore = pairCount > 0 ? totalCooccurrence / pairCount : 0;
+
+    logger.debug('[PlaybookMatcher] 标签共现分数', {
+      tagCount: playbookTags.length,
+      pairCount,
+      cooccurrenceScore: cooccurrenceScore.toFixed(3)
+    });
+
+    return cooccurrenceScore;
+  }
+
+  /**
+   * 回退到向量检索 - 当动态类型匹配失败时的备选方案
+   *
+   * @returns 通过向量检索得到的 Playbook 列表
+   */
+  private async fallbackVectorSearch(): Promise<StrategicPlaybook[]> {
+    try {
+      const candidates = await this.toolRetrievalService.findRelevantSkills(
+        'strategic_playbook',
+        20,
+        0.4
+      );
+
+      return candidates
+        .map(r => this.parsePlaybookFromVector(r.tool))
+        .filter((p): p is StrategicPlaybook => p !== null);
+
+    } catch (error) {
+      logger.error('[PlaybookMatcher] 向量检索失败', error);
+      return [];
+    }
+  }
+
+  /**
+   * 回退到向量检索（Legacy 版本）- 兼容性方法
+   *
+   * @param context 匹配上下文
+   * @param config 推荐配置
+   * @returns 匹配的 Playbook 列表
+   */
+  private async fallbackVectorSearchLegacy(
+    context: MatchingContext,
+    config: PlaybookRecommendationConfig
+  ): Promise<PlaybookMatch[]> {
+    try {
+      const searchQuery = this.buildSearchQuery(context as any);
+      const candidates = await this.toolRetrievalService.findRelevantSkills(
+        searchQuery,
+        20,
+        0.4
+      );
+
+      const playbooks = candidates
+        .map(r => this.parsePlaybookFromVector(r.tool))
+        .filter((p): p is StrategicPlaybook => p !== null);
+
+      const validPlaybooks = playbooks.filter(p => p.status === 'active' || p.status === 'archived');
+
+      const matches = await Promise.all(
+        validPlaybooks.map(pb => this.calculateMatchScore(pb, context as any))
+      );
+
+      return matches
+        .filter(m => m.matchScore >= config.minMatchScore)
+        .sort((a, b) => b.matchScore - a.matchScore)
+        .slice(0, config.maxRecommendations);
+
+    } catch (error) {
+      logger.error('[PlaybookMatcher] Legacy 向量检索失败', error);
+      return [];
+    }
+  }
+
+  /**
+   * 分词查询文本 - 提取关键词
+   *
+   * @param query 查询文本
+   * @returns 分词结果
+   */
+  private tokenizeQuery(query: string): string[] {
+    return query
+      .toLowerCase()
+      .replace(/[，。？！；：、,\.!?;:\s]+/g, ' ')
+      .split(' ')
+      .filter(w => w.length > 0)
+      .slice(0, 50); // 限制关键词数量
+  }
+
+  /**
+   * 兼容性方法：保持原有上下文匹配逻辑
+   * @deprecated 使用 calculateMultiTagMatchScore 替代
+   */
+  private calculateContextMatchLegacy(
+    playbook: StrategicPlaybook,
+    context: LegacyMatchingContext
+  ): number {
+    let match = 0;
+
+    // 检查约束匹配
+    if (context.constraints?.maxSteps && playbook.actions.length <= context.constraints.maxSteps) {
+      match += 0.3;
+    }
+
+    // 检查资源匹配
+    if (context.constraints?.requiredResources) {
+      const hasResources = context.constraints.requiredResources.every(r =>
+        playbook.actions.some(a => a.resources?.includes(r))
+      );
+      if (hasResources) match += 0.4;
+    }
+
+    // 检查用户偏好匹配
+    if (context.userProfile?.pastSuccessPatterns) {
+      const hasPattern = context.userProfile.pastSuccessPatterns.some(p =>
+        playbook.tags.includes(p)
+      );
+      if (hasPattern) match += 0.3;
+    }
+
+    return Math.min(match, 1);
   }
 }

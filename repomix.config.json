@@ -1,0 +1,19 @@
+{
+  "ignore": {
+    "useGitignore": true, 
+    "useDefaultPatterns": true, 
+    "customPatterns": [
+      "**/*.sqlite",        
+      "**/*.sqlite3",       
+      "**/*.db",            
+      "**/data/**",         
+      "**/.data/**",  
+      "**/dist/**",         
+      "**/*.log",           
+      "tmp/",
+      "**/scripts/**",
+      "**/node_modules/**",
+      "**/.github/**"
+    ]
+  }
+}

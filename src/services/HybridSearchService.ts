@@ -7,7 +7,7 @@
  * - RRF 融合排序
  */
 
-import { StrategicPlaybook } from '../types/playbook';
+import { StrategicPlaybook } from '../core/playbook/types';
 import { HybridSearchOptions, BM25IndexEntry, SearchResultItem } from '../types/playbook-maintenance';
 import { ToolRetrievalService } from './ToolRetrievalService';
 import { logger } from '../utils/logger';
@@ -264,7 +264,6 @@ export class HybridSearchService {
         },
         actions: metadata.actions || [],
         sourceLearningIds: metadata.sourceLearningIds || [],
-        sourceTrajectoryIds: metadata.sourceTrajectoryIds || [],
         createdAt: metadata.createdAt || Date.now(),
         lastUpdated: metadata.lastUpdated || Date.now(),
         lastOptimized: metadata.lastOptimized || Date.now(),
@@ -274,7 +273,9 @@ export class HybridSearchService {
           averageOutcome: 0,
           lastUsed: 0,
           timeToResolution: 0,
-          userSatisfaction: 0
+          userSatisfaction: 0,
+          avgSatisfaction: 0,
+          avgExecutionTime: 0
         },
         optimizationCount: metadata.optimizationCount || 0,
         parentId: metadata.parentId,

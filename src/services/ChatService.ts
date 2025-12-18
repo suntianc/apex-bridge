@@ -486,7 +486,7 @@ export class ChatService {
           const playbooks = await this.playbookMatcher.matchPlaybooks({
             userQuery,
             sessionHistory: []
-          }, { maxRecommendations: 1, minMatchScore: 0.8, considerMetrics: true, considerRecency: true, considerSimilarity: true });
+          }, { maxRecommendations: 1, minMatchScore: 0.8, useDynamicTypes: false, useSimilarityMatching: true, similarityThreshold: 0.8 });
 
           // 如果匹配到高置信度 Playbook，强制执行
           if (playbooks.length > 0 && playbooks[0].matchScore >= 0.8) {

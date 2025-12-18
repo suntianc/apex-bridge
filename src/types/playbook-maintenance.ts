@@ -3,7 +3,7 @@
  * Stage 3: Curator 自动去重、归档和混合检索
  */
 
-import type { StrategicPlaybook } from './playbook';
+import type { StrategicPlaybook } from '../core/playbook/types';
 
 /**
  * 重复 Playbook 对

@@ -18,7 +18,11 @@
     "format:check": "prettier -c .",
     "build:admin": "cd admin && npm run build",
     "build:all": "npm run build && npm run build:admin",
-    "config:reset": "ts-node scripts/reset-config.ts"
+    "config:reset": "ts-node scripts/reset-config.ts",
+    "migrations": "ts-node src/database/run-migrations.ts",
+    "migrations:run": "npm run migrations",
+    "migrations:status": "npm run migrations -- --status",
+    "migrations:rollback": "npm run migrations -- --rollback"
   },
   "keywords": [
     "ai",

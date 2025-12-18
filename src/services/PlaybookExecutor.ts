@@ -8,7 +8,7 @@
  * - 检测反模式并提前终止
  */
 
-import { StrategicPlaybook } from '../types/playbook';
+import { StrategicPlaybook } from '../core/playbook/types';
 import {
   PlaybookPlan,
   PlanStep,

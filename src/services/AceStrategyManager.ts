@@ -18,7 +18,7 @@ import { AceIntegrator } from './AceIntegrator';
 import { ToolRetrievalService } from './ToolRetrievalService';
 import { LLMManager } from '../core/LLMManager';
 import type { AceEthicsGuard } from './AceEthicsGuard';
-import type { StrategicPlaybook } from '../types/playbook';
+import type { StrategicPlaybook } from '../core/playbook/types';
 import { PlaybookManager } from './PlaybookManager';
 import { PlaybookMatcher } from './PlaybookMatcher';
 import { logger } from '../utils/logger';
@@ -988,10 +988,12 @@ ${context ? `\n上下文: ${context}` : ''}
         metrics: {
           successRate: 0, // 失败案例初始成功率为0，但会随使用更新
           usageCount: 0,
-          averageOutcome: 0,
+          avgSatisfaction: 0,
           lastUsed: 0,
-          timeToResolution: 0,
-          userSatisfaction: 0
+          avgExecutionTime: 0,
+          userSatisfaction: 0,
+          averageOutcome: 0,
+          timeToResolution: 0
         },
         tags: parsed.tags || ['risk-avoidance', 'failure-derived'],
         author: 'failure-analysis',

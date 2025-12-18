@@ -9,7 +9,7 @@
 
 import { Trajectory } from '../types/trajectory';
 import { ErrorType, ErrorDetails } from '../types/trajectory';
-import { StrategicPlaybook, PlaybookAction } from '../types/playbook';
+import { StrategicPlaybook, PlaybookAction } from '../core/playbook/types';
 import { ErrorPatternRule, FailurePattern } from '../types/reflector';
 import { PlaybookManager } from './PlaybookManager';
 import { logger } from '../utils/logger';
@@ -195,8 +195,7 @@ export class PlaybookReflector {
       step: 1,
       description: pattern.solution,
       expectedOutcome: `避免 ${this.getErrorTypeDisplayName(pattern.error_type)} 错误`,
-      resources: Array.from(involvedTools),
-      fallbackStrategy: pattern.anti_pattern
+      resources: Array.from(involvedTools)
     };
 
     const playbook: StrategicPlaybook = {
@@ -224,10 +223,12 @@ export class PlaybookReflector {
       metrics: {
         successRate: 0.0,
         usageCount: 0,
-        averageOutcome: 0,
+        avgSatisfaction: 0.0,
         lastUsed: 0,
-        timeToResolution: 0,
-        userSatisfaction: 0
+        avgExecutionTime: 0,
+        userSatisfaction: 0,
+        averageOutcome: 0,
+        timeToResolution: 0
       },
       optimizationCount: 0,
       tags: ['failure-derived', 'risk-avoidance', ...pattern.tags],

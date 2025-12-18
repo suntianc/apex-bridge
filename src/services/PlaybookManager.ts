@@ -3,7 +3,8 @@
  * 负责Playbook的CRUD、版本管理、生命周期管理
  */
 
-import { StrategicPlaybook, PlaybookExecution, PlaybookOptimization, TrajectoryCluster, BatchExtractionOptions } from '../types/playbook';
+import { StrategicPlaybook } from '../core/playbook/types';
+import { PlaybookExecution, PlaybookOptimization, TrajectoryCluster, BatchExtractionOptions } from '../types/playbook';
 import type { Trajectory } from '../types/ace-core.d.ts';
 import { AceStrategyManager, StrategicLearning } from './AceStrategyManager';
 import { ToolRetrievalService } from './ToolRetrievalService';
@@ -59,7 +60,9 @@ export class PlaybookManager {
         averageOutcome: 0,
         lastUsed: 0,
         timeToResolution: 0,
-        userSatisfaction: 0
+        userSatisfaction: 0,
+        avgSatisfaction: 0,
+        avgExecutionTime: 0
       }
     };
 
@@ -454,7 +457,9 @@ export class PlaybookManager {
           averageOutcome: 0,
           lastUsed: 0,
           timeToResolution: 0,
-          userSatisfaction: 0
+          userSatisfaction: 0,
+          avgSatisfaction: 0,
+          avgExecutionTime: 0
         },
         optimizationCount: metadata.optimizationCount || 0,
         parentId: metadata.parentId,
@@ -537,10 +542,12 @@ ${context ? `\n上下文: ${context}` : ''}
         metrics: {
           successRate: learning.outcome === 'success' ? 1 : 0,
           usageCount: 0,
-          averageOutcome: learning.outcome === 'success' ? 8 : 3,
+          avgSatisfaction: learning.outcome === 'success' ? 0.8 : 0.3,
           lastUsed: 0,
-          timeToResolution: 0,
-          userSatisfaction: 0
+          avgExecutionTime: 0,
+          userSatisfaction: learning.outcome === 'success' ? 8 : 3,
+          averageOutcome: learning.outcome === 'success' ? 8 : 3,
+          timeToResolution: 0
         },
         tags: parsed.tags || [],
         author: 'auto-extracted',
@@ -720,10 +727,12 @@ ${context ? `\n上下文: ${context}` : ''}
       metrics: {
         successRate: 0.8,  // 初始值基于簇大小
         usageCount: 0,
-        averageOutcome: 8,
+        avgSatisfaction: 0.8,
         lastUsed: 0,
-        timeToResolution: this.calculateAvgDuration(cluster.trajectories),
-        userSatisfaction: 7
+        avgExecutionTime: this.calculateAvgDuration(cluster.trajectories),
+        userSatisfaction: 7,
+        averageOutcome: 8,
+        timeToResolution: this.calculateAvgDuration(cluster.trajectories)
       },
       sourceTrajectoryIds: cluster.trajectories.map(t => t.task_id),
       tags: [...(extracted.tags || []), 'batch-extracted', ...cluster.common_keywords],
