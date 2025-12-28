@@ -3,17 +3,17 @@
  * ==========================================
  *
  * 替代 PlaybookExecutor，将 Playbook 指导内容注入到 LLM 推理链中。
- * 支持注入强度控制、失败回退机制、多 Playbook 同时注入。
+ * 简化设计：统一使用系统提示词注入，获得最强影响力。
  *
  * Features:
- * - 三种注入强度：light (思考链) / medium (用户消息) / intensive (系统提示词)
+ * - 统一注入到系统提示词（最强影响力）
  * - 支持多 Playbook 同时注入和冲突处理
  * - 完整的错误处理和回退机制
  * - 变量构建和模板渲染
  * - 详细的日志记录和效果追踪
  *
- * Version: 1.0.0
- * Created: 2025-12-18
+ * Version: 2.0.0 (Simplified)
+ * Updated: 2025-12-20
  */
 
 import { logger } from '../../utils/logger';
@@ -113,10 +113,9 @@ export class PlaybookInjector {
     context: MatchingContext,
     options: InjectionOptions = {}
   ): Promise<InjectionResult> {
-    this.logger.info('[PlaybookInjector] Starting playbook guidance injection', {
+    this.logger.debug('[PlaybookInjector] Starting playbook guidance injection', {
       playbookId: playbook.id,
-      playbookName: playbook.name,
-      guidanceLevel: options.guidance_level || playbook.guidance_level || 'medium'
+      playbookName: playbook.name
     });
 
     this.stats.totalInjections++;
@@ -176,11 +175,10 @@ export class PlaybookInjector {
       // 7. 更新统计信息
       this.updateStats(result, renderResult.token_count);
 
-      this.logger.info('[PlaybookInjector] Playbook guidance injected successfully', {
-        playbookId: playbook.id,
-        injectionPoint,
-        tokenCount: renderResult.token_count,
-        success: result.success
+      this.logger.info('[PlaybookInjector] ✅ Playbook 指导注入成功', {
+        playbook: playbook.name,
+        templateId: template.template_id,
+        tokenCount: renderResult.token_count
       });
 
       return result;
@@ -261,24 +259,12 @@ export class PlaybookInjector {
    * @returns 注入结果
    */
   private async performInjection(context: InjectionContext): Promise<InjectionResult> {
-    this.logger.debug('[PlaybookInjector] Performing injection', {
-      injectionPoint: context.injection_point,
+    this.logger.debug('[PlaybookInjector] Performing injection to system prompt', {
       playbookId: context.playbook.id
     });
 
-    switch (context.injection_point) {
-      case 'system_prompt':
-        return this.injectToSystemPrompt(context);
-
-      case 'user_message':
-        return this.injectToUserMessage(context);
-
-      case 'thinking_chain':
-        return this.injectToThinkingChain(context);
-
-      default:
-        return this.createFailureResult('invalid_injection_point');
-    }
+    // 只支持系统提示词注入
+    return this.injectToSystemPrompt(context);
   }
 
   /**
@@ -289,115 +275,71 @@ export class PlaybookInjector {
    */
   private async injectToSystemPrompt(context: InjectionContext): Promise<InjectionResult> {
     try {
-      // 获取当前系统提示词
-      const currentPrompt = this.systemPromptService.getSystemPromptTemplate();
+      // 构建 Playbook 指导变量（供 variableEngine.resolveMessages 使用）
+      const guidanceVariables = this.generateGuidanceVariables(context);
 
-      // 格式化指导内容
-      const formattedGuidance = this.formatForSystemPrompt(context);
-
-      // 如果有现有提示词，追加；否则直接设置
-      let enhancedPrompt: string;
-      if (currentPrompt && currentPrompt.trim()) {
-        enhancedPrompt = `${currentPrompt.trim()}\n\n${formattedGuidance}`;
-      } else {
-        enhancedPrompt = formattedGuidance;
-      }
-
-      // 更新系统提示词（仅内存中，不保存到文件）
-      this.systemPromptService.updateConfig(
-        {
-          template: enhancedPrompt,
-          enabled: true
-        },
-        false // 不保存到文件
-      );
-
-      this.logger.info('[PlaybookInjector] Injected into system prompt', {
-        playbookId: context.playbook.id,
-        tokenCount: this.estimateTokenCount(enhancedPrompt)
+      this.logger.info('[PlaybookInjector] ✅ Playbook 指导变量已生成', {
+        playbook: context.playbook.name,
+        variables: Object.keys(guidanceVariables)
       });
 
       return {
         success: true,
-        injected_content: enhancedPrompt,
+        injected_content: guidanceVariables.playbook_guidance,
         guidance_applied: true,
-        fallback_triggered: false
+        fallback_triggered: false,
+        variables: guidanceVariables  // 返回变量供外部使用
       };
 
     } catch (error) {
-      this.logger.error('[PlaybookInjector] Failed to inject into system prompt', {
+      this.logger.error('[PlaybookInjector] Failed to generate guidance variables', {
         playbookId: context.playbook.id,
         error: error instanceof Error ? error.message : String(error)
       });
 
-      return this.createFailureResult('system_prompt_injection_failed');
+      return this.createFailureResult('guidance_variable_generation_failed');
     }
   }
 
   /**
-   * 注入到用户消息（中等影响力）
+   * 生成 Playbook 指导变量
+   *
+   * @param context - 注入上下文
+   * @returns 包含 Playbook 指导的变量字典
+   */
+  generateGuidanceVariables(context: InjectionContext): Record<string, string> {
+    const guidanceContent = this.formatForSystemPrompt(context);
+
+    return {
+      playbook_guidance: guidanceContent,
+      playbook_name: context.playbook.name,
+      playbook_description: context.playbook.description,
+      playbook_template_id: context.template.template_id
+    };
+  }
+
+  /**
+   * 注入到用户消息（已废弃 - 统一使用系统提示词注入）
    *
    * @param context - 注入上下文
    * @returns 注入结果
+   * @deprecated
    */
   private async injectToUserMessage(context: InjectionContext): Promise<InjectionResult> {
-    try {
-      // 格式化指导内容
-      const formattedGuidance = this.formatForUserMessage(context);
-
-      this.logger.debug('[PlaybookInjector] Injected into user message', {
-        playbookId: context.playbook.id,
-        tokenCount: this.estimateTokenCount(formattedGuidance)
-      });
-
-      return {
-        success: true,
-        injected_content: formattedGuidance,
-        guidance_applied: true,
-        fallback_triggered: false
-      };
-
-    } catch (error) {
-      this.logger.error('[PlaybookInjector] Failed to inject into user message', {
-        playbookId: context.playbook.id,
-        error: error instanceof Error ? error.message : String(error)
-      });
-
-      return this.createFailureResult('user_message_injection_failed');
-    }
+    this.logger.warn('[PlaybookInjector] injectToUserMessage 已废弃，统一使用系统提示词注入');
+    return this.createFailureResult('deprecated_injection_method');
   }
 
   /**
-   * 注入到思考链（最小影响力）
+   * 注入到思考链（已废弃 - 统一使用系统提示词注入）
    *
    * @param context - 注入上下文
    * @returns 注入结果
+   * @deprecated
    */
   private async injectToThinkingChain(context: InjectionContext): Promise<InjectionResult> {
-    try {
-      // 格式化思考链指导
-      const formattedGuidance = this.formatForThinkingChain(context);
-
-      this.logger.debug('[PlaybookInjector] Injected into thinking chain', {
-        playbookId: context.playbook.id,
-        tokenCount: this.estimateTokenCount(formattedGuidance)
-      });
-
-      return {
-        success: true,
-        injected_content: formattedGuidance,
-        guidance_applied: true,
-        fallback_triggered: false
-      };
-
-    } catch (error) {
-      this.logger.error('[PlaybookInjector] Failed to inject into thinking chain', {
-        playbookId: context.playbook.id,
-        error: error instanceof Error ? error.message : String(error)
-      });
-
-      return this.createFailureResult('thinking_chain_injection_failed');
-    }
+    this.logger.warn('[PlaybookInjector] injectToThinkingChain 已废弃，统一使用系统提示词注入');
+    return this.createFailureResult('deprecated_injection_method');
   }
 
   /**
@@ -415,22 +357,8 @@ export class PlaybookInjector {
   determineInjectionPoint(
     guidance_level: 'light' | 'medium' | 'intensive'
   ): 'system_prompt' | 'user_message' | 'thinking_chain' {
-    switch (guidance_level) {
-      case 'light':
-        return 'thinking_chain'; // 轻度：仅影响思考过程
-
-      case 'medium':
-        return 'user_message'; // 中度：用户消息级别指导
-
-      case 'intensive':
-        return 'system_prompt'; // 重度：系统级别约束
-
-      default:
-        this.logger.warn('[PlaybookInjector] Unknown guidance level, using default', {
-          guidanceLevel: guidance_level
-        });
-        return 'user_message';
-    }
+    // 简化设计：统一使用系统提示词注入，获得最强影响力
+    return 'system_prompt';
   }
 
   /**
@@ -493,30 +421,27 @@ ${context.rendered_content}
   }
 
   /**
-   * 格式化思考链
+   * 格式化思考链（已废弃 - 统一使用系统提示词注入）
    *
    * @param context - 注入上下文
    * @returns 格式化的思考链指导
+   * @deprecated
    */
   formatForThinkingChain(context: InjectionContext): string {
-    return `【思考指导】根据 Playbook "${context.playbook.name}" 的指导：
-${context.rendered_content}
-
-请在思考过程中参考这些要点，确保决策和行动符合 Playbook 的原则和步骤。`;
+    this.logger.warn('[PlaybookInjector] formatForThinkingChain 已废弃，统一使用系统提示词注入');
+    return '';
   }
 
   /**
-   * 格式化用户消息
+   * 格式化用户消息（已废弃 - 统一使用系统提示词注入）
    *
    * @param context - 注入上下文
    * @returns 格式化的用户消息
+   * @deprecated
    */
   formatForUserMessage(context: InjectionContext): string {
-    return `【任务指导 - ${context.playbook.name}】
-
-${context.rendered_content}
-
-请按照以上指导完成当前任务，确保遵循 Playbook 中的步骤和原则。`;
+    this.logger.warn('[PlaybookInjector] formatForUserMessage 已废弃，统一使用系统提示词注入');
+    return '';
   }
 
   /**

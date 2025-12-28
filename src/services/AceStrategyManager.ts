@@ -98,7 +98,7 @@ export class AceStrategyManager {
 
     // 初始化Playbook系统
     this.playbookManager = new PlaybookManager(this, this.toolRetrievalService, this.llmManager);
-    this.playbookMatcher = new PlaybookMatcher(this.toolRetrievalService, this.llmManager);
+    this.playbookMatcher = new PlaybookMatcher(this.playbookManager.getToolRetrievalService(), this.llmManager);
 
     // 启动定期清理
     this.startPeriodicCleanup();

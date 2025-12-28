@@ -26,9 +26,11 @@ export class PlaybookManager {
   // 正在处理的提炼任务（防止重复）
   private activeExtractions: Set<string> = new Set();
 
+  private playbookToolRetrievalService: ToolRetrievalService;
+
   constructor(
     private strategyManager: AceStrategyManager,
-    private toolRetrievalService: ToolRetrievalService,
+    skillToolRetrievalService: ToolRetrievalService,
     private llmManager: LLMManager
   ) {
     this.playbookCache = createCache<Map<string, StrategicPlaybook>>(
@@ -41,7 +43,22 @@ export class PlaybookManager {
       PlaybookManager.MAX_PLAYBOOKS_PER_USER
     );
 
-    logger.info('[PlaybookManager] Initialized with caching');
+    // 创建独立的ToolRetrievalService用于Playbook（使用独立的向量库）
+    this.playbookToolRetrievalService = new ToolRetrievalService({
+      vectorDbPath: './.data/playbooks.lance',
+      model: 'nomic-embed-text',
+      cacheSize: 1000,
+      dimensions: 768,
+      similarityThreshold: 0.50
+    });
+
+    this.playbookToolRetrievalService.initialize().then(() => {
+      logger.info('[PlaybookManager] ✅ Playbook-specific ToolRetrievalService initialized');
+    }).catch((error) => {
+      logger.error('[PlaybookManager] ❌ Failed to initialize Playbook ToolRetrievalService:', error);
+    });
+
+    logger.info('[PlaybookManager] Initialized with caching and independent vector database');
   }
 
   /**
@@ -87,8 +104,8 @@ export class PlaybookManager {
       return cache.get(id)!;
     }
 
-    // 从向量数据库检索
-    const searchResult = await this.toolRetrievalService.findRelevantSkills(
+    // 从Playbook向量数据库检索
+    const searchResult = await this.playbookToolRetrievalService.findRelevantSkills(
       `playbook ${id}`,
       1,
       0.99
@@ -227,7 +244,7 @@ export class PlaybookManager {
       ? `${query} type:${options.type}`
       : query;
 
-    const searchResult = await this.toolRetrievalService.findRelevantSkills(
+    const searchResult = await this.playbookToolRetrievalService.findRelevantSkills(
       searchQuery,
       options?.limit || 10,
       0.5
@@ -385,6 +402,14 @@ export class PlaybookManager {
 
   // ========== 私有方法 ==========
 
+  /**
+   * 获取Playbook专用的ToolRetrievalService
+   * 供其他组件使用（如PlaybookMatcher）
+   */
+  public getToolRetrievalService(): ToolRetrievalService {
+    return this.playbookToolRetrievalService;
+  }
+
   private generatePlaybookId(): string {
     return `pb_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
@@ -392,7 +417,8 @@ export class PlaybookManager {
   private async storePlaybookToVectorDB(playbook: StrategicPlaybook): Promise<void> {
     const description = `Playbook: ${playbook.name}\nType: ${playbook.type}\nContext: ${playbook.context.scenario}\nActions: ${playbook.actions.length} steps`;
 
-    await this.toolRetrievalService.indexSkill({
+    // 使用独立的Playbook向量库
+    await this.playbookToolRetrievalService.indexSkill({
       name: playbook.id,
       description,
       tags: ['playbook', playbook.type, ...playbook.tags],

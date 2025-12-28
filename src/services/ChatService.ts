@@ -31,17 +31,30 @@ import { LLMManagerAdapter } from '../core/stream-orchestrator/LLMAdapter';
 import { extractTextFromMessage } from '../utils/message-utils';
 import { parseAggregatedContent } from '../api/utils/stream-parser';
 import { VariableEngine } from '../core/variable/VariableEngine';
-import { PlaybookExecutor } from './PlaybookExecutor';
 import { PlaybookMatcher } from './PlaybookMatcher';
-import { PlaybookManager } from './PlaybookManager';
-import { ToolDispatcher } from '../core/tool-action/ToolDispatcher';
-import { ExecutionContext } from '../types/playbook-execution';
+import { ToolRetrievalService } from './ToolRetrievalService';
+import { getSkillManager } from './SkillManager';
+import {
+  PlaybookInjector,
+  PlaybookTemplateManager,
+  PromptTemplateService
+} from '../core/playbook';
+import { ContextManager } from '../context/ContextManager';
+import { ContextStorageService } from './ContextStorageService';
+import { EnhancedSessionManager } from './EnhancedSessionManager';
 
 export class ChatService {
 
   private llmManager: LLMManager;
   private aceService: AceService;
   private conversationHistoryService: ConversationHistoryService;
+
+  // Phase 1: 上下文管理
+  private contextManager: ContextManager;
+  private contextStorageService: ContextStorageService;
+
+  // Phase 3: 增强会话管理
+  private enhancedSessionManager: EnhancedSessionManager;
 
   // 🆕 系统提示词服务
   private systemPromptService: SystemPromptService;
@@ -67,11 +80,11 @@ export class ChatService {
   // 🆕 P3阶段：ACE伦理守卫（L1渴望层）
   private ethicsGuard: AceEthicsGuard;
 
-  // 🆕 Stage 3.5: Playbook 强制执行
-  private playbookExecutor: PlaybookExecutor;
+  // 🆕 Playbook 注入式系统 (基于文档设计)
   private playbookMatcher: PlaybookMatcher;
-  private playbookManager: PlaybookManager;
-  private toolDispatcher: ToolDispatcher;
+  private playbookInjector: PlaybookInjector;
+  private playbookTemplateManager: PlaybookTemplateManager;
+  private promptTemplateService: PromptTemplateService;
 
   constructor(
     private protocolEngine: ProtocolEngine,
@@ -88,6 +101,26 @@ export class ChatService {
 
     // 初始化会话管理器
     this.sessionManager = new SessionManager(this.aceService, this.conversationHistoryService);
+
+    // Phase 1: 初始化上下文存储服务和上下文管理器
+    this.contextStorageService = ContextStorageService.getInstance();
+    this.contextManager = new ContextManager(this.sessionManager, this.llmManager);
+    logger.debug('[ChatService] Context management initialized (Phase 1)');
+
+    // Phase 3: 初始化增强会话管理器
+    this.enhancedSessionManager = new EnhancedSessionManager(
+      this.sessionManager,
+      this.contextStorageService,
+      this.conversationHistoryService,
+      this.aceService,
+      {
+        checkpointInterval: 10,
+        maxCheckpoints: 50,
+        maxCacheSize: 1000,
+        cacheTtlMs: 5 * 60 * 1000
+      }
+    );
+    logger.debug('[ChatService] Enhanced session management initialized (Phase 3)');
 
     // 初始化请求追踪器（5分钟超时）
     this.requestTracker = new RequestTracker(null, 300000);
@@ -120,16 +153,34 @@ export class ChatService {
     this.ethicsGuard = (this.aceIntegrator as any).ethicsGuard || new (require('./AceEthicsGuard').AceEthicsGuard)(this.llmManager, this.aceIntegrator);
     logger.debug('[ChatService] AceEthicsGuard initialized (L1 layer)');
 
-    // 🆕 Stage 3.5: 初始化 Playbook 强制执行相关组件
-    this.toolDispatcher = new ToolDispatcher();
-    this.playbookManager = new PlaybookManager(
-      (this.aceService as any).strategyManager,
-      (this.protocolEngine as any).toolRetrievalService,
+    // 🆕 Playbook 注入式系统初始化 (基于文档设计)
+    // 注意：PromptTemplateService 需要 Database 实例，这里简化处理
+    // 在实际应用中，应该使用数据库连接池或单例模式
+    const Database = require('better-sqlite3');
+    const templateDb = new Database('./.data/playbook_templates.db');
+    this.promptTemplateService = new (require('../core/playbook/PromptTemplateService').PromptTemplateService)(templateDb, logger);
+    this.playbookTemplateManager = new PlaybookTemplateManager(
+      this.promptTemplateService,
+      this.variableEngine,
+      logger
+    );
+    // 创建独立的PlaybookMatcher（使用独立的向量库）
+    this.playbookMatcher = new PlaybookMatcher(
+      new ToolRetrievalService({
+        vectorDbPath: './.data/playbooks.lance',
+        model: 'nomic-embed-text',
+        cacheSize: 1000,
+        dimensions: 768,
+        similarityThreshold: 0.50
+      }),
       this.llmManager
     );
-    this.playbookMatcher = new PlaybookMatcher((this.protocolEngine as any).toolRetrievalService, this.llmManager);
-    this.playbookExecutor = new PlaybookExecutor(this.toolDispatcher, this.llmManager);
-    logger.debug('[ChatService] Playbook forced execution components initialized');
+    this.playbookInjector = new PlaybookInjector(
+      this.playbookTemplateManager,
+      this.systemPromptService,
+      logger
+    );
+    logger.debug('[ChatService] Playbook injection system initialized');
 
     // 尝试初始化 ACE (非阻塞)
     this.aceService.initialize().catch(err => {
@@ -451,6 +502,38 @@ export class ChatService {
         logger.debug('[ChatService] Processing message without session (no conversationId)');
       }
 
+      // Phase 1: 上下文预处理（如果启用了上下文管理且有会话）
+      if (options.sessionId && this.contextManager) {
+        try {
+          // 获取当前消息的完整历史（用于上下文管理）
+          const conversationHistory = await this.getConversationHistory(
+            conversationId || options.sessionId,
+            1000, // 获取足够的历史消息
+            0
+          );
+
+          // 应用上下文管理
+          const contextResult = await this.contextManager.manageContext(
+            options.sessionId,
+            conversationHistory,
+            {
+              force: false,
+              createCheckpoint: true
+            }
+          );
+
+          // 如果上下文被管理，使用有效消息替换当前消息
+          if (contextResult.managed) {
+            logger.info(`[ChatService] Context managed: ${contextResult.action.type}, saved ${contextResult.action.tokensBefore - contextResult.action.tokensAfter} tokens`);
+            // 使用管理后的消息作为上下文
+            messages = contextResult.effectiveMessages;
+          }
+        } catch (error: any) {
+          logger.warn(`[ChatService] Context management failed: ${error.message}, continuing without context management`);
+          // 上下文管理失败不影响主流程
+        }
+      }
+
       // 🆕 P1阶段：检查是否启用ACE编排模式
       if (this.shouldUseACEOrchestration(messages, options)) {
         logger.info('[ChatService] Using ACE orchestration mode (L4 layer)');
@@ -477,86 +560,63 @@ export class ChatService {
         return result;
       }
 
-      // 2. 🆕 Stage 3.5: 检查 Playbook 强制执行
+      // 2. 🆕 Playbook 注入式系统：匹配并生成变量
       const userQuery = extractTextFromMessage(messages[messages.length - 1]) || '';
+      let playbookGuidanceApplied = false;
+      let playbookVariables: Record<string, string> = {};
 
       if (userQuery.trim() && !options.stream) {
         try {
-          // 检索 Playbook
-          const playbooks = await this.playbookMatcher.matchPlaybooks({
+          const legacyContext = {
             userQuery,
-            sessionHistory: []
-          }, { maxRecommendations: 1, minMatchScore: 0.8, useDynamicTypes: false, useSimilarityMatching: true, similarityThreshold: 0.8 });
+            sessionHistory: [],
+            currentState: '',
+            userProfile: undefined as any,
+            constraints: undefined as any
+          };
 
-          // 如果匹配到高置信度 Playbook，强制执行
-          if (playbooks.length > 0 && playbooks[0].matchScore >= 0.8) {
-            const playbook = playbooks[0].playbook;
+          // 使用动态类型匹配（基于文档设计）
+          const matches = await this.playbookMatcher.matchPlaybooksDynamic(legacyContext, {
+            maxRecommendations: 1,
+            minMatchScore: 0.5,
+            useDynamicTypes: true,
+            useSimilarityMatching: true,
+            similarityThreshold: 0.7
+          });
 
-            logger.info(`[ChatService] 使用 Playbook 强制执行: ${playbook.name} (置信度: ${playbook.metrics.successRate})`);
+          if (matches.length > 0) {
+            const bestMatch = matches[0];
+            const playbook = bestMatch.playbook;
 
-            // 转换为 Plan
-            const plan = this.playbookExecutor.convertPlaybookToPlan(playbook);
+            logger.info(`[ChatService] 🎯 使用 Playbook: ${playbook.name} (匹配度: ${(bestMatch.matchScore * 100).toFixed(1)}%)`);
 
-            // 强制执行
-            const context: ExecutionContext = {
-              messages,
-              options,
-              intermediate_results: new Map()
+            // 转换为 InjectionContext 需要的格式
+            const injectionContext = {
+              userQuery,
+              sessionHistory: [],
+              domain: options.domain
             };
 
-            const result = await this.playbookExecutor.executePlan(plan, context);
+            // 生成 Playbook 指导变量（供 variableEngine.resolveMessages 使用）
+            const injectionResult = await this.playbookInjector.injectGuidance(playbook, injectionContext, {
+              guidance_level: 'intensive',  // 使用最强影响力
+              max_retry: 2,
+              fallback_enabled: true
+            });
 
-            // 如果成功，返回结果并更新统计
-            if (result.success) {
-              await this.playbookManager.recordExecutionForced({
-                playbookId: playbook.id,
-                sessionId: options.sessionId || 'unknown',
-                outcome: 'success',
-                duration: result.duration
+            if (injectionResult.success && injectionResult.variables) {
+              playbookGuidanceApplied = true;
+              playbookVariables = injectionResult.variables;
+              logger.info('[ChatService] ✅ Playbook 指导变量已生成', {
+                playbook: playbook.name,
+                variables: Object.keys(playbookVariables)
               });
-
-              // 更新会话元数据
-              if (options.sessionId) {
-                await this.updateSessionMetadata(options.sessionId, { total_tokens: 0 }).catch(err => {
-                  logger.warn(`[ChatService] Failed to update session metadata: ${err.message}`);
-                });
-              }
-
-              // 保存对话历史
-              if (options.conversationId) {
-                await this.saveConversationHistory(
-                  options.conversationId,
-                  messages,
-                  result.output,
-                  undefined,
-                  false
-                );
-              }
-
-              return {
-                content: result.output,
-                usage: { total_tokens: 0 },
-                duration: result.duration,
-                iterations: result.steps_completed,
-                used_playbook: true,
-                playbook_name: playbook.name
-              };
             } else {
-              // 失败：记录失败并回退到 ReAct
-              logger.warn(`[ChatService] Playbook 执行失败（${result.reason}），回退到 ReAct`);
-
-              await this.playbookManager.recordExecutionForced({
-                playbookId: playbook.id,
-                sessionId: options.sessionId || 'unknown',
-                outcome: 'failure',
-                duration: result.duration,
-                reason: result.reason
-              });
+              logger.debug('[ChatService] Playbook 指导变量生成失败，使用默认策略');
             }
           }
         } catch (error: any) {
-          logger.error('[ChatService] Playbook 强制执行失败，回退到常规策略:', error);
-          // 发生错误时继续使用常规策略
+          logger.warn('[ChatService] Playbook 注入失败，继续使用常规策略:', error.message);
         }
       }
 
@@ -572,7 +632,10 @@ export class ChatService {
       }
 
       // 4. 统一消息预处理（系统提示词注入 + 变量替换）
-      const processedMessages = await this.prepareMessages(messages, options, strategyVariables);
+      const processedMessages = await this.prepareMessages(messages, options, {
+        ...strategyVariables,
+        ...playbookVariables  // 合并 Playbook 指导变量
+      });
 
       // 5. 检查是否为流式模式
       if (options.stream) {
@@ -972,5 +1035,157 @@ export class ChatService {
    */
   stopCleanupTimer(): void {
     this.requestTracker.stopCleanupTimer();
+  }
+
+  // ==================== Phase 1: Context Management ====================
+
+  /**
+   * 获取上下文管理器实例
+   */
+  getContextManager(): ContextManager {
+    return this.contextManager;
+  }
+
+  /**
+   * 获取上下文存储服务实例
+   */
+  getContextStorageService(): ContextStorageService {
+    return this.contextStorageService;
+  }
+
+  /**
+   * 强制压缩会话上下文
+   */
+  async forceCompactContext(
+    sessionId: string,
+    conversationId?: string,
+    threshold?: number
+  ): Promise<any> {
+    const convId = conversationId || sessionId;
+    const history = await this.getConversationHistory(convId, 1000, 0);
+    return this.contextManager.forceCompact(sessionId, history, threshold);
+  }
+
+  /**
+   * 创建检查点
+   */
+  async createContextCheckpoint(
+    conversationId: string,
+    reason: string = 'Manual checkpoint'
+  ): Promise<string> {
+    const history = await this.getConversationHistory(conversationId, 1000, 0);
+    return this.contextManager.createCheckpoint(conversationId, history, reason);
+  }
+
+  /**
+   * 恢复到检查点
+   */
+  async rollbackToCheckpoint(
+    sessionId: string,
+    checkpointId: string
+  ): Promise<any> {
+    return this.contextManager.rollbackToCheckpoint(sessionId, checkpointId);
+  }
+
+  /**
+   * 获取上下文状态
+   */
+  async getContextStatus(sessionId: string): Promise<any> {
+    return this.contextManager.getContextStatus(sessionId);
+  }
+
+  /**
+   * 获取检查点列表
+   */
+  async getContextCheckpoints(conversationId: string): Promise<any> {
+    return this.contextStorageService.getCheckpoints(conversationId);
+  }
+
+  /**
+   * 获取上下文统计
+   */
+  async getContextStats(sessionId: string): Promise<any> {
+    return this.contextStorageService.getContextStats(sessionId);
+  }
+
+  // ==================== Phase 3: Enhanced Session Management ====================
+
+  /**
+   * 获取增强会话管理器实例
+   */
+  getEnhancedSessionManager(): EnhancedSessionManager {
+    return this.enhancedSessionManager;
+  }
+
+  /**
+   * 创建会话检查点
+   */
+  async createSessionCheckpoint(
+    conversationId: string,
+    sessionId?: string,
+    reason?: string,
+    metadata?: Record<string, any>
+  ): Promise<string> {
+    return this.enhancedSessionManager.createCheckpoint(conversationId, sessionId, reason, metadata);
+  }
+
+  /**
+   * 恢复到检查点
+   */
+  async rollbackToSessionCheckpoint(
+    checkpointId: string,
+    conversationId: string,
+    sessionId?: string
+  ): Promise<any> {
+    return this.enhancedSessionManager.rollbackToCheckpoint(checkpointId, conversationId, sessionId);
+  }
+
+  /**
+   * 获取会话检查点列表
+   */
+  async getSessionCheckpoints(conversationId: string): Promise<any> {
+    return this.enhancedSessionManager.getCheckpoints(conversationId);
+  }
+
+  /**
+   * 获取会话指标
+   */
+  async getSessionMetrics(sessionId: string, conversationId?: string): Promise<any> {
+    return this.enhancedSessionManager.getSessionMetrics(sessionId, conversationId);
+  }
+
+  /**
+   * 获取缓存状态
+   */
+  getSessionCacheStatus(): any {
+    return this.enhancedSessionManager.getCacheStatus();
+  }
+
+  /**
+   * 预加载会话数据
+   */
+  async preloadSession(sessionId: string, conversationId?: string): Promise<void> {
+    return this.enhancedSessionManager.preloadSession(sessionId, conversationId);
+  }
+
+  /**
+   * 清理会话缓存
+   */
+  cleanupSessionCache(sessionId?: string): void {
+    this.enhancedSessionManager.cleanupSessionCache(sessionId);
+  }
+
+  /**
+   * 获取健康会话列表
+   */
+  async getHealthySessions(): Promise<any> {
+    return this.enhancedSessionManager.getHealthySessions();
+  }
+
+  /**
+   * 归档不活跃会话
+   */
+  async archiveInactiveSessions(maxIdleTime?: number): Promise<number> {
+    return this.enhancedSessionManager.archiveInactiveSessions(maxIdleTime);
   }
 }

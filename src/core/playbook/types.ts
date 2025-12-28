@@ -708,6 +708,9 @@ export interface InjectionResult {
 
   /** Reason for failure or additional info */
   reason?: string;
+
+  /** Variables generated for injection (供 variableEngine.resolveMessages 使用) */
+  variables?: Record<string, string>;
 }
 
 /**

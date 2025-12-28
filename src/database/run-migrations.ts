@@ -14,7 +14,7 @@ import { MigrationRunner } from './MigrationRunner';
 import * as path from 'path';
 
 // Configuration
-const DATABASE_PATH = process.env.PLAYBOOK_DB_PATH || 'data/playbook.db';
+const DATABASE_PATH = process.env.PLAYBOOK_DB_PATH || '.data/playbook.db';
 const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
 
 // Parse command line arguments

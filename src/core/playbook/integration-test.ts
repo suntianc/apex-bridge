@@ -37,7 +37,7 @@ async function runIntegrationTest() {
   try {
     // Setup
     console.log('1. Setting up database and services...');
-    const db = new Database('data/test_playbook_templates.db');
+    const db = new Database('.data/test_playbook_templates.db');
     db.pragma('journal_mode = WAL');
 
     const variableEngine = new VariableEngine({ enableCache: true });

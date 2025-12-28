@@ -252,6 +252,9 @@ export class ToolRetrievalService {
           await this.db!.dropTable(tableName);
           logger.info(`Dropped existing table: ${tableName}`);
 
+          // 强制重新索引：删除所有 .vectorized 文件
+          await this.forceReindexSkills();
+
           // 继续创建新表
         } else {
           // 维度匹配，使用现有表
@@ -300,6 +303,11 @@ export class ToolRetrievalService {
 
       // 创建向量索引
       await this.createVectorIndex();
+
+      // 索引所有 Skills（新表或重新创建的表需要重新索引）
+      logger.info('Indexing all skills...');
+      await this.scanAndIndexAllSkills();
+      logger.info('Skills indexing completed');
 
     } catch (error) {
       logger.error('Failed to initialize Skills table:', error);
@@ -517,6 +525,7 @@ export class ToolRetrievalService {
     path: string;
     version?: string;
     metadata?: Record<string, any>;
+    tools?: any[];  // 新增 tools 参数
   }): Promise<void> {
     try {
       logger.info(`Indexing skill: ${skill.name}`);
@@ -528,6 +537,23 @@ export class ToolRetrievalService {
       const vector = await this.getEmbedding(skill);
 
       // 准备记录数据 - 向量保持为普通数组格式（LanceDB要求）
+      // 将 tools 转换为 parameters 格式以兼容现有代码
+      const tools = skill.tools || [];
+      const parameters = tools.length > 0 ? {
+        type: 'object',
+        properties: tools.reduce((acc: any, tool: any) => {
+          // 将每个工具作为参数
+          acc[tool.name] = {
+            type: 'object',
+            description: tool.description || '',
+            properties: tool.input_schema?.properties || {},
+            required: tool.input_schema?.required || []
+          };
+          return acc;
+        }, {}),
+        required: tools.filter((t: any) => t.input_schema?.required?.length > 0).map((t: any) => t.name)
+      } : { type: 'object', properties: {}, required: [] };
+
       const record: ToolsTable = {
         id: skillId,
         name: skill.name,
@@ -537,7 +563,11 @@ export class ToolRetrievalService {
         version: skill.version || '1.0.0',
         source: skill.name,
         toolType: 'skill',
-        metadata: JSON.stringify(skill.metadata || {}), // 转换为JSON字符串以匹配schema
+        metadata: JSON.stringify({
+          ...skill.metadata,
+          tools: skill.tools || [],
+          parameters: parameters  // 存储 parameters 信息
+        }), // 转换为JSON字符串以匹配schema
         vector: vector, // 保持为普通数组，不要转换为 Float32Array
         indexedAt: new Date()
       };
@@ -845,6 +875,7 @@ export class ToolRetrievalService {
     description: string;
     tags: string[];
     version?: string;
+    tools?: any[];
   }> {
     const skillMdPath = path.join(skillPath, 'SKILL.md');
 
@@ -862,7 +893,8 @@ export class ToolRetrievalService {
       name: parsed.data.name,
       description: parsed.data.description,
       tags: Array.isArray(parsed.data.tags) ? parsed.data.tags : [],
-      version: parsed.data.version || '1.0.0'
+      version: parsed.data.version || '1.0.0',
+      tools: parsed.data.tools || []  // 提取 tools 字段
     };
   }
 
@@ -899,6 +931,43 @@ export class ToolRetrievalService {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * 强制重新索引所有 Skills（删除所有 .vectorized 文件）
+   */
+  private async forceReindexSkills(): Promise<void> {
+    try {
+      const skillsDir = './.data/skills';
+
+      // 获取所有Skills目录
+      const entries = await fs.readdir(skillsDir, { withFileTypes: true });
+      const skillDirs = entries
+        .filter(entry => entry.isDirectory())
+        .map(entry => entry.name);
+
+      logger.info(`Force reindexing ${skillDirs.length} skills...`);
+
+      // 删除每个技能的 .vectorized 文件
+      for (const skillName of skillDirs) {
+        const skillPath = path.join(skillsDir, skillName);
+        const vectorizedFile = path.join(skillPath, '.vectorized');
+
+        try {
+          await fs.unlink(vectorizedFile);
+          logger.debug(`Deleted .vectorized file for skill: ${skillName}`);
+        } catch (error: any) {
+          // 文件不存在，忽略
+          if (error.code !== 'ENOENT') {
+            logger.warn(`Failed to delete .vectorized file for ${skillName}:`, error);
+          }
+        }
+      }
+
+      logger.info('Force reindex preparation completed');
+    } catch (error) {
+      logger.warn('Failed to force reindex skills:', error);
     }
   }
 

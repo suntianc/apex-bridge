@@ -63,7 +63,7 @@ import { MigrationRunner } from './src/database/MigrationRunner';
 import * as path from 'path';
 
 // Initialize runner
-const runner = new MigrationRunner('data/playbook.db');
+const runner = new MigrationRunner('.data/playbook.db');
 
 // Run migrations
 const results = await runner.run();
@@ -117,7 +117,7 @@ Reusable prompt templates associated with specific type tags.
 
 ## Environment Variables
 
-- `PLAYBOOK_DB_PATH` - Path to the SQLite database file (default: `data/playbook.db`)
+- `PLAYBOOK_DB_PATH` - Path to the SQLite database file (default: `.data/playbook.db`)
 
 ## Troubleshooting
 

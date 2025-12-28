@@ -849,12 +849,11 @@ ${playbookList}
    * @returns 匹配的 Playbook 列表，按分数降序排列
    */
   async matchPlaybooksDynamic(
-    context: MatchingContext,
+    context: LegacyMatchingContext,
     config: PlaybookRecommendationConfig = PlaybookMatcher.DEFAULT_CONFIG
   ): Promise<PlaybookMatch[]> {
     try {
-      logger.info('[PlaybookMatcher] 开始动态类型匹配', {
-        query: context.userQuery?.substring(0, 50),
+      logger.debug('[PlaybookMatcher] 开始动态类型匹配', {
         useDynamicTypes: config.useDynamicTypes
       });
 
@@ -904,10 +903,10 @@ ${playbookList}
         `[PlaybookMatcher] 动态匹配完成，找到 ${sortedMatches.length} 个匹配结果`
       );
 
-      // 记录匹配详情
+      // 记录匹配详情（改为 debug 级别，避免臃肿）
       sortedMatches.forEach((match, index) => {
         const playbook = match.playbook;
-        logger.info(
+        logger.debug(
           `[PlaybookMatcher] 匹配 #${index + 1}: ${playbook.name} (分数: ${(match.matchScore * 100).toFixed(1)}%)`
         );
       });
@@ -1144,9 +1143,8 @@ ${playbookList}
     // 这里需要与实际的存储系统集成
     // 目前使用向量检索作为替代
 
-    logger.info('[PlaybookMatcher] 基于类型标签查询 Playbook', {
-      tagCount: strongSignals.length,
-      tags: strongSignals
+    logger.debug('[PlaybookMatcher] 基于类型标签查询 Playbook', {
+      tagCount: strongSignals.length
     });
 
     // 回退到向量检索（临时实现）

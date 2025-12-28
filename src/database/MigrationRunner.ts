@@ -348,7 +348,7 @@ export class MigrationRunner {
 }
 
 // Example usage:
-// const runner = new MigrationRunner('data/playbook.db');
+// const runner = new MigrationRunner('.data/playbook.db');
 // const results = await runner.run();
 // console.log('Migration results:', results);
 // runner.close();

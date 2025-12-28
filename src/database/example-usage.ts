@@ -13,7 +13,7 @@ import Database from 'better-sqlite3';
 async function example1_RunMigrations(): Promise<void> {
   console.log('=== Example 1: Running Migrations ===\n');
 
-  const dbPath = 'data/playbook.db';
+  const dbPath = '.data/playbook.db';
   const runner = new MigrationRunner(dbPath);
 
   try {
@@ -50,7 +50,7 @@ async function example1_RunMigrations(): Promise<void> {
 function example2_QueryDatabase(): void {
   console.log('=== Example 2: Querying the Database ===\n');
 
-  const dbPath = 'data/playbook.db';
+  const dbPath = '.data/playbook.db';
   const db = new Database(dbPath);
 
   try {
@@ -93,7 +93,7 @@ function example2_QueryDatabase(): void {
 function example3_InsertData(): void {
   console.log('=== Example 3: Inserting Data ===\n');
 
-  const dbPath = 'data/playbook.db';
+  const dbPath = '.data/playbook.db';
   const db = new Database(dbPath);
 
   try {
@@ -175,7 +175,7 @@ function example3_InsertData(): void {
 function example4_TypeEvolution(): void {
   console.log('=== Example 4: Type Evolution History ===\n');
 
-  const dbPath = 'data/playbook.db';
+  const dbPath = '.data/playbook.db';
   const db = new Database(dbPath);
 
   try {
@@ -226,7 +226,7 @@ function example4_TypeEvolution(): void {
 async function example5_CheckStatus(): Promise<void> {
   console.log('=== Example 5: Checking Migration Status ===\n');
 
-  const dbPath = 'data/playbook.db';
+  const dbPath = '.data/playbook.db';
   const runner = new MigrationRunner(dbPath);
 
   try {
@@ -266,7 +266,7 @@ async function example6_Rollback(): Promise<void> {
   console.log('=== Example 6: Rollback Example ===\n');
   console.log('⚠️  WARNING: This is a demonstration. Always backup before rolling back!\n');
 
-  const dbPath = 'data/playbook.db';
+  const dbPath = '.data/playbook.db';
   const runner = new MigrationRunner(dbPath);
 
   try {

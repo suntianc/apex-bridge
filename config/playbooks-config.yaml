@@ -1,0 +1,13 @@
+playbooks:
+  storage:
+    path: "./.data/playbooks"
+    vectorDbPath: "./.data/playbooks.lance"
+  retrieval:
+    model: "nomic-embed-text"
+    cacheSize: 1000
+    dimensions: 768
+    similarityThreshold: 0.50  # Playbooks使用更高的阈值，避免噪声
+  execution:
+    timeout: 60000
+    maxOutputSize: 10485760  # 10MB
+    maxConcurrency: 3

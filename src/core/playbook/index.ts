@@ -13,6 +13,7 @@ export * from './types';
 export { TypeInductionEngine } from './TypeInductionEngine';
 export { PromptTemplateService } from './PromptTemplateService';
 export { PlaybookTemplateManager } from './PlaybookTemplateManager';
+export { PlaybookInjector } from './PlaybookInjector';
 
 // Export types for external use
 export type {
