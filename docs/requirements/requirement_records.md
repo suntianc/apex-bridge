@@ -10,7 +10,12 @@
 | 序号 | 需求名称 | 优先级 | 状态 | 关联文档 |
 |------|----------|--------|------|----------|
 | R-001 | 项目重构需求（试点 ConfigService） | 高 | 评审通过 | 01-project-refactoring.md |
+| R-002 | 剩余模块重构需求 | 高 | 评审通过 | [02-remaining-modules-refactoring.md](02-remaining-modules-refactoring.md) | [02-remaining-modules-refactoring-plan.md](../plans/02-remaining-modules-refactoring-plan.md) |
 | FD-001 | ConfigService 重构功能设计 | 高 | 评审通过 | [01-ConfigService-refactoring.md](/Users/suntc/project/apex-bridge/docs/functionality-design/01-ConfigService-refactoring.md)|
+| FD-002 | PlaybookMatcher 重构功能设计 | 高 | 评审通过 | [02-01-PlaybookMatcher-refactoring.md](/Users/suntc/project/apex-bridge/docs/functionality-design/02-01-PlaybookMatcher-refactoring.md)|
+| FD-003 | ToolRetrievalService 重构功能设计 | 高 | 评审通过 | [02-02-ToolRetrievalService-refactoring.md](/Users/suntc/project/apex-bridge/docs/functionality-design/02-02-ToolRetrievalService-refactoring.md)|
+| FD-004 | AceStrategyManager 重构功能设计 | 高 | 评审通过 | [02-03-AceStrategyManager-refactoring.md](/Users/suntc/project/apex-bridge/docs/functionality-design/02-03-AceStrategyManager-refactoring.md)|
+| FD-005 | ChatService 重构功能设计 | 高 | 评审通过 | [02-04-ChatService-refactoring.md](/Users/suntc/project/apex-bridge/docs/functionality-design/02-04-ChatService-refactoring.md)|
 
 ---
 
@@ -128,6 +133,292 @@ ConfigService 重构完成后，推广经验至：
 
 ---
 
+## FD-002: PlaybookMatcher 重构功能设计
+
+### 文档位置
+
+`docs/functionality-design/02-01-PlaybookMatcher-refactoring.md`
+
+### 设计概述
+
+基于 R-002 需求，对 PlaybookMatcher 模块进行功能级详细设计：
+
+1. **模块结构设计**:
+   - 目标目录结构：`src/services/playbook/` 目录下 6 个文件
+   - PlaybookMatcher.ts (主协调器 200行)
+   - ScoreCalculator.ts (评分计算器 200行)
+   - DynamicTypeMatcher.ts (动态类型匹配 250行)
+   - SequenceRecommender.ts (序列推荐 200行)
+   - PlaybookCurator.ts (知识库维护 250行)
+   - PlaybookMatcher.types.ts (类型定义 100行)
+
+2. **职责划分**:
+   - PlaybookMatcher: 主协调器，公共 API
+   - ScoreCalculator: 统一评分算法
+   - DynamicTypeMatcher: 动态类型匹配逻辑
+   - SequenceRecommender: Playbook 序列推荐
+   - PlaybookCurator: 知识库维护 (去重/归档)
+
+3. **依赖注入设计**:
+   - 通过构造函数注入子模块
+   - 保持公共 API 不变
+
+### 关键设计决策
+
+| 决策项 | 决策 | 理由 |
+|--------|------|------|
+| 目录位置 | src/services/playbook/ | 与 playbook 相关模块集中管理 |
+| 接口设计 | 每个子模块定义接口 | 便于测试和替换 |
+| 类型管理 | 独立 types 文件 | 避免循环依赖 |
+
+### 迁移步骤
+
+| 阶段 | 内容 | 预计工时 |
+|------|------|----------|
+| 阶段一 | 创建类型定义 | 4h |
+| 阶段二 | 创建子模块 (4个) | 20h |
+| 阶段三 | 重构主服务 | 6h |
+| 阶段四 | 验证与测试 | 7h |
+
+### 验收标准
+
+- [ ] 单个文件不超过 500 行
+- [ ] 消除所有 `any` 类型
+- [ ] 单元测试覆盖率 80%+
+- [ ] 保持公共 API 不变
+
+### 关联需求
+
+- R-002: 剩余模块重构需求
+
+---
+
+## FD-003: ToolRetrievalService 重构功能设计
+
+### 文档位置
+
+`docs/functionality-design/02-02-ToolRetrievalService-refactoring.md`
+
+### 设计概述
+
+基于 R-002 需求，对 ToolRetrievalService 模块进行功能级详细设计：
+
+1. **模块结构设计**:
+   - 目标目录结构：`src/services/tool-retrieval/` 目录下 7 个文件
+   - ToolRetrievalService.ts (主服务 200行)
+   - LanceDBConnection.ts (数据库连接 150行)
+   - EmbeddingGenerator.ts (嵌入生成 200行)
+   - SkillIndexer.ts (技能索引 200行)
+   - SearchEngine.ts (搜索逻辑 200行)
+   - MCPToolSupport.ts (MCP 工具支持 150行)
+   - types.ts (类型定义 100行)
+
+2. **职责划分**:
+   - ToolRetrievalService: 主服务，公共 API
+   - LanceDBConnection: 数据库连接和 Schema 管理
+   - EmbeddingGenerator: 嵌入生成逻辑
+   - SkillIndexer: 技能索引操作
+   - SearchEngine: 向量搜索和结果格式化
+   - MCPToolSupport: MCP 工具特殊处理
+
+### 关键设计决策
+
+| 决策项 | 决策 | 理由 |
+|--------|------|------|
+| 目录位置 | src/services/tool-retrieval/ | 与检索相关模块集中管理 |
+| 数据库抽象 | 独立连接管理 | 便于测试和替换 |
+| 嵌入模型 | 抽象接口 | 支持多模型切换 |
+
+### 迁移步骤
+
+| 阶段 | 内容 | 预计工时 |
+|------|------|----------|
+| 阶段一 | 创建类型定义 | 4h |
+| 阶段二 | 创建子模块 (5个) | 24h |
+| 阶段三 | 重构主服务 | 6h |
+| 阶段四 | 验证与测试 | 7h |
+
+### 验收标准
+
+- [ ] 单个文件不超过 500 行
+- [ ] 数据库连接逻辑独立
+- [ ] 嵌入生成可独立替换
+- [ ] 单元测试覆盖率 80%+
+
+### 关联需求
+
+- R-002: 剩余模块重构需求
+
+---
+
+## FD-004: AceStrategyManager 重构功能设计
+
+### 文档位置
+
+`docs/functionality-design/02-03-AceStrategyManager-refactoring.md`
+
+### 设计概述
+
+基于 R-002 需求，对 AceStrategyManager 模块进行功能级详细设计：
+
+1. **模块结构设计**:
+   - 目标目录结构：`src/services/ace/` 目录下 6 个文件
+   - AceStrategyManager.ts (主管理器 250行)
+   - StrategicContextManager.ts (战略上下文管理 200行)
+   - WorldModelUpdater.ts (世界模型更新 200行)
+   - PlaybookSynthesis.ts (Playbook 自动提炼 250行)
+   - MemoryManager.ts (内存管理 150行)
+   - types.ts (类型定义 100行)
+
+2. **关键决策**:
+   - AceStrategyManager 内部实例化的 PlaybookManager 和 PlaybookMatcher 改为**依赖注入**
+   - 不引入依赖注入容器，使用手动依赖注入
+   - 内存管理逻辑独立
+
+3. **依赖注入设计**:
+   - PlaybookManager 和 PlaybookMatcher 通过构造函数注入
+   - 便于测试和模块替换
+
+### 关键设计决策
+
+| 决策项 | 决策 | 理由 |
+|--------|------|------|
+| 目录位置 | src/services/ace/ | 与 ACE 相关模块集中管理 |
+| 依赖注入 | 手动注入 | 简单直接，避免容器复杂度 |
+| Playbook 系统 | 外部注入 | 解耦核心逻辑 |
+
+### 迁移步骤
+
+| 阶段 | 内容 | 预计工时 |
+|------|------|----------|
+| 阶段一 | 创建类型定义 | 4h |
+| 阶段二 | 创建子模块 (4个) | 24h |
+| 阶段三 | 重构主服务 | 8h |
+| 阶段四 | 验证与测试 | 7h |
+
+### 验收标准
+
+- [ ] 单个文件不超过 500 行
+- [ ] Playbook 系统可独立实例化
+- [ ] 内存管理逻辑独立
+- [ ] 单元测试覆盖率 80%+
+
+### 关联需求
+
+- R-002: 剩余模块重构需求
+
+---
+
+## FD-005: ChatService 重构功能设计
+
+### 文档位置
+
+`docs/functionality-design/02-04-ChatService-refactoring.md`
+
+### 设计概述
+
+基于 R-002 需求，对 ChatService 模块进行功能级详细设计：
+
+1. **模块结构设计**:
+   - 目标目录结构：`src/services/chat/` 目录下 7 个文件
+   - ChatService.ts (主协调器 300行)
+   - MessageProcessor.ts (消息处理 250行)
+   - SessionCoordinator.ts (会话协调 200行)
+   - StreamHandler.ts (流式处理 200行)
+   - EthicsFilter.ts (伦理审查 150行)
+   - ContextManager.ts (上下文管理 200行)
+   - types.ts (类型定义 100行)
+
+2. **关键决策**:
+   - **不引入依赖注入容器**
+   - 仅通过拆分职责降低耦合度
+   - 保持所有公共 API 不变
+
+3. **子模块设计**:
+   - EthicsFilter: 伦理审查逻辑
+   - SessionCoordinator: 会话管理协调
+   - MessageProcessor: 消息预处理、变量注入
+   - ContextManager: 上下文管理协调
+   - StreamHandler: 流式消息处理
+
+### 关键设计决策
+
+| 决策项 | 决策 | 理由 |
+|--------|------|------|
+| 目录位置 | src/services/chat/ | 与聊天相关模块集中管理 |
+| 依赖注入 | 不使用容器 | 保持现状，仅拆分职责 |
+| 子模块 | 手动实例化 | 简化依赖管理 |
+
+### 迁移步骤
+
+| 阶段 | 内容 | 预计工时 |
+|------|------|----------|
+| 阶段一 | 创建类型定义 | 4h |
+| 阶段二 | 创建子模块 (5个) | 30h |
+| 阶段三 | 重构主服务 | 7h |
+| 阶段四 | 验证与测试 | 12h |
+
+### 验收标准
+
+- [ ] 单个文件不超过 500 行
+- [ ] 各子模块可独立测试
+- [ ] 保持 WebSocket 接口兼容
+- [ ] 单元测试覆盖率 80%+
+
+### 关联需求
+
+- R-002: 剩余模块重构需求
+
+---
+
+## R-002: 剩余模块重构需求
+
+### 需求概述
+
+在 ConfigService 重构试点完成后，对剩余4个超大服务文件进行重构：PlaybookMatcher、ChatService、ToolRetrievalService、AceStrategyManager。
+
+### 关键决策
+
+1. **重构优先级**:
+   - Phase 1: PlaybookMatcher (2周) - 问题最明确，收益高
+   - Phase 2: ToolRetrievalService (1.5周) - 相对独立，重构风险低
+   - Phase 3: AceStrategyManager (2周) - 与 Playbook 系统深度耦合
+   - Phase 4: ChatService (3周) - 核心服务，最后重构
+
+2. **重构范围**:
+   - PlaybookMatcher: 拆分为 ScoreCalculator、DynamicTypeMatcher、SequenceRecommender、PlaybookCurator
+   - ToolRetrievalService: 拆分为 LanceDBConnection、EmbeddingGenerator、SkillIndexer、SearchEngine
+   - AceStrategyManager: 拆分为 StrategicContextManager、WorldModelUpdater、PlaybookSynthesis、MemoryManager
+   - ChatService: 拆分为 MessageProcessor、SessionCoordinator、StreamHandler、EthicsFilter
+
+3. **兼容性约束**:
+   - 所有公共 API 接口保持不变
+   - 数据库 Schema 保持向后兼容
+   - 提供 Feature Flag 支持渐进式迁移
+
+### 验收标准
+
+- [ ] 单个文件不超过 500 行
+- [ ] 消除所有 `any` 类型
+- [ ] 单元测试覆盖率 80%+
+- [ ] TypeScript 编译无错误
+- [ ] 现有功能 100% 正常
+
+### 分阶段计划
+
+| 阶段 | 模块 | 预估工时 |
+|------|------|----------|
+| Phase 1 | PlaybookMatcher | 2 周 |
+| Phase 2 | ToolRetrievalService | 1.5 周 |
+| Phase 3 | AceStrategyManager | 2 周 |
+| Phase 4 | ChatService | 3 周 |
+
+### 文档位置
+
+`docs/requirements/02-remaining-modules-refactoring.md`
+
+---
+
 ## 版本历史
 
 | 版本 | 日期 | 描述 |
@@ -135,3 +426,8 @@ ConfigService 重构完成后，推广经验至：
 | 1.0.0 | 2025-12-29 | 初始需求记录 |
 | 1.1.0 | 2025-12-30 | 添加功能设计文档关联 (FD-001) |
 | 1.2.0 | 2025-12-30 | 状态更新：评审通过 |
+| 1.3.0 | 2025-12-30 | 添加剩余模块重构需求 (R-002) |
+| 1.4.0 | 2025-12-30 | R-002 评审通过 |
+| 1.5.0 | 2025-12-30 | 添加功能设计文档 (FD-002 ~ FD-005) |
+| 1.6.0 | 2025-12-30 | FD-002 ~ FD-005 评审通过 |
+| 1.7.0 | 2025-12-30 | 添加开发计划，R-002 评审通过 |
