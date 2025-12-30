@@ -129,39 +129,65 @@ export class VectorSearchTool {
       return `No relevant Skills found for query: "${args.query}"`;
     }
 
-    let output = `Found ${results.length} relevant Skill(s) for: "${args.query}"\n\n`;
+    let output = `Found ${results.length} relevant Tool(s) for: "${args.query}"\n\n`;
 
     results.forEach((result, index) => {
       output += this.formatResult(result, index + 1, args);
     });
 
     output += '\n';
-    output += '=== How to Use These Skills ===\n\n';
+    output += '=== How to Use These Tools ===\n\n';
 
-    // 检查第一个结果是否有可执行脚本
+    // 根据工具类型显示不同的使用说明
     const firstTool = results[0]?.tool;
-    const hasExecuteScript = firstTool?.path && this.checkIfExecutable(firstTool.path);
 
-    if (hasExecuteScript) {
-      output += '✓ Executable Skill: Use tool_action to execute\n';
-      output += `Example:\n`;
-      output += `<tool_action name="${firstTool.name}">\n`;
-      if (firstTool.parameters?.properties) {
-        const firstParam = Object.keys(firstTool.parameters.properties)[0];
-        if (firstParam) {
-          output += `  <${firstParam} value="your-value" />\n`;
+    switch (firstTool?.type) {
+      case 'mcp':
+        output += '🔌 MCP Tool: Use tool_action with the tool name\n';
+        output += `Example:\n`;
+        output += `<tool_action name="${firstTool.name}" type="mcp">\n`;
+        if (firstTool.metadata?.inputSchema?.properties) {
+          const firstParam = Object.keys(firstTool.metadata.inputSchema.properties)[0];
+          if (firstParam) {
+            output += `  <${firstParam} value="your-value" />\n`;
+          }
         }
-      }
-      output += `</tool_action>\n\n`;
-    } else {
-      output += '✓ Knowledge Skill: Use read-skill to get full documentation\n';
-      output += `Example:\n`;
-      output += `<tool_action name="read-skill">\n`;
-      output += `  <skillName value="${firstTool?.name || 'skill-name'}" />\n`;
-      output += `</tool_action>\n\n`;
+        output += `</tool_action>\n\n`;
+        break;
+
+      case 'builtin':
+        output += '⚙️ Built-in Tool: Use tool_action with type="builtin"\n';
+        output += `Example:\n`;
+        output += `<tool_action name="${firstTool.name}" type="builtin">\n`;
+        output += `</tool_action>\n\n`;
+        break;
+
+      case 'skill':
+      default:
+        // Skill 类型
+        const hasExecuteScript = firstTool?.path && this.checkIfExecutable(firstTool.path);
+        if (hasExecuteScript) {
+          output += '🔧 Executable Skill: Use tool_action to execute\n';
+          output += `Example:\n`;
+          output += `<tool_action name="${firstTool.name}" type="skill">\n`;
+          if (firstTool.parameters?.properties) {
+            const firstParam = Object.keys(firstTool.parameters.properties)[0];
+            if (firstParam) {
+              output += `  <${firstParam} value="your-value" />\n`;
+            }
+          }
+          output += `</tool_action>\n\n`;
+        } else {
+          output += '📚 Knowledge Skill: Use read-skill to get full documentation\n';
+          output += `Example:\n`;
+          output += `<tool_action name="read-skill" type="builtin">\n`;
+          output += `  <skillName value="${firstTool?.name || 'skill-name'}" />\n`;
+          output += `</tool_action>\n\n`;
+        }
+        break;
     }
 
-    output += 'Note: After reading the Skill documentation, you can apply the knowledge to help the user.\n';
+    output += 'Note: After reading or executing, you can apply the knowledge to help the user.\n';
 
     return output;
   }
@@ -189,22 +215,51 @@ export class VectorSearchTool {
   ): string {
     const tool = result.tool;
 
-    // 判断 Skill 类型
-    const isExecutable = tool.parameters &&
-                        tool.parameters.properties &&
-                        Object.keys(tool.parameters.properties).length > 0;
-    const skillType = isExecutable ? '🔧 Executable' : '📚 Knowledge';
+    // 根据工具类型显示不同图标和说明
+    let typeIcon: string;
+    let typeLabel: string;
+    let typeDescription: string;
 
-    let output = `${index}. ${tool.name} [${skillType}]\n`;
+    switch (tool.type) {
+      case 'mcp':
+        typeIcon = '🔌';
+        typeLabel = 'MCP Tool';
+        typeDescription = 'External MCP server tool';
+        break;
+      case 'builtin':
+        typeIcon = '⚙️';
+        typeLabel = 'Built-in Tool';
+        typeDescription = 'System built-in tool';
+        break;
+      case 'skill':
+      default:
+        // Skill 类型根据 parameters 判断可执行性
+        const isExecutable = tool.parameters &&
+                            tool.parameters.properties &&
+                            Object.keys(tool.parameters.properties).length > 0;
+        typeIcon = isExecutable ? '🔧' : '📚';
+        typeLabel = isExecutable ? 'Executable Skill' : 'Knowledge Skill';
+        typeDescription = isExecutable
+          ? 'Use tool_action to execute'
+          : 'Use read-skill to get full documentation';
+        break;
+    }
+
+    let output = `${index}. ${tool.name} [${typeIcon} ${typeLabel}]\n`;
     output += `   Score: ${(result.score * 100).toFixed(2)}%\n`;
     output += `   Description: ${tool.description}\n`;
-    output += `   Category: ${tool.category || 'N/A'}\n`;
+    output += `   Type: ${typeDescription}\n`;
+
+    if (tool.source && tool.type === 'mcp') {
+      output += `   Source: ${tool.source}\n`;
+    }
 
     if (tool.tags && Array.isArray(tool.tags) && tool.tags.length > 0) {
       output += `   Tags: ${tool.tags.join(', ')}\n`;
     }
 
-    if (isExecutable && tool.parameters.properties) {
+    // 显示参数（Skill 和 MCP 工具）
+    if (tool.type === 'skill' && tool.parameters?.properties) {
       output += `   Parameters:\n`;
       const properties = tool.parameters.properties;
       const required = tool.parameters.required || [];
@@ -227,8 +282,6 @@ export class VectorSearchTool {
           output += `       Enum: ${schema.enum.join(', ')}\n`;
         }
       });
-    } else if (!isExecutable) {
-      output += `   Type: Knowledge-based Skill (use read-skill to get full documentation)\n`;
     }
 
     if (args.includeMetadata && tool.metadata) {

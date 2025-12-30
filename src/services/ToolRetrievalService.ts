@@ -36,7 +36,7 @@ interface ToolsTable {
   path?: string; // Skills 的路径，MCP 工具可能没有
   version?: string; // Skills 的版本，MCP 工具可能没有
   source?: string; // MCP 服务器 ID 或 skill 名称
-  toolType: 'skill' | 'mcp'; // 工具类型
+  toolType: 'skill' | 'mcp' | 'builtin'; // 工具类型
   metadata: string; // JSON字符串格式
   vector: number[]; // 普通数组，不是 Float32Array
   indexedAt: Date;
@@ -248,8 +248,8 @@ export class ToolRetrievalService {
           // 维度不匹配，需要重新创建表
           logger.warn(`Table dimensions mismatch. Dropping and recreating table: ${tableName}`);
 
-          // 删除旧表
-          await this.db!.dropTable(tableName);
+          // 完全删除旧表（包括物理文件）
+          await this.dropTableCompletely(tableName);
           logger.info(`Dropped existing table: ${tableName}`);
 
           // 强制重新索引：删除所有 .vectorized 文件
@@ -381,6 +381,32 @@ export class ToolRetrievalService {
         // 其他错误，重新抛出
         throw error;
       }
+    }
+  }
+
+  /**
+   * 完全删除表和物理文件
+   * 确保残留的 .lance 文件不会导致后续查询错误
+   */
+  private async dropTableCompletely(tableName: string): Promise<void> {
+    try {
+      // 首先从 LanceDB 删除表
+      await this.db!.dropTable(tableName);
+      logger.info(`Dropped table from LanceDB: ${tableName}`);
+
+      // 然后手动删除物理文件确保完全清理
+      const tablePath = path.join(this.config.vectorDbPath, tableName);
+      try {
+        await fs.rm(tablePath, { recursive: true, force: true });
+        logger.info(`Completely removed physical files: ${tablePath}`);
+      } catch (rmError: any) {
+        if (rmError.code !== 'ENOENT') {
+          logger.warn(`Failed to remove physical files (may not exist): ${rmError.message}`);
+        }
+      }
+    } catch (error) {
+      logger.error('Failed to drop table completely:', error);
+      throw error;
     }
   }
 
@@ -741,12 +767,26 @@ export class ToolRetrievalService {
               path: data.path
             }
           };
+        } else if (data.toolType === 'builtin') {
+          // Builtin 工具格式
+          tool = {
+            name: data.name,
+            description: data.description,
+            type: 'builtin' as const,
+            tags: data.tags,
+            version: data.version,
+            path: data.path,
+            metadata: {
+              ...metadata,
+              builtin: true
+            }
+          };
         } else {
           // Skill 工具格式（保持向后兼容）
           tool = {
             name: data.name,
             description: data.description,
-            type: ToolType.SKILL,
+            type: 'skill' as const,
             tags: data.tags,
             version: data.version,
             path: data.path,

@@ -140,6 +140,7 @@ export class SearchEngine implements ISearchEngine {
           name: data.name,
           description: data.description,
           score,
+          toolType: data.toolType || 'skill',
           metadata: tool as Record<string, unknown>,
           tags: data.tags || []
         });
@@ -222,7 +223,23 @@ export class SearchEngine implements ISearchEngine {
       };
     }
 
-    // Skill tool format
+    if (data.toolType === 'builtin') {
+      // Builtin tool format
+      return {
+        name: data.name,
+        description: data.description,
+        type: ToolType.BUILTIN,
+        tags: data.tags,
+        version: data.version,
+        path: data.path,
+        metadata: {
+          ...metadata,
+          builtin: true
+        }
+      };
+    }
+
+    // Skill tool format (default)
     return {
       name: data.name,
       description: data.description,

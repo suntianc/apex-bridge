@@ -18,6 +18,8 @@ export interface ToolRetrievalResult {
   description: string;
   /** Similarity score (0-1) */
   score: number;
+  /** Tool type: 'mcp' | 'builtin' | 'skill' */
+  toolType: 'mcp' | 'builtin' | 'skill';
   /** Metadata */
   metadata?: Record<string, unknown>;
   /** Type tags */
@@ -320,7 +322,7 @@ export interface ToolsTable {
   path?: string;
   version?: string;
   source?: string;
-  toolType: 'skill' | 'mcp';
+  toolType: 'skill' | 'mcp' | 'builtin';
   metadata: string;
   vector: number[];
   indexedAt: Date;

@@ -67,7 +67,8 @@ XML
 ```
 <tool_action name="file-read" type="builtin">
   <path value="docs/readme.md" />
-  <basePath value=".data/skills/my-skill" /> </tool_action>
+  <basePath value=".data/skills/my-skill" /> 
+</tool_action>
 ```
 
 ### 4. 执行功能型 Skill / MCP 工具

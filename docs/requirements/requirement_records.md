@@ -9,13 +9,14 @@
 
 | 序号 | 需求名称 | 优先级 | 状态 | 关联文档 |
 |------|----------|--------|------|----------|
-| R-001 | 项目重构需求（试点 ConfigService） | 高 | 评审通过 | 01-project-refactoring.md |
+| R-001 | 项目重构需求（试点 ConfigService） | 高 | ✅ 已完成 | [01-project-refactoring.md](01-project-refactoring.md) | [01-project-refactoring-plan.md](../plans/01-project-refactoring-plan.md) |
 | R-002 | 剩余模块重构需求 | 高 | 评审通过 | [02-remaining-modules-refactoring.md](02-remaining-modules-refactoring.md) | [02-remaining-modules-refactoring-plan.md](../plans/02-remaining-modules-refactoring-plan.md) |
-| FD-001 | ConfigService 重构功能设计 | 高 | 评审通过 | [01-ConfigService-refactoring.md](/Users/suntc/project/apex-bridge/docs/functionality-design/01-ConfigService-refactoring.md)|
-| FD-002 | PlaybookMatcher 重构功能设计 | 高 | 评审通过 | [02-01-PlaybookMatcher-refactoring.md](/Users/suntc/project/apex-bridge/docs/functionality-design/02-01-PlaybookMatcher-refactoring.md)|
-| FD-003 | ToolRetrievalService 重构功能设计 | 高 | 评审通过 | [02-02-ToolRetrievalService-refactoring.md](/Users/suntc/project/apex-bridge/docs/functionality-design/02-02-ToolRetrievalService-refactoring.md)|
-| FD-004 | AceStrategyManager 重构功能设计 | 高 | 评审通过 | [02-03-AceStrategyManager-refactoring.md](/Users/suntc/project/apex-bridge/docs/functionality-design/02-03-AceStrategyManager-refactoring.md)|
-| FD-005 | ChatService 重构功能设计 | 高 | 评审通过 | [02-04-ChatService-refactoring.md](/Users/suntc/project/apex-bridge/docs/functionality-design/02-04-ChatService-refactoring.md)|
+| FD-001 | ConfigService 重构功能设计 | 高 | ✅ 已完成 | [01-ConfigService-refactoring-func/ConfigService-refactoring.md](../functionality-design/01-ConfigService-refactoring-func/ConfigService-refactoring.md)|
+| FD-002 | PlaybookMatcher 重构功能设计 | 高 | 评审通过 | [02-remaining-modules-refactoring-func/PlaybookMatcher-refactoring.md](../functionality-design/02-remaining-modules-refactoring-func/PlaybookMatcher-refactoring.md)|
+| FD-003 | ToolRetrievalService 重构功能设计 | 高 | 评审通过 | [02-remaining-modules-refactoring-func/ToolRetrievalService-refactoring.md](../functionality-design/02-remaining-modules-refactoring-func/ToolRetrievalService-refactoring.md)|
+| FD-004 | AceStrategyManager 重构功能设计 | 高 | 评审通过 | [02-remaining-modules-refactoring-func/AceStrategyManager-refactoring.md](../functionality-design/02-remaining-modules-refactoring-func/AceStrategyManager-refactoring.md)|
+| FD-005 | ChatService 重构功能设计 | 高 | 评审通过 | [02-remaining-modules-refactoring-func/ChatService-refactoring.md](../functionality-design/02-remaining-modules-refactoring-func/ChatService-refactoring.md)|
+| FD-006 | R-003 Vector-Search 工具类型返回功能设计 | 高 | ✅ 已完成 | [03-Vector-Search-tool-type-func/03-Vector-Search-tool-type.md](../functionality-design/03-Vector-Search-tool-type-func/03-Vector-Search-tool-type.md)|
 
 ---
 
@@ -65,6 +66,23 @@ ConfigService 重构完成后，推广经验至：
 2. ChatService (3周)
 3. UnifiedToolManager (2周)
 4. 类型系统统一 (2周)
+
+### 完成信息
+
+- **完成日期**: 2025-12-30
+- **重构状态**: ✅ 已完成
+- **产出文件**:
+  - `src/types/config/api-key.ts`
+  - `src/types/config/rate-limit.ts`
+  - `src/types/config/redis.ts`
+  - `src/types/config/ace.ts`
+  - `src/types/config/admin.ts`
+  - `src/types/config/index.ts`
+  - `src/utils/config-loader.ts`
+  - `src/utils/config-validator.ts`
+  - `src/utils/config-writer.ts`
+  - `src/utils/config-constants.ts`
+  - `src/utils/config/index.ts`
 
 ---
 
@@ -417,6 +435,100 @@ ConfigService 重构完成后，推广经验至：
 
 `docs/requirements/02-remaining-modules-refactoring.md`
 
+| R-003 | Vector-Search 工具类型返回 | 高 | ✅ 已完成 | [03-vector-search-tool-type.md](03-vector-search-tool-type.md) | [FD-006 功能设计](docs/functionality-design/03-Vector-Search-tool-type.md) |
+
+---
+
+## R-003: Vector-Search 工具类型返回
+
+### 需求概述
+
+当前使用内置工具 `vector-search` 检索出来的工具没有返回工具类型，按照项目内设定，工具分为三类：**mcp**（外部 MCP 服务器工具）、**builtin**（内置工具）、**skill**（技能工具）。
+
+由于检索结果缺少工具类型（`toolType`）字段，导致 LLM 无法正确选择工具，错误地使用 `readskill` 内置工具去读取 skill。
+
+### 问题分析
+
+1. **症状**: LLM 错误使用 `readskill` 工具调用 skill
+2. **根因**: `vector-search` 返回结果缺少 `toolType` 字段
+3. **影响**: 工具调用逻辑混乱，增加不必要的中间调用
+
+### 预期目标
+
+1. `vector-search` 检索结果包含 `toolType` 字段
+2. LLM 根据 `toolType` 正确选择调用策略
+3. 三类工具调用路径清晰
+
+### 工具类型定义
+
+| 类型值 | 含义 | 示例 |
+|--------|------|------|
+| `mcp` | 外部 MCP 服务器工具 | `filesystem`, `postgres` |
+| `builtin` | 系统内置工具 | `vector-search`, `read-file` |
+| `skill` | 用户定义 skill | `data-validator`, `git-commit-helper` |
+
+### 验收标准
+
+- [ ] `vector-search` 返回结果包含 `toolType` 字段
+- [ ] `toolType` 值为 `"mcp"`、`"builtin"` 或 `"skill"`
+- [ ] LLM 正确选择工具调用策略
+- [ ] TypeScript 编译无错误
+
+### 文档位置
+
+`docs/requirements/03-vector-search-tool-type.md`
+
+---
+
+## FD-006: R-003 Vector-Search 工具类型返回功能设计
+
+### 文档位置
+
+`docs/functionality-design/03-Vector-Search-tool-type-func/03-Vector-Search-tool-type.md`
+
+### 设计概述
+
+基于 R-003 需求，对 Vector-Search 工具类型返回进行功能级详细设计：
+
+1. **修改范围**：
+   - `types.ts`: `ToolRetrievalResult` 接口添加 `toolType` 字段
+   - `SearchEngine.ts`: `formatSearchResults` 添加 `toolType`，`formatTool` 添加 `builtin` 处理
+
+2. **核心变更**：
+   - 返回结果包含顶层 `toolType` 字段
+   - 完整处理三类工具：mcp、builtin、skill
+
+3. **业务流程**：
+   - LLM → vector-search → SearchEngine → LanceDB → 返回结果（含 toolType）
+
+### 关键设计决策
+
+| 决策项 | 决策 | 理由 |
+|--------|------|------|
+| toolType 位置 | 顶层字段 | LLM 可直接读取，无需解析 metadata |
+| 类型来源 | 直接从数据库读取 | 避免额外计算，性能最优 |
+| 默认值 | toolType 为空时默认 skill | 向后兼容，避免异常 |
+
+### 实现清单
+
+| 任务 | 文件 | 修改内容 |
+|------|------|----------|
+| 修改接口 | `types.ts` | `ToolRetrievalResult` 添加 `toolType` |
+| 修改格式化 | `SearchEngine.ts` | `formatSearchResults` 添加 `toolType` |
+| 添加 builtin | `SearchEngine.ts` | `formatTool` 添加 `builtin` 处理 |
+| 扩展 Schema | `types.ts` | `ToolsTable.toolType` 扩展为三类 |
+
+### 验收标准
+
+- [ ] 返回结果包含顶层 `toolType` 字段
+- [ ] `toolType` 值为 `'mcp'`、`'builtin'` 或 `'skill'`
+- [ ] TypeScript 编译无错误
+- [ ] 现有功能 100% 正常
+
+### 关联需求
+
+- R-003: Vector-Search 工具类型返回
+
 ---
 
 ## 版本历史
@@ -431,3 +543,9 @@ ConfigService 重构完成后，推广经验至：
 | 1.5.0 | 2025-12-30 | 添加功能设计文档 (FD-002 ~ FD-005) |
 | 1.6.0 | 2025-12-30 | FD-002 ~ FD-005 评审通过 |
 | 1.7.0 | 2025-12-30 | 添加开发计划，R-002 评审通过 |
+| 1.8.0 | 2025-12-30 | 添加 R-001 开发计划，完成追溯链 |
+| 1.9.0 | 2025-12-30 | R-001 ConfigService 重构完成，状态更新为"已完成" |
+| 1.10.0 | 2025-12-30 | 添加 R-003: Vector-Search 工具类型返回需求 |
+| 1.11.0 | 2025-12-30 | R-003 评审通过，完善实现方案 |
+| 1.12.0 | 2025-12-30 | 添加 FD-006 功能设计文档 |
+| 1.13.0 | 2025-12-30 | R-003 实现完成，FD-006 状态更新为"已完成" |

@@ -8,6 +8,7 @@ import * as lancedb from '@lancedb/lancedb';
 import { Index } from '@lancedb/lancedb';
 import * as arrow from 'apache-arrow';
 import * as fs from 'fs/promises';
+import * as path from 'path';
 import { logger } from '../../utils/logger';
 import {
   LanceDBConfig,
@@ -99,7 +100,7 @@ export class LanceDBConnection implements ILanceDBConnection {
         if (!dimensionsMatch) {
           // Dimensions don't match, need to recreate
           logger.warn(`[LanceDB] Table dimensions mismatch. Dropping and recreating table: ${tableName}`);
-          await this.db.dropTable(tableName);
+          await this.dropTableCompletely(tableName);
           await this.createTable();
         } else {
           // Dimensions match, check for missing fields (MCP support)
@@ -239,11 +240,41 @@ export class LanceDBConnection implements ILanceDBConnection {
         logger.warn('[LanceDB] Table is missing MCP-related fields. Recreating table...');
 
         // Drop and recreate
-        await this.db!.dropTable(tableName);
+        await this.dropTableCompletely(tableName);
         await this.createTable();
       } else {
         throw error;
       }
+    }
+  }
+
+  /**
+   * Drop table and completely remove physical files
+   * This ensures no leftover .lance files cause "Not found" errors
+   */
+  private async dropTableCompletely(tableName: string): Promise<void> {
+    if (!this.db || !this.config) {
+      throw new Error('Database not connected');
+    }
+
+    try {
+      // First, drop the table from LanceDB
+      await this.db.dropTable(tableName);
+      logger.info(`[LanceDB] Dropped table: ${tableName}`);
+
+      // Then, manually remove physical files to ensure complete cleanup
+      const tablePath = path.join(this.config.databasePath, tableName);
+      try {
+        await fs.rm(tablePath, { recursive: true, force: true });
+        logger.info(`[LanceDB] Completely removed physical files: ${tablePath}`);
+      } catch (rmError: any) {
+        if (rmError.code !== 'ENOENT') {
+          logger.warn(`[LanceDB] Failed to remove physical files (may not exist): ${rmError.message}`);
+        }
+      }
+    } catch (error) {
+      logger.error('[LanceDB] Failed to drop table completely:', error);
+      throw error;
     }
   }
 
