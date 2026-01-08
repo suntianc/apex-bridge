@@ -160,12 +160,7 @@ export class AceService {
      */
     private handleReflectionTrigger(trigger: ReflectionTrigger): void {
         // 记录日志
-        logger.info(`[ACE] Reflection triggered: ${trigger.type} at level ${trigger.level}`, {
-            sessionId: trigger.sessionId,
-            traceId: trigger.traceId,
-            timestamp: trigger.timestamp,
-            context: trigger.context
-        });
+        logger.debug(`[ACE] Reflection: ${trigger.type}`);
 
         // 记录统计
         this.recordReflectionTrigger(trigger);
@@ -277,7 +272,7 @@ export class AceService {
         }
 
         // 检查配置是否正确传递
-        logger.info('[ACE] Configuration validated');
+        logger.debug('[ACE] Configuration validated');
     }
 
     /**

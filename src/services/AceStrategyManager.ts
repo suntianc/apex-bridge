@@ -103,7 +103,7 @@ export class AceStrategyManager {
     // 启动定期清理
     this.startPeriodicCleanup();
 
-    logger.info('[AceStrategyManager] Initialized with TTL cache and Playbook system');
+    logger.debug('[AceStrategyManager] Initialized with TTL cache and Playbook system');
   }
 
   /**
@@ -133,7 +133,7 @@ export class AceStrategyManager {
     this.strategicContexts.destroy();
     this.worldModelUpdates = [];
 
-    logger.info('[AceStrategyManager] Destroyed and cleaned up all resources');
+    logger.debug('[AceStrategyManager] Destroyed and cleaned up all resources');
   }
 
   /**
@@ -165,7 +165,7 @@ export class AceStrategyManager {
         ).join('\n');
 
         contextSummary = `Historical Strategic Context:\n${pastStrategies}\n\n`;
-        logger.info(`[AceStrategyManager] Loaded ${relevantPlans.length} historical strategies for user: ${userId}`);
+        logger.debug(`[AceStrategyManager] Loaded ${relevantPlans.length} historical strategies for user: ${userId}`);
       } else {
         contextSummary = 'No previous strategic context found.\n\n';
         logger.debug(`[AceStrategyManager] No historical context found for user: ${userId}`);
@@ -226,7 +226,7 @@ export class AceStrategyManager {
           return; // 阻止更新
         }
 
-        logger.info('[AceStrategyManager] L1伦理审查通过，允许世界模型更新');
+        logger.debug('[AceStrategyManager] L1伦理审查通过，允许世界模型更新');
       }
 
       // 向L2全球战略层报告任务完成
@@ -263,7 +263,7 @@ export class AceStrategyManager {
       // 触发L2的战略调整（使用本地事件总线）
       await this.triggerStrategicAdjustment(sessionId, outcome);
 
-      logger.info(`[AceStrategyManager] World model updated with strategic learning from session: ${sessionId}`);
+      logger.debug(`[AceStrategyManager] World model updated with strategic learning from session: ${sessionId}`);
     } catch (error: any) {
       logger.error(`[AceStrategyManager] Failed to update world model:`, error);
     }
@@ -357,7 +357,7 @@ export class AceStrategyManager {
         }
       });
 
-      logger.info(`[AceStrategyManager] Strategic goals updated for user: ${userId}`);
+      logger.debug(`[AceStrategyManager] Strategic goals updated for user: ${userId}`);
     } catch (error: any) {
       logger.error(`[AceStrategyManager] Failed to update strategic goals:`, error);
     }
@@ -608,7 +608,7 @@ Please provide a JSON response with:
     const cleanedCount = beforeSize - afterSize;
 
     if (cleanedCount > 0) {
-      logger.info(`[AceStrategyManager] Cleaned up ${cleanedCount} expired strategic contexts`);
+      logger.debug(`[AceStrategyManager] Cleaned up ${cleanedCount} expired strategic contexts`);
     }
 
     // 同时清理过旧的世界模型更新
@@ -622,7 +622,7 @@ Please provide a JSON response with:
 
     const worldModelCleaned = oldLength - this.worldModelUpdates.length;
     if (worldModelCleaned > 0) {
-      logger.info(`[AceStrategyManager] Cleaned up ${worldModelCleaned} old world model updates`);
+      logger.debug(`[AceStrategyManager] Cleaned up ${worldModelCleaned} old world model updates`);
     }
   }
 
@@ -650,7 +650,7 @@ Please provide a JSON response with:
             status: 'archived'
           });
           archivedCount++;
-          logger.info(`[AceStrategyManager] Playbook archived (long-term unused): ${playbook.name} (id: ${playbook.id})`);
+          logger.debug(`[AceStrategyManager] Playbook archived (long-term unused): ${playbook.name} (id: ${playbook.id})`);
 
           // 向L2层报告归档事件
           await this.aceIntegrator.sendToLayer('GLOBAL_STRATEGY', {
@@ -671,7 +671,7 @@ Please provide a JSON response with:
             status: 'deprecated'
           });
           deprecatedCount++;
-          logger.info(`[AceStrategyManager] Playbook deprecated (low performance): ${playbook.name} (id: ${playbook.id})`);
+          logger.debug(`[AceStrategyManager] Playbook deprecated (low performance): ${playbook.name} (id: ${playbook.id})`);
 
           // 向L2层报告淘汰事件
           await this.aceIntegrator.sendToLayer('GLOBAL_STRATEGY', {
@@ -692,12 +692,12 @@ Please provide a JSON response with:
             status: 'active'
           });
           reactivatedCount++;
-          logger.info(`[AceStrategyManager] Playbook reactivated: ${playbook.name} (id: ${playbook.id})`);
+          logger.debug(`[AceStrategyManager] Playbook reactivated: ${playbook.name} (id: ${playbook.id})`);
         }
       }
 
       if (archivedCount > 0 || deprecatedCount > 0 || reactivatedCount > 0) {
-        logger.info(`[AceStrategyManager] Playbook status update: ${archivedCount} archived, ${deprecatedCount} deprecated, ${reactivatedCount} reactivated`);
+        logger.debug(`[AceStrategyManager] Playbook status update: ${archivedCount} archived, ${deprecatedCount} deprecated, ${reactivatedCount} reactivated`);
       }
     } catch (error) {
       logger.error('[AceStrategyManager] Failed to evaluate playbook statuses:', error);
@@ -833,7 +833,7 @@ Please provide a JSON response with:
           }
         });
 
-        logger.info(`[AceStrategyManager] Extracted playbook: ${playbook.name} (${playbook.id})`);
+        logger.debug(`[AceStrategyManager] Extracted playbook: ${playbook.name} (${playbook.id})`);
       }
     } catch (error: any) {
       logger.error('[AceStrategyManager] Failed to extract playbook from learning:', error);
@@ -889,7 +889,7 @@ Please provide a JSON response with:
           }
         });
 
-        logger.info(`[AceStrategyManager] Extracted failure playbook: ${playbook.name} (${playbook.id})`);
+        logger.debug(`[AceStrategyManager] Extracted failure playbook: ${playbook.name} (${playbook.id})`);
       }
     } catch (error: any) {
       logger.error('[AceStrategyManager] Failed to extract failure playbook from learning:', error);

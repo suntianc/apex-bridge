@@ -109,7 +109,7 @@ export class CompressionService {
       const compressionRatio = (tokensBefore - tokensAfter) / tokensBefore;
 
       const processingTime = Date.now() - startTime;
-      logger.info(`[CompressionService] Compression completed: ${tokensBefore} -> ${tokensAfter} tokens (${(compressionRatio * 100).toFixed(1)}% saved, ${processingTime}ms)`);
+      logger.debug(`Compression: ${tokensBefore} -> ${tokensAfter} tokens (${(compressionRatio * 100).toFixed(1)}%)`);
 
       return {
         summary,

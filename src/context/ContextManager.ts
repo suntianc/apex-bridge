@@ -129,7 +129,7 @@ export class ContextManager {
       );
 
       const processingTime = Date.now() - startTime;
-      logger.info(`[ContextManager] Context managed successfully (${action.type}, ${processingTime}ms)`);
+      logger.debug(`Context managed: ${action.type}`);
 
       return {
         managed: true,
@@ -213,7 +213,7 @@ export class ContextManager {
         reason: `LLM compression: ${removedCount} messages compressed (${(compressionResult.compressionRatio * 100).toFixed(1)}% reduction)`
       };
 
-      logger.info(`[ContextManager] LLM Compression: ${messages.length} -> ${managedMessages.length} messages, saved ${compressionResult.tokensBefore - compressionResult.tokensAfter} tokens`);
+      logger.debug(`LLM Compression: ${messages.length} -> ${managedMessages.length}`);
       return { action, managedMessages };
 
     } catch (error: any) {
@@ -473,6 +473,6 @@ export class ContextManager {
    */
   updateConfig(newConfig: Partial<ContextConfig>): void {
     this.config = { ...this.config, ...newConfig };
-    logger.info('[ContextManager] Configuration updated');
+    logger.debug('ContextManager config updated');
   }
 }

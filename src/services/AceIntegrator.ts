@@ -167,7 +167,7 @@ export class AceIntegrator {
     // 清空Scratchpad
     this.scratchpads.clear();
 
-    logger.info('[AceIntegrator] Destroyed and cleaned up all resources');
+    logger.debug('[AceIntegrator] Destroyed');
   }
 
   /**
@@ -382,7 +382,7 @@ export class AceIntegrator {
    */
   async clearSessionScratchpads(sessionId: string): Promise<void> {
     this.scratchpads.delete(sessionId);
-    logger.info(`[AceIntegrator] Cleared all scratchpads for session: ${sessionId}`);
+    logger.debug(`[AceIntegrator] Cleared scratchpads: ${sessionId}`);
   }
 
   // ========== P0阶段新增：工具执行记录 ==========
@@ -475,7 +475,7 @@ export class AceIntegrator {
     // 4. 清空L5的Scratchpad（关键：释放内存）
     this.scratchpads.get(sessionId)?.delete('COGNITIVE_CONTROL');
 
-    logger.info(`[AceIntegrator] Task completed and L5 scratchpad cleared for session: ${sessionId}`);
+    logger.debug(`[AceIntegrator] Task completed: ${sessionId}`);
   }
 
   /**

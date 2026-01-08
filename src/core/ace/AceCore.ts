@@ -146,7 +146,7 @@ export class AceCore {
     this.bus.northbound.removeAllListeners();
     this.bus.southbound.removeAllListeners();
 
-    logger.info('[AceCore] Destroyed and cleaned up all resources');
+    logger.debug('[AceCore] Destroyed and cleaned up all resources');
   }
 
   /**
@@ -176,7 +176,7 @@ export class AceCore {
     if (this.scheduler) {
       clearInterval(this.scheduler);
       this.scheduler = null;
-      logger.info('[AceCore] Scheduler stopped');
+      logger.debug('[AceCore] Scheduler stopped');
     }
   }
 
@@ -206,7 +206,7 @@ export class AceCore {
         }
       });
 
-      logger.info(`[AceCore] Created session: ${finalSessionId}`);
+      logger.debug(`[AceCore] Created session: ${finalSessionId}`);
       return finalSessionId;
     });
   }
@@ -290,7 +290,7 @@ export class AceCore {
       this.sessions.delete(sessionId);
       this.scratchpads.delete(sessionId);
 
-      logger.info(`[AceCore] Archived session: ${sessionId}`);
+      logger.debug(`[AceCore] Archived session: ${sessionId}`);
     });
   }
 
@@ -464,10 +464,7 @@ export class AceCore {
       data: { trigger }
     });
 
-    logger.info(`[AceCore] Reflection triggered: ${trigger.type} at level ${trigger.level}`, {
-      sessionId: trigger.sessionId,
-      traceId: trigger.traceId
-    });
+    logger.debug(`[AceCore] Reflection triggered: ${trigger.type}`);
   }
 
   /**
@@ -527,7 +524,7 @@ export class AceCore {
       }
 
       if (cleanedCount > 0) {
-        logger.info(`[AceCore] Cleaned up ${cleanedCount} expired sessions`);
+        logger.debug(`[AceCore] Cleaned up ${cleanedCount} expired sessions`);
       }
     });
   }
