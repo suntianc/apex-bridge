@@ -981,6 +981,14 @@ export class ToolRetrievalService {
     try {
       const skillsDir = './.data/skills';
 
+      // 检查目录是否存在，不存在则跳过
+      try {
+        await fs.access(skillsDir);
+      } catch {
+        logger.info(`Skills directory does not exist, skipping force reindex`);
+        return;
+      }
+
       // 获取所有Skills目录
       const entries = await fs.readdir(skillsDir, { withFileTypes: true });
       const skillDirs = entries

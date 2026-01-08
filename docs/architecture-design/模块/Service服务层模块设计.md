@@ -1,8 +1,9 @@
 # Service 服务层模块设计
 
 > 所属模块：Service
-> 文档版本：v1.0.0
+> 文档版本：v2.0.0
 > 创建日期：2025-12-29
+> 更新日期：2026-01-08
 
 ## 1. 模块概述
 
@@ -13,9 +14,9 @@ Service 层是 ApexBridge 的业务逻辑层，位于 API 层和 Core 引擎层�
 - 聊天业务协调与策略选择
 - 会话生命周期管理
 - 技能系统管理
-- 上下文管理与压缩
-- Playbook 匹配
+- 对话历史存储
 - MCP 集成
+- 工具向量检索
 
 ### 1.2 目录结构
 
@@ -27,13 +28,22 @@ src/services/
 ├── LLMConfigService.ts         # LLM 配置服务
 ├── ConversationHistoryService.ts # 对话历史服务
 ├── SkillManager.ts             # 技能管理器
-├── ContextManager.ts           # 上下文管理器
-├── AceService.ts               # ACE 服务
-├── PlaybookMatcher.ts          # Playbook 匹配器
 ├── MCPIntegrationService.ts    # MCP 集成服务
-├── ContextStorageService.ts    # 上下文存储服务
-└── DataPurgeService.ts         # 数据清理服务
+├── ToolRetrievalService.ts     # 工具检索服务
+├── DataPurgeService.ts         # 数据清理服务
+└── tool-retrieval/             # 向量检索模块
+    ├── ToolRetrievalService.ts
+    ├── LanceDBConnection.ts
+    ├── SearchEngine.ts
+    └── types.ts
 ```
+
+**v2.0.0 变更**：
+- 移除 ContextManager（上下文压缩）
+- 移除 AceService（ACE 框架）
+- 移除 PlaybookMatcher（Playbook 系统）
+- 移除 ContextStorageService（上下文存储）
+- 新增 ToolRetrievalService（工具检索）
 
 ---
 
@@ -91,26 +101,14 @@ src/services/
 - `getSkill(skillId: string)` - 获取技能详情
 - `reindexSkills()` - 重新索引技能
 
-### 2.6 ContextManager
+### 2.6 ToolRetrievalService
 
-**职责**：上下文修剪、压缩、检查点
-
-**核心方法**：
-- `manageContext(messages: Message[])` - 管理上下文
-- `compressContext(messages: Message[])` - 压缩上下文
-- `pruneContext(messages: Message[], maxTokens: number)` - 修剪上下文
-- `createCheckpoint(context: Context)` - 创建检查点
-- `restoreCheckpoint(checkpointId: string)` - 恢复检查点
-
-### 2.7 AceService
-
-**职责**：ACE（自主认知引擎）核心服务
+**职责**：工具向量检索（Skill/MCP/Builtin）
 
 **核心方法**：
-- `getInstance()` - 单例获取
-- `initialize()` - 初始化
-- `processThought(thought: Thought)` - 处理思考
-- `executeAction(action: Action)` - 执行动作
+- `initialize()` - 初始化向量数据库
+- `findRelevantSkills(query: string, limit: number)` - 检索相关工具
+- `indexTools(tools: SkillTool[])` - 索引工具
 
 ---
 
@@ -123,7 +121,6 @@ src/services/
 │ - strategies: ChatStrategy[]                                    │
 │ - sessionManager: SessionManager                                │
 │ - requestTracker: RequestTracker                                │
-│ - contextManager: ContextManager                                │
 ├─────────────────────────────────────────────────────────────────┤
 │ + processMessage(request: ChatRequest)                          │
 │ + selectStrategy(options: ChatOptions)                          │
@@ -143,24 +140,26 @@ src/services/
 └──────────────────┘  └──────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────┐
-│                      ContextManager                             │
+│                   ToolRetrievalService                          │
 ├─────────────────────────────────────────────────────────────────┤
-│ - maxTokens: number                                             │
-│ - compressionThreshold: number                                  │
+│ - vectorDB: LanceDBConnection                                   │
+│ - embeddingGenerator: EmbeddingGenerator                        │
 ├─────────────────────────────────────────────────────────────────┤
-│ + manageContext(messages)                                       │
-│ + compressContext(messages)                                     │
-│ + pruneContext(messages, maxTokens)                             │
-│ + createCheckpoint(context)                                     │
+│ + initialize()                                                  │
+│ + findRelevantSkills(query: string, limit: number)              │
+│ + indexTools(tools: SkillTool[])                                │
 └─────────────────────────────────────────────────────────────────┘
          │
          v
 ┌─────────────────────────────────────────────────────────────────┐
-│                  ContextStorageService                          │
+│                   LanceDBConnection                              │
 ├─────────────────────────────────────────────────────────────────┤
-│ + saveEffectiveContext(context)                                 │
-│ + createCheckpoint(context)                                     │
-│ + loadCheckpoint(id)                                            │
+│ - db: lancedb.Connection                                        │
+│ - table: lancedb.Table                                          │
+├─────────────────────────────────────────────────────────────────┤
+│ + connect(config: LanceDBConfig)                                │
+│ + initializeTable()                                             │
+│ + addRecords(records: ToolsTable[])                             │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -172,23 +171,18 @@ src/services/
 ChatService
     ├── SessionManager (会话管理)
     ├── RequestTracker (请求跟踪)
-    ├── ContextManager (上下文管理)
     ├── LLMConfigService (配置获取)
     ├── SkillManager (技能加载)
-    └── AceService (ACE 集成)
-
-ContextManager
-    ├── ContextStorageService (存储)
-    └── TokenCounter (令牌计数)
+    └── ConversationHistoryService (历史记录)
 
 SkillManager
     ├── SkillInstaller (安装)
-    ├── SkillIndex (索引)
+    ├── ToolRetrievalService (索引)
     └── LanceDB (向量存储)
 
-AceService
-    ├── ReActEngine (思考引擎)
-    └── EventBus (事件)
+ToolRetrievalService
+    ├── LanceDBConnection (数据库连接)
+    └── EmbeddingGenerator (向量生成)
 ```
 
 ---
@@ -242,20 +236,21 @@ interface Session {
 interface ServiceConfig {
   chat: {
     defaultStrategy: 'react' | 'single-round';
-    maxContextTokens: number;
+    maxContextMessages: number;
     enableInterrupt: boolean;
   };
   session: {
     ttl: number;
     maxPerUser: number;
   };
-  context: {
-    compressionThreshold: number;
-    maxCheckpoints: number;
-  };
   skills: {
     installedPath: string;
     indexRefreshInterval: number;
+  };
+  vectorSearch: {
+    enabled: boolean;
+    defaultLimit: number;
+    defaultThreshold: number;
   };
 }
 ```
@@ -270,12 +265,12 @@ interface ServiceConfig {
 2. 实现 `ChatStrategy` 接口
 3. 在 `ChatService` 构造函数中注册
 
-### 7.2 新增上下文压缩算法
-
-1. 实现 `ContextCompressor` 接口
-2. 在 `ContextManager` 中注册
-
-### 7.3 新增会话存储
+### 7.2 新增会话存储
 
 1. 实现 `SessionStorage` 接口
 2. 在 `SessionManager` 中切换实现
+
+### 7.3 新增向量数据库
+
+1. 实现 `IVectorDBConnection` 接口
+2. 在 `ToolRetrievalService` 中切换实现

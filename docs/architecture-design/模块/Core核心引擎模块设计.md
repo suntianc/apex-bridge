@@ -1,18 +1,19 @@
 # Core 核心引擎模块设计
 
 > 所属模块：Core
-> 文档版本：v1.0.0
+> 文档版本：v2.0.0
 > 创建日期：2025-12-29
+> 更新日期：2026-01-08
 
 ## 1. 模块概述
 
-Core 模块是 ApexBridge 的核心引擎层，负责 ABP 协议解析、LLM 提供商管理、多轮思考执行和动态变量解析。
+Core 模块是 ApexBridge 的核心引擎层，负责 LLM 提供商管理、多轮思考执行、工具调度和动态变量解析。
 
 ### 1.1 模块职责
 
-- ABP 协议解析与处理
 - 多 LLM 提供商适配器管理
 - ReAct 多轮思考引擎
+- 工具解析与调度
 - 动态变量解析系统
 - 内部事件总线
 
@@ -20,7 +21,6 @@ Core 模块是 ApexBridge 的核心引擎层，负责 ABP 协议解析、LLM 提
 
 ```
 src/core/
-├── ProtocolEngine.ts      # ABP 协议引擎
 ├── LLMManager.ts          # LLM 管理器
 ├── ReActEngine.ts         # ReAct 思考引擎
 ├── VariableEngine.ts      # 变量引擎
@@ -29,6 +29,9 @@ src/core/
 │       ├── PlaceholderProvider.ts
 │       └── index.ts
 ├── EventBus.ts            # 事件总线
+├── tool-action/           # 工具系统
+│   ├── ToolDispatcher.ts  # 工具调度器
+│   └── ...
 ├── llm/                   # LLM 相关
 │   ├── LLMManager.ts
 │   ├── LLMAdapter.ts      # 适配器接口
@@ -43,20 +46,13 @@ src/core/
     └── StreamOrchestrator.ts
 ```
 
+**v2.0.0 变更**：移除 ProtocolEngine（ABP 协议引擎），保留核心 LLM 和工具执行能力。
+
 ---
 
 ## 2. 组件设计
 
-### 2.1 ProtocolEngine
-
-**职责**：ABP 协议解析、工具调用处理、RAG 集成
-
-**核心方法**：
-- `parseProtocol(input: string)` - 解析 ABP 协议输入
-- `processWithTools(chatHistory)` - 处理工具调用
-- `executeRAG(query: string)` - RAG 向量检索
-
-### 2.2 LLMManager
+### 2.1 LLMManager
 
 **职责**：多提供商适配器编排、模型注册、流式支持
 
@@ -97,18 +93,6 @@ src/core/
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        ProtocolEngine                           │
-├─────────────────────────────────────────────────────────────────┤
-│ - ragService: RAGService                                        │
-│ - variableEngine: VariableEngine                                │
-├─────────────────────────────────────────────────────────────────┤
-│ + parseProtocol(input: string)                                  │
-│ + processWithTools(chatHistory)                                 │
-│ + executeRAG(query: string)                                     │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              v
-┌─────────────────────────────────────────────────────────────────┐
 │                         LLMManager                              │
 ├─────────────────────────────────────────────────────────────────┤
 │ - adapters: Map<string, LLMAdapter>                             │
@@ -137,6 +121,18 @@ src/core/
 │ + dispatchTool(toolCall: ToolCall)                              │
 │ + processObservation(observation: Observation)                  │
 └─────────────────────────────────────────────────────────────────┘
+                              │
+                              v
+┌─────────────────────────────────────────────────────────────────┐
+│                      ToolDispatcher                             │
+├─────────────────────────────────────────────────────────────────┤
+│ - builtinExecutor: BuiltInExecutor                              │
+│ - skillsExecutor: SkillsSandboxExecutor                         │
+│ - mcpExecutors: Map<string, MCPExecutor>                        │
+├─────────────────────────────────────────────────────────────────┤
+│ + dispatch(toolName: string, params: any)                       │
+│ + registerExecutor(type: string, executor: Executor)            │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -144,11 +140,6 @@ src/core/
 ## 4. 依赖关系
 
 ```
-ProtocolEngine
-    ├── VariableEngine (变量解析)
-    ├── RAGService (向量检索)
-    └── ReActEngine (工具调用)
-
 LLMManager
     ├── LLMAdapterFactory (适配器工厂)
     ├── LLMConfigService (配置管理)
@@ -157,6 +148,11 @@ LLMManager
 ReActEngine
     ├── ToolDispatcher (工具调度)
     └── LLMManager (LLM 调用)
+
+ToolDispatcher
+    ├── BuiltInExecutor (内置工具)
+    ├── SkillsSandboxExecutor (技能执行)
+    └── MCPIntegrationService (MCP 工具)
 
 VariableEngine
     ├── TimeProvider

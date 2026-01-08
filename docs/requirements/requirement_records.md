@@ -17,6 +17,41 @@
 | FD-004 | AceStrategyManager 重构功能设计 | 高 | 评审通过 | [02-remaining-modules-refactoring-func/AceStrategyManager-refactoring.md](../functionality-design/02-remaining-modules-refactoring-func/AceStrategyManager-refactoring.md)|
 | FD-005 | ChatService 重构功能设计 | 高 | 评审通过 | [02-remaining-modules-refactoring-func/ChatService-refactoring.md](../functionality-design/02-remaining-modules-refactoring-func/ChatService-refactoring.md)|
 | FD-006 | R-003 Vector-Search 工具类型返回功能设计 | 高 | ✅ 已完成 | [03-Vector-Search-tool-type-func/03-Vector-Search-tool-type.md](../functionality-design/03-Vector-Search-tool-type-func/03-Vector-Search-tool-type.md)|
+| R-004 | ACE 功能剔除需求 | 高 | 评审通过 | [04-ACE功能剔除.md](04-ACE功能剔除.md) | [04-ACE功能剔除.md](../functionality-design/04-ACE功能剔除-func/04-ACE功能剔除.md) |
+
+## R-004: ACE 功能剔除需求
+
+### 需求概述
+
+剔除所有 ACE 相关功能，简化系统架构，保留核心 LLM 调用和工具执行能力。
+
+### 核心目标
+
+1. **移除内容**:
+   - ACE 框架（六层认知架构）
+   - 上下文压缩机制
+   - 伦理守卫（AceEthicsGuard）
+   - 战略管理器（AceStrategyManager）
+   - 集成服务（AceIntegrator）
+   - 轨迹记录和反思机制
+   - Playbook 自动提炼系统
+
+2. **保留内容**:
+   - LLM 调用能力（LLMManager、多模型适配器）
+   - 工具执行能力（Skill/MCP/Builtin）
+   - 基础对话历史（ConversationHistoryService）
+   - 向量搜索工具检索（ToolRetrievalService、SearchEngine）
+
+### 验收标准
+
+- [ ] TypeScript 编译无错误
+- [ ] API 接口行为 100% 一致
+- [ ] 核心对话功能 100% 正常
+- [ ] 工具执行功能 100% 正常
+
+### 文档位置
+
+`docs/requirements/04-ACE功能剔除.md`
 
 ---
 

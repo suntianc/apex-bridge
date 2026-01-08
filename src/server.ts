@@ -26,7 +26,6 @@ import { WebSocketManager } from './api/websocket/WebSocketManager';
 import { ChatChannel } from './api/websocket/channels/ChatChannel';
 import { ConfigService } from './services/ConfigService';
 import { PathService } from './services/PathService';
-import { PlaybookMatcher } from './services/PlaybookMatcher';
 import { ToolRetrievalService } from './services/ToolRetrievalService';
 
 // 验证中间件
@@ -170,10 +169,7 @@ export class ABPIntelliCore {
         logger.info(`🚀 ApexBridge running on http://${apiHost}:${apiPort}`);
       });
       
-      // 8. 设置知识库维护定时调度
-      this.setupPlaybookMaintenanceScheduler();
-
-      // 9. 设置优雅关闭
+      // 8. 设置优雅关闭
       this.setupGracefulShutdown();
       
     } catch (error) {
@@ -358,13 +354,8 @@ export class ABPIntelliCore {
     this.app.use('/api/mcp', mcpRoutes);
 
     /**
-     * ACE层级模型配置API
-     * 管理ACE架构L1-L6层级模型配置
+     * 健康检查
      */
-    const aceLayerRoutes = await import('./api/routes/aceLayerRoutes');
-    this.app.use('/api/ace/layers', aceLayerRoutes.default);
-
-    // 健康检查
     this.app.get('/health', (req, res) => {
       res.json({
         status: 'ok',
@@ -438,69 +429,6 @@ export class ABPIntelliCore {
     process.on('SIGTERM', () => shutdown('SIGTERM'));
   }
 
-  /**
-   * 🆕 设置 Playbook 知识库维护定时调度
-   * 每周日凌晨 2:00 执行知识库维护（去重、归档）
-   */
-  private setupPlaybookMaintenanceScheduler(): void {
-    // 计算到下周日 2:00 的时间差
-    const getNextSundayTwoAM = (): { delay: number; nextRun: Date } => {
-      const now = new Date();
-      const nextSunday = new Date(now);
-
-      // 计算到下周日还差几天
-      const daysUntilSunday = (7 - now.getDay()) % 7;
-      nextSunday.setDate(now.getDate() + (daysUntilSunday === 0 ? 7 : daysUntilSunday));
-      nextSunday.setHours(2, 0, 0, 0);
-
-      // 如果今天已经是周日且还没到2点，则今天执行
-      if (daysUntilSunday === 0 && now.getHours() < 2) {
-        nextSunday.setDate(now.getDate());
-      }
-
-      const delay = nextSunday.getTime() - now.getTime();
-
-      return { delay, nextRun: nextSunday };
-    };
-
-    const scheduleMaintenance = async () => {
-      try {
-        const { delay, nextRun } = getNextSundayTwoAM();
-
-        logger.info(`[Curator] 知识库维护任务已调度，运行时间: ${nextRun.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`);
-
-        setTimeout(async () => {
-          try {
-            logger.info('[Curator] 开始执行知识库维护任务');
-
-            // 初始化 PlaybookMatcher（需要 ToolRetrievalService 和 LLMManager）
-            const { LLMManager } = await import('./core/LLMManager');
-            const llmManager = new LLMManager();
-            const playbookMatcher = new PlaybookMatcher(null as any, llmManager);
-
-            // 执行维护任务
-            const result = await playbookMatcher.maintainPlaybookKnowledgeBase();
-
-            logger.info(`[Curator] 知识库维护完成: 合并 ${result.merged} 个, 归档 ${result.archived} 个 Playbook`);
-
-          } catch (error: any) {
-            logger.error('[Curator] 知识库维护失败', error);
-          } finally {
-            // 下周继续调度
-            scheduleMaintenance();
-          }
-        }, delay);
-
-      } catch (error: any) {
-        logger.error('[Curator] 调度知识库维护任务失败', error);
-      }
-    };
-
-    // 启动调度器
-    scheduleMaintenance();
-
-    logger.info('✅ Playbook 知识库维护调度器已启动（每周日凌晨 2:00 执行）');
-  }
 }
 
 // 启动服务器（ABP-only）

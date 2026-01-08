@@ -7,7 +7,6 @@
 import type { Message, ChatOptions } from '../types';
 import type { ChatStrategy, ChatResult, StrategyPrepareResult } from './ChatStrategy';
 import type { LLMManager } from '../core/LLMManager';
-import type { AceIntegrator } from '../services/AceIntegrator';
 import type { ConversationHistoryService } from '../services/ConversationHistoryService';
 import { ReActEngine } from '../core/stream-orchestrator/ReActEngine';
 import { LLMManagerAdapter } from '../core/stream-orchestrator/LLMAdapter';
@@ -37,7 +36,6 @@ export class ReActStrategy implements ChatStrategy {
 
   constructor(
     private llmManager: LLMManager,
-    private aceIntegrator: AceIntegrator,
     private historyService: ConversationHistoryService
   ) {
     // 初始化工具系统组件
@@ -100,17 +98,6 @@ export class ReActStrategy implements ChatStrategy {
 
     logger.info(`[${this.getName()}] Starting ReAct execution with new tool system`);
 
-    // P0阶段：确保有sessionId（ACE功能需要）
-    if (options.selfThinking?.enabled && !options.sessionId) {
-      options.sessionId = `ace_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      logger.debug(`[${this.getName()}] Generated sessionId for ACE: ${options.sessionId}`);
-    }
-
-    // P0阶段：L5上下文管理 - 维护"当前任务"的聚焦上下文（最近3轮对话）
-    if (options.sessionId && this.aceIntegrator.isEnabled()) {
-      await this.manageL5Context(options.sessionId, messages, options);
-    }
-
     // 初始化 ReAct 引擎（启用 tool_action 标签解析）
     const reactEngine = new ReActEngine({
       maxIterations: options.selfThinking?.maxIterations ?? 50,
@@ -151,40 +138,6 @@ export class ReActStrategy implements ChatStrategy {
       }
 
       logger.debug(`[${this.getName()}] ReAct completed in ${iterations} iterations`);
-
-      // P0阶段：ACE集成 - 保存轨迹和L5思考记录
-      if (options.sessionId && this.aceIntegrator.isEnabled()) {
-        // 保存完整轨迹（现有功能）
-        await this.aceIntegrator.saveTrajectory({
-          requestId: options.requestId || `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          sessionId: options.sessionId,
-          messages: messages,
-          finalContent: finalContent,
-          thinkingProcess: thinkingProcess,
-          iterations: iterations,
-          isReAct: true
-        });
-
-        // P0阶段：L5思考过程记录（最新思考）
-        if (thinkingProcess.length > 0) {
-          const lastThought = thinkingProcess[thinkingProcess.length - 1];
-          await this.aceIntegrator.recordThought(options.sessionId, {
-            content: finalContent,
-            reasoning: lastThought
-          });
-        }
-
-        // P0阶段：任务完成后清理
-        await this.aceIntegrator.completeTask(options.sessionId, {
-          summary: `Task completed in ${iterations} iterations`,
-          outcome: finalContent ? 'success' : 'partial'
-        });
-
-        // 更新会话活动时间
-        this.aceIntegrator.updateSessionActivity(options.sessionId).catch(err => {
-          logger.warn(`[${this.getName()}] Failed to update session activity: ${err.message}`);
-        });
-      }
 
       // 返回结果（包含原始思考过程，供ChatService统一保存）
       return {
@@ -259,7 +212,7 @@ export class ReActStrategy implements ChatStrategy {
       }
     }
 
-    // ✅ ChatService会统一保存历史，策略层只返回数据
+    // ChatService会统一保存历史，策略层只返回数据
     // 返回收集的思考过程和内容
     return {
       content: collectedContent,
@@ -297,7 +250,7 @@ export class ReActStrategy implements ChatStrategy {
       // 2. 尝试向量检索相关Skills（可选，失败不影响内置工具）
       let relevantSkills: any[] = [];
       try {
-        // ✅ 确保 ToolRetrievalService 已初始化（加载 embedding 模型配置）
+        // 确保 ToolRetrievalService 已初始化（加载 embedding 模型配置）
         await this.toolRetrievalService.initialize();
 
         const query = messages[messages.length - 1] ? extractTextFromMessage(messages[messages.length - 1]) : '';
@@ -351,43 +304,6 @@ export class ReActStrategy implements ChatStrategy {
       logger.error(`[${this.getName()}] Tool system initialization failed:`, error);
       // 完全失败时，确保清空工具列表
       this.availableTools = [];
-    }
-  }
-
-  /**
-   * 执行工具（双执行器路由）
-   */
-  private async executeTool(toolName: string, params: Record<string, any>): Promise<any> {
-    const startTime = Date.now();
-
-    try {
-      // 1. 先尝试内置执行器（零开销）
-      const builtInResult = await this.builtInExecutor.execute({
-        name: toolName,
-        args: params
-      }).catch(() => null);
-
-      if (builtInResult?.success) {
-        logger.debug(`[${this.getName()}] Built-in tool executed: ${toolName} (${Date.now() - startTime}ms)`);
-        return builtInResult.output;
-      }
-
-      // 2. 尝试Skills执行器（进程隔离）
-      const skillResult = await this.skillsExecutor.execute({
-        name: toolName,
-        args: params
-      });
-
-      if (skillResult.success) {
-        logger.debug(`[${this.getName()}] Skills tool executed: ${toolName} (${Date.now() - startTime}ms)`);
-        return skillResult.output;
-      }
-
-      throw new Error(`Tool execution failed: ${toolName}`);
-
-    } catch (error) {
-      logger.error(`[${this.getName()}] Tool execution failed: ${toolName}`, error);
-      throw error;
     }
   }
 
@@ -513,44 +429,5 @@ export class ReActStrategy implements ChatStrategy {
     return statuses.length > 0
       ? `Active skills: ${statuses.join(', ')}`
       : 'No active dynamic skills';
-  }
-
-  // ========== P0阶段新增：L5/L6层集成 ==========
-
-  /**
-   * P0阶段：L5上下文管理
-   * 维护"当前任务"的聚焦上下文（最近3轮对话）
-   */
-  private async manageL5Context(
-    sessionId: string,
-    currentMessages: Message[],
-    options: ChatOptions
-  ): Promise<void> {
-    try {
-      // 限制L5上下文窗口：最近3轮对话（user+assistant对 = 6条消息）
-      const recentMessages = currentMessages.slice(-6);
-
-      if (this.aceIntegrator.isEnabled()) {
-        const contextSummary = recentMessages
-          .map(m => `${m.role}: ${extractTextFromMessage(m).substring(0, 100)}`)
-          .join('\n');
-
-        // 记录到L5 Scratchpad
-        await this.aceIntegrator.sendToLayer('COGNITIVE_CONTROL', {
-          type: 'CONTEXT_UPDATE',
-          content: `Current task context:\n${contextSummary}`,
-          metadata: {
-            messageCount: recentMessages.length,
-            timestamp: Date.now(),
-            sessionId
-          }
-        });
-
-        logger.debug(`[${this.getName()}] L5 context updated for session: ${sessionId}`);
-      }
-    } catch (error: any) {
-      logger.warn(`[${this.getName()}] Failed to manage L5 context: ${error.message}`);
-      // 不抛出错误，避免影响主流程
-    }
   }
 }
