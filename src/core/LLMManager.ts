@@ -1,32 +1,48 @@
 /**
  * LLMManager - LLM 管理器（新架构）
- * 
+ *
  * 使用两级配置结构（提供商 + 模型）
  * 支持多模型类型（NLP, Embedding, Rerank 等）
  * 配置从 SQLite 数据库加载，支持运行时热更新
  */
 
-import { Message, ChatOptions, LLMResponse } from '../types';
-import { logger } from '../utils/logger';
-import { LLMConfigService } from '../services/LLMConfigService';
-import { ModelRegistry } from '../services/ModelRegistry';
-import { LLMModelType, LLMModelFull } from '../types/llm-models';
-import { buildApiUrl } from '../config/endpoint-mappings';
-import { LLMAdapterFactory, ILLMAdapter } from './llm/adapters';
+import { Message, ChatOptions, LLMResponse } from "../types";
+import { logger } from "../utils/logger";
+import { LLMConfigService } from "../services/LLMConfigService";
+import { ModelRegistry } from "../services/ModelRegistry";
+import { LLMModelType, LLMModelFull } from "../types/llm-models";
+import { buildApiUrl } from "../config/endpoint-mappings";
+import { LLMAdapterFactory, ILLMAdapter } from "./llm/adapters";
+
+/**
+ * 适配器缓存条目
+ */
+interface AdapterCacheEntry {
+  adapter: ILLMAdapter;
+  configHash: string;
+  lastUsed: number;
+}
 
 /**
  * LLM 管理器（新架构）
  */
 export class LLMManager {
+  // 提供商级别适配器缓存（启动时加载）
   private adapters: Map<string, ILLMAdapter> = new Map();
+  // 模型级别适配器缓存（动态创建，按需缓存）
+  private modelAdapterCache: Map<string, AdapterCacheEntry> = new Map();
   private modelRegistry: ModelRegistry;
   private configService: LLMConfigService;
+
+  // 缓存配置
+  private readonly MAX_CACHE_SIZE = 20;
+  private readonly CACHE_TTL_MS = 5 * 60 * 1000; // 5分钟
 
   constructor() {
     this.configService = LLMConfigService.getInstance();
     this.modelRegistry = ModelRegistry.getInstance();
 
-    logger.debug('🤖 Initializing LLM Manager (new architecture)...');
+    logger.debug("🤖 Initializing LLM Manager (new architecture)...");
     this.loadProviders();
   }
 
@@ -35,10 +51,10 @@ export class LLMManager {
    */
   private loadProviders(): void {
     try {
-      const providers = this.configService.listProviders().filter(p => p.enabled);
+      const providers = this.configService.listProviders().filter((p) => p.enabled);
 
       if (providers.length === 0) {
-        logger.warn('⚠️  No enabled LLM providers found');
+        logger.warn("⚠️  No enabled LLM providers found");
         return;
       }
 
@@ -49,11 +65,11 @@ export class LLMManager {
           const adapter = LLMAdapterFactory.create(provider.provider, {
             apiKey: provider.baseConfig.apiKey,
             baseURL: provider.baseConfig.baseURL,
-            defaultModel: '', // 模型由调用时指定
+            defaultModel: "", // 模型由调用时指定
             timeout: provider.baseConfig.timeout,
-            maxRetries: provider.baseConfig.maxRetries
+            maxRetries: provider.baseConfig.maxRetries,
           });
-          
+
           this.adapters.set(provider.provider, adapter);
           logger.debug(`Loaded provider: ${provider.provider} (${provider.name})`);
         } catch (error: any) {
@@ -63,12 +79,12 @@ export class LLMManager {
 
       logger.debug(`Loaded ${this.adapters.size} LLM providers`);
     } catch (error: any) {
-      logger.error('❌ Failed to load providers:', error);
+      logger.error("❌ Failed to load providers:", error);
     }
   }
 
   /**
-   * 聊天补全（自动选择 NLP 模型）
+   * 聊天补全（自动选择 NLP 模型）- 使用适配器缓存优化性能
    */
   async chat(messages: Message[], options?: ChatOptions): Promise<LLMResponse> {
     try {
@@ -86,7 +102,7 @@ export class LLMManager {
             providerId: provider.id,
             modelType: LLMModelType.NLP,
             isDefault: true,
-            enabled: true
+            enabled: true,
           });
           model = models[0] || null;
         }
@@ -96,80 +112,169 @@ export class LLMManager {
       }
 
       if (!model) {
-        throw new Error('No NLP model available');
+        throw new Error("No NLP model available");
       }
 
-      // 2. 获取适配器
-      const adapter = this.adapters.get(model.provider);
-      if (!adapter) {
-        throw new Error(`No adapter found for provider: ${model.provider}`);
-      }
+      // 2. 获取或创建适配器（使用缓存）
+      const adapter = await this.getOrCreateModelAdapter(model);
 
-      // 3. 构建完整的 API URL
-      const apiUrl = model.apiEndpointSuffix 
-        ? buildApiUrl(model.providerBaseConfig.baseURL, model.apiEndpointSuffix)
-        : model.providerBaseConfig.baseURL;
-
-      // 4. 更新适配器配置（使用模型的完整配置）
-      const adapterConfig = {
-        apiKey: model.providerBaseConfig.apiKey,
-        baseURL: apiUrl,
-        defaultModel: model.modelKey,
-        timeout: model.providerBaseConfig.timeout || 60000,
-        maxRetries: model.providerBaseConfig.maxRetries || 3
-      };
-
-      // 重新创建适配器确保使用最新配置
-      const freshAdapter = LLMAdapterFactory.create(model.provider, adapterConfig);
-
-      // 5. 调用聊天
+      // 3. 调用聊天
       logger.debug(`💬 Using model: ${model.modelName} (${model.provider}/${model.modelKey})`);
-      
-      return await freshAdapter.chat(messages, {
-        ...options,
-        model: model.modelKey
-      });
 
+      return await adapter.chat(messages, {
+        ...options,
+        model: model.modelKey,
+      });
     } catch (error: any) {
-      logger.error('❌ Chat failed:', error);
+      logger.error("❌ Chat failed:", error);
       throw error;
+    }
+  }
+
+  /**
+   * 获取或创建模型级别的适配器（带缓存）
+   */
+  private async getOrCreateModelAdapter(model: LLMModelFull): Promise<ILLMAdapter> {
+    const cacheKey = `${model.provider}:${model.modelKey}`;
+    const configHash = this.computeConfigHash(model);
+
+    let entry = this.modelAdapterCache.get(cacheKey);
+
+    // 检查缓存是否有效
+    if (
+      entry &&
+      entry.configHash === configHash &&
+      Date.now() - entry.lastUsed < this.CACHE_TTL_MS
+    ) {
+      entry.lastUsed = Date.now();
+      logger.debug(`[LLMManager] Cache hit for adapter: ${cacheKey}`);
+      return entry.adapter;
+    }
+
+    // 创建新适配器
+    const apiUrl = model.apiEndpointSuffix
+      ? buildApiUrl(model.providerBaseConfig.baseURL, model.apiEndpointSuffix)
+      : model.providerBaseConfig.baseURL;
+
+    const adapter = LLMAdapterFactory.create(model.provider, {
+      apiKey: model.providerBaseConfig.apiKey,
+      baseURL: apiUrl,
+      defaultModel: model.modelKey,
+      timeout: model.providerBaseConfig.timeout || 60000,
+      maxRetries: model.providerBaseConfig.maxRetries || 3,
+    });
+
+    // 更新缓存
+    if (this.modelAdapterCache.size >= this.MAX_CACHE_SIZE) {
+      this.evictOldestEntry();
+    }
+    this.modelAdapterCache.set(cacheKey, {
+      adapter,
+      configHash,
+      lastUsed: Date.now(),
+    });
+
+    logger.debug(`[LLMManager] Created new adapter for: ${cacheKey}`);
+    return adapter;
+  }
+
+  /**
+   * 计算模型配置哈希值（用于检测配置变化）
+   */
+  private computeConfigHash(model: LLMModelFull): string {
+    const configStr = JSON.stringify({
+      apiKey: model.providerBaseConfig.apiKey,
+      baseURL: model.providerBaseConfig.baseURL,
+      apiEndpointSuffix: model.apiEndpointSuffix,
+      modelKey: model.modelKey,
+      timeout: model.providerBaseConfig.timeout,
+      maxRetries: model.providerBaseConfig.maxRetries,
+    });
+    return this.simpleHash(configStr);
+  }
+
+  /**
+   * 简单的字符串哈希函数
+   */
+  private simpleHash(str: string): string {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    return hash.toString(16);
+  }
+
+  /**
+   * 驱逐最旧的缓存条目
+   */
+  private evictOldestEntry(): void {
+    let oldestKey: string | null = null;
+    let oldestTime = Infinity;
+
+    for (const [key, entry] of this.modelAdapterCache.entries()) {
+      if (entry.lastUsed < oldestTime) {
+        oldestTime = entry.lastUsed;
+        oldestKey = key;
+      }
+    }
+
+    if (oldestKey) {
+      this.modelAdapterCache.delete(oldestKey);
+      logger.debug(`[LLMManager] Evicted oldest cache entry: ${oldestKey}`);
     }
   }
 
   /**
    * 流式聊天补全
    */
-  async *streamChat(messages: Message[], options?: ChatOptions, abortSignal?: AbortSignal): AsyncIterableIterator<string> {
+  async *streamChat(
+    messages: Message[],
+    options?: ChatOptions,
+    abortSignal?: AbortSignal
+  ): AsyncIterableIterator<string> {
     logger.debug(`[LLMManager.streamChat] Input options: ${JSON.stringify(options)}`);
 
     const model = await this.getActiveModel(options);
 
     if (!model) {
-      throw new Error('No NLP model available');
+      throw new Error("No NLP model available");
     }
 
     const adapter = await this.getOrCreateAdapter(model);
 
-    logger.debug(`💬 Streaming with model: ${model.modelName} (${model.provider}/${model.modelKey})`);
+    logger.debug(
+      `💬 Streaming with model: ${model.modelName} (${model.provider}/${model.modelKey})`
+    );
 
     // 调用适配器的 streamChat 方法
     // ✅ 修复：正确传递参数（没有tools）
-    yield* adapter.streamChat(messages, {
-      ...options,
-      model: model.modelKey
-    }, undefined, abortSignal);
+    yield* adapter.streamChat(
+      messages,
+      {
+        ...options,
+        model: model.modelKey,
+      },
+      undefined,
+      abortSignal
+    );
   }
 
   /**
    * 获取活跃的模型（辅助方法）
    */
   private async getActiveModel(options?: ChatOptions): Promise<LLMModelFull | null> {
-    logger.debug(`[LLMManager.getActiveModel] Input options: provider=${options?.provider}, model=${options?.model}`);
+    logger.debug(
+      `[LLMManager.getActiveModel] Input options: provider=${options?.provider}, model=${options?.model}`
+    );
 
     if (options?.provider && options?.model) {
-      logger.debug(`[LLMManager.getActiveModel] Searching for model: ${options.provider}/${options.model}`);
+      logger.debug(
+        `[LLMManager.getActiveModel] Searching for model: ${options.provider}/${options.model}`
+      );
       const foundModel = this.modelRegistry.findModel(options.provider, options.model);
-      logger.debug(`[LLMManager.getActiveModel] Found model: ${foundModel?.modelName || 'null'}`);
+      logger.debug(`[LLMManager.getActiveModel] Found model: ${foundModel?.modelName || "null"}`);
       return foundModel;
     } else if (options?.provider) {
       const provider = this.configService.getProviderByKey(options.provider);
@@ -178,13 +283,13 @@ export class LLMManager {
           providerId: provider.id,
           modelType: LLMModelType.NLP,
           isDefault: true,
-          enabled: true
+          enabled: true,
         });
         return models[0] || null;
       }
     }
 
-    logger.debug('[LLMManager.getActiveModel] Using system default model');
+    logger.debug("[LLMManager.getActiveModel] Using system default model");
     return this.modelRegistry.getDefaultModel(LLMModelType.NLP);
   }
 
@@ -198,7 +303,7 @@ export class LLMManager {
     }
 
     // 动态创建适配器
-    const apiUrl = model.apiEndpointSuffix 
+    const apiUrl = model.apiEndpointSuffix
       ? buildApiUrl(model.providerBaseConfig.baseURL, model.apiEndpointSuffix)
       : model.providerBaseConfig.baseURL;
 
@@ -207,7 +312,7 @@ export class LLMManager {
       baseURL: apiUrl,
       defaultModel: model.modelKey,
       timeout: model.providerBaseConfig.timeout || 60000,
-      maxRetries: model.providerBaseConfig.maxRetries || 3
+      maxRetries: model.providerBaseConfig.maxRetries || 3,
     });
 
     this.adapters.set(model.provider, freshAdapter);
@@ -240,7 +345,9 @@ export class LLMManager {
           const match = envModel.match(/^([a-zA-Z0-9]+)-/);
           if (match) {
             const inferredProvider = match[1];
-            logger.info(`[LLMManager] Using .env model with inferred provider: ${inferredProvider}/${envModel}`);
+            logger.info(
+              `[LLMManager] Using .env model with inferred provider: ${inferredProvider}/${envModel}`
+            );
             model = this.modelRegistry.findModel(inferredProvider, envModel);
           }
         }
@@ -249,8 +356,8 @@ export class LLMManager {
       // 3. 验证模型可用性
       if (!model) {
         throw new Error(
-          'No embedding model available. ' +
-          'Please configure an embedding model in SQLite (set is_default=1) or set EMBEDDING_PROVIDER and EMBEDDING_MODEL in .env'
+          "No embedding model available. " +
+            "Please configure an embedding model in SQLite (set is_default=1) or set EMBEDDING_PROVIDER and EMBEDDING_MODEL in .env"
         );
       }
 
@@ -266,15 +373,19 @@ export class LLMManager {
       }
 
       // 6. 调用 Embedding API
-      logger.debug(`🔢 Using embedding model: ${model.modelName} (${model.provider}/${model.modelKey})`);
+      logger.debug(
+        `🔢 Using embedding model: ${model.modelName} (${model.provider}/${model.modelKey})`
+      );
 
       const embeddings = await adapter.embed(texts, model.modelName);
 
-      logger.debug(`✅ Generated ${embeddings.length} embeddings with ${embeddings[0]?.length || 0} dimensions`);
+      logger.debug(
+        `✅ Generated ${embeddings.length} embeddings with ${embeddings[0]?.length || 0} dimensions`
+      );
 
       return embeddings;
     } catch (error: any) {
-      logger.error('❌ Embed failed:', error);
+      logger.error("❌ Embed failed:", error);
       throw error;
     }
   }
@@ -283,8 +394,9 @@ export class LLMManager {
    * 刷新配置（重新加载提供商）
    */
   public refresh(): void {
-    logger.info('🔄 Refreshing LLM Manager...');
+    logger.info("🔄 Refreshing LLM Manager...");
     this.adapters.clear();
+    this.modelAdapterCache.clear();
     this.loadProviders();
     this.modelRegistry.forceRefresh();
   }
@@ -309,7 +421,7 @@ export class LLMManager {
   async updateProvider(id: number, input: any): Promise<void> {
     // 更新数据库
     this.configService.updateProvider(id, input);
-    
+
     // 刷新内存
     this.refresh();
   }
@@ -319,11 +431,11 @@ export class LLMManager {
    */
   public getAllModels(): Array<{ id: string; provider: string; model: string; type: string }> {
     const models = this.modelRegistry.getAllModels();
-    return models.map(m => ({
+    return models.map((m) => ({
       id: `${m.provider}/${m.modelKey}`,
       provider: m.provider,
       model: m.modelKey,
-      type: m.modelType
+      type: m.modelType,
     }));
   }
 }

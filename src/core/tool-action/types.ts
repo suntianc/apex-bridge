@@ -7,9 +7,9 @@
  * 工具类型枚举
  */
 export enum ToolType {
-  SKILL = 'skill',
-  MCP = 'mcp',
-  BUILTIN = 'builtin'
+  SKILL = "skill",
+  MCP = "mcp",
+  BUILTIN = "builtin",
 }
 
 /**
@@ -73,13 +73,13 @@ export interface DetectionResult {
  */
 export enum DetectorState {
   /** 正常状态，无标签检测中 */
-  NORMAL = 'NORMAL',
+  NORMAL = "NORMAL",
   /** 检测到标签开始 <tool_action */
-  TAG_OPENING = 'TAG_OPENING',
+  TAG_OPENING = "TAG_OPENING",
   /** 标签内容收集中 */
-  TAG_CONTENT = 'TAG_CONTENT',
+  TAG_CONTENT = "TAG_CONTENT",
   /** 检测到闭合标签 </tool_action> */
-  TAG_CLOSING = 'TAG_CLOSING'
+  TAG_CLOSING = "TAG_CLOSING",
 }
 
 /**
@@ -106,6 +106,8 @@ export interface ToolExecutionResult {
   error?: string;
   /** 执行耗时（毫秒） */
   executionTime: number;
+  /** 是否对用户隐藏结果（仅用于内部 LLM 推理） */
+  hiddenFromUser?: boolean;
 
   // 🆕 工具调用详情（成功时）
   tool_details?: {

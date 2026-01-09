@@ -198,3 +198,4 @@ user-data/
 .data/skills/*/.vectorized
 # Runtime logs
 logs/*.log
+opencode/

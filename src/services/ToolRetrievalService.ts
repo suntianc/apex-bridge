@@ -3,24 +3,24 @@
  * 提供LanceDB向量数据库和语义搜索能力
  */
 
-import * as lancedb from '@lancedb/lancedb';
-import { Index } from '@lancedb/lancedb';
-import * as arrow from 'apache-arrow';
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import { createHash } from 'crypto';
-import matter from 'gray-matter';
+import * as lancedb from "@lancedb/lancedb";
+import { Index } from "@lancedb/lancedb";
+import * as arrow from "apache-arrow";
+import * as fs from "fs/promises";
+import * as path from "path";
+import { createHash } from "crypto";
+import matter from "gray-matter";
 import {
   ToolRetrievalConfig,
   SkillTool,
   ToolRetrievalResult,
   ToolError,
   ToolErrorCode,
-  ToolType
-} from '../types/tool-system';
-import { LLMModelType } from '../types/llm-models';
-import { logger } from '../utils/logger';
-import { LLMConfigService } from './LLMConfigService';
+  ToolType,
+} from "../types/tool-system";
+import { LLMModelType } from "../types/llm-models";
+import { logger } from "../utils/logger";
+import { LLMConfigService } from "./LLMConfigService";
 
 // LLMManager 延迟导入，避免循环依赖
 let llmManagerInstance: any = null;
@@ -36,7 +36,7 @@ interface ToolsTable {
   path?: string; // Skills 的路径，MCP 工具可能没有
   version?: string; // Skills 的版本，MCP 工具可能没有
   source?: string; // MCP 服务器 ID 或 skill 名称
-  toolType: 'skill' | 'mcp' | 'builtin'; // 工具类型
+  toolType: "skill" | "mcp" | "builtin"; // 工具类型
   metadata: string; // JSON字符串格式
   vector: number[]; // 普通数组，不是 Float32Array
   indexedAt: Date;
@@ -55,10 +55,10 @@ export class ToolRetrievalService {
 
   constructor(config: ToolRetrievalConfig) {
     this.config = config;
-    logger.info('ToolRetrievalService created with config:', {
+    logger.info("ToolRetrievalService created with config:", {
       vectorDbPath: config.vectorDbPath,
       model: config.model,
-      dimensions: config.dimensions
+      dimensions: config.dimensions,
     });
   }
 
@@ -74,25 +74,27 @@ export class ToolRetrievalService {
     try {
       // 延迟导入避免循环依赖
       if (!this.llmConfigService) {
-        const { LLMConfigService } = await import('./LLMConfigService');
+        const { LLMConfigService } = await import("./LLMConfigService");
         this.llmConfigService = LLMConfigService.getInstance();
       }
 
       // 获取默认的embedding模型
-      const embeddingModel = this.llmConfigService.getDefaultModel('embedding');
+      const embeddingModel = this.llmConfigService.getDefaultModel("embedding");
 
       if (embeddingModel) {
         // modelConfig 已经是解析好的对象
         const dimensions = embeddingModel.modelConfig?.dimensions || this.config.dimensions;
 
-        logger.info(`Using actual embedding model dimensions: ${dimensions} (model: ${embeddingModel.modelName})`);
+        logger.info(
+          `Using actual embedding model dimensions: ${dimensions} (model: ${embeddingModel.modelName})`
+        );
 
         // 缓存维度
         this.dimensionsCache = dimensions;
         return dimensions;
       }
     } catch (error) {
-      logger.warn('Failed to get actual dimensions from database, using config default:', error);
+      logger.warn("Failed to get actual dimensions from database, using config default:", error);
     }
 
     // 回退到配置中的维度
@@ -111,20 +113,20 @@ export class ToolRetrievalService {
 
       // 如果已经初始化，需要重新初始化表结构
       if (this.isInitialized && this.table) {
-        logger.warn('Dimensions updated after initialization, consider reinitializing the service');
+        logger.warn("Dimensions updated after initialization, consider reinitializing the service");
       }
     }
   }
   async initialize(): Promise<void> {
     if (this.isInitialized) {
-      logger.debug('ToolRetrievalService is already initialized');
+      logger.debug("ToolRetrievalService is already initialized");
       return;
     }
 
     const startTime = Date.now();
 
     try {
-      logger.info('Initializing ToolRetrievalService...');
+      logger.info("Initializing ToolRetrievalService...");
 
       // 获取实际的向量维度
       const actualDimensions = await this.getActualDimensions();
@@ -143,9 +145,8 @@ export class ToolRetrievalService {
 
       const duration = Date.now() - startTime;
       logger.debug(`ToolRetrievalService initialized in ${duration}ms`);
-
     } catch (error) {
-      logger.error('ToolRetrievalService initialization failed:', error);
+      logger.error("ToolRetrievalService initialization failed:", error);
       throw new ToolError(
         `ToolRetrievalService initialization failed: ${this.formatError(error)}`,
         ToolErrorCode.VECTOR_DB_ERROR
@@ -165,9 +166,8 @@ export class ToolRetrievalService {
       this.db = await lancedb.connect(this.config.vectorDbPath);
 
       logger.info(`Connected to LanceDB at: ${this.config.vectorDbPath}`);
-
     } catch (error) {
-      logger.error('Failed to connect to LanceDB:', error);
+      logger.error("Failed to connect to LanceDB:", error);
       throw new ToolError(
         `Failed to connect to LanceDB: ${this.formatError(error)}`,
         ToolErrorCode.VECTOR_DB_ERROR
@@ -193,17 +193,19 @@ export class ToolRetrievalService {
 
         // 尝试添加一个临时记录（使用临时ID避免冲突）
         const tempId = `dimension-check-${Date.now()}`;
-        await tempTable.add([{
-          id: tempId,
-          name: 'Dimension Check',
-          description: 'Temporary record for dimension validation',
-          tags: [],
-          path: 'temp',
-          version: '1.0',
-          metadata: JSON.stringify({}), // 转换为JSON字符串以匹配schema
-          vector: testVector,
-          indexedAt: new Date()
-        }]);
+        await tempTable.add([
+          {
+            id: tempId,
+            name: "Dimension Check",
+            description: "Temporary record for dimension validation",
+            tags: [],
+            path: "temp",
+            version: "1.0",
+            metadata: JSON.stringify({}), // 转换为JSON字符串以匹配schema
+            vector: testVector,
+            indexedAt: new Date(),
+          },
+        ]);
 
         // 如果成功，删除测试记录
         await tempTable.delete(`id = '${tempId}'`);
@@ -212,18 +214,22 @@ export class ToolRetrievalService {
         return true;
       } catch (insertError: any) {
         // 检查是否是维度不匹配的错误
-        const errorMsg = insertError.message || '';
-        if (errorMsg.includes('dimension') || errorMsg.includes('length') ||
-            errorMsg.includes('schema') || errorMsg.includes('FixedSizeList')) {
+        const errorMsg = insertError.message || "";
+        if (
+          errorMsg.includes("dimension") ||
+          errorMsg.includes("length") ||
+          errorMsg.includes("schema") ||
+          errorMsg.includes("FixedSizeList")
+        ) {
           logger.info(`Table dimensions do not match config. Config: ${this.config.dimensions}`);
-          logger.debug('Dimension mismatch error:', errorMsg);
+          logger.debug("Dimension mismatch error:", errorMsg);
           return false;
         }
         // 其他错误，重新抛出
         throw insertError;
       }
     } catch (error) {
-      logger.error('Failed to check table dimensions:', error);
+      logger.error("Failed to check table dimensions:", error);
       return false;
     }
   }
@@ -233,7 +239,7 @@ export class ToolRetrievalService {
    */
   private async initializeSkillsTable(): Promise<void> {
     try {
-      const tableName = 'skills';
+      const tableName = "skills";
 
       // 尝试直接打开表，如果失败则说明表不存在
       try {
@@ -242,7 +248,7 @@ export class ToolRetrievalService {
 
         // 表已存在，检查维度是否匹配
         const dimensionsMatch = await this.checkTableDimensions(tableName);
-        logger.info(`Dimension check result: ${dimensionsMatch ? 'MATCH' : 'MISMATCH'}`);
+        logger.info(`Dimension check result: ${dimensionsMatch ? "MATCH" : "MISMATCH"}`);
 
         if (!dimensionsMatch) {
           // 维度不匹配，需要重新创建表
@@ -273,27 +279,35 @@ export class ToolRetrievalService {
         }
       } catch (openError: any) {
         // 表不存在，继续创建新表
-        logger.info(`Table '${tableName}' does not exist (${openError.message}), will create new table`);
+        logger.info(
+          `Table '${tableName}' does not exist (${openError.message}), will create new table`
+        );
       }
 
       // 创建新表 - 使用 Apache Arrow Schema（支持 Skills 和 MCP 工具）
       const schema = new arrow.Schema([
-        new arrow.Field('id', new arrow.Utf8(), false),
-        new arrow.Field('name', new arrow.Utf8(), false),
-        new arrow.Field('description', new arrow.Utf8(), false),
-        new arrow.Field('tags', new arrow.List(
-          new arrow.Field('item', new arrow.Utf8(), true)
-        ), false),
-        new arrow.Field('path', new arrow.Utf8(), true), // 可选，Skill 才有
-        new arrow.Field('version', new arrow.Utf8(), true), // 可选，Skill 才有
-        new arrow.Field('source', new arrow.Utf8(), true), // MCP 服务器 ID 或 skill 名称
-        new arrow.Field('toolType', new arrow.Utf8(), false), // 'skill' | 'mcp'
-        new arrow.Field('metadata', new arrow.Utf8(), false), // 对象存储为JSON字符串
-        new arrow.Field('vector', new arrow.FixedSizeList(
-          this.config.dimensions,
-          new arrow.Field('item', new arrow.Float32(), true)
-        ), false),
-        new arrow.Field('indexedAt', new arrow.Timestamp(arrow.TimeUnit.MICROSECOND), false)
+        new arrow.Field("id", new arrow.Utf8(), false),
+        new arrow.Field("name", new arrow.Utf8(), false),
+        new arrow.Field("description", new arrow.Utf8(), false),
+        new arrow.Field(
+          "tags",
+          new arrow.List(new arrow.Field("item", new arrow.Utf8(), true)),
+          false
+        ),
+        new arrow.Field("path", new arrow.Utf8(), true), // 可选，Skill 才有
+        new arrow.Field("version", new arrow.Utf8(), true), // 可选，Skill 才有
+        new arrow.Field("source", new arrow.Utf8(), true), // MCP 服务器 ID 或 skill 名称
+        new arrow.Field("toolType", new arrow.Utf8(), false), // 'skill' | 'mcp'
+        new arrow.Field("metadata", new arrow.Utf8(), false), // 对象存储为JSON字符串
+        new arrow.Field(
+          "vector",
+          new arrow.FixedSizeList(
+            this.config.dimensions,
+            new arrow.Field("item", new arrow.Float32(), true)
+          ),
+          false
+        ),
+        new arrow.Field("indexedAt", new arrow.Timestamp(arrow.TimeUnit.MICROSECOND), false),
       ]);
 
       // 创建空表
@@ -305,12 +319,11 @@ export class ToolRetrievalService {
       await this.createVectorIndex();
 
       // 索引所有 Skills（新表或重新创建的表需要重新索引）
-      logger.info('Indexing all skills...');
+      logger.info("Indexing all skills...");
       await this.scanAndIndexAllSkills();
-      logger.info('Skills indexing completed');
-
+      logger.info("Skills indexing completed");
     } catch (error) {
-      logger.error('Failed to initialize Skills table:', error);
+      logger.error("Failed to initialize Skills table:", error);
       throw error;
     }
   }
@@ -325,28 +338,27 @@ export class ToolRetrievalService {
 
       const testRecord = {
         id: `field-check-${Date.now()}`,
-        name: 'Field Check',
-        description: 'Checking for missing fields',
+        name: "Field Check",
+        description: "Checking for missing fields",
         tags: [],
         path: null,
         version: null,
         source: null, // MCP 字段
-        toolType: 'mcp', // MCP 字段
-        metadata: '{}',
+        toolType: "mcp", // MCP 字段
+        metadata: "{}",
         vector: testVector,
-        indexedAt: new Date()
+        indexedAt: new Date(),
       };
 
       await this.table!.add([testRecord]);
-      logger.info('All fields (including MCP fields) are present');
+      logger.info("All fields (including MCP fields) are present");
 
       // 删除测试记录
       await this.table!.delete(`id == "${testRecord.id}"`);
-
     } catch (error: any) {
       // 检查是否是字段缺失错误
-      if (error.message && error.message.includes('Found field not in schema')) {
-        logger.warn('Table is missing MCP-related fields. Recreating table...');
+      if (error.message && error.message.includes("Found field not in schema")) {
+        logger.warn("Table is missing MCP-related fields. Recreating table...");
 
         // 删除旧表并重新创建
         await this.db!.dropTable(tableName);
@@ -354,22 +366,28 @@ export class ToolRetrievalService {
 
         // 重新创建表
         const schema = new arrow.Schema([
-          new arrow.Field('id', new arrow.Utf8(), false),
-          new arrow.Field('name', new arrow.Utf8(), false),
-          new arrow.Field('description', new arrow.Utf8(), false),
-          new arrow.Field('tags', new arrow.List(
-            new arrow.Field('item', new arrow.Utf8(), true)
-          ), false),
-          new arrow.Field('path', new arrow.Utf8(), true),
-          new arrow.Field('version', new arrow.Utf8(), true),
-          new arrow.Field('source', new arrow.Utf8(), true), // MCP 服务器 ID 或 skill 名称
-          new arrow.Field('toolType', new arrow.Utf8(), false), // 'skill' | 'mcp'
-          new arrow.Field('metadata', new arrow.Utf8(), false),
-          new arrow.Field('vector', new arrow.FixedSizeList(
-            this.config.dimensions,
-            new arrow.Field('item', new arrow.Float32(), true)
-          ), false),
-          new arrow.Field('indexedAt', new arrow.Timestamp(arrow.TimeUnit.MICROSECOND), false)
+          new arrow.Field("id", new arrow.Utf8(), false),
+          new arrow.Field("name", new arrow.Utf8(), false),
+          new arrow.Field("description", new arrow.Utf8(), false),
+          new arrow.Field(
+            "tags",
+            new arrow.List(new arrow.Field("item", new arrow.Utf8(), true)),
+            false
+          ),
+          new arrow.Field("path", new arrow.Utf8(), true),
+          new arrow.Field("version", new arrow.Utf8(), true),
+          new arrow.Field("source", new arrow.Utf8(), true), // MCP 服务器 ID 或 skill 名称
+          new arrow.Field("toolType", new arrow.Utf8(), false), // 'skill' | 'mcp'
+          new arrow.Field("metadata", new arrow.Utf8(), false),
+          new arrow.Field(
+            "vector",
+            new arrow.FixedSizeList(
+              this.config.dimensions,
+              new arrow.Field("item", new arrow.Float32(), true)
+            ),
+            false
+          ),
+          new arrow.Field("indexedAt", new arrow.Timestamp(arrow.TimeUnit.MICROSECOND), false),
         ]);
 
         this.table = await this.db!.createTable(tableName, [], { schema });
@@ -400,12 +418,12 @@ export class ToolRetrievalService {
         await fs.rm(tablePath, { recursive: true, force: true });
         logger.info(`Completely removed physical files: ${tablePath}`);
       } catch (rmError: any) {
-        if (rmError.code !== 'ENOENT') {
+        if (rmError.code !== "ENOENT") {
           logger.warn(`Failed to remove physical files (may not exist): ${rmError.message}`);
         }
       }
     } catch (error) {
-      logger.error('Failed to drop table completely:', error);
+      logger.error("Failed to drop table completely:", error);
       throw error;
     }
   }
@@ -416,18 +434,18 @@ export class ToolRetrievalService {
   private async createVectorIndex(): Promise<void> {
     try {
       // 创建IVF_PQ索引以加速向量搜索
-      await this.table!.createIndex('vector', {
+      await this.table!.createIndex("vector", {
         config: Index.ivfPq({
           numPartitions: 64, // 调整为适合数据集的大小
-          numSubVectors: 8
+          numSubVectors: 8,
         }),
-        replace: true
+        replace: true,
       });
 
-      logger.info('Created vector index for Skills table');
+      logger.info("Created vector index for Skills table");
     } catch (error) {
       // 索引可能已经存在，忽略错误
-      logger.debug('Vector index may already exist:', error);
+      logger.debug("Vector index may already exist:", error);
     }
   }
 
@@ -444,7 +462,7 @@ export class ToolRetrievalService {
       // 这里假设可以直接访问表列表
       return [];
     } catch (error) {
-      logger.warn('Failed to get table names:', error);
+      logger.warn("Failed to get table names:", error);
       return [];
     }
   }
@@ -462,7 +480,7 @@ export class ToolRetrievalService {
       const count = await this.table.countRows();
       return count;
     } catch (error) {
-      logger.warn('Failed to get table count:', error);
+      logger.warn("Failed to get table count:", error);
       return 0;
     }
   }
@@ -480,7 +498,6 @@ export class ToolRetrievalService {
 
       // 优先使用远程 embedding API（数据库配置的模型）
       return await this.generateRemoteEmbedding(skill);
-
     } catch (error) {
       logger.error(`Failed to generate embedding for ${skill.name}:`, error);
       throw new ToolError(
@@ -501,7 +518,7 @@ export class ToolRetrievalService {
     try {
       // 延迟导入 LLMManager，避免循环依赖
       if (!llmManagerInstance) {
-        const { LLMManager } = await import('../core/LLMManager');
+        const { LLMManager } = await import("../core/LLMManager");
         llmManagerInstance = new LLMManager();
       }
 
@@ -512,14 +529,14 @@ export class ToolRetrievalService {
       const embeddings = await llmManagerInstance.embed([text]);
 
       if (!embeddings || embeddings.length === 0 || !embeddings[0]) {
-        throw new Error('Empty embedding result');
+        throw new Error("Empty embedding result");
       }
 
       logger.debug(`Generated remote embedding: ${embeddings[0].length} dimensions`);
 
       return embeddings[0];
     } catch (error) {
-      logger.error('Remote embedding generation failed:', error);
+      logger.error("Remote embedding generation failed:", error);
       throw error;
     }
   }
@@ -532,13 +549,9 @@ export class ToolRetrievalService {
     description: string;
     tags: string[];
   }): string {
-    const parts = [
-      skill.name,
-      skill.description,
-      ...(skill.tags || [])
-    ];
+    const parts = [skill.name, skill.description, ...(skill.tags || [])];
 
-    return parts.join(' ').trim();
+    return parts.join(" ").trim();
   }
 
   /**
@@ -551,7 +564,7 @@ export class ToolRetrievalService {
     path: string;
     version?: string;
     metadata?: Record<string, any>;
-    tools?: any[];  // 新增 tools 参数
+    tools?: any[]; // 新增 tools 参数
   }): Promise<void> {
     try {
       logger.info(`Indexing skill: ${skill.name}`);
@@ -565,20 +578,25 @@ export class ToolRetrievalService {
       // 准备记录数据 - 向量保持为普通数组格式（LanceDB要求）
       // 将 tools 转换为 parameters 格式以兼容现有代码
       const tools = skill.tools || [];
-      const parameters = tools.length > 0 ? {
-        type: 'object',
-        properties: tools.reduce((acc: any, tool: any) => {
-          // 将每个工具作为参数
-          acc[tool.name] = {
-            type: 'object',
-            description: tool.description || '',
-            properties: tool.input_schema?.properties || {},
-            required: tool.input_schema?.required || []
-          };
-          return acc;
-        }, {}),
-        required: tools.filter((t: any) => t.input_schema?.required?.length > 0).map((t: any) => t.name)
-      } : { type: 'object', properties: {}, required: [] };
+      const parameters =
+        tools.length > 0
+          ? {
+              type: "object",
+              properties: tools.reduce((acc: any, tool: any) => {
+                // 将每个工具作为参数
+                acc[tool.name] = {
+                  type: "object",
+                  description: tool.description || "",
+                  properties: tool.input_schema?.properties || {},
+                  required: tool.input_schema?.required || [],
+                };
+                return acc;
+              }, {}),
+              required: tools
+                .filter((t: any) => t.input_schema?.required?.length > 0)
+                .map((t: any) => t.name),
+            }
+          : { type: "object", properties: {}, required: [] };
 
       const record: ToolsTable = {
         id: skillId,
@@ -586,16 +604,16 @@ export class ToolRetrievalService {
         description: skill.description,
         tags: skill.tags || [],
         path: skill.path,
-        version: skill.version || '1.0.0',
+        version: skill.version || "1.0.0",
         source: skill.name,
-        toolType: 'skill',
+        toolType: "skill",
         metadata: JSON.stringify({
           ...skill.metadata,
           tools: skill.tools || [],
-          parameters: parameters  // 存储 parameters 信息
+          parameters: parameters, // 存储 parameters 信息
         }), // 转换为JSON字符串以匹配schema
         vector: vector, // 保持为普通数组，不要转换为 Float32Array
-        indexedAt: new Date()
+        indexedAt: new Date(),
       };
 
       // 检查是否已存在（更新模式）
@@ -605,7 +623,6 @@ export class ToolRetrievalService {
       await this.table!.add([record as unknown as Record<string, unknown>]);
 
       logger.info(`Skill indexed successfully: ${skill.name} (${vector.length} dimensions)`);
-
     } catch (error) {
       logger.error(`Failed to index skill ${skill.name}:`, error);
       throw error;
@@ -616,22 +633,75 @@ export class ToolRetrievalService {
    * 生成Skills ID
    */
   private generateSkillId(name: string): string {
-    return createHash('md5')
-      .update(name)
-      .digest('hex');
+    return createHash("md5").update(name).digest("hex");
   }
 
   /**
    * 从向量表中删除Skills
+   * 使用覆盖表的方式真正删除记录
    */
   async removeSkill(skillName: string): Promise<void> {
     try {
       const skillId = this.generateSkillId(skillName);
+      logger.info(`Removing skill: ${skillName} (id: ${skillId})`);
 
-      // 删除记录（LanceDB没有直接的删除API，需要使用覆盖）
-      // 这里暂时记录日志
-      logger.debug(`Removing skill: ${skillName} (id: ${skillId})`);
+      // 确保服务已初始化
+      if (!this.isInitialized || !this.table) {
+        logger.warn("ToolRetrievalService not initialized, skipping remove");
+        return;
+      }
 
+      // 获取所有记录
+      const allRecords = await this.table.query().limit(10000).toArray();
+
+      // 过滤掉要删除的记录
+      const filteredRecords = allRecords.filter((record: any) => {
+        const recordId = record.id || record.item?.id;
+        return recordId !== skillId;
+      });
+
+      // 如果没有变化，直接返回
+      if (filteredRecords.length === allRecords.length) {
+        logger.debug(`Skill ${skillName} not found in index, skipping delete`);
+        return;
+      }
+
+      logger.info(`Rebuilding table: ${allRecords.length} -> ${filteredRecords.length} records`);
+
+      // 删除旧表
+      await this.dropTableCompletely("skills");
+
+      // 重新创建表
+      await this.initializeSkillsTable();
+
+      // 重新插入保留的记录
+      if (filteredRecords.length > 0) {
+        // 转换记录格式
+        const recordsToAdd = filteredRecords.map((record: any) => {
+          const data = record.item || record;
+          return {
+            id: data.id,
+            name: data.name,
+            description: data.description,
+            tags: data.tags || [],
+            path: data.path || null,
+            version: data.version || null,
+            source: data.source || null,
+            toolType: data.toolType || "skill",
+            metadata:
+              typeof data.metadata === "string"
+                ? data.metadata
+                : JSON.stringify(data.metadata || {}),
+            vector: data.vector ? Array.from(data.vector) : [],
+            indexedAt: new Date(data.indexedAt || Date.now()),
+          };
+        });
+
+        await this.table.add(recordsToAdd as unknown as Record<string, unknown>[]);
+        logger.info(`Re-inserted ${recordsToAdd.length} records`);
+      }
+
+      logger.info(`Skill ${skillName} removed from index successfully`);
     } catch (error) {
       logger.warn(`Failed to remove skill ${skillName}:`, error);
       // 不抛出错误，允许继续执行
@@ -644,21 +714,21 @@ export class ToolRetrievalService {
   async findRelevantSkills(
     query: string,
     limit: number = 5,
-    threshold: number = 0.40  // 从0.20提升至0.40，过滤噪声，优化语义搜索
+    threshold: number = 0.4 // 从0.20提升至0.40，过滤噪声，优化语义搜索
   ): Promise<ToolRetrievalResult[]> {
     try {
       logger.info(`Searching relevant skills for query: "${query}"`);
 
       // 确保服务已初始化
       if (!this.isInitialized) {
-        logger.warn('ToolRetrievalService not initialized, initializing now...');
+        logger.warn("ToolRetrievalService not initialized, initializing now...");
         await this.initialize();
       }
 
       // 检查表是否存在
       if (!this.table) {
         throw new ToolError(
-          'Vector table is not initialized. Please call initialize() first.',
+          "Vector table is not initialized. Please call initialize() first.",
           ToolErrorCode.VECTOR_DB_ERROR
         );
       }
@@ -667,14 +737,15 @@ export class ToolRetrievalService {
       const queryVector = await this.getEmbedding({
         name: query,
         description: query,
-        tags: []
+        tags: [],
       });
 
       // 执行向量搜索
       // 使用余弦相似度进行搜索
-      const vectorQuery = this.table.query()
-        .nearestTo(queryVector)  // 使用nearestTo进行向量搜索
-        .distanceType('cosine')  // 设置距离类型为余弦相似度
+      const vectorQuery = this.table
+        .query()
+        .nearestTo(queryVector) // 使用nearestTo进行向量搜索
+        .distanceType("cosine") // 设置距离类型为余弦相似度
         .limit(limit * 2); // 获取多一些结果以应用阈值过滤
 
       const results = await vectorQuery.toArray();
@@ -685,7 +756,6 @@ export class ToolRetrievalService {
       logger.info(`Found ${formattedResults.length} relevant skill(s)`);
 
       return formattedResults;
-
     } catch (error) {
       logger.error(`Skills search failed for query "${query}":`, error);
       throw new ToolError(
@@ -730,7 +800,9 @@ export class ToolRetrievalService {
 
         // 应用阈值过滤
         if (score < threshold) {
-          logger.debug(`Filtered out result with score ${score.toFixed(4)} < threshold ${threshold}`);
+          logger.debug(
+            `Filtered out result with score ${score.toFixed(4)} < threshold ${threshold}`
+          );
           continue;
         }
 
@@ -740,70 +812,73 @@ export class ToolRetrievalService {
         // 解析metadata JSON字符串
         let metadata = {};
         try {
-          if (typeof data.metadata === 'string') {
+          if (typeof data.metadata === "string") {
             metadata = JSON.parse(data.metadata);
           } else {
             metadata = data.metadata || {};
           }
         } catch (e) {
-          logger.warn('Failed to parse metadata JSON:', e);
+          logger.warn("Failed to parse metadata JSON:", e);
           metadata = {};
         }
 
         // 根据工具类型返回不同格式
         let tool: any;
 
-        if (data.toolType === 'mcp') {
+        if (data.toolType === "mcp") {
           // MCP 工具格式
           tool = {
             name: data.name,
             description: data.description,
-            type: 'mcp' as const,
+            type: "mcp" as const,
             source: data.source,
             tags: data.tags,
             metadata: {
               ...metadata,
               version: data.version,
-              path: data.path
-            }
+              path: data.path,
+            },
           };
-        } else if (data.toolType === 'builtin') {
+        } else if (data.toolType === "builtin") {
           // Builtin 工具格式
           tool = {
             name: data.name,
             description: data.description,
-            type: 'builtin' as const,
+            type: "builtin" as const,
             tags: data.tags,
             version: data.version,
             path: data.path,
             metadata: {
               ...metadata,
-              builtin: true
-            }
+              builtin: true,
+            },
           };
         } else {
           // Skill 工具格式（保持向后兼容）
           tool = {
             name: data.name,
             description: data.description,
-            type: 'skill' as const,
+            type: "skill" as const,
             tags: data.tags,
             version: data.version,
             path: data.path,
-            parameters: (metadata as any).parameters || { type: 'object', properties: {}, required: [] },
+            parameters: (metadata as any).parameters || {
+              type: "object",
+              properties: {},
+              required: [],
+            },
             enabled: true,
-            level: 1
+            level: 1,
           };
         }
 
         formatted.push({
           tool,
           score,
-          reason: `Vector similarity: ${(score * 100).toFixed(2)}%`
+          reason: `Vector similarity: ${(score * 100).toFixed(2)}%`,
         });
-
       } catch (error) {
-        logger.warn('Failed to format search result:', error);
+        logger.warn("Failed to format search result:", error);
       }
     }
 
@@ -813,7 +888,7 @@ export class ToolRetrievalService {
   /**
    * 扫描并索引所有已安装的Skills
    */
-  async scanAndIndexAllSkills(skillsDir: string = './.data/skills'): Promise<void> {
+  async scanAndIndexAllSkills(skillsDir: string = "./.data/skills"): Promise<void> {
     try {
       logger.info(`Scanning skills directory: ${skillsDir}`);
 
@@ -827,9 +902,7 @@ export class ToolRetrievalService {
 
       // 获取所有Skills目录
       const entries = await fs.readdir(skillsDir, { withFileTypes: true });
-      const skillDirs = entries
-        .filter(entry => entry.isDirectory())
-        .map(entry => entry.name);
+      const skillDirs = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
 
       logger.info(`Found ${skillDirs.length} skill directories`);
 
@@ -840,7 +913,7 @@ export class ToolRetrievalService {
       for (const skillName of skillDirs) {
         try {
           const skillPath = path.join(skillsDir, skillName);
-          const vectorizedFile = path.join(skillPath, '.vectorized');
+          const vectorizedFile = path.join(skillPath, ".vectorized");
 
           // 检查.vectorized文件
           let needReindex = true;
@@ -857,7 +930,7 @@ export class ToolRetrievalService {
             // 索引Skills
             await this.indexSkill({
               ...skillData,
-              path: skillPath
+              path: skillPath,
             });
 
             // 创建/更新.vectorized文件
@@ -869,16 +942,14 @@ export class ToolRetrievalService {
             skippedCount++;
             logger.debug(`Skipping unchanged skill: ${skillName}`);
           }
-
         } catch (error) {
           logger.warn(`Failed to index skill ${skillName}:`, error);
         }
       }
 
       logger.info(`Skills scanning completed: ${indexedCount} indexed, ${skippedCount} skipped`);
-
     } catch (error) {
-      logger.error('Failed to scan and index skills:', error);
+      logger.error("Failed to scan and index skills:", error);
       throw error;
     }
   }
@@ -889,18 +960,17 @@ export class ToolRetrievalService {
   private async checkReindexRequired(skillPath: string, vectorizedFile: string): Promise<boolean> {
     try {
       // 读取.vectorized文件
-      const vectorizedContent = await fs.readFile(vectorizedFile, 'utf8');
+      const vectorizedContent = await fs.readFile(vectorizedFile, "utf8");
       const vectorizedData = JSON.parse(vectorizedContent);
 
       // 计算当前SKILL.md的哈希
-      const skillMdPath = path.join(skillPath, 'SKILL.md');
-      const skillContent = await fs.readFile(skillMdPath, 'utf8');
-      const currentHash = createHash('md5').update(skillContent).digest('hex');
+      const skillMdPath = path.join(skillPath, "SKILL.md");
+      const skillContent = await fs.readFile(skillMdPath, "utf8");
+      const currentHash = createHash("md5").update(skillContent).digest("hex");
       const currentSize = Buffer.byteLength(skillContent);
 
       // 比较哈希和大小
       return currentHash !== vectorizedData.skillHash || currentSize !== vectorizedData.skillSize;
-
     } catch (error) {
       // 文件不存在或解析失败，需要索引
       return true;
@@ -917,24 +987,24 @@ export class ToolRetrievalService {
     version?: string;
     tools?: any[];
   }> {
-    const skillMdPath = path.join(skillPath, 'SKILL.md');
+    const skillMdPath = path.join(skillPath, "SKILL.md");
 
     // 读取文件
-    const content = await fs.readFile(skillMdPath, 'utf8');
+    const content = await fs.readFile(skillMdPath, "utf8");
 
     // 使用 gray-matter 解析 YAML Frontmatter
     const parsed = matter(content);
 
     if (!parsed.data.name || !parsed.data.description) {
-      throw new Error('SKILL.md must contain name and description');
+      throw new Error("SKILL.md must contain name and description");
     }
 
     return {
       name: parsed.data.name,
       description: parsed.data.description,
       tags: Array.isArray(parsed.data.tags) ? parsed.data.tags : [],
-      version: parsed.data.version || '1.0.0',
-      tools: parsed.data.tools || []  // 提取 tools 字段
+      version: parsed.data.version || "1.0.0",
+      tools: parsed.data.tools || [], // 提取 tools 字段
     };
   }
 
@@ -943,15 +1013,15 @@ export class ToolRetrievalService {
    */
   private async updateVectorizedFile(vectorizedFile: string, skillPath: string): Promise<void> {
     try {
-      const skillMdPath = path.join(skillPath, 'SKILL.md');
-      const skillContent = await fs.readFile(skillMdPath, 'utf8');
-      const skillHash = createHash('md5').update(skillContent).digest('hex');
+      const skillMdPath = path.join(skillPath, "SKILL.md");
+      const skillContent = await fs.readFile(skillMdPath, "utf8");
+      const skillHash = createHash("md5").update(skillContent).digest("hex");
       const skillSize = Buffer.byteLength(skillContent);
 
       const vectorizedData = {
         indexedAt: Date.now(),
         skillSize,
-        skillHash
+        skillHash,
       };
 
       await fs.writeFile(vectorizedFile, JSON.stringify(vectorizedData, null, 2));
@@ -979,7 +1049,7 @@ export class ToolRetrievalService {
    */
   private async forceReindexSkills(): Promise<void> {
     try {
-      const skillsDir = './.data/skills';
+      const skillsDir = "./.data/skills";
 
       // 检查目录是否存在，不存在则跳过
       try {
@@ -991,31 +1061,29 @@ export class ToolRetrievalService {
 
       // 获取所有Skills目录
       const entries = await fs.readdir(skillsDir, { withFileTypes: true });
-      const skillDirs = entries
-        .filter(entry => entry.isDirectory())
-        .map(entry => entry.name);
+      const skillDirs = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
 
       logger.info(`Force reindexing ${skillDirs.length} skills...`);
 
       // 删除每个技能的 .vectorized 文件
       for (const skillName of skillDirs) {
         const skillPath = path.join(skillsDir, skillName);
-        const vectorizedFile = path.join(skillPath, '.vectorized');
+        const vectorizedFile = path.join(skillPath, ".vectorized");
 
         try {
           await fs.unlink(vectorizedFile);
           logger.debug(`Deleted .vectorized file for skill: ${skillName}`);
         } catch (error: any) {
           // 文件不存在，忽略
-          if (error.code !== 'ENOENT') {
+          if (error.code !== "ENOENT") {
             logger.warn(`Failed to delete .vectorized file for ${skillName}:`, error);
           }
         }
       }
 
-      logger.info('Force reindex preparation completed');
+      logger.info("Force reindex preparation completed");
     } catch (error) {
-      logger.warn('Failed to force reindex skills:', error);
+      logger.warn("Failed to force reindex skills:", error);
     }
   }
 
@@ -1026,7 +1094,7 @@ export class ToolRetrievalService {
     return {
       initialized: this.isInitialized,
       config: this.config,
-      embeddingModel: 'using-llm-manager'  // 通过 LLMManager 动态获取
+      embeddingModel: "using-llm-manager", // 通过 LLMManager 动态获取
     };
   }
 
@@ -1034,18 +1102,18 @@ export class ToolRetrievalService {
    * 清理资源
    */
   async cleanup(): Promise<void> {
-    logger.info('Cleaning up ToolRetrievalService...');
+    logger.info("Cleaning up ToolRetrievalService...");
 
     // 关闭数据库连接
     if (this.db) {
-      logger.debug('Closing LanceDB connection');
+      logger.debug("Closing LanceDB connection");
       this.db = null;
     }
 
     this.table = null;
     this.isInitialized = false;
 
-    logger.info('ToolRetrievalService cleanup completed');
+    logger.info("ToolRetrievalService cleanup completed");
   }
 
   /**
@@ -1075,10 +1143,10 @@ export class ToolRetrievalService {
             path: tool.path, // Skill 可能有，MCP 工具没有
             version: tool.version, // Skill 可能有，MCP 工具没有
             source: tool.source || tool.name, // MCP 服务器 ID 或 skill 名称
-            toolType: tool.type || 'skill', // 默认为 skill
+            toolType: tool.type || "skill", // 默认为 skill
             metadata: JSON.stringify(tool.metadata || {}),
             vector: vector,
-            indexedAt: new Date()
+            indexedAt: new Date(),
           };
 
           records.push(record);
@@ -1099,10 +1167,10 @@ export class ToolRetrievalService {
 
         logger.info(`[ToolRetrieval] Successfully indexed ${records.length} tools`);
       } else {
-        logger.warn('[ToolRetrieval] No tools were indexed');
+        logger.warn("[ToolRetrieval] No tools were indexed");
       }
     } catch (error) {
-      logger.error('[ToolRetrieval] Failed to index tools:', error);
+      logger.error("[ToolRetrieval] Failed to index tools:", error);
       throw error;
     }
   }
@@ -1112,9 +1180,7 @@ export class ToolRetrievalService {
    */
   private generateToolId(tool: any): string {
     const source = tool.source || tool.name;
-    return createHash('md5')
-      .update(`${tool.type}:${source}:${tool.name}`)
-      .digest('hex');
+    return createHash("md5").update(`${tool.type}:${source}:${tool.name}`).digest("hex");
   }
 
   /**
@@ -1122,7 +1188,7 @@ export class ToolRetrievalService {
    */
   private async getEmbeddingForTool(tool: any): Promise<number[]> {
     // 构造工具的文本描述
-    const text = `${tool.name}\n${tool.description}\n${(tool.tags || []).join(' ')}`;
+    const text = `${tool.name}\n${tool.description}\n${(tool.tags || []).join(" ")}`;
 
     // 使用现有的getEmbedding方法
     // 需要构造一个类似SkillTool的对象
@@ -1130,7 +1196,7 @@ export class ToolRetrievalService {
       name: tool.name,
       description: tool.description,
       tags: tool.tags || [],
-      metadata: tool.metadata || {}
+      metadata: tool.metadata || {},
     };
 
     return this.getEmbedding(mockSkill);
@@ -1155,10 +1221,10 @@ export class ToolRetrievalService {
     if (error instanceof Error) {
       return error.message;
     }
-    if (typeof error === 'string') {
+    if (typeof error === "string") {
       return error;
     }
-    return 'Unknown error occurred in ToolRetrievalService';
+    return "Unknown error occurred in ToolRetrievalService";
   }
 }
 
@@ -1170,19 +1236,17 @@ let instance: ToolRetrievalService | null = null;
 /**
  * 获取工具检索服务实例
  */
-export function getToolRetrievalService(
-  config?: ToolRetrievalConfig
-): ToolRetrievalService {
+export function getToolRetrievalService(config?: ToolRetrievalConfig): ToolRetrievalService {
   if (!instance) {
     if (!config) {
       // 使用默认配置（维度会在初始化时动态获取）
       config = {
-        vectorDbPath: './.data',
-        model: 'nomic-embed-text:latest',
+        vectorDbPath: "./.data",
+        model: "nomic-embed-text:latest",
         cacheSize: 1000,
         dimensions: 768, // 初始值，会在初始化时被实际模型维度覆盖
-        similarityThreshold: 0.40,  // 从0.20提升至0.40，过滤噪声，优化语义搜索
-        maxResults: 10
+        similarityThreshold: 0.4, // 从0.20提升至0.40，过滤噪声，优化语义搜索
+        maxResults: 10,
       };
     }
     instance = new ToolRetrievalService(config);

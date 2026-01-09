@@ -5,21 +5,21 @@
  * 集成 ToolRegistry 进行统一工具管理
  */
 
-import { EventEmitter } from 'events';
-import { logger } from '../utils/logger';
-import { MCPServerManager } from './MCPServerManager';
-import { MCPConfigService } from './MCPConfigService';
-import { getToolRetrievalService } from './ToolRetrievalService';
-import { toolRegistry, ToolType } from '../core/tool/registry';
-import { convertMcpTool } from './mcp/convert';
-import type { Tool } from '../core/tool/tool';
+import { EventEmitter } from "events";
+import { logger } from "../utils/logger";
+import { MCPServerManager } from "./MCPServerManager";
+import { MCPConfigService } from "./MCPConfigService";
+import { getToolRetrievalService } from "./ToolRetrievalService";
+import { toolRegistry, ToolType } from "../core/tool/registry";
+import { convertMcpTool, cleanMcpToolResult } from "./mcp/convert";
+import type { Tool } from "../core/tool/tool";
 import type {
   MCPServerConfig,
   MCPServerStatus,
   MCPTool,
   MCPToolCall,
-  MCPToolResult
-} from '../types/mcp';
+  MCPToolResult,
+} from "../types/mcp";
 
 export interface MCPServerInfo {
   id: string;
@@ -42,16 +42,16 @@ export class MCPIntegrationService extends EventEmitter {
 
   private setupEventHandlers(): void {
     // 监听服务器状态变化
-    this.on('server-status-changed', (data: { serverId: string; status: MCPServerStatus }) => {
+    this.on("server-status-changed", (data: { serverId: string; status: MCPServerStatus }) => {
       logger.info(`[MCP] Server ${data.serverId} status changed: ${data.status.phase}`);
-      this.emit('mcp-event', {
-        type: 'server-status-changed',
-        data
+      this.emit("mcp-event", {
+        type: "server-status-changed",
+        data,
       });
     });
 
     // 监听工具变化
-    this.on('tools-changed', (data: { serverId: string; tools: MCPTool[] }) => {
+    this.on("tools-changed", (data: { serverId: string; tools: MCPTool[] }) => {
       logger.info(`[MCP] Server ${data.serverId} tools updated: ${data.tools.length} tools`);
       this.updateToolIndex(data.serverId, data.tools);
     });
@@ -60,25 +60,27 @@ export class MCPIntegrationService extends EventEmitter {
   /**
    * 注册MCP服务器
    */
-  async registerServer(config: MCPServerConfig): Promise<{ serverId: string; success: boolean; error?: string }> {
+  async registerServer(
+    config: MCPServerConfig
+  ): Promise<{ serverId: string; success: boolean; error?: string }> {
     try {
       const serverId = config.id;
       const serverName = config.id;
 
       if (this.serverManagers.has(serverId)) {
         logger.warn(`[MCP] Server ${serverId} already exists`);
-        return { serverId, success: false, error: 'Server already exists' };
+        return { serverId, success: false, error: "Server already exists" };
       }
 
       const manager = new MCPServerManager(config);
 
       // 设置事件监听
-      manager.on('status-changed', (status: MCPServerStatus) => {
-        this.emit('server-status-changed', { serverId, status });
+      manager.on("status-changed", (status: MCPServerStatus) => {
+        this.emit("server-status-changed", { serverId, status });
       });
 
-      manager.on('tools-changed', (tools: MCPTool[]) => {
-        this.emit('tools-changed', { serverId, tools });
+      manager.on("tools-changed", (tools: MCPTool[]) => {
+        this.emit("tools-changed", { serverId, tools });
       });
 
       // 初始化服务器
@@ -99,7 +101,9 @@ export class MCPIntegrationService extends EventEmitter {
         const toolInfo = convertMcpTool(serverId, serverName, tool);
         await toolRegistry.register(toolInfo, ToolType.MCP);
       }
-      logger.info(`[MCP] Registered ${serverTools.length} tools to ToolRegistry for server ${serverId}`);
+      logger.info(
+        `[MCP] Registered ${serverTools.length} tools to ToolRegistry for server ${serverId}`
+      );
 
       logger.info(`[MCP] Server ${serverId} registered successfully`);
       return { serverId, success: true };
@@ -108,7 +112,7 @@ export class MCPIntegrationService extends EventEmitter {
       return {
         serverId: config.id,
         success: false,
-        error: error.message || 'Unknown error'
+        error: error.message || "Unknown error",
       };
     }
   }
@@ -153,7 +157,7 @@ export class MCPIntegrationService extends EventEmitter {
       config: manager.getConfig(),
       status: manager.getStatus(),
       tools: manager.getTools(),
-      lastActivity: manager.getLastActivity()
+      lastActivity: manager.getLastActivity(),
     }));
   }
 
@@ -172,7 +176,7 @@ export class MCPIntegrationService extends EventEmitter {
       config: manager.getConfig(),
       status: manager.getStatus(),
       tools: manager.getTools(),
-      lastActivity: manager.getLastActivity()
+      lastActivity: manager.getLastActivity(),
     };
   }
 
@@ -190,7 +194,7 @@ export class MCPIntegrationService extends EventEmitter {
   getAllTools(): { serverId: string; tools: MCPTool[] }[] {
     return Array.from(this.serverManagers.entries()).map(([serverId, manager]) => ({
       serverId,
-      tools: manager.getTools()
+      tools: manager.getTools(),
     }));
   }
 
@@ -210,7 +214,7 @@ export class MCPIntegrationService extends EventEmitter {
       return undefined;
     }
 
-    const tool = manager.getTools().find(t => t.name === index.toolName);
+    const tool = manager.getTools().find((t) => t.name === index.toolName);
 
     if (!tool) {
       return undefined;
@@ -241,7 +245,7 @@ export class MCPIntegrationService extends EventEmitter {
           throw new Error(`Server ${serverId} not found`);
         }
 
-        tool = manager.getTools().find(t => t.name === toolName);
+        tool = manager.getTools().find((t) => t.name === toolName);
 
         if (!tool) {
           throw new Error(`Tool ${toolName} not found in server ${serverId}`);
@@ -265,11 +269,11 @@ export class MCPIntegrationService extends EventEmitter {
       // 检查服务器状态
       const status = manager.getStatus();
 
-      if (status.phase === 'error') {
+      if (status.phase === "error") {
         throw new Error(`Server error: ${status.message}`);
       }
 
-      if (status.phase === 'shutting-down') {
+      if (status.phase === "shutting-down") {
         throw new Error(`Server is shutting down`);
       }
 
@@ -279,17 +283,30 @@ export class MCPIntegrationService extends EventEmitter {
       // 执行工具调用
       const toolCall: MCPToolCall = {
         tool: tool.name,
-        arguments: args
+        arguments: args,
       };
 
       const result = await manager.callTool(toolCall);
 
+      // 清理 MCP 工具返回结果中的技术元数据
+      if (result.success && result.content && result.content.length > 0) {
+        result.content = result.content.map((item) => {
+          if (item.type === "text" && typeof item.text === "string") {
+            return {
+              ...item,
+              text: cleanMcpToolResult(item.text),
+            };
+          }
+          return item;
+        });
+      }
+
       // 记录调用统计
-      this.emit('tool-called', {
+      this.emit("tool-called", {
         serverId: manager.getConfig().id,
         toolName,
         success: result.success,
-        duration: result.duration
+        duration: result.duration,
       });
 
       return result;
@@ -301,9 +318,9 @@ export class MCPIntegrationService extends EventEmitter {
         content: [],
         duration: 0,
         error: {
-          code: 'TOOL_CALL_FAILED',
-          message: error.message || 'Unknown error'
-        }
+          code: "TOOL_CALL_FAILED",
+          message: error.message || "Unknown error",
+        },
       };
     }
   }
@@ -346,7 +363,7 @@ export class MCPIntegrationService extends EventEmitter {
       }
     }
 
-    toRemove.forEach(name => this.toolIndex.delete(name));
+    toRemove.forEach((name) => this.toolIndex.delete(name));
 
     // 添加新工具索引
     for (const tool of tools) {
@@ -368,7 +385,7 @@ export class MCPIntegrationService extends EventEmitter {
       }
     }
 
-    toRemove.forEach(name => this.toolIndex.delete(name));
+    toRemove.forEach((name) => this.toolIndex.delete(name));
   }
 
   /**
@@ -381,12 +398,12 @@ export class MCPIntegrationService extends EventEmitter {
       totalServers: servers.length,
       serversByStatus: {} as Record<string, number>,
       totalTools: 0,
-      servers: servers.map(s => ({
+      servers: servers.map((s) => ({
         id: s.id,
         status: s.status.phase,
         toolCount: s.tools.length,
-        lastActivity: s.lastActivity
-      }))
+        lastActivity: s.lastActivity,
+      })),
     };
 
     for (const server of servers) {
@@ -411,13 +428,13 @@ export class MCPIntegrationService extends EventEmitter {
     let healthy = true;
 
     for (const server of servers) {
-      const serverHealthy = server.status.phase === 'running';
+      const serverHealthy = server.status.phase === "running";
       details[server.id] = {
         healthy: serverHealthy,
         status: server.status.phase,
         toolCount: server.tools.length,
         uptime: server.status.uptime,
-        lastActivity: server.lastActivity
+        lastActivity: server.lastActivity,
       };
 
       if (!serverHealthy) {
@@ -436,15 +453,15 @@ export class MCPIntegrationService extends EventEmitter {
       const retrievalService = getToolRetrievalService();
       await retrievalService.initialize();
 
-      const unifiedTools = tools.map(tool => ({
+      const unifiedTools = tools.map((tool) => ({
         name: tool.name,
         description: tool.description,
-        type: 'mcp' as const,
+        type: "mcp" as const,
         source: serverId,
         tags: [],
         metadata: {
-          inputSchema: tool.inputSchema
-        }
+          inputSchema: tool.inputSchema,
+        },
       }));
 
       await retrievalService.indexTools(unifiedTools);
@@ -497,7 +514,9 @@ export class MCPIntegrationService extends EventEmitter {
           const result = await this.registerServer(record.config);
 
           if (!result.success) {
-            logger.error(`[MCP] Failed to reload server ${record.id} from database: ${result.error}`);
+            logger.error(
+              `[MCP] Failed to reload server ${record.id} from database: ${result.error}`
+            );
           }
         } catch (error: any) {
           logger.error(`[MCP] Error loading server ${record.id}:`, error);
@@ -507,7 +526,7 @@ export class MCPIntegrationService extends EventEmitter {
 
       logger.info(`[MCP] Completed loading MCP servers from database`);
     } catch (error: any) {
-      logger.error('[MCP] Failed to load servers from database:', error);
+      logger.error("[MCP] Failed to load servers from database:", error);
       throw error;
     }
   }
@@ -516,10 +535,10 @@ export class MCPIntegrationService extends EventEmitter {
    * 优雅关闭
    */
   async shutdown(): Promise<void> {
-    logger.info('[MCP] Shutting down integration service...');
+    logger.info("[MCP] Shutting down integration service...");
 
     // 关闭所有服务器
-    const shutdownPromises = Array.from(this.serverManagers.values()).map(manager =>
+    const shutdownPromises = Array.from(this.serverManagers.values()).map((manager) =>
       manager.shutdown()
     );
 
@@ -528,7 +547,7 @@ export class MCPIntegrationService extends EventEmitter {
     this.serverManagers.clear();
     this.toolIndex.clear();
 
-    logger.info('[MCP] Integration service shut down');
+    logger.info("[MCP] Integration service shut down");
   }
 }
 

@@ -4,13 +4,13 @@
  * 集成 ToolRegistry 进行统一工具管理
  */
 
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import * as os from 'os';
-import * as crypto from 'crypto';
-import YAML from 'js-yaml';
-import matter from 'gray-matter';
-import AdmZip from 'adm-zip';
+import * as fs from "fs/promises";
+import * as path from "path";
+import * as os from "os";
+import * as crypto from "crypto";
+import YAML from "js-yaml";
+import matter from "gray-matter";
+import AdmZip from "adm-zip";
 import {
   SkillTool,
   SkillInstallOptions,
@@ -19,13 +19,14 @@ import {
   SkillMetadata,
   ToolError,
   ToolErrorCode,
-  ToolType
-} from '../types/tool-system';
-import { ToolRetrievalService } from './ToolRetrievalService';
-import { SkillsSandboxExecutor, getSkillsSandboxExecutor } from './executors/SkillsSandboxExecutor';
-import { toolRegistry, ToolType as RegistryToolType } from '../core/tool/registry';
-import type { Tool } from '../core/tool/tool';
-import { logger } from '../utils/logger';
+  ToolType,
+} from "../types/tool-system";
+import { ToolRetrievalService } from "./ToolRetrievalService";
+import { SkillsSandboxExecutor, getSkillsSandboxExecutor } from "./executors/SkillsSandboxExecutor";
+import { toolRegistry, ToolType as RegistryToolType } from "../core/tool/registry";
+import type { Tool } from "../core/tool/tool";
+import { logger } from "../utils/logger";
+import { PathService } from "./PathService";
 
 /**
  * 安装结果
@@ -78,28 +79,37 @@ export class SkillManager {
    * @param skillsBasePath Skills存储基础路径
    * @param retrievalService 检索服务实例
    */
-  protected constructor(
-    skillsBasePath: string = './.data/skills',
-    retrievalService?: ToolRetrievalService
-  ) {
-    this.skillsBasePath = skillsBasePath;
-    this.retrievalService = retrievalService || new ToolRetrievalService({
-      vectorDbPath: './.data',
-      model: 'all-MiniLM-L6-v2',
-      dimensions: 384, // 初始值，会在初始化时被实际模型维度覆盖
-      similarityThreshold: 0.4,
-      cacheSize: 1000
-    });
+  protected constructor(skillsBasePath?: string, retrievalService?: ToolRetrievalService) {
+    // 使用 PathService 获取正确的路径
+    const pathService = PathService.getInstance();
+    const dataDir = pathService.getDataDir();
+    this.skillsBasePath = skillsBasePath || path.join(dataDir, "skills");
+
+    // 确保 skills 目录存在
+    this.ensureSkillsDirectory();
+
+    // 使用 PathService 获取正确的向量数据库路径
+    const vectorDbPath = path.join(dataDir, "skills.lance");
+
+    this.retrievalService =
+      retrievalService ||
+      new ToolRetrievalService({
+        vectorDbPath,
+        model: "all-MiniLM-L6-v2",
+        dimensions: 384,
+        similarityThreshold: 0.4,
+        cacheSize: 1000,
+      });
     // 初始化 Skills 执行器
     this.skillsExecutor = getSkillsSandboxExecutor();
 
-    logger.debug('SkillManager initialized', {
-      skillsBasePath
+    logger.debug("SkillManager initialized", {
+      skillsBasePath,
     });
 
     // 启动异步初始化，但不阻塞构造函数
-    this.initializationPromise = this.initializeSkillsIndex().catch(error => {
-      logger.error('Failed to initialize skills index during startup:', error);
+    this.initializationPromise = this.initializeSkillsIndex().catch((error) => {
+      logger.error("Failed to initialize skills index during startup:", error);
       // 即使失败也标记为完成，避免永久阻塞
       throw error;
     });
@@ -121,7 +131,7 @@ export class SkillManager {
 
       // 验证Skills结构
       const metadata = await this.validateSkillStructure(tempDir, options.validationLevel);
-      logger.debug('Skills structure validation passed', { metadata });
+      logger.debug("Skills structure validation passed", { metadata });
 
       // 检查名称冲突
       const targetDir = path.join(this.skillsBasePath, metadata.name);
@@ -146,8 +156,8 @@ export class SkillManager {
       logger.debug(`Moved Skills to target: ${targetDir}`);
 
       // 创建.vectorized标识文件（用于索引状态跟踪）
-      const vectorizedFile = path.join(targetDir, '.vectorized');
-      await fs.writeFile(vectorizedFile, '');
+      const vectorizedFile = path.join(targetDir, ".vectorized");
+      await fs.writeFile(vectorizedFile, "");
 
       // 添加到向量检索索引（如果包含metadata）
       let vectorized = false;
@@ -159,18 +169,18 @@ export class SkillManager {
             tags: metadata.tags || [],
             path: targetDir,
             version: metadata.version,
-            metadata: metadata
+            metadata: metadata,
           });
           await fs.writeFile(
             vectorizedFile,
             `indexed: ${new Date().toISOString()}\nversion: ${metadata.version}`
           );
           vectorized = true;
-          logger.info('Skill vectorized successfully', { skillName: metadata.name });
+          logger.info("Skill vectorized successfully", { skillName: metadata.name });
         } catch (error) {
-          logger.warn('Skill vectorization failed', {
+          logger.warn("Skill vectorization failed", {
             skillName: metadata.name,
-            error: error instanceof Error ? error.message : error
+            error: error instanceof Error ? error.message : error,
           });
         }
       }
@@ -183,13 +193,12 @@ export class SkillManager {
         skillName: metadata.name,
         installedAt: new Date(),
         duration,
-        vectorized
+        vectorized,
       };
-
     } catch (error) {
       const duration = Date.now() - startTime;
 
-      logger.error('Skill installation failed:', error);
+      logger.error("Skill installation failed:", error);
 
       if (error instanceof ToolError) {
         throw error;
@@ -228,21 +237,18 @@ export class SkillManager {
       if (validateExists) {
         const exists = await this.directoryExists(skillPath);
         if (!exists) {
-          throw new ToolError(
-            `Skill '${skillName}' not found`,
-            ToolErrorCode.SKILL_NOT_FOUND
-          );
+          throw new ToolError(`Skill '${skillName}' not found`, ToolErrorCode.SKILL_NOT_FOUND);
         }
       }
 
       // 从向量检索中移除
       try {
         await this.retrievalService.removeSkill(skillName);
-        logger.debug('Removed Skill from vector index', { skillName });
+        logger.debug("Removed Skill from vector index", { skillName });
       } catch (error) {
-        logger.warn('Failed to remove Skill from vector index', {
+        logger.warn("Failed to remove Skill from vector index", {
           skillName,
-          error: error instanceof Error ? error.message : error
+          error: error instanceof Error ? error.message : error,
         });
       }
 
@@ -256,13 +262,12 @@ export class SkillManager {
         message: `Skill '${skillName}' uninstalled successfully`,
         skillName,
         uninstalledAt: new Date(),
-        duration
+        duration,
       };
-
     } catch (error) {
       const duration = Date.now() - startTime;
 
-      logger.error('Skill uninstallation failed:', error);
+      logger.error("Skill uninstallation failed:", error);
 
       if (error instanceof ToolError) {
         throw error;
@@ -301,7 +306,7 @@ export class SkillManager {
         throw new ToolError(`Skill '${skillName}' not found`, ToolErrorCode.SKILL_NOT_FOUND);
       }
 
-      const skillMdPath = path.join(skillPath, 'SKILL.md');
+      const skillMdPath = path.join(skillPath, "SKILL.md");
 
       // 读取并解析SKILL.md
       if (!(await this.fileExists(skillMdPath))) {
@@ -311,7 +316,7 @@ export class SkillManager {
         );
       }
 
-      const content = await fs.readFile(skillMdPath, 'utf8');
+      const content = await fs.readFile(skillMdPath, "utf8");
       const parsed = matter(content);
 
       // 更新描述
@@ -337,22 +342,22 @@ export class SkillManager {
           tags: updatedMetadata.tags || [],
           path: skillPath,
           version: updatedMetadata.version,
-          metadata: updatedMetadata
+          metadata: updatedMetadata,
         });
 
         // 更新.vectorized标识
-        const vectorizedFile = path.join(skillPath, '.vectorized');
+        const vectorizedFile = path.join(skillPath, ".vectorized");
         await fs.writeFile(
           vectorizedFile,
           `reindexed: ${new Date().toISOString()}\nversion: ${updatedMetadata.version}`
         );
 
         reindexed = true;
-        logger.info('Skill reindexed after update', { skillName });
+        logger.info("Skill reindexed after update", { skillName });
       } catch (error) {
-        logger.warn('Failed to reindex Skill after update', {
+        logger.warn("Failed to reindex Skill after update", {
           skillName,
-          error: error instanceof Error ? error.message : error
+          error: error instanceof Error ? error.message : error,
         });
       }
 
@@ -364,13 +369,12 @@ export class SkillManager {
         skillName,
         updatedAt: new Date(),
         duration,
-        reindexed
+        reindexed,
       };
-
     } catch (error) {
       const duration = Date.now() - startTime;
 
-      logger.error('Skill update failed:', error);
+      logger.error("Skill update failed:", error);
 
       if (error instanceof ToolError) {
         throw error;
@@ -391,9 +395,11 @@ export class SkillManager {
    */
   async listSkills(options: SkillListOptions = {}): Promise<SkillListResult> {
     try {
+      // 确保目录存在
+      await this.ensureSkillsDirectory();
       // 扫描Skills目录
       const entries = await fs.readdir(this.skillsBasePath, { withFileTypes: true });
-      const skillDirs = entries.filter(entry => entry.isDirectory()).map(entry => entry.name);
+      const skillDirs = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
 
       // 加载所有Skills元数据
       const skills: SkillTool[] = [];
@@ -407,20 +413,20 @@ export class SkillManager {
             type: ToolType.SKILL,
             description: metadata.description,
             parameters: metadata.parameters || {
-              type: 'object',
+              type: "object",
               properties: {},
-              required: []
+              required: [],
             },
             version: metadata.version,
             tags: metadata.tags,
             author: metadata.author,
             enabled: true,
             path: skillPath,
-            level: 1
+            level: 1,
           });
         } catch (error) {
           logger.warn(`Failed to load Skill metadata: ${skillName}`, {
-            error: error instanceof Error ? error.message : error
+            error: error instanceof Error ? error.message : error,
           });
         }
       }
@@ -431,32 +437,33 @@ export class SkillManager {
       // 按名称过滤
       if (options.name) {
         const nameFilter = options.name.toLowerCase();
-        filtered = filtered.filter(skill =>
-          skill.name.toLowerCase().includes(nameFilter) ||
-          skill.description.toLowerCase().includes(nameFilter)
+        filtered = filtered.filter(
+          (skill) =>
+            skill.name.toLowerCase().includes(nameFilter) ||
+            skill.description.toLowerCase().includes(nameFilter)
         );
       }
 
       // 按标签过滤
       if (options.tags && options.tags.length > 0) {
-        filtered = filtered.filter(skill =>
-          skill.tags.some(tag => options.tags!.includes(tag))
+        filtered = filtered.filter((skill) =>
+          skill.tags.some((tag) => options.tags!.includes(tag))
         );
       }
 
       // 排序
-      const sortBy = options.sortBy || 'name';
-      const sortOrder = options.sortOrder || 'asc';
+      const sortBy = options.sortBy || "name";
+      const sortOrder = options.sortOrder || "asc";
       filtered.sort((a, b) => {
         let aVal: any, bVal: any;
 
         switch (sortBy) {
-          case 'name':
+          case "name":
             aVal = a.name;
             bVal = b.name;
             break;
-          case 'updatedAt':
-          case 'installedAt':
+          case "updatedAt":
+          case "installedAt":
             // 使用名称作为后备排序
             aVal = a.name;
             bVal = b.name;
@@ -467,7 +474,7 @@ export class SkillManager {
         }
 
         const compare = String(aVal).localeCompare(String(bVal));
-        return sortOrder === 'desc' ? -compare : compare;
+        return sortOrder === "desc" ? -compare : compare;
       });
 
       // 分页
@@ -482,11 +489,10 @@ export class SkillManager {
         total: filtered.length,
         page,
         limit,
-        totalPages: Math.ceil(filtered.length / limit)
+        totalPages: Math.ceil(filtered.length / limit),
       };
-
     } catch (error) {
-      logger.error('Failed to list skills:', error);
+      logger.error("Failed to list skills:", error);
       throw new ToolError(
         `Failed to list skills: ${this.formatError(error)}`,
         ToolErrorCode.TOOL_EXECUTION_FAILED
@@ -509,8 +515,8 @@ export class SkillManager {
    */
   private async extractZipToTemp(zipBuffer: Buffer): Promise<string> {
     // 创建临时目录
-    const tempId = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-    const tempDir = path.join(os.tmpdir(), 'skill-install', tempId);
+    const tempId = `${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
+    const tempDir = path.join(os.tmpdir(), "skill-install", tempId);
 
     await fs.mkdir(tempDir, { recursive: true });
 
@@ -518,7 +524,7 @@ export class SkillManager {
     const zip = new AdmZip(zipBuffer);
     zip.extractAllTo(tempDir, true);
 
-    logger.debug('Extracted ZIP to temp directory', { tempDir });
+    logger.debug("Extracted ZIP to temp directory", { tempDir });
 
     return tempDir;
   }
@@ -528,10 +534,10 @@ export class SkillManager {
    */
   private async validateSkillStructure(
     skillPath: string,
-    validationLevel: SkillInstallOptions['validationLevel'] = 'basic'
+    validationLevel: SkillInstallOptions["validationLevel"] = "basic"
   ): Promise<SkillMetadata> {
     // 检查必需文件
-    const requiredFiles = ['SKILL.md'];
+    const requiredFiles = ["SKILL.md"];
 
     for (const file of requiredFiles) {
       const filePath = path.join(skillPath, file);
@@ -547,19 +553,19 @@ export class SkillManager {
     const metadata = await this.parseSkillMetadata(skillPath);
 
     // 严格验证（检查脚本文件是否存在）
-    if (validationLevel === 'strict') {
-      const scriptsDir = path.join(skillPath, 'scripts');
+    if (validationLevel === "strict") {
+      const scriptsDir = path.join(skillPath, "scripts");
       if (!(await this.directoryExists(scriptsDir))) {
         throw new ToolError(
-          'Scripts directory not found in strict validation mode',
+          "Scripts directory not found in strict validation mode",
           ToolErrorCode.SKILL_INVALID_STRUCTURE
         );
       }
 
-      const executeScript = path.join(scriptsDir, 'execute.js');
+      const executeScript = path.join(scriptsDir, "execute.js");
       if (!(await this.fileExists(executeScript))) {
         throw new ToolError(
-          'execute.js not found in scripts directory',
+          "execute.js not found in scripts directory",
           ToolErrorCode.SKILL_INVALID_STRUCTURE
         );
       }
@@ -572,7 +578,7 @@ export class SkillManager {
    * 解析Skills元数据
    */
   private async parseSkillMetadata(skillPath: string): Promise<SkillMetadata> {
-    const skillMdPath = path.join(skillPath, 'SKILL.md');
+    const skillMdPath = path.join(skillPath, "SKILL.md");
 
     if (!(await this.fileExists(skillMdPath))) {
       throw new ToolError(
@@ -581,11 +587,11 @@ export class SkillManager {
       );
     }
 
-    const content = await fs.readFile(skillMdPath, 'utf8');
+    const content = await fs.readFile(skillMdPath, "utf8");
     const parsed = matter(content);
 
     // 检查必需字段
-    const requiredFields = ['name', 'description', 'version'];
+    const requiredFields = ["name", "description", "version"];
     for (const field of requiredFields) {
       if (!parsed.data[field]) {
         throw new ToolError(
@@ -598,13 +604,13 @@ export class SkillManager {
     return {
       name: parsed.data.name,
       description: parsed.data.description,
-      category: parsed.data.category || 'uncategorized',
+      category: parsed.data.category || "uncategorized",
       tools: parsed.data.tools || [],
       version: parsed.data.version,
       tags: parsed.data.tags || [],
       author: parsed.data.author,
       dependencies: parsed.data.dependencies || [],
-      parameters: parsed.data.parameters
+      parameters: parsed.data.parameters,
     };
   }
 
@@ -633,16 +639,31 @@ export class SkillManager {
   }
 
   /**
+   * 确保Skills目录存在，不存在则创建
+   */
+  private async ensureSkillsDirectory(): Promise<void> {
+    try {
+      const exists = await this.directoryExists(this.skillsBasePath);
+      if (!exists) {
+        await fs.mkdir(this.skillsBasePath, { recursive: true });
+        logger.info(`Created skills directory: ${this.skillsBasePath}`);
+      }
+    } catch (error) {
+      logger.warn(`Failed to create skills directory: ${this.skillsBasePath}`, error);
+    }
+  }
+
+  /**
    * 格式化错误信息
    */
   private formatError(error: any): string {
     if (error instanceof Error) {
       return error.message;
     }
-    if (typeof error === 'string') {
+    if (typeof error === "string") {
       return error;
     }
-    return 'Unknown error occurred';
+    return "Unknown error occurred";
   }
 
   /**
@@ -665,20 +686,20 @@ export class SkillManager {
         type: ToolType.SKILL,
         description: metadata.description,
         parameters: metadata.parameters || {
-          type: 'object',
+          type: "object",
           properties: {},
-          required: []
+          required: [],
         },
         version: metadata.version,
         tags: metadata.tags,
         author: metadata.author,
         enabled: true,
         path: skillPath,
-        level: 1
+        level: 1,
       };
     } catch (error) {
       logger.warn(`Failed to load Skill metadata: ${skillName}`, {
-        error: error instanceof Error ? error.message : error
+        error: error instanceof Error ? error.message : error,
       });
       return null;
     }
@@ -705,7 +726,7 @@ export class SkillManager {
     return {
       total: skills.total,
       byTag,
-      recentlyInstalled: skills.skills.slice(0, 5).map(s => s.name)
+      recentlyInstalled: skills.skills.slice(0, 5).map((s) => s.name),
     };
   }
 
@@ -727,8 +748,8 @@ export class SkillManager {
         await this.initializationPromise;
       } catch (error) {
         // 初始化失败，但不阻止系统继续运行
-        logger.warn('Skills initialization failed, but system will continue', {
-          error: error instanceof Error ? error.message : error
+        logger.warn("Skills initialization failed, but system will continue", {
+          error: error instanceof Error ? error.message : error,
         });
       }
     }
@@ -739,7 +760,7 @@ export class SkillManager {
    * 在SkillManager创建时自动调用，扫描并索引所有已存在的Skills
    */
   private async initializeSkillsIndex(): Promise<void> {
-    logger.debug('Initializing skills index during startup');
+    logger.debug("Initializing skills index during startup");
 
     try {
       // 等待检索服务初始化完成
@@ -755,9 +776,9 @@ export class SkillManager {
       }
       logger.info(`[SkillManager] Registered ${skills.length} skills to ToolRegistry`);
 
-      logger.debug('Skills index initialization completed');
+      logger.debug("Skills index initialization completed");
     } catch (error) {
-      logger.error('❌ Failed to initialize skills index:', error);
+      logger.error("❌ Failed to initialize skills index:", error);
       // 抛出错误，让waitForInitialization捕获
       throw error;
     }
@@ -779,14 +800,14 @@ export class SkillManager {
           // 调用实际的 Skill 执行器
           const result = await executor.execute({
             name: skill.name,
-            args
+            args,
           });
           return {
             title: skill.name,
             metadata: {
               success: result.success,
               duration: result.duration,
-              exitCode: result.exitCode
+              exitCode: result.exitCode,
             },
             output: result.success ? result.output : result.error,
           };
@@ -814,14 +835,11 @@ export class SkillManager {
    */
   async executeDirect(skillName: string, args: Record<string, unknown>): Promise<string> {
     const skillPath = path.join(this.skillsBasePath, skillName);
-    const skillMdPath = path.join(skillPath, 'SKILL.md');
+    const skillMdPath = path.join(skillPath, "SKILL.md");
 
     // 检查 Skill 是否存在
     if (!(await this.directoryExists(skillPath))) {
-      throw new ToolError(
-        `Skill '${skillName}' not found`,
-        ToolErrorCode.SKILL_NOT_FOUND
-      );
+      throw new ToolError(`Skill '${skillName}' not found`, ToolErrorCode.SKILL_NOT_FOUND);
     }
 
     // 读取 SKILL.md
@@ -832,7 +850,7 @@ export class SkillManager {
       );
     }
 
-    const content = await fs.readFile(skillMdPath, 'utf8');
+    const content = await fs.readFile(skillMdPath, "utf8");
     const parsed = matter(content);
 
     // 返回 SKILL.md 的内容部分（不含 frontmatter）
@@ -843,7 +861,10 @@ export class SkillManager {
   /**
    * 获取单例实例
    */
-  static getInstance(skillsBasePath?: string, retrievalService?: ToolRetrievalService): SkillManager {
+  static getInstance(
+    skillsBasePath?: string,
+    retrievalService?: ToolRetrievalService
+  ): SkillManager {
     if (!SkillManager.instance) {
       SkillManager.instance = new SkillManager(skillsBasePath, retrievalService);
     }
@@ -856,12 +877,14 @@ export class SkillManager {
   static resetInstance(): void {
     SkillManager.instance = null;
   }
-
 }
 
 /**
  * 获取默认的SkillManager
  */
-export function getSkillManager(skillsBasePath?: string, retrievalService?: ToolRetrievalService): SkillManager {
+export function getSkillManager(
+  skillsBasePath?: string,
+  retrievalService?: ToolRetrievalService
+): SkillManager {
   return SkillManager.getInstance(skillsBasePath, retrievalService);
 }

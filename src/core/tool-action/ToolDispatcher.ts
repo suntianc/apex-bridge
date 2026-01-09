@@ -10,22 +10,18 @@ import {
   type ToolExecutionResult,
   type DispatcherConfig,
   type ToolDescription,
-  ToolType
-} from './types';
-import type {
-  BuiltInTool,
-  SkillTool,
-  ToolResult
-} from '../../types/tool-system';
-import { BuiltInToolsRegistry, getBuiltInToolsRegistry } from '../../services/BuiltInToolsRegistry';
-import { SkillsSandboxExecutor } from '../../services/executors/SkillsSandboxExecutor';
-import { getSkillManager } from '../../services/SkillManager';
-import { mcpIntegration } from '../../services/MCPIntegrationService';
-import { toolRegistry } from '../tool/registry';
-import type { Tool } from '../tool/tool';
-import { logger } from '../../utils/logger';
-import { ErrorClassifier } from '../../utils/error-classifier';
-import { ErrorType } from '../../types/trajectory';
+  ToolType,
+} from "./types";
+import type { BuiltInTool, SkillTool, ToolResult } from "../../types/tool-system";
+import { BuiltInToolsRegistry, getBuiltInToolsRegistry } from "../../services/BuiltInToolsRegistry";
+import { SkillsSandboxExecutor } from "../../services/executors/SkillsSandboxExecutor";
+import { getSkillManager } from "../../services/SkillManager";
+import { mcpIntegration } from "../../services/MCPIntegrationService";
+import { toolRegistry, ToolStatus } from "../tool/registry";
+import type { Tool } from "../tool/tool";
+import { logger } from "../../utils/logger";
+import { ErrorClassifier } from "../../utils/error-classifier";
+import { ErrorType } from "../../types/trajectory";
 
 /**
  * 默认配置常量
@@ -35,7 +31,7 @@ const DEFAULT_MAX_CONCURRENCY = 3;
 
 const DEFAULT_CONFIG: Required<DispatcherConfig> = {
   timeout: DEFAULT_TIMEOUT,
-  maxConcurrency: DEFAULT_MAX_CONCURRENCY
+  maxConcurrency: DEFAULT_MAX_CONCURRENCY,
 };
 
 /**
@@ -52,7 +48,7 @@ export class ToolDispatcher {
     this.builtInRegistry = getBuiltInToolsRegistry();
     this.skillExecutor = new SkillsSandboxExecutor({
       timeout: this.config.timeout,
-      maxConcurrency: this.config.maxConcurrency
+      maxConcurrency: this.config.maxConcurrency,
     });
   }
 
@@ -97,10 +93,9 @@ export class ToolDispatcher {
             success: false,
             toolName: name,
             error: `Unknown tool type: ${type}`,
-            executionTime: Date.now() - startTime
+            executionTime: Date.now() - startTime,
           };
       }
-
     } catch (error) {
       const executionTime = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -111,7 +106,7 @@ export class ToolDispatcher {
         success: false,
         toolName: name,
         error: errorMessage,
-        executionTime
+        executionTime,
       };
     }
   }
@@ -144,21 +139,18 @@ export class ToolDispatcher {
 
       // 创建执行上下文
       const ctx: Tool.Context = {
-        sessionID: '',
-        messageID: '',
-        agent: 'dispatcher',
+        sessionID: "",
+        messageID: "",
+        agent: "dispatcher",
         abort: abortController.signal,
         metadata: () => {},
       };
 
       // 执行工具
-      const result = await Promise.race([
-        toolInit.execute(parameters, ctx),
-        timeoutPromise
-      ]);
+      const result = await Promise.race([toolInit.execute(parameters, ctx), timeoutPromise]);
 
       const executionTime = Date.now() - startTime;
-      const outputContent = String(result.output || '');
+      const outputContent = String(result.output || "");
 
       logger.info(`[ToolDispatcher] Tool ${tool.id} executed successfully in ${executionTime}ms`);
 
@@ -174,11 +166,10 @@ export class ToolDispatcher {
           output_metadata: {
             token_count: ErrorClassifier.estimateTokens(outputContent),
             execution_time_ms: executionTime,
-            ...result.metadata
-          }
-        }
+            ...result.metadata,
+          },
+        },
       };
-
     } catch (error) {
       const executionTime = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -192,22 +183,25 @@ export class ToolDispatcher {
           tool_name: tool.id,
           input_params: parameters,
           timestamp: Date.now(),
-          execution_time_ms: executionTime
-        }
+          execution_time_ms: executionTime,
+        },
       };
 
       logger.error(`[ToolDispatcher] Tool execution failed: ${tool.id}`, {
         error_type: errorType,
         error_message: errorMessage,
-        stack: error instanceof Error ? error.stack : undefined
+        stack: error instanceof Error ? error.stack : undefined,
       });
+
+      // 更新工具状态为 unhealthy
+      await toolRegistry.updateStatus(tool.id, ToolStatus.UNHEALTHY, errorMessage);
 
       return {
         success: false,
         toolName: tool.id,
         error: errorMessage,
         executionTime,
-        error_details: errorDetails
+        error_details: errorDetails,
       };
     }
   }
@@ -215,7 +209,11 @@ export class ToolDispatcher {
   /**
    * 执行内置工具
    */
-  private async executeBuiltInTool(name: string, parameters: Record<string, string>, startTime: number): Promise<ToolExecutionResult> {
+  private async executeBuiltInTool(
+    name: string,
+    parameters: Record<string, string>,
+    startTime: number
+  ): Promise<ToolExecutionResult> {
     const builtInTool = this.builtInRegistry.getTool(name);
     if (builtInTool && builtInTool.enabled) {
       return await this.executeBuiltIn(builtInTool, parameters, startTime);
@@ -226,14 +224,18 @@ export class ToolDispatcher {
       success: false,
       toolName: name,
       error: `Built-in tool not found or disabled: ${name}`,
-      executionTime: Date.now() - startTime
+      executionTime: Date.now() - startTime,
     };
   }
 
   /**
    * 执行 Skill 工具
    */
-  private async executeSkillTool(name: string, parameters: Record<string, string>, startTime: number): Promise<ToolExecutionResult> {
+  private async executeSkillTool(
+    name: string,
+    parameters: Record<string, string>,
+    startTime: number
+  ): Promise<ToolExecutionResult> {
     logger.debug(`[ToolDispatcher] Trying to execute as Skill: ${name}`);
     const skillResult = await this.executeSkill(name, parameters, startTime);
     if (skillResult) {
@@ -245,28 +247,32 @@ export class ToolDispatcher {
       success: false,
       toolName: name,
       error: `Skill not found: ${name}`,
-      executionTime: Date.now() - startTime
+      executionTime: Date.now() - startTime,
     };
   }
 
   /**
    * 执行 MCP 工具
    */
-  private async executeMCPTool(name: string, parameters: Record<string, string>, startTime: number): Promise<ToolExecutionResult> {
+  private async executeMCPTool(
+    name: string,
+    parameters: Record<string, string>,
+    startTime: number
+  ): Promise<ToolExecutionResult> {
     try {
       logger.info(`[ToolDispatcher] Calling MCP tool: ${name}`);
 
       // 调用 MCP 工具
       const result = await mcpIntegration.callTool({
         toolName: name,
-        arguments: parameters
+        arguments: parameters,
       });
 
       const executionTime = Date.now() - startTime;
 
       // 🆕 成功情况：返回详细信息
       if (result.success) {
-        const outputContent = String(result.content || '');
+        const outputContent = String(result.content || "");
         return {
           success: true,
           toolName: name,
@@ -278,66 +284,73 @@ export class ToolDispatcher {
             output_content: outputContent,
             output_metadata: {
               token_count: ErrorClassifier.estimateTokens(outputContent),
-              execution_time_ms: executionTime
-            }
-          }
+              execution_time_ms: executionTime,
+            },
+          },
         };
       }
 
       // 🆕 失败情况：分类错误类型
-      const errorType = ErrorClassifier.classifyError(new Error(result.error?.message || 'MCP tool execution failed'));
+      const errorType = ErrorClassifier.classifyError(
+        new Error(result.error?.message || "MCP tool execution failed")
+      );
       const errorDetails = {
         error_type: errorType,
-        error_message: result.error?.message || 'MCP tool execution failed',
+        error_message: result.error?.message || "MCP tool execution failed",
         context: {
           tool_name: name,
           input_params: parameters,
           timestamp: Date.now(),
-          execution_time_ms: executionTime
-        }
+          execution_time_ms: executionTime,
+        },
       };
 
       logger.error(`[ToolDispatcher] MCP tool execution failed: ${name}`, {
         error_type: errorType,
         error_message: result.error?.message,
-        params: parameters
+        params: parameters,
       });
+
+      // 更新工具状态为 unhealthy
+      await toolRegistry.updateStatus(name, ToolStatus.UNHEALTHY, result.error?.message);
 
       return {
         success: false,
         toolName: name,
-        error: result.error?.message || 'MCP tool execution failed',
+        error: result.error?.message || "MCP tool execution failed",
         executionTime,
-        error_details: errorDetails
+        error_details: errorDetails,
       };
-
     } catch (error: any) {
       // 🆕 捕获异常：分类错误类型
       const errorType = ErrorClassifier.classifyError(error);
       const errorDetails = {
         error_type: errorType,
-        error_message: error.message || 'MCP tool execution failed',
+        error_message: error.message || "MCP tool execution failed",
         error_stack: error.stack,
         context: {
           tool_name: name,
           input_params: parameters,
           timestamp: Date.now(),
-          execution_time_ms: Date.now() - startTime
-        }
+          execution_time_ms: Date.now() - startTime,
+        },
       };
 
       logger.error(`[ToolDispatcher] MCP tool execution failed: ${name}`, {
         error_type: errorType,
         error_message: error.message,
-        stack: error.stack
+        stack: error.stack,
       });
+
+      // 更新工具状态为 unhealthy
+      await toolRegistry.updateStatus(name, ToolStatus.UNHEALTHY, error.message);
 
       return {
         success: false,
         toolName: name,
-        error: error.message || 'MCP tool execution failed',
+        error: error.message || "MCP tool execution failed",
         executionTime: Date.now() - startTime,
-        error_details: errorDetails
+        error_details: errorDetails,
       };
     }
   }
@@ -365,28 +378,30 @@ export class ToolDispatcher {
     // 执行工具
     const result = await Promise.race([
       this.builtInRegistry.execute({ name: tool.name, args: typedArgs }),
-      timeoutPromise
+      timeoutPromise,
     ]);
 
     const executionTime = Date.now() - startTime;
 
     // 🆕 成功情况：返回详细信息
     if (result.success) {
-      const outputContent = String(result.output || '');
+      const outputContent = String(result.output || "");
+      const isHiddenTool = tool.name === "vector-search";
       return {
         success: true,
         toolName: tool.name,
         result: result.output,
         executionTime,
+        hiddenFromUser: isHiddenTool,
         tool_details: {
           tool_name: tool.name,
           input_params: typedArgs,
           output_content: outputContent,
           output_metadata: {
             token_count: ErrorClassifier.estimateTokens(outputContent),
-            execution_time_ms: executionTime
-          }
-        }
+            execution_time_ms: executionTime,
+          },
+        },
       };
     }
 
@@ -394,27 +409,30 @@ export class ToolDispatcher {
     const errorType = ErrorClassifier.classifyError(new Error(result.error));
     const errorDetails = {
       error_type: errorType,
-      error_message: result.error || 'Unknown error',
+      error_message: result.error || "Unknown error",
       context: {
         tool_name: tool.name,
         input_params: typedArgs,
         timestamp: Date.now(),
-        execution_time_ms: executionTime
-      }
+        execution_time_ms: executionTime,
+      },
     };
 
     logger.error(`[ToolDispatcher] Built-in tool execution failed: ${tool.name}`, {
       error_type: errorType,
       error_message: result.error,
-      params: typedArgs
+      params: typedArgs,
     });
+
+    // 更新工具状态为 unhealthy
+    await toolRegistry.updateStatus(tool.name, ToolStatus.UNHEALTHY, result.error);
 
     return {
       success: false,
       toolName: tool.name,
       error: result.error,
       executionTime,
-      error_details: errorDetails
+      error_details: errorDetails,
     };
   }
 
@@ -435,20 +453,20 @@ export class ToolDispatcher {
       // 执行 Skill
       const result = await this.skillExecutor.execute({
         name,
-        args: typedArgs
+        args: typedArgs,
       });
 
       const executionTime = Date.now() - startTime;
 
       // 如果 Skill 不存在，返回 null（让调度器继续尝试其他路径）
-      if (!result.success && result.error?.includes('not found')) {
+      if (!result.success && result.error?.includes("not found")) {
         logger.debug(`[ToolDispatcher] Skill not found: ${name}`);
         return null;
       }
 
       // 🆕 成功情况：返回详细信息
       if (result.success) {
-        const outputContent = String(result.output || '');
+        const outputContent = String(result.output || "");
         return {
           success: true,
           toolName: name,
@@ -460,9 +478,9 @@ export class ToolDispatcher {
             output_content: outputContent,
             output_metadata: {
               token_count: ErrorClassifier.estimateTokens(outputContent),
-              execution_time_ms: executionTime
-            }
-          }
+              execution_time_ms: executionTime,
+            },
+          },
         };
       }
 
@@ -470,34 +488,36 @@ export class ToolDispatcher {
       const errorType = ErrorClassifier.classifyError(new Error(result.error));
       const errorDetails = {
         error_type: errorType,
-        error_message: result.error || 'Unknown error',
+        error_message: result.error || "Unknown error",
         context: {
           tool_name: name,
           input_params: typedArgs,
           timestamp: Date.now(),
-          execution_time_ms: executionTime
-        }
+          execution_time_ms: executionTime,
+        },
       };
 
       logger.error(`[ToolDispatcher] Skill execution failed: ${name}`, {
         error_type: errorType,
         error_message: result.error,
-        params: typedArgs
+        params: typedArgs,
       });
+
+      // 更新工具状态为 unhealthy
+      await toolRegistry.updateStatus(name, ToolStatus.UNHEALTHY, result.error);
 
       return {
         success: false,
         toolName: name,
         error: result.error,
         executionTime,
-        error_details: errorDetails
+        error_details: errorDetails,
       };
-
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
 
       // 如果是 Skill 不存在的错误，返回 null
-      if (errorMessage.includes('not found') || errorMessage.includes('does not exist')) {
+      if (errorMessage.includes("not found") || errorMessage.includes("does not exist")) {
         logger.debug(`[ToolDispatcher] Skill does not exist: ${name}`);
         return null;
       }
@@ -512,22 +532,25 @@ export class ToolDispatcher {
           tool_name: name,
           input_params: this.convertParameters(parameters, null),
           timestamp: Date.now(),
-          execution_time_ms: Date.now() - startTime
-        }
+          execution_time_ms: Date.now() - startTime,
+        },
       };
 
       logger.error(`[ToolDispatcher] Skill execution error: ${name}`, {
         error_type: errorType,
         error_message: errorMessage,
-        stack: error instanceof Error ? error.stack : undefined
+        stack: error instanceof Error ? error.stack : undefined,
       });
+
+      // 更新工具状态为 unhealthy
+      await toolRegistry.updateStatus(name, ToolStatus.UNHEALTHY, errorMessage);
 
       return {
         success: false,
         toolName: name,
         error: errorMessage,
         executionTime: Date.now() - startTime,
-        error_details: errorDetails
+        error_details: errorDetails,
       };
     }
   }
@@ -535,10 +558,7 @@ export class ToolDispatcher {
   /**
    * 转换参数类型（字符串 -> 实际类型）
    */
-  private convertParameters(
-    params: Record<string, string>,
-    schema: any
-  ): Record<string, any> {
+  private convertParameters(params: Record<string, string>, schema: any): Record<string, any> {
     const result: Record<string, any> = {};
 
     for (const [key, value] of Object.entries(params)) {
@@ -550,20 +570,20 @@ export class ToolDispatcher {
       }
 
       switch (propSchema.type) {
-        case 'number':
+        case "number":
           result[key] = Number(value);
           break;
-        case 'boolean':
-          result[key] = value === 'true' || value === '1';
+        case "boolean":
+          result[key] = value === "true" || value === "1";
           break;
-        case 'array':
+        case "array":
           try {
             result[key] = JSON.parse(value);
           } catch {
-            result[key] = value.split(',').map(s => s.trim());
+            result[key] = value.split(",").map((s) => s.trim());
           }
           break;
-        case 'object':
+        case "object":
           try {
             result[key] = JSON.parse(value);
           } catch {
@@ -585,12 +605,15 @@ export class ToolDispatcher {
    * @param parameters 工具参数
    * @returns 执行结果
    */
-  async executeDirect(toolName: string, parameters: Record<string, string>): Promise<ToolExecutionResult> {
+  async executeDirect(
+    toolName: string,
+    parameters: Record<string, string>
+  ): Promise<ToolExecutionResult> {
     const startTime = Date.now();
 
     // 提取 Skill 名称（支持带 skill: 前缀）
     let skillName = toolName;
-    if (toolName.startsWith('skill:')) {
+    if (toolName.startsWith("skill:")) {
       skillName = toolName.substring(6);
     }
 
@@ -612,9 +635,9 @@ export class ToolDispatcher {
           output_metadata: {
             token_count: ErrorClassifier.estimateTokens(result),
             execution_time_ms: Date.now() - startTime,
-            mode: 'direct'
-          }
-        }
+            mode: "direct",
+          },
+        },
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -626,13 +649,13 @@ export class ToolDispatcher {
           tool_name: toolName,
           input_params: parameters,
           timestamp: Date.now(),
-          execution_time_ms: Date.now() - startTime
-        }
+          execution_time_ms: Date.now() - startTime,
+        },
       };
 
       logger.error(`[ToolDispatcher] Skill Direct execution failed: ${skillName}`, {
         error_type: errorType,
-        error_message: errorMessage
+        error_message: errorMessage,
       });
 
       return {
@@ -640,7 +663,7 @@ export class ToolDispatcher {
         toolName: toolName,
         error: errorMessage,
         executionTime: Date.now() - startTime,
-        error_details: errorDetails
+        error_details: errorDetails,
       };
     }
   }
@@ -675,7 +698,7 @@ export class ToolDispatcher {
    * 转换工具定义为描述格式
    */
   private convertToDescription(tool: BuiltInTool | SkillTool): ToolDescription {
-    const parameters: ToolDescription['parameters'] = [];
+    const parameters: ToolDescription["parameters"] = [];
 
     if (tool.parameters?.properties) {
       for (const [name, prop] of Object.entries(tool.parameters.properties)) {
@@ -683,7 +706,7 @@ export class ToolDispatcher {
           name,
           type: prop.type,
           description: prop.description,
-          required: tool.parameters.required?.includes(name) ?? false
+          required: tool.parameters.required?.includes(name) ?? false,
         });
       }
     }
@@ -691,7 +714,7 @@ export class ToolDispatcher {
     return {
       name: tool.name,
       description: tool.description,
-      parameters
+      parameters,
     };
   }
 }
@@ -710,21 +733,27 @@ export function generateToolPrompt(tools: ToolDescription[]): string {
 `;
   }
 
-  const toolDescriptions = tools.map(tool => {
-    const paramList = tool.parameters.length > 0
-      ? tool.parameters.map(p =>
-          `  - \`${p.name}\` (${p.type}${p.required ? ', 必需' : ''}): ${p.description}`
-        ).join('\n')
-      : '  无参数';
+  const toolDescriptions = tools
+    .map((tool) => {
+      const paramList =
+        tool.parameters.length > 0
+          ? tool.parameters
+              .map(
+                (p) =>
+                  `  - \`${p.name}\` (${p.type}${p.required ? ", 必需" : ""}): ${p.description}`
+              )
+              .join("\n")
+          : "  无参数";
 
-    return `
+      return `
 ### ${tool.name}
 ${tool.description}
 
 **参数:**
 ${paramList}
 `;
-  }).join('\n');
+    })
+    .join("\n");
 
   return `
 ## 可用工具
