@@ -116,3 +116,9 @@ export * from './config';
 
 // 导出 Reflector 相关类型
 export * from './reflector';
+
+// ==================== Message V2 类型 ====================
+export * from './message-v2';
+
+// ==================== Tool State 类型 ====================
+export * from './tool-state';

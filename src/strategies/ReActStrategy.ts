@@ -129,7 +129,7 @@ export class ReActStrategy implements ChatStrategy {
       for await (const event of stream) {
         iterations = event.iteration;
 
-        if (event.type === 'reasoning') {
+        if (event.type === 'reasoning-delta') {
           thinkingProcess.push(event.data);
         } else if (event.type === 'content') {
           finalContent += event.data;
@@ -201,14 +201,105 @@ export class ReActStrategy implements ChatStrategy {
 
       // 流式输出事件
       // 输出 JSON 格式字符串，与 SingleRoundStrategy 保持一致，便于前端 parseLLMChunk 解析
-      if (event.type === 'reasoning') {
-        const jsonChunk = JSON.stringify({ reasoning_content: event.data, content: null });
-        yield jsonChunk;
-        collectedThinking.push(event.data);
-      } else if (event.type === 'content') {
-        const jsonChunk = JSON.stringify({ reasoning_content: null, content: event.data });
-        yield jsonChunk;
-        collectedContent += event.data;
+      switch (event.type) {
+        case 'reasoning-start':
+          // 推理开始事件
+          yield JSON.stringify({
+            event_type: 'reasoning-start',
+            data: event.data,
+            iteration: event.iteration
+          });
+          break;
+
+        case 'reasoning-delta':
+          // 推理内容增量（替换原来的 reasoning 事件）
+          const reasoningChunk = JSON.stringify({
+            reasoning_content: event.data,
+            content: null,
+            step_number: event.stepNumber,
+            iteration: event.iteration
+          });
+          yield reasoningChunk;
+          collectedThinking.push(event.data);
+          break;
+
+        case 'reasoning-end':
+          // 推理结束事件
+          yield JSON.stringify({
+            event_type: 'reasoning-end',
+            data: event.data,
+            iteration: event.iteration
+          });
+          break;
+
+        case 'step-start':
+          // 步骤开始事件
+          yield JSON.stringify({
+            event_type: 'step-start',
+            data: event.data,
+            iteration: event.iteration,
+            step_number: event.stepNumber
+          });
+          break;
+
+        case 'step-finish':
+          // 步骤完成事件
+          yield JSON.stringify({
+            event_type: 'step-finish',
+            data: event.data,
+            iteration: event.iteration,
+            step_number: event.stepNumber
+          });
+          break;
+
+        case 'content':
+          const contentChunk = JSON.stringify({
+            reasoning_content: null,
+            content: event.data,
+            step_number: event.stepNumber,
+            iteration: event.iteration
+          });
+          yield contentChunk;
+          collectedContent += event.data;
+          break;
+
+        case 'tool_start':
+          yield JSON.stringify({
+            event_type: 'tool_start',
+            data: event.data,
+            iteration: event.iteration,
+            step_number: event.stepNumber
+          });
+          break;
+
+        case 'tool_end':
+          yield JSON.stringify({
+            event_type: 'tool_end',
+            data: event.data,
+            iteration: event.iteration,
+            step_number: event.stepNumber
+          });
+          break;
+
+        case 'done':
+          yield JSON.stringify({
+            event_type: 'done',
+            data: event.data,
+            iteration: event.iteration
+          });
+          break;
+
+        case 'error':
+          yield JSON.stringify({
+            event_type: 'error',
+            data: event.data,
+            iteration: event.iteration
+          });
+          break;
+
+        default:
+          // 未知事件类型，直接输出
+          yield JSON.stringify(event);
       }
     }
 

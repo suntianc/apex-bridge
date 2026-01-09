@@ -2,6 +2,7 @@
  * MCP Integration Service
  * 核心MCP功能集成服务
  * 负责MCP客户端管理、工具发现和执行
+ * 集成 ToolRegistry 进行统一工具管理
  */
 
 import { EventEmitter } from 'events';
@@ -9,6 +10,9 @@ import { logger } from '../utils/logger';
 import { MCPServerManager } from './MCPServerManager';
 import { MCPConfigService } from './MCPConfigService';
 import { getToolRetrievalService } from './ToolRetrievalService';
+import { toolRegistry, ToolType } from '../core/tool/registry';
+import { convertMcpTool } from './mcp/convert';
+import type { Tool } from '../core/tool/tool';
 import type {
   MCPServerConfig,
   MCPServerStatus,
@@ -59,6 +63,7 @@ export class MCPIntegrationService extends EventEmitter {
   async registerServer(config: MCPServerConfig): Promise<{ serverId: string; success: boolean; error?: string }> {
     try {
       const serverId = config.id;
+      const serverName = config.id;
 
       if (this.serverManagers.has(serverId)) {
         logger.warn(`[MCP] Server ${serverId} already exists`);
@@ -87,6 +92,14 @@ export class MCPIntegrationService extends EventEmitter {
 
       // 向量化工具
       await this.vectorizeServerTools(serverId, manager.getTools());
+
+      // 注册工具到 ToolRegistry（使用 {clientName}_{toolName} 格式）
+      const serverTools = manager.getTools();
+      for (const tool of serverTools) {
+        const toolInfo = convertMcpTool(serverId, serverName, tool);
+        await toolRegistry.register(toolInfo, ToolType.MCP);
+      }
+      logger.info(`[MCP] Registered ${serverTools.length} tools to ToolRegistry for server ${serverId}`);
 
       logger.info(`[MCP] Server ${serverId} registered successfully`);
       return { serverId, success: true };

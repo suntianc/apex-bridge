@@ -1,6 +1,7 @@
 /**
  * 内置工具注册表
  * 管理系统内置工具，提供统一的注册和调用接口
+ * 同时集成 ToolRegistry 进行统一工具管理
  */
 
 import {
@@ -16,6 +17,8 @@ import { createFileWriteTool } from '../core/tools/builtin/FileWriteTool';
 import { createVectorSearchTool } from '../core/tools/builtin/VectorSearchTool';
 import { createReadSkillTool } from '../core/tools/builtin/ReadSkillTool';
 import { createPlatformDetectorTool } from '../core/tools/builtin/PlatformDetectorTool';
+import { toolRegistry, ToolType } from '../core/tool/registry';
+import type { Tool } from '../core/tool/tool';
 import { logger } from '../utils/logger';
 
 /**
@@ -24,49 +27,91 @@ import { logger } from '../utils/logger';
  */
 export class BuiltInToolsRegistry extends BaseToolExecutor {
   private tools: Map<string, BuiltInTool> = new Map();
+  private initializationPromise: Promise<void> | null = null;
 
   constructor() {
     super();
-    this.initializeBuiltinTools();
+    // 启动异步初始化
+    this.initializationPromise = this.initializeBuiltinTools().catch(error => {
+      logger.error('Failed to initialize built-in tools:', error);
+    });
+  }
+
+  /**
+   * 等待初始化完成
+   */
+  async waitForInitialization(): Promise<void> {
+    if (this.initializationPromise) {
+      await this.initializationPromise;
+    }
   }
 
   /**
    * 初始化内置工具
    */
-  private initializeBuiltinTools(): void {
+  private async initializeBuiltinTools(): Promise<void> {
     logger.debug('Initializing built-in tools registry...');
 
     // 注册文件系统工具
-    this.registerTool(createFileReadTool());
-    this.registerTool(createFileWriteTool());
+    await this.registerTool(createFileReadTool());
+    await this.registerTool(createFileWriteTool());
 
     // 注册搜索工具
-    this.registerTool(createVectorSearchTool());
+    await this.registerTool(createVectorSearchTool());
 
     // 注册 Skill 工具
-    this.registerTool(createReadSkillTool());
+    await this.registerTool(createReadSkillTool());
 
     // 注册系统工具
-    this.registerTool(createPlatformDetectorTool());
+    await this.registerTool(createPlatformDetectorTool());
 
     // TODO: 注册其他内置工具
-    // this.registerTool(createDateTimeTool());
-    // this.registerTool(createCalculationTool());
+    // await this.registerTool(createDateTimeTool());
+    // await this.registerTool(createCalculationTool());
 
     logger.debug(`Registered ${this.tools.size} built-in tools`);
   }
 
   /**
+   * 将 BuiltInTool 转换为 Tool.Info 格式
+   * @param tool BuiltInTool 定义
+   * @returns Tool.Info 格式
+   */
+  private convertToToolInfo(tool: BuiltInTool): Tool.Info {
+    return {
+      id: tool.name,
+      init: async () => ({
+        description: tool.description,
+        parameters: tool.parameters,
+        execute: async (args, ctx) => {
+          const result = await tool.execute(args);
+          return {
+            title: '',
+            metadata: {},
+            output: result.output || '',
+          };
+        },
+      }),
+    };
+  }
+
+  /**
    * 注册工具
+   * 同时注册到 BuiltInToolsRegistry 和 ToolRegistry
    * @param tool 工具定义
    */
-  registerTool(tool: BuiltInTool): void {
+  async registerTool(tool: BuiltInTool): Promise<void> {
     if (!tool.name || !tool.execute) {
       throw new Error('Tool must have name and execute function');
     }
 
     this.tools.set(tool.name, tool);
     logger.debug(`Registered built-in tool: ${tool.name}`);
+
+    // 同时注册到 ToolRegistry
+    const toolInfo = this.convertToToolInfo(tool);
+    await toolRegistry.register(toolInfo, ToolType.BUILTIN);
+    logger.debug(`Registered built-in tool to ToolRegistry: ${tool.name}`);
   }
 
   /**

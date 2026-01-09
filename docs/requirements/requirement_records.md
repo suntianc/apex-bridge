@@ -18,6 +18,90 @@
 | FD-005 | ChatService 重构功能设计 | 高 | 评审通过 | [02-remaining-modules-refactoring-func/ChatService-refactoring.md](../functionality-design/02-remaining-modules-refactoring-func/ChatService-refactoring.md)|
 | FD-006 | R-003 Vector-Search 工具类型返回功能设计 | 高 | ✅ 已完成 | [03-Vector-Search-tool-type-func/03-Vector-Search-tool-type.md](../functionality-design/03-Vector-Search-tool-type-func/03-Vector-Search-tool-type.md)|
 | R-004 | ACE 功能剔除需求 | 高 | 评审通过 | [04-ACE功能剔除.md](04-ACE功能剔除.md) | [04-ACE功能剔除.md](../functionality-design/04-ACE功能剔除-func/04-ACE功能剔除.md) |
+| R-005 | OpenCode 架构特性集成需求 | 高 | 评审通过 | [05-opencode-integration.md](05-opencode-integration.md) | [05-opencode-integration-meeting.md](../meeting-minutes/05-opencode-integration-meeting.md) |
+| FD-007 | R-005 P0-1: 多轮思考机制功能设计 | 高 | 评审通过 | [05-OpenCode-P0-1-multi-round-thinking.md](../functionality-design/05-OpenCode-integration-func/05-OpenCode-P0-1-multi-round-thinking.md) |
+| FD-008 | R-005 P0-2: 消息结构 Part 抽象功能设计 | 高 | 评审通过 | [05-OpenCode-P0-2-message-part.md](../functionality-design/05-OpenCode-integration-func/05-OpenCode-P0-2-message-part.md) |
+| FD-009 | R-005 P1-1: 工具调用框架功能设计 | 高 | 评审通过 | [05-OpenCode-P1-1-tool-framework.md](../functionality-design/05-OpenCode-integration-func/05-OpenCode-P1-1-tool-framework.md) |
+| FD-010 | R-005 P1-2: Skill 工具集成功能设计 | 高 | 评审通过 | [05-OpenCode-P1-2-skill-integration.md](../functionality-design/05-OpenCode-integration-func/05-OpenCode-P1-2-skill-integration.md) |
+| FD-011 | R-005 P1-3: MCP 工具增强功能设计 | 高 | 评审通过 | [05-OpenCode-P1-3-mcp-enhancement.md](../functionality-design/05-OpenCode-integration-func/05-OpenCode-P1-3-mcp-enhancement.md) |
+| FD-012 | R-005 P2: 上下文压缩功能设计 | 中 | 评审通过 | [05-OpenCode-P2-context-compaction.md](../functionality-design/05-OpenCode-integration-func/05-OpenCode-P2-context-compaction.md) |
+
+## R-005: OpenCode 架构特性集成需求
+
+### 需求概述
+
+在完成 ACE 功能剔除（R-004）后，apex-bridge 系统架构已简化，但相比 opencode 项目仍缺少一些重要的架构特性。本需求旨在集成 opencode 的成熟实现，增强 apex-bridge 的多轮思考、消息结构、工具调用能力。
+
+### 核心目标
+
+1. **增强多轮思考机制**: 引入完整的思考追踪、步骤边界、Doom Loop 检测
+2. **优化消息结构**: 完整迁移到 Part 抽象，支持更丰富的消息语义
+3. **规范化工具调用**: 引入 Tool.define() 工厂模式，统一工具定义和执行
+4. **Skill/MCP 增强**: 集成 skill 调用和 MCP 工具转换
+5. **支持上下文压缩**: 实现 token 溢出时的上下文自动压缩（双重检查）
+
+### 分阶段实施计划
+
+| 优先级 | 模块 | 目标 |
+|--------|------|------|
+| **P0** | 多轮思考机制 | 引入完整的思考追踪、步骤边界、Doom Loop 检测 |
+| **P0** | 消息结构优化 | 完整迁移到 Part 抽象，支持更丰富的消息语义 |
+| **P1** | 工具调用框架 | 引入 Tool.define() 工厂模式，统一工具定义和执行 |
+| **P1** | Skill 工具集成 | 支持 skill 扫描、SKILL.md 解析、SkillTool 执行 |
+| **P1** | MCP 工具增强 | convertMcpTool() 转换、资源读取支持 |
+| **P2** | 上下文压缩 | 实现 token 溢出时的上下文自动压缩 |
+
+### 关键决策
+
+1. **消息 Part 迁移策略**: 完整迁移到 Part 结构（API 可能变更）
+2. **Doom Loop 检测**: 按照 opencode 机制实现（DOOM_LOOP_THRESHOLD = 3）
+3. **上下文压缩触发时机**: 双重检查（LLM 调用前 + 工具执行后）
+4. **权限系统**: 暂不实现，移至后续迭代
+5. **FR-20 User 消息扩展**: 全部字段实现，summary 按需生成（仅上下文压缩触发时）
+6. **FR-21 Assistant 消息扩展**: 全部字段实现，cost/tokens 按 OpenCode 格式
+
+### 架构差距分析（基于深度代码分析）
+
+| 模块 | 现有实现 | 改造/新增点 |
+|------|---------|------------|
+| 多轮思考 | 仅有 basic ReAct 循环 | **需新增**：reasoning-start/delta/end 事件流、时间戳、步骤边界、Doom Loop |
+| 消息结构 | 简单 Message/ContentPart | **需新增**：PartBase 基类、ToolState 状态机、ReasoningPart 等 |
+| 工具框架 | BuiltInTool + BuiltInToolsRegistry | **需改造**：为 Tool.define() 模式，保留现有逻辑 |
+| Skill | SkillManager 已存在，SKILL.md 解析已实现 | **需改造**：适配 Tool.define() 模式，新增 Direct 模式 |
+| MCP | MCPIntegrationService 已存在，resource 类型已支持 | **需增强**：convertMcpTool()、工具命名规范、resource URI 解析 |
+
+### 需要修改的文件
+
+**P0 优先级（必须修改现有文件）**:
+- `src/types/index.ts` - 扩展 Message/ContentPart，添加 Part 基类
+- `src/core/stream-orchestrator/ReActEngine.ts` - 增加事件类型、Doom Loop 检测
+- `src/strategies/ReActStrategy.ts` - 适配新事件流
+- `src/core/tool-action/ToolDispatcher.ts` - 适配 Tool.define() 模式
+- `src/core/tool-action/tool-system.ts` - 改造 BuiltInTool 为 Tool.Info 兼容模式
+- `src/services/BuiltInToolsRegistry.ts` - 改造为 ToolRegistry
+- `src/services/SkillManager.ts` - 适配 Tool.define() 模式，增加 Direct 模式
+- `src/services/MCPIntegrationService.ts` - 适配 Tool.define() 模式
+
+**P1 优先级（新建文件）**:
+- `src/types/message-v2.ts` - Part 抽象和类型定义
+- `src/types/tool-state.ts` - ToolState 状态机
+- `src/core/tool/tool.ts` - Tool.define() 工厂（基于现有 BuiltInTool）
+- `src/core/tool/registry.ts` - ToolRegistry（替换 BuiltInToolsRegistry）
+- `src/services/mcp/convert.ts` - MCP 工具转换器（convertMcpTool）
+
+### 验收标准
+
+- [ ] TypeScript 编译无错误
+- [ ] 单元测试覆盖率 80%+
+- [ ] 现有功能 100% 正常
+- [ ] 每个阶段完成后进行完整验证
+
+### 文档位置
+
+`docs/requirements/05-opencode-integration.md`
+`docs/meeting-minutes/05-opencode-integration-meeting.md`
+
+---
 
 ## R-004: ACE 功能剔除需求
 
@@ -584,3 +668,9 @@ ConfigService 重构完成后，推广经验至：
 | 1.11.0 | 2025-12-30 | R-003 评审通过，完善实现方案 |
 | 1.12.0 | 2025-12-30 | 添加 FD-006 功能设计文档 |
 | 1.13.0 | 2025-12-30 | R-003 实现完成，FD-006 状态更新为"已完成" |
+| 1.14.0 | 2026-01-08 | 添加 R-005: OpenCode 架构特性集成需求 |
+| 1.15.0 | 2026-01-09 | R-005 评审通过，确认分阶段实施计划 |
+| 1.16.0 | 2026-01-09 | R-005 架构深度对比分析完成，更新需求文档 |
+| 1.17.0 | 2026-01-09 | R-005 复查：修正 Skill/MCP 已有实现描述，改为改造模式 |
+| 1.18.0 | 2026-01-09 | R-005 FR-20/FR-21 消息角色扩展讨论完成，明确字段定义和按需生成策略 |
+| 1.19.0 | 2026-01-09 | R-005 功能设计文档完成（FD-007 ~ FD-012）：多轮思考、消息 Part、工具框架、Skill/MCP 增强、上下文压缩 |

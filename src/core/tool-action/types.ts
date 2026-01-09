@@ -116,6 +116,7 @@ export interface ToolExecutionResult {
       token_count?: number;
       execution_time_ms?: number;
       rate_limit_remaining?: number;
+      mode?: string;
     };
   };
 

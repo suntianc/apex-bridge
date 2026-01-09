@@ -7,6 +7,8 @@
  * - 异步生成器
  * - 零阻塞SSE推送
  * - tool_action 标签解析
+ * - Doom Loop 检测
+ * - 步骤边界事件
  */
 
 import { ToolExecutor } from './ToolExecutor';
@@ -20,10 +22,61 @@ import type {
   ToolCall,
   StreamEvent,
   ReActOptions,
-  ReActRuntimeContext
+  ReActRuntimeContext,
+  DoomLoopDetector
 } from './types';
 import { logger } from '../../utils/logger';
-import { log } from 'console';
+
+// ── Doom Loop 检测器实现 ─────────────────────────────────────────────────
+const DOOM_LOOP_THRESHOLD = 3;
+
+/**
+ * Doom Loop 检测器实现
+ * 检测重复的工具调用模式，防止无限循环
+ */
+export class DoomLoopDetectorImpl implements DoomLoopDetector {
+  toolCallHistory: { name: string; args: unknown }[];
+  doomLoopThreshold: number;
+
+  constructor(threshold: number = DOOM_LOOP_THRESHOLD) {
+    this.toolCallHistory = [];
+    this.doomLoopThreshold = threshold;
+  }
+
+  check(name: string, args: unknown): boolean {
+    // 添加到历史记录
+    this.toolCallHistory.push({ name, args });
+
+    // 只保留最近 N 次调用
+    const maxHistory = this.doomLoopThreshold * 2;
+    if (this.toolCallHistory.length > maxHistory) {
+      this.toolCallHistory = this.toolCallHistory.slice(-maxHistory);
+    }
+
+    // 检查最近 N 次调用是否完全相同
+    if (this.toolCallHistory.length < this.doomLoopThreshold) {
+      return false;
+    }
+
+    const recentCalls = this.toolCallHistory.slice(-this.doomLoopThreshold);
+    const lastCall = recentCalls[recentCalls.length - 1];
+
+    // 检查所有最近调用是否与最后一次相同
+    const isDoomLoop = recentCalls.every(
+      call => call.name === lastCall.name && JSON.stringify(call.args) === JSON.stringify(lastCall.args)
+    );
+
+    if (isDoomLoop) {
+      logger.warn(`[ReActEngine] Doom Loop detected: ${name} called ${this.doomLoopThreshold} times with same args`);
+    }
+
+    return isDoomLoop;
+  }
+
+  reset(): void {
+    this.toolCallHistory = [];
+  }
+}
 
 export class ReActEngine {
   private toolExecutor: ToolExecutor;
@@ -74,7 +127,18 @@ export class ReActEngine {
     // 使用外部传入的 signal，如果没有则创建新的
     const signal = options.signal || new AbortController().signal;
 
+    // 初始化 Doom Loop 检测器
+    const doomLoopDetector = new DoomLoopDetectorImpl(DOOM_LOOP_THRESHOLD);
+
     try {
+      // 发送 reasoning-start 事件
+      yield {
+        type: 'reasoning-start',
+        data: { message: '开始推理' },
+        timestamp: Date.now(),
+        iteration: 0
+      };
+
       for (let iteration = 0; iteration < options.maxIterations; iteration++) {
         const chunk = yield* this.runIteration(
           messages,
@@ -85,13 +149,22 @@ export class ReActEngine {
             enableThinking: options.enableThinking,
             toolCalls: new Map(),
             accumulatedContent: '',
-            signal
+            signal,
+            stepNumber: 0,
+            doomLoopDetector
           },
           options,
           signal
         );
 
         if (chunk) {
+          // 发送 reasoning-end 事件
+          yield {
+            type: 'reasoning-end',
+            data: { message: '推理完成' },
+            timestamp: Date.now(),
+            iteration
+          };
           return chunk;
         }
       }
@@ -132,6 +205,7 @@ export class ReActEngine {
     let toolCalls: ToolCall[] = [];
     let inThinking = false;
     let thinkingBuffer = '';
+    let stepStartTime = Date.now();
 
     // 初始化流式标签检测器
     const streamDetector = options.enableToolActionParsing ? new StreamTagDetector() : null;
@@ -145,7 +219,8 @@ export class ReActEngine {
       if (chunk.type === 'reasoning') {
         // 流式输出每一个 reasoning chunk（不仅仅是第一个）
         if (context.enableThinking) {
-          yield { type: 'reasoning', data: chunk.content, timestamp: Date.now(), iteration: context.iteration };
+          // 使用 reasoning-delta 事件替代 reasoning 事件
+          yield { type: 'reasoning-delta', data: chunk.content, timestamp: Date.now(), iteration: context.iteration, stepNumber: context.stepNumber };
         }
         thinkingBuffer += chunk.content;
         inThinking = true;
@@ -173,7 +248,7 @@ export class ReActEngine {
           // 输出非标签文本
           if (detection.textToEmit) {
             assistantMessage.content += detection.textToEmit;
-            yield { type: 'content', data: detection.textToEmit, timestamp: Date.now(), iteration: context.iteration };
+            yield { type: 'content', data: detection.textToEmit, timestamp: Date.now(), iteration: context.iteration, stepNumber: context.stepNumber };
           }
 
           // 检测到完整的工具调用标签
@@ -184,12 +259,12 @@ export class ReActEngine {
             // 输出完整的标签内容到前端，让用户看到 LLM 的工具调用
             const tagContent = detection.toolAction.rawText;
             assistantMessage.content += tagContent;
-            yield { type: 'content', data: tagContent, timestamp: Date.now(), iteration: context.iteration };
+            yield { type: 'content', data: tagContent, timestamp: Date.now(), iteration: context.iteration, stepNumber: context.stepNumber };
           }
         } else {
           // 不启用标签解析或已有原生 tool_calls，直接输出
           assistantMessage.content += chunk.content;
-          yield { type: 'content', data: chunk.content, timestamp: Date.now(), iteration: context.iteration };
+          yield { type: 'content', data: chunk.content, timestamp: Date.now(), iteration: context.iteration, stepNumber: context.stepNumber };
         }
       }
     }
@@ -214,19 +289,44 @@ export class ReActEngine {
         }
 
         assistantMessage.content += remainingText;
-        yield { type: 'content', data: remainingText, timestamp: Date.now(), iteration: context.iteration };
+        yield { type: 'content', data: remainingText, timestamp: Date.now(), iteration: context.iteration, stepNumber: context.stepNumber };
       }
     }
 
     // 优先处理原生 tool_calls
     if (toolCalls.length > 0) {
-      yield { type: 'tool_start', data: { toolCalls }, timestamp: Date.now(), iteration: context.iteration };
+      // 增加步骤计数器并发送 step-start 事件
+      context.stepNumber++;
+      yield {
+        type: 'step-start',
+        data: { stepNumber: context.stepNumber, toolCount: toolCalls.length },
+        timestamp: stepStartTime,
+        iteration: context.iteration,
+        stepNumber: context.stepNumber
+      };
+
+      yield { type: 'tool_start', data: { toolCalls }, timestamp: Date.now(), iteration: context.iteration, stepNumber: context.stepNumber };
 
       const results = await this.toolExecutor.executeAll(toolCalls, context.iteration, (result) => {
         context.accumulatedContent += JSON.stringify(result);
       });
 
-      yield { type: 'tool_end', data: { results: Array.from(results.values()) }, timestamp: Date.now(), iteration: context.iteration };
+      yield { type: 'tool_end', data: { results: Array.from(results.values()) }, timestamp: Date.now(), iteration: context.iteration, stepNumber: context.stepNumber };
+
+      // 发送 step-finish 事件
+      const stepCost = Date.now() - stepStartTime;
+      yield {
+        type: 'step-finish',
+        data: {
+          stepNumber: context.stepNumber,
+          reason: 'tool_completed',
+          cost: stepCost,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }
+        },
+        timestamp: Date.now(),
+        iteration: context.iteration,
+        stepNumber: context.stepNumber
+      };
 
       const toolMessages = Array.from(results.entries()).map(([call, result]) => ({
         role: 'tool',
@@ -242,16 +342,38 @@ export class ReActEngine {
 
     // 处理标签式工具调用
     if (detectedToolActions.length > 0) {
+      // 增加步骤计数器并发送 step-start 事件
+      context.stepNumber++;
+      yield {
+        type: 'step-start',
+        data: { stepNumber: context.stepNumber, toolCount: detectedToolActions.length },
+        timestamp: stepStartTime,
+        iteration: context.iteration,
+        stepNumber: context.stepNumber
+      };
+
       yield {
         type: 'tool_start',
         data: { toolActions: detectedToolActions },
         timestamp: Date.now(),
-        iteration: context.iteration
+        iteration: context.iteration,
+        stepNumber: context.stepNumber
       };
 
       const toolResults: any[] = [];
 
       for (const toolAction of detectedToolActions) {
+        // Doom Loop 检测
+        if (context.doomLoopDetector.check(toolAction.name, toolAction.parameters)) {
+          logger.warn(`[ReActEngine] 🚫 Preventing doom loop: ${toolAction.name}`);
+          toolResults.push({
+            success: false,
+            error: 'Doom loop detected: repeated tool call with same arguments',
+            result: null
+          });
+          continue;
+        }
+
         const result = await this.toolDispatcher.dispatch(toolAction);
         toolResults.push(result);
       }
@@ -260,7 +382,23 @@ export class ReActEngine {
         type: 'tool_end',
         data: { results: toolResults },
         timestamp: Date.now(),
-        iteration: context.iteration
+        iteration: context.iteration,
+        stepNumber: context.stepNumber
+      };
+
+      // 发送 step-finish 事件
+      const stepCost = Date.now() - stepStartTime;
+      yield {
+        type: 'step-finish',
+        data: {
+          stepNumber: context.stepNumber,
+          reason: 'tool_completed',
+          cost: stepCost,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }
+        },
+        timestamp: Date.now(),
+        iteration: context.iteration,
+        stepNumber: context.stepNumber
       };
 
       // 对于标签式工具调用，使用 user 消息格式传递工具结果

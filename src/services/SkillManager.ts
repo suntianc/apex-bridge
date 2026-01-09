@@ -1,6 +1,7 @@
 /**
  * SkillManager - Skills生命周期管理器
  * 负责Skills的安装、卸载、修改和查询，支持ZIP包自动解压和结构验证
+ * 集成 ToolRegistry 进行统一工具管理
  */
 
 import * as fs from 'fs/promises';
@@ -21,6 +22,9 @@ import {
   ToolType
 } from '../types/tool-system';
 import { ToolRetrievalService } from './ToolRetrievalService';
+import { SkillsSandboxExecutor, getSkillsSandboxExecutor } from './executors/SkillsSandboxExecutor';
+import { toolRegistry, ToolType as RegistryToolType } from '../core/tool/registry';
+import type { Tool } from '../core/tool/tool';
 import { logger } from '../utils/logger';
 
 /**
@@ -66,6 +70,7 @@ export class SkillManager {
   private static instance: SkillManager | null = null;
   private readonly skillsBasePath: string;
   private readonly retrievalService: ToolRetrievalService;
+  private readonly skillsExecutor: SkillsSandboxExecutor;
   private initializationPromise: Promise<void> | null = null;
 
   /**
@@ -85,6 +90,8 @@ export class SkillManager {
       similarityThreshold: 0.4,
       cacheSize: 1000
     });
+    // 初始化 Skills 执行器
+    this.skillsExecutor = getSkillsSandboxExecutor();
 
     logger.debug('SkillManager initialized', {
       skillsBasePath
@@ -741,12 +748,96 @@ export class SkillManager {
       // 扫描并索引所有Skills
       await this.retrievalService.scanAndIndexAllSkills(this.skillsBasePath);
 
+      // 注册所有 Skills 到 ToolRegistry
+      const { skills } = await this.listSkills({ limit: 1000 });
+      for (const skill of skills) {
+        await this.registerSkillTool(skill);
+      }
+      logger.info(`[SkillManager] Registered ${skills.length} skills to ToolRegistry`);
+
       logger.debug('Skills index initialization completed');
     } catch (error) {
       logger.error('❌ Failed to initialize skills index:', error);
       // 抛出错误，让waitForInitialization捕获
       throw error;
     }
+  }
+
+  /**
+   * 将 SkillTool 转换为 Tool.Info 格式
+   * @param skill SkillTool 定义
+   * @returns Tool.Info 格式
+   */
+  private convertToToolInfo(skill: SkillTool): Tool.Info {
+    const executor = this.skillsExecutor;
+    return {
+      id: skill.name,
+      init: async () => ({
+        description: skill.description,
+        parameters: skill.parameters,
+        execute: async (args, ctx) => {
+          // 调用实际的 Skill 执行器
+          const result = await executor.execute({
+            name: skill.name,
+            args
+          });
+          return {
+            title: skill.name,
+            metadata: {
+              success: result.success,
+              duration: result.duration,
+              exitCode: result.exitCode
+            },
+            output: result.success ? result.output : result.error,
+          };
+        },
+      }),
+    };
+  }
+
+  /**
+   * 注册 Skill 工具到 ToolRegistry
+   * @param skill SkillTool 定义
+   */
+  async registerSkillTool(skill: SkillTool): Promise<void> {
+    const toolInfo = this.convertToToolInfo(skill);
+    await toolRegistry.register(toolInfo, RegistryToolType.SKILL);
+    logger.debug(`Registered skill to ToolRegistry: ${skill.name}`);
+  }
+
+  /**
+   * Skill Direct 模式 - 直接返回 SKILL.md 内容，无需沙箱执行
+   * 用于 FR-37~FR-40 场景
+   * @param skillName Skill 名称
+   * @param args 工具参数
+   * @returns SKILL.md 内容
+   */
+  async executeDirect(skillName: string, args: Record<string, unknown>): Promise<string> {
+    const skillPath = path.join(this.skillsBasePath, skillName);
+    const skillMdPath = path.join(skillPath, 'SKILL.md');
+
+    // 检查 Skill 是否存在
+    if (!(await this.directoryExists(skillPath))) {
+      throw new ToolError(
+        `Skill '${skillName}' not found`,
+        ToolErrorCode.SKILL_NOT_FOUND
+      );
+    }
+
+    // 读取 SKILL.md
+    if (!(await this.fileExists(skillMdPath))) {
+      throw new ToolError(
+        `SKILL.md not found in Skill '${skillName}'`,
+        ToolErrorCode.SKILL_INVALID_STRUCTURE
+      );
+    }
+
+    const content = await fs.readFile(skillMdPath, 'utf8');
+    const parsed = matter(content);
+
+    // 返回 SKILL.md 的内容部分（不含 frontmatter）
+    logger.debug(`[SkillManager] Direct execution for skill: ${skillName}`);
+    return parsed.content;
   }
 
   /**

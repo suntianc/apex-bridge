@@ -2,7 +2,7 @@
  * ToolDispatcher - 工具调度器
  *
  * 统一路由 tool_action 调用到内置工具或 Skills
- * 复用现有 ToolExecutorManager 基础设施
+ * 复用现有 ToolExecutorManager 基础设施，优先从 ToolRegistry 获取工具
  */
 
 import {
@@ -19,17 +19,23 @@ import type {
 } from '../../types/tool-system';
 import { BuiltInToolsRegistry, getBuiltInToolsRegistry } from '../../services/BuiltInToolsRegistry';
 import { SkillsSandboxExecutor } from '../../services/executors/SkillsSandboxExecutor';
+import { getSkillManager } from '../../services/SkillManager';
 import { mcpIntegration } from '../../services/MCPIntegrationService';
+import { toolRegistry } from '../tool/registry';
+import type { Tool } from '../tool/tool';
 import { logger } from '../../utils/logger';
 import { ErrorClassifier } from '../../utils/error-classifier';
 import { ErrorType } from '../../types/trajectory';
 
 /**
- * 默认配置
+ * 默认配置常量
  */
+const DEFAULT_TIMEOUT = 30000;
+const DEFAULT_MAX_CONCURRENCY = 3;
+
 const DEFAULT_CONFIG: Required<DispatcherConfig> = {
-  timeout: 30000,
-  maxConcurrency: 3
+  timeout: DEFAULT_TIMEOUT,
+  maxConcurrency: DEFAULT_MAX_CONCURRENCY
 };
 
 /**
@@ -52,6 +58,7 @@ export class ToolDispatcher {
 
   /**
    * 调度执行工具调用
+   * 优先从 ToolRegistry 获取工具，回退到原有逻辑
    * @param toolCall 工具调用
    * @returns 执行结果
    */
@@ -63,7 +70,14 @@ export class ToolDispatcher {
     logger.debug(`[ToolDispatcher] Parameters:`, parameters);
 
     try {
-      // 根据工具类型路由到不同的执行器
+      // 优先从 ToolRegistry 获取工具
+      const toolInfo = await toolRegistry.get(name);
+      if (toolInfo) {
+        logger.debug(`[ToolDispatcher] Found tool in ToolRegistry: ${name}`);
+        return await this.executeToolInfo(toolInfo, parameters, startTime);
+      }
+
+      // 回退到原有逻辑：根据工具类型路由到不同的执行器
       switch (type) {
         case ToolType.BUILTIN:
           logger.debug(`[ToolDispatcher] Executing as built-in tool: ${name}`);
@@ -98,6 +112,102 @@ export class ToolDispatcher {
         toolName: name,
         error: errorMessage,
         executionTime
+      };
+    }
+  }
+
+  /**
+   * 使用 Tool.Info 执行工具调用
+   * @param tool 工具信息
+   * @param parameters 工具参数
+   * @param startTime 开始时间
+   * @returns 执行结果
+   */
+  private async executeToolInfo(
+    tool: Tool.Info,
+    parameters: Record<string, string>,
+    startTime: number
+  ): Promise<ToolExecutionResult> {
+    logger.debug(`[ToolDispatcher] Executing tool from ToolRegistry: ${tool.id}`);
+
+    try {
+      // 创建超时 Promise
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error(`Tool execution timeout after ${this.config.timeout}ms`));
+        }, this.config.timeout);
+      });
+
+      // 初始化工具获取执行函数
+      const toolInit = await tool.init();
+      const abortController = new AbortController();
+
+      // 创建执行上下文
+      const ctx: Tool.Context = {
+        sessionID: '',
+        messageID: '',
+        agent: 'dispatcher',
+        abort: abortController.signal,
+        metadata: () => {},
+      };
+
+      // 执行工具
+      const result = await Promise.race([
+        toolInit.execute(parameters, ctx),
+        timeoutPromise
+      ]);
+
+      const executionTime = Date.now() - startTime;
+      const outputContent = String(result.output || '');
+
+      logger.info(`[ToolDispatcher] Tool ${tool.id} executed successfully in ${executionTime}ms`);
+
+      return {
+        success: true,
+        toolName: tool.id,
+        result: result.output,
+        executionTime,
+        tool_details: {
+          tool_name: tool.id,
+          input_params: parameters,
+          output_content: outputContent,
+          output_metadata: {
+            token_count: ErrorClassifier.estimateTokens(outputContent),
+            execution_time_ms: executionTime,
+            ...result.metadata
+          }
+        }
+      };
+
+    } catch (error) {
+      const executionTime = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      const errorType = ErrorClassifier.classifyError(error);
+      const errorDetails = {
+        error_type: errorType,
+        error_message: errorMessage,
+        error_stack: error instanceof Error ? error.stack : undefined,
+        context: {
+          tool_name: tool.id,
+          input_params: parameters,
+          timestamp: Date.now(),
+          execution_time_ms: executionTime
+        }
+      };
+
+      logger.error(`[ToolDispatcher] Tool execution failed: ${tool.id}`, {
+        error_type: errorType,
+        error_message: errorMessage,
+        stack: error instanceof Error ? error.stack : undefined
+      });
+
+      return {
+        success: false,
+        toolName: tool.id,
+        error: errorMessage,
+        executionTime,
+        error_details: errorDetails
       };
     }
   }
@@ -466,6 +576,73 @@ export class ToolDispatcher {
     }
 
     return result;
+  }
+
+  /**
+   * 执行 Skill Direct 模式 - 直接返回 SKILL.md 内容，无需沙箱执行
+   * 用于 FR-37~FR-40 场景
+   * @param toolName 工具名称（包含 skill: 前缀或直接是 Skill 名称）
+   * @param parameters 工具参数
+   * @returns 执行结果
+   */
+  async executeDirect(toolName: string, parameters: Record<string, string>): Promise<ToolExecutionResult> {
+    const startTime = Date.now();
+
+    // 提取 Skill 名称（支持带 skill: 前缀）
+    let skillName = toolName;
+    if (toolName.startsWith('skill:')) {
+      skillName = toolName.substring(6);
+    }
+
+    logger.info(`[ToolDispatcher] Executing Skill Direct: ${skillName}`);
+
+    try {
+      const skillManager = getSkillManager();
+      const result = await skillManager.executeDirect(skillName, parameters);
+
+      return {
+        success: true,
+        toolName: toolName,
+        result: result,
+        executionTime: Date.now() - startTime,
+        tool_details: {
+          tool_name: toolName,
+          input_params: parameters,
+          output_content: result,
+          output_metadata: {
+            token_count: ErrorClassifier.estimateTokens(result),
+            execution_time_ms: Date.now() - startTime,
+            mode: 'direct'
+          }
+        }
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorType = ErrorClassifier.classifyError(error);
+      const errorDetails = {
+        error_type: errorType,
+        error_message: errorMessage,
+        context: {
+          tool_name: toolName,
+          input_params: parameters,
+          timestamp: Date.now(),
+          execution_time_ms: Date.now() - startTime
+        }
+      };
+
+      logger.error(`[ToolDispatcher] Skill Direct execution failed: ${skillName}`, {
+        error_type: errorType,
+        error_message: errorMessage
+      });
+
+      return {
+        success: false,
+        toolName: toolName,
+        error: errorMessage,
+        executionTime: Date.now() - startTime,
+        error_details: errorDetails
+      };
+    }
   }
 
   /**
