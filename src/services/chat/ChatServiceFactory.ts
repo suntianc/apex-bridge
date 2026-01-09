@@ -18,6 +18,7 @@ import { StrategySelector } from "./StrategySelector";
 import { SingleRoundStrategy } from "../../strategies/SingleRoundStrategy";
 import { ReActStrategy } from "../../strategies/ReActStrategy";
 import { IWebSocketManager } from "../../api/websocket/WebSocketManager";
+import { TIMEOUT } from "../../constants";
 
 export interface ChatServiceFactoryOptions {
   configPath?: string;
@@ -31,8 +32,8 @@ export class ChatServiceFactory {
   constructor(options: ChatServiceFactoryOptions = {}) {
     this.options = {
       configPath: "./config",
-      requestTimeout: 300000, // 5分钟
-      variableCacheTtl: 30000, // 30秒
+      requestTimeout: TIMEOUT.SKILL_CACHE_TTL, // 5分钟
+      variableCacheTtl: TIMEOUT.TOOL_EXECUTION, // 30秒
       ...options,
     };
   }

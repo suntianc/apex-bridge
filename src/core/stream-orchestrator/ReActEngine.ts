@@ -26,9 +26,7 @@ import type {
   DoomLoopDetector,
 } from "./types";
 import { logger } from "../../utils/logger";
-
-// ── Doom Loop 检测器实现 ─────────────────────────────────────────────────
-const DOOM_LOOP_THRESHOLD = 3;
+import { TIMEOUT, LIMITS, DOOM_LOOP } from "../../constants";
 
 /**
  * Doom Loop 检测器实现
@@ -38,7 +36,7 @@ export class DoomLoopDetectorImpl implements DoomLoopDetector {
   toolCallHistory: { name: string; args: unknown }[];
   doomLoopThreshold: number;
 
-  constructor(threshold: number = DOOM_LOOP_THRESHOLD) {
+  constructor(threshold: number = DOOM_LOOP.THRESHOLD) {
     this.toolCallHistory = [];
     this.doomLoopThreshold = threshold;
   }
@@ -89,22 +87,22 @@ export class ReActEngine {
 
   constructor(options: Partial<ReActOptions> = {}) {
     this.toolExecutor = new ToolExecutor({
-      maxConcurrency: options.maxConcurrentTools ?? 3,
+      maxConcurrency: options.maxConcurrentTools ?? LIMITS.MAX_CONCURRENT_TOOLS,
     });
 
     this.toolDispatcher = new ToolDispatcher({
-      timeout: options.toolActionTimeout ?? 30000,
-      maxConcurrency: options.maxConcurrentTools ?? 3,
+      timeout: options.toolActionTimeout ?? TIMEOUT.TOOL_EXECUTION,
+      maxConcurrency: options.maxConcurrentTools ?? LIMITS.MAX_CONCURRENT_TOOLS,
     });
 
     this.defaultOptions = {
-      maxIterations: options.maxIterations ?? 50,
+      maxIterations: options.maxIterations ?? LIMITS.MAX_ITERATIONS,
       timeoutMs: options.timeoutMs ?? 300_000,
       enableThinking: options.enableThinking ?? true,
-      maxConcurrentTools: options.maxConcurrentTools ?? 3,
+      maxConcurrentTools: options.maxConcurrentTools ?? LIMITS.MAX_CONCURRENT_TOOLS,
       enableStreamingTools: options.enableStreamingTools ?? false,
       enableToolActionParsing: options.enableToolActionParsing ?? true,
-      toolActionTimeout: options.toolActionTimeout ?? 30000,
+      toolActionTimeout: options.toolActionTimeout ?? TIMEOUT.TOOL_EXECUTION,
       provider: options.provider ?? undefined,
       model: options.model ?? undefined,
       temperature: options.temperature ?? 0.7,
@@ -151,7 +149,7 @@ export class ReActEngine {
     const signal = options.signal || new AbortController().signal;
 
     // 初始化 Doom Loop 检测器
-    const doomLoopDetector = new DoomLoopDetectorImpl(DOOM_LOOP_THRESHOLD);
+    const doomLoopDetector = new DoomLoopDetectorImpl(DOOM_LOOP.THRESHOLD);
 
     try {
       // 发送 reasoning-start 事件

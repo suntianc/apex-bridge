@@ -3,7 +3,8 @@
  * 提供指数退避重试机制
  */
 
-import { logger } from './logger';
+import { logger } from "./logger";
+import { TIMEOUT, DOOM_LOOP } from "../constants";
 
 /**
  * 重试配置
@@ -21,7 +22,7 @@ export interface RetryConfig {
   jitter?: boolean;
   /** 是否对4xx错误重试（默认：false） */
   retryOn4xx?: boolean;
-  /** 
+  /**
    * 自定义错误判断函数
    * 注意：如果提供此函数，将完全接管重试判断逻辑，内置的 5xx/网络错误判断将失效
    * 如果希望基于内置逻辑扩展，请使用 defaultShouldRetry 并在函数内部自行组合
@@ -32,28 +33,33 @@ export interface RetryConfig {
 /**
  * 默认重试配置
  */
-const DEFAULT_CONFIG: Required<Omit<RetryConfig, 'shouldRetry'>> = {
-  maxRetries: 3,
+const DEFAULT_CONFIG: Required<Omit<RetryConfig, "shouldRetry">> = {
+  maxRetries: DOOM_LOOP.THRESHOLD,
   initialDelay: 1000,
-  maxDelay: 30000,
+  maxDelay: TIMEOUT.TOOL_EXECUTION,
   backoffMultiplier: 2,
   jitter: true,
-  retryOn4xx: false
+  retryOn4xx: false,
 };
 
 /**
  * 默认的重试判断逻辑
  * 可以被导出供用户组合使用
- * 
+ *
  * @param error - 错误对象
  * @param retryOn4xx - 是否对4xx错误重试
  * @returns 是否应该重试
  */
 export function defaultShouldRetry(error: any, retryOn4xx: boolean = false): boolean {
   // 1. 网络错误或超时，应该重试
-  if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT' || 
-      error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED' ||
-      error.message?.includes('timeout') || error.message?.includes('network')) {
+  if (
+    error.code === "ECONNABORTED" ||
+    error.code === "ETIMEDOUT" ||
+    error.code === "ENOTFOUND" ||
+    error.code === "ECONNREFUSED" ||
+    error.message?.includes("timeout") ||
+    error.message?.includes("network")
+  ) {
     return true;
   }
 
@@ -78,14 +84,17 @@ export function defaultShouldRetry(error: any, retryOn4xx: boolean = false): boo
 
 /**
  * 计算退避延迟（指数退避 + Jitter）
- * 
+ *
  * @param attempt - 当前尝试次数（从1开始）
  * @param config - 重试配置
  * @returns 延迟时间（毫秒）
  */
-function calculateBackoffDelay(attempt: number, config: Required<Omit<RetryConfig, 'shouldRetry'>>): number {
+function calculateBackoffDelay(
+  attempt: number,
+  config: Required<Omit<RetryConfig, "shouldRetry">>
+): number {
   let delay = config.initialDelay * Math.pow(config.backoffMultiplier, attempt - 1);
-  
+
   // 限制最大延迟
   delay = Math.min(delay, config.maxDelay);
 
@@ -93,7 +102,7 @@ function calculateBackoffDelay(attempt: number, config: Required<Omit<RetryConfi
   // Full Jitter 策略更为复杂，这里采用简单的 Decorrelated Jitter 变体
   // 防止高并发场景下的惊群效应（Thundering Herd）
   if (config.jitter) {
-    const jitterFactor = 1 + (Math.random() * 0.2); // 1.0 - 1.2
+    const jitterFactor = 1 + Math.random() * 0.2; // 1.0 - 1.2
     delay = Math.floor(delay * jitterFactor);
   }
 
@@ -104,22 +113,19 @@ function calculateBackoffDelay(attempt: number, config: Required<Omit<RetryConfi
  * 等待指定时间
  */
 function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
  * 带重试的函数执行器
- * 
+ *
  * @param fn - 要执行的函数（返回Promise）
  * @param config - 重试配置
  * @returns 函数执行结果
  */
-export async function retry<T>(
-  fn: () => Promise<T>,
-  config: RetryConfig = {}
-): Promise<T> {
+export async function retry<T>(fn: () => Promise<T>, config: RetryConfig = {}): Promise<T> {
   const finalConfig = { ...DEFAULT_CONFIG, ...config };
-  
+
   let lastError: any;
   let attempt = 0;
 
@@ -129,19 +135,21 @@ export async function retry<T>(
   while (attempt <= finalConfig.maxRetries) {
     try {
       const result = await fn();
-      
+
       // 如果之前有重试，记录成功
       if (attempt > 0) {
         logger.info(`✅ Retry succeeded after ${attempt} retry(s)`);
       }
-      
+
       return result;
     } catch (error: any) {
       lastError = error;
-      
+
       // 检查是否达到最大重试次数
       if (attempt >= finalConfig.maxRetries) {
-        logger.warn(`❌ Max retries (${finalConfig.maxRetries}) exceeded. Last error: ${error.message}`);
+        logger.warn(
+          `❌ Max retries (${finalConfig.maxRetries}) exceeded. Last error: ${error.message}`
+        );
         throw error;
       }
 
@@ -163,13 +171,13 @@ export async function retry<T>(
       }
 
       attempt++;
-      
+
       // 计算延迟（带 Jitter）
       const delay = calculateBackoffDelay(attempt, finalConfig);
-      
+
       logger.warn(
         `⚠️ Request failed: ${error.message}. ` +
-        `Retrying attempt ${attempt}/${finalConfig.maxRetries} in ${delay}ms...`
+          `Retrying attempt ${attempt}/${finalConfig.maxRetries} in ${delay}ms...`
       );
 
       await sleep(delay);
@@ -191,4 +199,3 @@ export function withRetry<T extends (...args: any[]) => Promise<any>>(
     return retry(() => fn(...args), config);
   }) as T;
 }
-

@@ -2,9 +2,10 @@
  * Ollama适配器
  */
 
-import { BaseOpenAICompatibleAdapter } from './BaseAdapter';
-import { LLMProviderConfig, Message } from '../../../types';
-import { logger } from '../../../utils/logger';
+import { BaseOpenAICompatibleAdapter } from "./BaseAdapter";
+import { LLMProviderConfig, Message } from "../../../types";
+import { logger } from "../../../utils/logger";
+import { TIMEOUT } from "../../../constants";
 
 export class OllamaAdapter extends BaseOpenAICompatibleAdapter {
   constructor(config: LLMProviderConfig) {
@@ -14,14 +15,14 @@ export class OllamaAdapter extends BaseOpenAICompatibleAdapter {
       // 禁用代理，避免localhost请求被转发到代理服务器
       proxy: false,
       // Ollama处理长提示词需要更长时间，设置5分钟超时
-      timeout: config.timeout || 300000
+      timeout: config.timeout || TIMEOUT.SKILL_CACHE_TTL,
     };
 
-    super('Ollama', enhancedConfig);
+    super("Ollama", enhancedConfig);
 
-    logger.debug('Ollama adapter initialized', {
+    logger.debug("Ollama adapter initialized", {
       baseURL: enhancedConfig.baseURL,
-      timeout: enhancedConfig.timeout
+      timeout: enhancedConfig.timeout,
     });
   }
 
@@ -52,50 +53,103 @@ export class OllamaAdapter extends BaseOpenAICompatibleAdapter {
   }
 
   /**
+   * 重写 embed 方法，使用 Ollama 的 /api/embeddings 端点
+   */
+  async embed(texts: string[], model?: string): Promise<number[][]> {
+    try {
+      const requestBody = {
+        model: model || this.config.defaultModel,
+        input: texts,
+      };
+
+      logger.debug(`[${this.providerName}] Embedding request`, {
+        model: requestBody.model,
+        textCount: texts.length,
+      });
+
+      // Ollama 使用 /api/embeddings 端点
+      const response = await this.client.post("/api/embeddings", requestBody);
+
+      // Ollama 格式: { embedding: [...] } 或 { embeddings: [[...]] }
+      if (response.data?.embedding) {
+        return [response.data.embedding];
+      }
+      if (response.data?.embeddings) {
+        return response.data.embeddings;
+      }
+
+      // OpenAI 兼容格式
+      if (response.data?.data) {
+        return response.data.data.map((item: any) => item.embedding);
+      }
+
+      throw new Error("Unexpected embedding response format");
+    } catch (error: any) {
+      logger.error(`❌ ${this.providerName} embed error:`, error.message);
+      if (error.response) {
+        logger.error(`   HTTP状态: ${error.response.status}`);
+        try {
+          if (error.response.data && typeof error.response.data === "object") {
+            logger.error(`   错误详情: ${JSON.stringify(error.response.data, null, 2)}`);
+          }
+        } catch (e) {
+          // 序列化失败
+        }
+      }
+      throw new Error(`${this.providerName} embedding failed: ${error.message}`);
+    }
+  }
+
+  /**
    * 重写streamChat方法以正确处理多模态消息
    */
-  async *streamChat(messages: Message[], options: any, tools?: any[], signal?: AbortSignal): AsyncIterableIterator<string> {
+  async *streamChat(
+    messages: Message[],
+    options: any,
+    tools?: any[],
+    signal?: AbortSignal
+  ): AsyncIterableIterator<string> {
     try {
       const { provider, ...apiOptions } = options;
       const filteredOptions = this.filterOptions(apiOptions);
 
       // 🐾 处理多模态消息（保持OpenAI标准格式）
       // Ollama 0.13.3+ 的 /chat/completions 端点支持 OpenAI 标准的 content 数组格式
-      const processedMessages = messages.map(msg => {
+      const processedMessages = messages.map((msg) => {
         if (Array.isArray(msg.content)) {
           return {
             role: msg.role,
-            content: msg.content.map(part => {
-              if (part.type === 'image_url') {
+            content: msg.content.map((part) => {
+              if (part.type === "image_url") {
                 // 规范化 image_url 格式，确保是 {url: string} 结构
                 let imageUrl: string;
-                if (typeof part.image_url === 'string') {
+                if (typeof part.image_url === "string") {
                   imageUrl = part.image_url;
                 } else if (part.image_url?.url) {
                   imageUrl = part.image_url.url;
                 } else {
-                  imageUrl = '';
+                  imageUrl = "";
                 }
 
                 return {
-                  type: 'image_url',
+                  type: "image_url",
                   image_url: {
-                    url: imageUrl
-                  }
+                    url: imageUrl,
+                  },
                 };
               }
               // text 类型
               return {
-                type: 'text',
-                text: part.text || ''
+                type: "text",
+                text: part.text || "",
               };
-            })
+            }),
           };
         }
         // 普通字符串消息
         return {
           role: msg.role,
-          content: msg.content
+          content: msg.content,
         };
       });
 
@@ -103,7 +157,7 @@ export class OllamaAdapter extends BaseOpenAICompatibleAdapter {
       const requestBody: any = {
         model: filteredOptions.model || options.model || this.config.defaultModel,
         messages: processedMessages,
-        stream: true
+        stream: true,
       };
 
       // ✅ 只添加明确支持的参数
@@ -123,12 +177,17 @@ export class OllamaAdapter extends BaseOpenAICompatibleAdapter {
       // ✅ 传递工具列表
       if (tools && tools.length > 0) {
         requestBody.tools = tools;
-        requestBody.tool_choice = 'auto';
+        requestBody.tool_choice = "auto";
       }
 
       // 打印请求详情（截断base64图片以避免日志过长）
       const debugRequestBody = JSON.parse(JSON.stringify(requestBody));
-      let imageDetails: Array<{index: number, length: number, truncated: boolean, prefix: string}> = [];
+      let imageDetails: Array<{
+        index: number;
+        length: number;
+        truncated: boolean;
+        prefix: string;
+      }> = [];
 
       if (debugRequestBody.messages) {
         debugRequestBody.messages = debugRequestBody.messages.map((msg: any) => {
@@ -136,7 +195,7 @@ export class OllamaAdapter extends BaseOpenAICompatibleAdapter {
             return {
               ...msg,
               content: msg.content.map((part: any, partIndex: number) => {
-                if (part.type === 'image_url' && part.image_url?.url) {
+                if (part.type === "image_url" && part.image_url?.url) {
                   const url = part.image_url.url;
                   const isTruncated = url.length > 100;
 
@@ -144,18 +203,20 @@ export class OllamaAdapter extends BaseOpenAICompatibleAdapter {
                     index: partIndex,
                     length: url.length,
                     truncated: isTruncated,
-                    prefix: url.substring(0, 50)
+                    prefix: url.substring(0, 50),
                   });
 
                   return {
                     ...part,
                     image_url: {
-                      url: isTruncated ? `${url.substring(0, 100)}... (truncated, total ${url.length} chars)` : url
-                    }
+                      url: isTruncated
+                        ? `${url.substring(0, 100)}... (truncated, total ${url.length} chars)`
+                        : url,
+                    },
                   };
                 }
                 return part;
-              })
+              }),
             };
           }
           return msg;
@@ -168,62 +229,68 @@ export class OllamaAdapter extends BaseOpenAICompatibleAdapter {
         hasTools: !!tools,
         toolCount: tools?.length,
         hasImages: imageDetails.length > 0,
-        imageDetails: imageDetails.map(img => ({
+        imageDetails: imageDetails.map((img) => ({
           index: img.index,
           length: img.length,
           truncated: img.truncated,
-          prefix: img.prefix
-        }))
+          prefix: img.prefix,
+        })),
       });
 
-      logger.debug(`[${this.providerName}] Full request body (images truncated):`,
+      logger.debug(
+        `[${this.providerName}] Full request body (images truncated):`,
         JSON.stringify(debugRequestBody, null, 2)
       );
 
       // 🔍 额外验证：检查实际请求体中的图片数据是否完整
       if (imageDetails.length > 0) {
-        console.log('\n==================== 🔍 调试信息 ====================');
+        console.log("\n==================== 🔍 调试信息 ====================");
         console.log(`消息总数: ${requestBody.messages.length}`);
         requestBody.messages.forEach((msg: any, idx: number) => {
           console.log(`\n消息 #${idx}:`);
           console.log(`  role: ${msg.role}`);
-          console.log(`  content类型: ${Array.isArray(msg.content) ? 'Array' : typeof msg.content}`);
+          console.log(
+            `  content类型: ${Array.isArray(msg.content) ? "Array" : typeof msg.content}`
+          );
 
           if (Array.isArray(msg.content)) {
             console.log(`  content数组长度: ${msg.content.length}`);
             msg.content.forEach((part: any, partIdx: number) => {
               console.log(`    Part #${partIdx}: type=${part.type}`);
-              if (part.type === 'text') {
+              if (part.type === "text") {
                 console.log(`      text: ${part.text?.substring(0, 50)}...`);
-              } else if (part.type === 'image_url' && part.image_url?.url) {
+              } else if (part.type === "image_url" && part.image_url?.url) {
                 const actualUrl = part.image_url.url;
                 console.log(`      url长度: ${actualUrl.length}`);
                 console.log(`      url前缀: ${actualUrl.substring(0, 50)}`);
-                console.log(`      hasDataPrefix: ${actualUrl.startsWith('data:image/')}`);
-                console.log(`      hasBase64: ${actualUrl.includes(';base64,')}`);
+                console.log(`      hasDataPrefix: ${actualUrl.startsWith("data:image/")}`);
+                console.log(`      hasBase64: ${actualUrl.includes(";base64,")}`);
               }
             });
-          } else if (typeof msg.content === 'string') {
+          } else if (typeof msg.content === "string") {
             console.log(`  content: ${msg.content.substring(0, 100)}...`);
           }
         });
-        console.log('====================================================\n');
+        console.log("====================================================\n");
       }
 
-      const response = await this.client.post('/chat/completions', requestBody, {
-        responseType: 'stream',
-        signal
+      const response = await this.client.post("/chat/completions", requestBody, {
+        responseType: "stream",
+        signal,
       });
 
       // OpenAI兼容API响应格式：SSE事件流
       for await (const chunk of response.data) {
-        const lines = chunk.toString().split('\n').filter((line: string) => line.trim());
+        const lines = chunk
+          .toString()
+          .split("\n")
+          .filter((line: string) => line.trim());
 
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
+          if (line.startsWith("data: ")) {
             const data = line.substring(6);
 
-            if (data === '[DONE]') {
+            if (data === "[DONE]") {
               return;
             }
 
@@ -244,7 +311,7 @@ export class OllamaAdapter extends BaseOpenAICompatibleAdapter {
                 yield JSON.stringify({
                   reasoning_content: reasoning,
                   content: content,
-                  tool_calls: toolCalls
+                  tool_calls: toolCalls,
                 });
               }
             } catch (e) {
@@ -262,17 +329,20 @@ export class OllamaAdapter extends BaseOpenAICompatibleAdapter {
         if (error.response.data) {
           try {
             // 如果是流，尝试读取所有数据
-            if (typeof error.response.data === 'object' && typeof error.response.data.on === 'function') {
-              let errorData = '';
-              error.response.data.on('data', (chunk: Buffer) => {
+            if (
+              typeof error.response.data === "object" &&
+              typeof error.response.data.on === "function"
+            ) {
+              let errorData = "";
+              error.response.data.on("data", (chunk: Buffer) => {
                 errorData += chunk.toString();
               });
-              error.response.data.on('end', () => {
+              error.response.data.on("end", () => {
                 logger.error(`   错误详情 (stream): ${errorData}`);
               });
-            } else if (typeof error.response.data === 'string') {
+            } else if (typeof error.response.data === "string") {
               logger.error(`   错误详情: ${error.response.data}`);
-            } else if (typeof error.response.data === 'object') {
+            } else if (typeof error.response.data === "object") {
               logger.error(`   错误详情: ${JSON.stringify(error.response.data, null, 2)}`);
             } else {
               logger.error(`   错误详情类型: ${typeof error.response.data}`);

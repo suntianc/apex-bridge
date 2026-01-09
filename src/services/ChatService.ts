@@ -21,6 +21,7 @@ import type { ChatStrategy } from "../strategies/ChatStrategy";
 import { MessagePreprocessor } from "./chat/MessagePreprocessor";
 import { ConversationSaver } from "./chat/ConversationSaver";
 import { StrategySelector } from "./chat/StrategySelector";
+import { TIMEOUT } from "../constants";
 
 export class ChatService {
   private conversationHistoryService: ConversationHistoryService;
@@ -44,7 +45,7 @@ export class ChatService {
    * 设置WebSocket管理器
    */
   setWebSocketManager(manager: IWebSocketManager): void {
-    this.requestTracker = new RequestTracker(manager, 300000);
+    this.requestTracker = new RequestTracker(manager, TIMEOUT.SKILL_CACHE_TTL);
     logger.debug("[ChatService] WebSocketManager attached to RequestTracker");
   }
 

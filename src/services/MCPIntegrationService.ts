@@ -51,9 +51,17 @@ export class MCPIntegrationService extends EventEmitter {
     });
 
     // 监听工具变化
-    this.on("tools-changed", (data: { serverId: string; tools: MCPTool[] }) => {
+    this.on("tools-changed", async (data: { serverId: string; tools: MCPTool[] }) => {
       logger.info(`[MCP] Server ${data.serverId} tools updated: ${data.tools.length} tools`);
       this.updateToolIndex(data.serverId, data.tools);
+      // Re-vectorize tools to update vector search index
+      // 注意：向量索引失败不应该影响服务器运行，只记录错误
+      try {
+        await this.vectorizeServerTools(data.serverId, data.tools);
+      } catch (vectorError: any) {
+        logger.warn(`[MCP] Vectorization failed for server ${data.serverId}:`, vectorError.message);
+        // 不抛出异常，让服务器继续运行
+      }
     });
   }
 
@@ -92,8 +100,13 @@ export class MCPIntegrationService extends EventEmitter {
       this.configService.saveServer(config);
       logger.info(`[MCP] Server ${serverId} configuration saved to database`);
 
-      // 向量化工具
-      await this.vectorizeServerTools(serverId, manager.getTools());
+      // 向量化工具（容错处理：向量索引失败不影响服务器注册）
+      try {
+        await this.vectorizeServerTools(serverId, manager.getTools());
+      } catch (vectorError: any) {
+        logger.warn(`[MCP] Vectorization failed for server ${serverId}:`, vectorError.message);
+        // 继续执行，不影响服务器注册
+      }
 
       // 注册工具到 ToolRegistry（使用 {clientName}_{toolName} 格式）
       const serverTools = manager.getTools();
@@ -448,7 +461,7 @@ export class MCPIntegrationService extends EventEmitter {
   /**
    * 向量化服务器工具
    */
-  private async vectorizeServerTools(serverId: string, tools: MCPTool[]): Promise<void> {
+  public async vectorizeServerTools(serverId: string, tools: MCPTool[]): Promise<void> {
     try {
       const retrievalService = getToolRetrievalService();
       await retrievalService.initialize();

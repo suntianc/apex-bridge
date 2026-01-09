@@ -25,6 +25,9 @@ import { LLMConfigService } from "./LLMConfigService";
 // LLMManager 延迟导入，避免循环依赖
 let llmManagerInstance: any = null;
 
+// 异步互斥锁，保护初始化过程
+let initializationPromise: Promise<void> | null = null;
+
 /**
  * 工具向量表接口（支持 Skills 和 MCP 工具）
  */
@@ -118,11 +121,38 @@ export class ToolRetrievalService {
     }
   }
   async initialize(): Promise<void> {
+    // 快速检查：如果已初始化，直接返回
     if (this.isInitialized) {
       logger.debug("ToolRetrievalService is already initialized");
       return;
     }
 
+    // 使用互斥锁防止并发初始化
+    // 如果已经有初始化正在进行，等待它完成
+    if (initializationPromise) {
+      logger.debug("ToolRetrievalService initialization in progress, waiting...");
+      await initializationPromise;
+      // 等待完成后再次检查，防止初始化失败后重复尝试
+      if (this.isInitialized) {
+        return;
+      }
+      // 如果初始化失败，重新尝试
+    }
+
+    // 创建初始化 promise
+    initializationPromise = this.doInitialize();
+
+    try {
+      await initializationPromise;
+    } finally {
+      initializationPromise = null;
+    }
+  }
+
+  /**
+   * 实际的初始化逻辑
+   */
+  private async doInitialize(): Promise<void> {
     const startTime = Date.now();
 
     try {
@@ -147,6 +177,7 @@ export class ToolRetrievalService {
       logger.debug(`ToolRetrievalService initialized in ${duration}ms`);
     } catch (error) {
       logger.error("ToolRetrievalService initialization failed:", error);
+      this.isInitialized = false; // 重置状态，允许重试
       throw new ToolError(
         `ToolRetrievalService initialization failed: ${this.formatError(error)}`,
         ToolErrorCode.VECTOR_DB_ERROR
@@ -1100,13 +1131,19 @@ export class ToolRetrievalService {
 
   /**
    * 清理资源
+   * 正确关闭数据库连接，防止资源泄漏
    */
   async cleanup(): Promise<void> {
     logger.info("Cleaning up ToolRetrievalService...");
 
     // 关闭数据库连接
     if (this.db) {
-      logger.debug("Closing LanceDB connection");
+      try {
+        await this.db.close();
+        logger.info("LanceDB connection closed successfully");
+      } catch (error) {
+        logger.warn("Error closing LanceDB connection:", error);
+      }
       this.db = null;
     }
 

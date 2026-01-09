@@ -5,7 +5,7 @@
  * 支持基于错误码、HTTP 状态码、关键词等多种识别方式
  */
 
-import { ErrorType } from '../types/trajectory';
+import { ErrorType } from "../types/trajectory";
 
 /**
  * 错误分类器
@@ -17,19 +17,24 @@ export class ErrorClassifier {
    * @returns 分类后的错误类型
    */
   static classifyError(error: any): ErrorType {
+    // 处理 null/undefined
+    if (error == null) {
+      return ErrorType.UNKNOWN;
+    }
+
     // 1. 基于错误码分类（最精确）
     if (error.code) {
       const errorCode = String(error.code).toUpperCase();
       switch (errorCode) {
-        case 'ECONNREFUSED':
-        case 'ETIMEDOUT':
-        case 'ENOTFOUND':
-        case 'ECONNRESET':
-        case 'EHOSTUNREACH':
+        case "ECONNREFUSED":
+        case "ETIMEDOUT":
+        case "ENOTFOUND":
+        case "ECONNRESET":
+        case "EHOSTUNREACH":
           return ErrorType.NETWORK_ERROR;
-        case 'ENOMEM':
-        case 'EMFILE':
-        case 'ENFILE':
+        case "ENOMEM":
+        case "EMFILE":
+        case "ENFILE":
           return ErrorType.RESOURCE_EXHAUSTED;
       }
     }
@@ -59,71 +64,75 @@ export class ErrorClassifier {
     }
 
     // 3. 业务逻辑错误（自定义错误类型）- 在关键词检查之前
-    if (error.name === 'BusinessError' || error.name === 'ValidationError' || error.name === 'LogicError') {
+    if (
+      error.name === "BusinessError" ||
+      error.name === "ValidationError" ||
+      error.name === "LogicError"
+    ) {
       return ErrorType.LOGIC_ERROR;
     }
 
     // 4. 基于错误消息关键词（按优先级排序）
-    const message = (error.message || error.toString() || '').toLowerCase();
+    const message = (error.message || error.toString() || "").toLowerCase();
 
     // 4.1 资源耗尽相关（具体关键词）
     if (
-      message.includes('out of memory') ||
-      message.includes('heap') ||
-      message.includes('allocation failed') ||
-      /disk\s+(is\s+)?full/.test(message) ||  // 匹配 "disk full" 或 "disk is full"
-      message.includes('quota exceeded') ||
-      message.includes('out of space')
+      message.includes("out of memory") ||
+      message.includes("heap") ||
+      message.includes("allocation failed") ||
+      /disk\s+(is\s+)?full/.test(message) || // 匹配 "disk full" 或 "disk is full"
+      message.includes("quota exceeded") ||
+      message.includes("out of space")
     ) {
       return ErrorType.RESOURCE_EXHAUSTED;
     }
 
     // 4.2 速率限制相关
-    if (message.includes('rate limit') || message.includes('too many requests')) {
+    if (message.includes("rate limit") || message.includes("too many requests")) {
       return ErrorType.RATE_LIMIT;
     }
 
     // 4.3 超时相关
-    if (message.includes('timeout') || message.includes('timed out')) {
+    if (message.includes("timeout") || message.includes("timed out")) {
       return ErrorType.TIMEOUT;
     }
 
     // 4.4 权限相关
     if (
-      message.includes('permission') ||
-      message.includes('forbidden') ||
-      message.includes('unauthorized') ||
-      message.includes('access denied') ||
-      message.includes('insufficient privileges')
+      message.includes("permission") ||
+      message.includes("forbidden") ||
+      message.includes("unauthorized") ||
+      message.includes("access denied") ||
+      message.includes("insufficient privileges")
     ) {
       return ErrorType.PERMISSION_DENIED;
     }
 
     // 4.5 网络相关
     if (
-      message.includes('connection') ||
-      message.includes('network') ||
-      message.includes('refused') ||
-      message.includes('unreachable') ||
-      message.includes('dns')
+      message.includes("connection") ||
+      message.includes("network") ||
+      message.includes("refused") ||
+      message.includes("unreachable") ||
+      message.includes("dns")
     ) {
       return ErrorType.NETWORK_ERROR;
     }
 
     // 4.6 输入参数相关（放在最后，避免与业务逻辑冲突）
     if (
-      message.includes('invalid') ||
-      message.includes('validation') ||
-      message.includes('required') ||
-      message.includes('missing') ||
-      message.includes('bad request') ||
-      message.includes('malformed')
+      message.includes("invalid") ||
+      message.includes("validation") ||
+      message.includes("required") ||
+      message.includes("missing") ||
+      message.includes("bad request") ||
+      message.includes("malformed")
     ) {
       return ErrorType.INVALID_INPUT;
     }
 
     // 4.7 超时相关（补充）
-    if (message.includes('exceeded') && !message.includes('rate limit')) {
+    if (message.includes("exceeded") && !message.includes("rate limit")) {
       return ErrorType.TIMEOUT;
     }
 
@@ -138,7 +147,7 @@ export class ErrorClassifier {
    * @returns 估算的 Token 数量
    */
   static estimateTokens(text: string): number {
-    if (!text || typeof text !== 'string') {
+    if (!text || typeof text !== "string") {
       return 0;
     }
 
@@ -160,23 +169,23 @@ export class ErrorClassifier {
   static getErrorTypeDescription(errorType: ErrorType): string {
     switch (errorType) {
       case ErrorType.NETWORK_ERROR:
-        return '网络连接失败或服务器无响应';
+        return "网络连接失败或服务器无响应";
       case ErrorType.TIMEOUT:
-        return '请求超时';
+        return "请求超时";
       case ErrorType.RATE_LIMIT:
-        return 'API 速率限制';
+        return "API 速率限制";
       case ErrorType.INVALID_INPUT:
-        return '输入参数错误';
+        return "输入参数错误";
       case ErrorType.LOGIC_ERROR:
-        return '业务逻辑错误';
+        return "业务逻辑错误";
       case ErrorType.RESOURCE_EXHAUSTED:
-        return '资源耗尽（内存/磁盘等）';
+        return "资源耗尽（内存/磁盘等）";
       case ErrorType.PERMISSION_DENIED:
-        return '权限不足';
+        return "权限不足";
       case ErrorType.UNKNOWN:
-        return '未知错误';
+        return "未知错误";
       default:
-        return '未知错误类型';
+        return "未知错误类型";
     }
   }
 
@@ -188,23 +197,23 @@ export class ErrorClassifier {
   static getErrorTypeSuggestion(errorType: ErrorType): string {
     switch (errorType) {
       case ErrorType.NETWORK_ERROR:
-        return '检查网络连接和服务可用性，考虑添加重试机制';
+        return "检查网络连接和服务可用性，考虑添加重试机制";
       case ErrorType.TIMEOUT:
-        return '将数据分批处理，每批不超过 100 条，或增加超时时间';
+        return "将数据分批处理，每批不超过 100 条，或增加超时时间";
       case ErrorType.RATE_LIMIT:
-        return '添加速率限制器，间隔至少 1 秒，或使用队列控制并发';
+        return "添加速率限制器，间隔至少 1 秒，或使用队列控制并发";
       case ErrorType.INVALID_INPUT:
-        return '增加输入校验逻辑，确保参数格式正确';
+        return "增加输入校验逻辑，确保参数格式正确";
       case ErrorType.LOGIC_ERROR:
-        return '检查业务逻辑前置条件，确保数据完整性';
+        return "检查业务逻辑前置条件，确保数据完整性";
       case ErrorType.RESOURCE_EXHAUSTED:
-        return '使用流式处理或分块读取，释放不需要的资源';
+        return "使用流式处理或分块读取，释放不需要的资源";
       case ErrorType.PERMISSION_DENIED:
-        return '检查 API Key 或权限配置，确保有足够权限';
+        return "检查 API Key 或权限配置，确保有足够权限";
       case ErrorType.UNKNOWN:
-        return '记录详细日志，人工分析根本原因';
+        return "记录详细日志，人工分析根本原因";
       default:
-        return '未知错误类型，建议检查日志';
+        return "未知错误类型，建议检查日志";
     }
   }
 }

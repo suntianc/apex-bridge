@@ -13,6 +13,7 @@ import { ModelRegistry } from "../services/ModelRegistry";
 import { LLMModelType, LLMModelFull } from "../types/llm-models";
 import { buildApiUrl } from "../config/endpoint-mappings";
 import { LLMAdapterFactory, ILLMAdapter } from "./llm/adapters";
+import { LIMITS, TIMEOUT, DOOM_LOOP } from "../constants";
 
 /**
  * 适配器缓存条目
@@ -35,8 +36,8 @@ export class LLMManager {
   private configService: LLMConfigService;
 
   // 缓存配置
-  private readonly MAX_CACHE_SIZE = 20;
-  private readonly CACHE_TTL_MS = 5 * 60 * 1000; // 5分钟
+  private readonly MAX_CACHE_SIZE = LIMITS.ADAPTER_CACHE_SIZE;
+  private readonly CACHE_TTL_MS = TIMEOUT.ADAPTER_CACHE_TTL;
 
   constructor() {
     this.configService = LLMConfigService.getInstance();
@@ -160,8 +161,8 @@ export class LLMManager {
       apiKey: model.providerBaseConfig.apiKey,
       baseURL: apiUrl,
       defaultModel: model.modelKey,
-      timeout: model.providerBaseConfig.timeout || 60000,
-      maxRetries: model.providerBaseConfig.maxRetries || 3,
+      timeout: model.providerBaseConfig.timeout || TIMEOUT.LLM_REQUEST,
+      maxRetries: model.providerBaseConfig.maxRetries || DOOM_LOOP.THRESHOLD,
     });
 
     // 更新缓存
@@ -311,8 +312,8 @@ export class LLMManager {
       apiKey: model.providerBaseConfig.apiKey,
       baseURL: apiUrl,
       defaultModel: model.modelKey,
-      timeout: model.providerBaseConfig.timeout || 60000,
-      maxRetries: model.providerBaseConfig.maxRetries || 3,
+      timeout: model.providerBaseConfig.timeout || TIMEOUT.LLM_REQUEST,
+      maxRetries: model.providerBaseConfig.maxRetries || DOOM_LOOP.THRESHOLD,
     });
 
     this.adapters.set(model.provider, freshAdapter);

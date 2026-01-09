@@ -3,12 +3,13 @@
  * 统一封装协议解析、变量解析和插件管理功能
  */
 
-import { createVariableEngine, IVariableEngine } from './variable';
-import type { AdminConfig } from '../services/ConfigService';
-import { logger } from '../utils/logger';
-import { ABPProtocolParser } from './protocol/ABPProtocolParser';
-import { ABPProtocolConfig } from '../types/abp';
-import { RAGService } from 'abp-rag-sdk';
+import { createVariableEngine, IVariableEngine } from "./variable";
+import type { AdminConfig } from "../services/ConfigService";
+import { logger } from "../utils/logger";
+import { ABPProtocolParser } from "./protocol/ABPProtocolParser";
+import { ABPProtocolConfig } from "../types/abp";
+import { RAGService } from "abp-rag-sdk";
+import { TIMEOUT } from "../constants";
 
 /**
  * 扩展配置接口
@@ -36,12 +37,12 @@ export class ProtocolEngine {
   public abpParser!: ABPProtocolParser; // 使用 ! 断言，因为在 constructor 调用的 initializeCore 中必然赋值
   public variableEngine!: IVariableEngine; // 使用接口类型，提供完整的类型安全和代码提示
   public ragService?: RAGService; // 修正类型
-  
+
   constructor(private config: ExtendedAdminConfig) {
-    logger.info('🧠 Initializing Protocol Engine (ABP only)...');
+    logger.info("🧠 Initializing Protocol Engine (ABP only)...");
     this.initializeCore();
   }
-  
+
   /**
    * 初始化核心组件
    */
@@ -54,20 +55,20 @@ export class ProtocolEngine {
       noiseStripping: { enabled: true, aggressive: false },
       boundaryValidation: { enabled: true, strict: false },
       fallback: { enabled: true, toPlainText: true },
-      variable: { cacheEnabled: true, cacheTTL: 60000 },
-      ...this.config.abp
+      variable: { cacheEnabled: true, cacheTTL: TIMEOUT.CLEANUP_INTERVAL },
+      ...this.config.abp,
     };
-    
+
     this.abpParser = new ABPProtocolParser(abpConfig);
-    logger.debug('ABPProtocolParser initialized');
-    
+    logger.debug("ABPProtocolParser initialized");
+
     this.variableEngine = createVariableEngine();
-    logger.debug('VariableEngine initialized');
+    logger.debug("VariableEngine initialized");
   }
 
   /**
    * 获取ABP协议解析器
-   * 
+   *
    * @returns ABP协议解析器
    */
   getABPParser(): ABPProtocolParser {
@@ -77,7 +78,7 @@ export class ProtocolEngine {
   /**
    * 获取RAG服务实例
    * 用于访问 abp-rag-sdk 的 RAG 能力
-   * 
+   *
    * @returns RAG服务实例，如果未初始化则返回 undefined
    */
   getRAGService(): RAGService | undefined {
@@ -87,11 +88,11 @@ export class ProtocolEngine {
   /**
    * 规范化 RAG Vectorizer 配置
    * 提取 URL 规范化逻辑，避免在 initialize 中过度耦合
-   * 
+   *
    * @param vectorizer - RAG vectorizer 配置
    * @returns 规范化后的配置对象
    */
-  private normalizeVectorizerConfig(vectorizer?: ExtendedAdminConfig['rag']['vectorizer']): any {
+  private normalizeVectorizerConfig(vectorizer?: ExtendedAdminConfig["rag"]["vectorizer"]): any {
     if (!vectorizer) {
       return undefined;
     }
@@ -100,13 +101,13 @@ export class ProtocolEngine {
     let apiUrl: string | undefined;
 
     if (baseURL && baseURL.length > 0) {
-      const normalizedBase = baseURL.replace(/\/+$/, '');
-      const hasEmbeddingsSuffix = normalizedBase.toLowerCase().endsWith('/embeddings');
+      const normalizedBase = baseURL.replace(/\/+$/, "");
+      const hasEmbeddingsSuffix = normalizedBase.toLowerCase().endsWith("/embeddings");
       apiUrl = hasEmbeddingsSuffix ? normalizedBase : `${normalizedBase}/embeddings`;
     }
 
     if (!apiUrl) {
-      logger.warn('⚠️ RAG vectorizer baseURL missing, embeddings API will not be reachable');
+      logger.warn("⚠️ RAG vectorizer baseURL missing, embeddings API will not be reachable");
     }
 
     const resolvedConfig: Record<string, unknown> = {
@@ -123,45 +124,48 @@ export class ProtocolEngine {
 
     return resolvedConfig;
   }
-  
+
   async initialize(): Promise<void> {
     try {
       // --- RAG Service Initialization ---
       if (this.config.rag?.enabled) {
         try {
           const memBefore = process.memoryUsage();
-          logger.info(`[Memory] Before RAG Service init - RSS: ${Math.round(memBefore.rss / 1024 / 1024)}MB`);
-          
+          logger.info(
+            `[Memory] Before RAG Service init - RSS: ${Math.round(memBefore.rss / 1024 / 1024)}MB`
+          );
+
           this.ragService = new RAGService();
           const ragConfig = this.config.rag;
           const vectorizerConfig = this.normalizeVectorizerConfig(ragConfig.vectorizer);
-          
+
           await this.ragService.initialize({
-            workDir: ragConfig.workDir || './vector_store',
+            workDir: ragConfig.workDir || "./vector_store",
             vectorizer: vectorizerConfig,
-            debug: this.config.debugMode
+            debug: this.config.debugMode,
           });
-          
+
           const memAfter = process.memoryUsage();
-          logger.info(`[Memory] After RAG Service init - RSS: ${Math.round(memAfter.rss / 1024 / 1024)}MB, Delta: +${Math.round((memAfter.rss - memBefore.rss) / 1024 / 1024)}MB`);
-          logger.debug('RAG Service initialized');
+          logger.info(
+            `[Memory] After RAG Service init - RSS: ${Math.round(memAfter.rss / 1024 / 1024)}MB, Delta: +${Math.round((memAfter.rss - memBefore.rss) / 1024 / 1024)}MB`
+          );
+          logger.debug("RAG Service initialized");
         } catch (error: any) {
           logger.warn(`⚠️ RAG service initialization failed: ${error?.message || error}`);
           // 即使 RAG 失败，也不应该阻断后续 Providers 的注册
           this.ragService = undefined;
         }
       }
-      
-      
+
       // --- Variable Providers Registration ---
       // 简化版：移除提供者模式，变量由调用方直接传入
-      logger.debug('✅ VariableEngine initialized (simplified version, no providers)');
+      logger.debug("✅ VariableEngine initialized (simplified version, no providers)");
     } catch (error) {
-      logger.error('❌ Failed to initialize Protocol Engine:', error);
+      logger.error("❌ Failed to initialize Protocol Engine:", error);
       throw error;
     }
   }
-  
+
   getPluginCount(): number {
     return 0;
   }
@@ -169,45 +173,52 @@ export class ProtocolEngine {
   getPlugins() {
     return [];
   }
-  
+
   /**
    * 优雅关闭
    * 清理所有资源，包括 RAG Service 的生命周期管理
    */
   async shutdown(): Promise<void> {
-    logger.info('🛑 Shutting down Protocol Engine...');
-    
+    logger.info("🛑 Shutting down Protocol Engine...");
+
     try {
       // 1. 清理 Variable Engine
       if (this.variableEngine) {
-        if (typeof this.variableEngine.reset === 'function') {
+        if (typeof this.variableEngine.reset === "function") {
           this.variableEngine.reset();
         }
-        logger.info('✅ Variable engine reset');
+        logger.info("✅ Variable engine reset");
       }
-      
+
       // 2. 🆕 关键修复：清理 RAG Service（防止资源泄漏）
       if (this.ragService) {
-        // 尝试调用 RAGService 的清理方法
-        // 注意：需要根据 abp-rag-sdk 的实际 API 调整方法名
-        if (typeof (this.ragService as any).shutdown === 'function') {
-          await (this.ragService as any).shutdown();
-          logger.info('✅ RAG Service shut down');
-        } else if (typeof (this.ragService as any).close === 'function') {
-          await (this.ragService as any).close();
-          logger.info('✅ RAG Service closed');
-        } else if (typeof (this.ragService as any).destroy === 'function') {
-          await (this.ragService as any).destroy();
-          logger.info('✅ RAG Service destroyed');
+        // 使用类型安全的接口调用 RAGService 的清理方法
+        // RAGService 可能实现 shutdown/close/destroy 之一
+        interface RAGServiceCleanup {
+          shutdown?: () => Promise<void>;
+          close?: () => Promise<void>;
+          destroy?: () => Promise<void>;
+        }
+        const ragCleanup = this.ragService as RAGServiceCleanup | undefined;
+
+        if (ragCleanup?.shutdown) {
+          await ragCleanup.shutdown();
+          logger.info("✅ RAG Service shut down");
+        } else if (ragCleanup?.close) {
+          await ragCleanup.close();
+          logger.info("✅ RAG Service closed");
+        } else if (ragCleanup?.destroy) {
+          await ragCleanup.destroy();
+          logger.info("✅ RAG Service destroyed");
         } else {
-          logger.debug('⚠️ RAG Service has no explicit cleanup method, skipping');
+          logger.debug("⚠️ RAG Service has no explicit cleanup method, skipping");
         }
         this.ragService = undefined;
       }
-      
-      logger.info('✅ Protocol Engine shut down successfully');
+
+      logger.info("✅ Protocol Engine shut down successfully");
     } catch (error) {
-      logger.error('❌ Error during Protocol Engine shutdown:', error);
+      logger.error("❌ Error during Protocol Engine shutdown:", error);
       // Shutdown 错误通常记录即可，不建议抛出，除非需要上层通过 exit code 反应
     }
   }

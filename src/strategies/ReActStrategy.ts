@@ -4,22 +4,23 @@
  * 集成新工具系统：内置工具 + Skills外置工具 + tool_action标签解析
  */
 
-import type { Message, ChatOptions } from '../types';
-import type { ChatStrategy, ChatResult, StrategyPrepareResult } from './ChatStrategy';
-import type { LLMManager } from '../core/LLMManager';
-import type { ConversationHistoryService } from '../services/ConversationHistoryService';
-import { ReActEngine } from '../core/stream-orchestrator/ReActEngine';
-import { LLMManagerAdapter } from '../core/stream-orchestrator/LLMAdapter';
-import { BuiltInToolsRegistry } from '../services/BuiltInToolsRegistry';
-import { ToolRetrievalService } from '../services/ToolRetrievalService';
-import { BuiltInExecutor } from '../services/executors/BuiltInExecutor';
-import { SkillsSandboxExecutor } from '../services/executors/SkillsSandboxExecutor';
-import { generateToolPrompt, ToolDispatcher } from '../core/tool-action';
-import { getSkillManager } from '../services/SkillManager';
-import type { Tool } from '../core/stream-orchestrator/types';
-import type { SkillTool, BuiltInTool } from '../types/tool-system';
-import { logger } from '../utils/logger';
-import { extractTextFromMessage } from '../utils/message-utils';
+import type { Message, ChatOptions } from "../types";
+import type { ChatStrategy, ChatResult, StrategyPrepareResult } from "./ChatStrategy";
+import type { LLMManager } from "../core/LLMManager";
+import type { ConversationHistoryService } from "../services/ConversationHistoryService";
+import { ReActEngine } from "../core/stream-orchestrator/ReActEngine";
+import { LLMManagerAdapter } from "../core/stream-orchestrator/LLMAdapter";
+import { BuiltInToolsRegistry } from "../services/BuiltInToolsRegistry";
+import { ToolRetrievalService } from "../services/ToolRetrievalService";
+import { BuiltInExecutor } from "../services/executors/BuiltInExecutor";
+import { SkillsSandboxExecutor } from "../services/executors/SkillsSandboxExecutor";
+import { generateToolPrompt, ToolDispatcher } from "../core/tool-action";
+import { getSkillManager } from "../services/SkillManager";
+import type { Tool } from "../core/stream-orchestrator/types";
+import type { SkillTool, BuiltInTool } from "../types/tool-system";
+import { logger } from "../utils/logger";
+import { extractTextFromMessage } from "../utils/message-utils";
+import { TIMEOUT, LIMITS, THRESHOLDS } from "../constants";
 
 export class ReActStrategy implements ChatStrategy {
   private builtInRegistry: BuiltInToolsRegistry;
@@ -53,11 +54,11 @@ export class ReActStrategy implements ChatStrategy {
     // 启动自动清理定时器
     this.startCleanupTimer();
 
-    logger.debug('ReActStrategy initialized');
+    logger.debug("ReActStrategy initialized");
   }
 
   getName(): string {
-    return 'ReActStrategy';
+    return "ReActStrategy";
   }
 
   /**
@@ -83,8 +84,8 @@ export class ReActStrategy implements ChatStrategy {
     // 3. 返回需要注入的变量
     return {
       variables: {
-        available_tools: toolPromptContent
-      }
+        available_tools: toolPromptContent,
+      },
     };
   }
 
@@ -100,15 +101,15 @@ export class ReActStrategy implements ChatStrategy {
 
     // 初始化 ReAct 引擎（启用 tool_action 标签解析）
     const reactEngine = new ReActEngine({
-      maxIterations: options.selfThinking?.maxIterations ?? 50,
+      maxIterations: options.selfThinking?.maxIterations ?? LIMITS.MAX_ITERATIONS,
       enableThinking: options.selfThinking?.enableStreamThoughts ?? true,
-      maxConcurrentTools: 3,
+      maxConcurrentTools: LIMITS.MAX_CONCURRENT_TOOLS,
       enableToolActionParsing: options.selfThinking?.enableToolActionParsing ?? true,
-      toolActionTimeout: options.selfThinking?.toolActionTimeout ?? 30000,
+      toolActionTimeout: options.selfThinking?.toolActionTimeout ?? TIMEOUT.TOOL_EXECUTION,
       provider: options.provider,
       model: options.model,
       temperature: options.temperature,
-      maxTokens: options.max_tokens
+      maxTokens: options.max_tokens,
     });
 
     // 将可用工具传递给ReActEngine
@@ -119,7 +120,7 @@ export class ReActStrategy implements ChatStrategy {
 
     // 执行 ReAct 循环
     const thinkingProcess: string[] = [];
-    let finalContent = '';
+    let finalContent = "";
     let iterations = 0;
 
     try {
@@ -129,9 +130,9 @@ export class ReActStrategy implements ChatStrategy {
       for await (const event of stream) {
         iterations = event.iteration;
 
-        if (event.type === 'reasoning-delta') {
+        if (event.type === "reasoning-delta") {
           thinkingProcess.push(event.data);
-        } else if (event.type === 'content') {
+        } else if (event.type === "content") {
           finalContent += event.data;
         }
         // 注意：工具执行由ReActEngine内部处理，这里只关注思考过程和最终内容
@@ -143,11 +144,10 @@ export class ReActStrategy implements ChatStrategy {
       return {
         content: finalContent,
         iterations,
-        thinkingProcess: includeThoughtsInResponse ? thinkingProcess.join('\n') : undefined,
-        rawThinkingProcess: thinkingProcess,  // 原始思考过程
-        usage: undefined // TODO: 从LLMClient获取usage
+        thinkingProcess: includeThoughtsInResponse ? thinkingProcess.join("\n") : undefined,
+        rawThinkingProcess: thinkingProcess, // 原始思考过程
+        usage: undefined, // TODO: 从LLMClient获取usage
       };
-
     } catch (error) {
       logger.error(`[${this.getName()}] ReAct execution failed: ${error}`);
       throw error;
@@ -170,15 +170,15 @@ export class ReActStrategy implements ChatStrategy {
 
     // 初始化 ReAct 引擎（启用 tool_action 标签解析）
     const reactEngine = new ReActEngine({
-      maxIterations: options.selfThinking?.maxIterations ?? 50,
+      maxIterations: options.selfThinking?.maxIterations ?? LIMITS.MAX_ITERATIONS,
       enableThinking: options.selfThinking?.enableStreamThoughts ?? true,
-      maxConcurrentTools: 3,
+      maxConcurrentTools: LIMITS.MAX_CONCURRENT_TOOLS,
       enableToolActionParsing: options.selfThinking?.enableToolActionParsing ?? true,
-      toolActionTimeout: options.selfThinking?.toolActionTimeout ?? 30000,
+      toolActionTimeout: options.selfThinking?.toolActionTimeout ?? TIMEOUT.TOOL_EXECUTION,
       provider: options.provider,
       model: options.model,
       temperature: options.temperature,
-      maxTokens: options.max_tokens
+      maxTokens: options.max_tokens,
     });
 
     // 将工具传递给 ReActEngine
@@ -190,7 +190,7 @@ export class ReActStrategy implements ChatStrategy {
 
     // 收集用于历史记录的数据
     const collectedThinking: string[] = [];
-    let collectedContent = '';
+    let collectedContent = "";
 
     for await (const event of stream) {
       // 检查中断
@@ -202,98 +202,98 @@ export class ReActStrategy implements ChatStrategy {
       // 流式输出事件
       // 输出 JSON 格式字符串，与 SingleRoundStrategy 保持一致，便于前端 parseLLMChunk 解析
       switch (event.type) {
-        case 'reasoning-start':
+        case "reasoning-start":
           // 推理开始事件
           yield JSON.stringify({
-            event_type: 'reasoning-start',
+            event_type: "reasoning-start",
             data: event.data,
-            iteration: event.iteration
+            iteration: event.iteration,
           });
           break;
 
-        case 'reasoning-delta':
+        case "reasoning-delta":
           // 推理内容增量（替换原来的 reasoning 事件）
           const reasoningChunk = JSON.stringify({
             reasoning_content: event.data,
             content: null,
             step_number: event.stepNumber,
-            iteration: event.iteration
+            iteration: event.iteration,
           });
           yield reasoningChunk;
           collectedThinking.push(event.data);
           break;
 
-        case 'reasoning-end':
+        case "reasoning-end":
           // 推理结束事件
           yield JSON.stringify({
-            event_type: 'reasoning-end',
+            event_type: "reasoning-end",
             data: event.data,
-            iteration: event.iteration
+            iteration: event.iteration,
           });
           break;
 
-        case 'step-start':
+        case "step-start":
           // 步骤开始事件
           yield JSON.stringify({
-            event_type: 'step-start',
+            event_type: "step-start",
             data: event.data,
             iteration: event.iteration,
-            step_number: event.stepNumber
+            step_number: event.stepNumber,
           });
           break;
 
-        case 'step-finish':
+        case "step-finish":
           // 步骤完成事件
           yield JSON.stringify({
-            event_type: 'step-finish',
+            event_type: "step-finish",
             data: event.data,
             iteration: event.iteration,
-            step_number: event.stepNumber
+            step_number: event.stepNumber,
           });
           break;
 
-        case 'content':
+        case "content":
           const contentChunk = JSON.stringify({
             reasoning_content: null,
             content: event.data,
             step_number: event.stepNumber,
-            iteration: event.iteration
+            iteration: event.iteration,
           });
           yield contentChunk;
           collectedContent += event.data;
           break;
 
-        case 'tool_start':
+        case "tool_start":
           yield JSON.stringify({
-            event_type: 'tool_start',
+            event_type: "tool_start",
             data: event.data,
             iteration: event.iteration,
-            step_number: event.stepNumber
+            step_number: event.stepNumber,
           });
           break;
 
-        case 'tool_end':
+        case "tool_end":
           yield JSON.stringify({
-            event_type: 'tool_end',
+            event_type: "tool_end",
             data: event.data,
             iteration: event.iteration,
-            step_number: event.stepNumber
+            step_number: event.stepNumber,
           });
           break;
 
-        case 'done':
+        case "done":
           yield JSON.stringify({
-            event_type: 'done',
+            event_type: "done",
             data: event.data,
-            iteration: event.iteration
+            iteration: event.iteration,
           });
           break;
 
-        case 'error':
+        case "error":
           yield JSON.stringify({
-            event_type: 'error',
+            event_type: "error",
             data: event.data,
-            iteration: event.iteration
+            iteration: event.iteration,
           });
           break;
 
@@ -307,7 +307,7 @@ export class ReActStrategy implements ChatStrategy {
     // 返回收集的思考过程和内容
     return {
       content: collectedContent,
-      rawThinkingProcess: collectedThinking
+      rawThinkingProcess: collectedThinking,
     };
   }
 
@@ -319,7 +319,7 @@ export class ReActStrategy implements ChatStrategy {
 
     if (toolDescriptions.length === 0) {
       logger.debug(`[${this.getName()}] No tools available, returning empty prompt`);
-      return '当前没有可用的工具。';
+      return "当前没有可用的工具。";
     }
 
     const toolPromptText = generateToolPrompt(toolDescriptions);
@@ -344,11 +344,13 @@ export class ReActStrategy implements ChatStrategy {
         // 确保 ToolRetrievalService 已初始化（加载 embedding 模型配置）
         await this.toolRetrievalService.initialize();
 
-        const query = messages[messages.length - 1] ? extractTextFromMessage(messages[messages.length - 1]) : '';
+        const query = messages[messages.length - 1]
+          ? extractTextFromMessage(messages[messages.length - 1])
+          : "";
         relevantSkills = await this.toolRetrievalService.findRelevantSkills(
           query,
-          10, // limit
-          0.6 // threshold
+          LIMITS.VECTOR_SEARCH_MAX_RESULTS, // limit
+          THRESHOLDS.RELEVANT_SKILLS // threshold
         );
         logger.debug(`[${this.getName()}] Found ${relevantSkills.length} relevant Skills`);
 
@@ -358,39 +360,42 @@ export class ReActStrategy implements ChatStrategy {
         }
       } catch (skillError) {
         // Skills 检索失败，降级处理：只使用内置工具
-        logger.warn(`[${this.getName()}] Skills retrieval failed, using built-in tools only:`,
-          skillError instanceof Error ? skillError.message : skillError);
+        logger.warn(
+          `[${this.getName()}] Skills retrieval failed, using built-in tools only:`,
+          skillError instanceof Error ? skillError.message : skillError
+        );
         relevantSkills = [];
       }
 
       // 3. 构建工具列表（内置工具 + Skills）
       this.availableTools = [
-        ...builtInTools.map(tool => ({
-          type: 'function' as const,
+        ...builtInTools.map((tool) => ({
+          type: "function" as const,
           function: {
             name: tool.name,
             description: tool.description,
-            parameters: tool.parameters
-          }
+            parameters: tool.parameters,
+          },
         })),
-        ...relevantSkills.map(skill => ({
-          type: 'function' as const,
+        ...relevantSkills.map((skill) => ({
+          type: "function" as const,
           function: {
             name: skill.tool.name,
             description: skill.tool.description,
-            parameters: skill.tool.parameters
-          }
-        }))
+            parameters: skill.tool.parameters,
+          },
+        })),
       ];
 
       logger.debug(`[${this.getName()}] Tool system initialized in ${Date.now() - startTime}ms`);
-      logger.info(`[${this.getName()}] Available tools: ${builtInTools.length} built-in + ${relevantSkills.length} Skills`);
+      logger.info(
+        `[${this.getName()}] Available tools: ${builtInTools.length} built-in + ${relevantSkills.length} Skills`
+      );
 
       // 记录动态技能状态
       if (relevantSkills.length > 0) {
         logger.info(`[${this.getName()}] ${this.getDynamicSkillsStatus()}`);
       }
-
     } catch (error) {
       logger.error(`[${this.getName()}] Tool system initialization failed:`, error);
       // 完全失败时，确保清空工具列表
@@ -407,8 +412,8 @@ export class ReActStrategy implements ChatStrategy {
     const proxyTool: BuiltInTool = {
       name: skill.name,
       description: skill.description,
-      type: 'BUILTIN' as any, // 强制设置为BUILTIN类型
-      category: skill.tags?.join(', ') || 'skill',
+      type: "BUILTIN" as any, // 强制设置为BUILTIN类型
+      category: skill.tags?.join(", ") || "skill",
       enabled: true,
       level: skill.level,
       parameters: skill.parameters,
@@ -418,16 +423,16 @@ export class ReActStrategy implements ChatStrategy {
 
         const result = await this.skillsExecutor.execute({
           name: skill.name,
-          args
+          args,
         });
 
         return {
           success: result.success,
           output: result.success ? result.output : result.error,
           duration: result.duration,
-          exitCode: result.exitCode
+          exitCode: result.exitCode,
         };
-      }
+      },
     };
 
     // 记录技能注册时间和最后访问时间
@@ -436,14 +441,22 @@ export class ReActStrategy implements ChatStrategy {
 
     // 注册到内置工具注册表
     this.builtInRegistry.registerTool(proxyTool);
-    logger.debug(`[${this.getName()}] Registered skill proxy: ${skill.name} at ${new Date(now).toISOString()}`);
+    logger.debug(
+      `[${this.getName()}] Registered skill proxy: ${skill.name} at ${new Date(now).toISOString()}`
+    );
   }
 
   /**
    * 启动自动清理定时器
    * 每分钟检查一次，超过5分钟未使用的Skills将被自动注销
+   * 添加防重复启动保护
    */
   private startCleanupTimer(): void {
+    if (this.cleanupTimer) {
+      logger.debug(`[${this.getName()}] Cleanup timer already running, skipping`);
+      return;
+    }
+
     this.cleanupTimer = setInterval(() => {
       this.cleanupUnusedSkills();
     }, 60 * 1000); // 每分钟执行一次
@@ -478,14 +491,18 @@ export class ReActStrategy implements ChatStrategy {
 
         // 从可用工具列表中移除
         this.availableTools = this.availableTools.filter(
-          tool => tool.function.name !== skillName
+          (tool) => tool.function.name !== skillName
         );
 
         logger.info(`[${this.getName()}] Auto-unregistered unused skill: ${skillName}`);
       }
 
-      logger.info(`[${this.getName()}] Auto-cleanup completed: ${skillsToRemove.length} skills removed`);
-      logger.info(`[${this.getName()}] Remaining active skills: ${this.dynamicSkillsLastAccess.size}`);
+      logger.info(
+        `[${this.getName()}] Auto-cleanup completed: ${skillsToRemove.length} skills removed`
+      );
+      logger.info(
+        `[${this.getName()}] Remaining active skills: ${this.dynamicSkillsLastAccess.size}`
+      );
     }
   }
 
@@ -502,6 +519,15 @@ export class ReActStrategy implements ChatStrategy {
   }
 
   /**
+   * 关闭策略并清理资源
+   * 供外部调用，确保定时器被正确清理
+   */
+  public shutdown(): void {
+    this.stopCleanupTimer();
+    logger.info(`[${this.getName()}] Strategy shutdown completed`);
+  }
+
+  /**
    * 获取当前动态注册技能的状态
    * 用于调试和监控
    */
@@ -511,14 +537,17 @@ export class ReActStrategy implements ChatStrategy {
 
     for (const [skillName, lastAccessTime] of this.dynamicSkillsLastAccess.entries()) {
       const age = Math.floor((now - lastAccessTime) / 1000);
-      const timeStr = age < 60 ? `${age}s ago` :
-                     age < 3600 ? `${Math.floor(age / 60)}m ago` :
-                     `${Math.floor(age / 3600)}h ago`;
+      const timeStr =
+        age < 60
+          ? `${age}s ago`
+          : age < 3600
+            ? `${Math.floor(age / 60)}m ago`
+            : `${Math.floor(age / 3600)}h ago`;
       statuses.push(`${skillName} (${timeStr})`);
     }
 
     return statuses.length > 0
-      ? `Active skills: ${statuses.join(', ')}`
-      : 'No active dynamic skills';
+      ? `Active skills: ${statuses.join(", ")}`
+      : "No active dynamic skills";
   }
 }

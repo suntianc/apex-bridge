@@ -685,17 +685,53 @@ export class ToolDispatcher {
   getAvailableTools(): ToolDescription[] {
     const tools: ToolDescription[] = [];
 
-    // 内置工具
+    // Built-in tools
     const builtInTools = this.builtInRegistry.listTools();
     for (const tool of builtInTools) {
       tools.push(this.convertToDescription(tool));
+    }
+
+    // MCP tools
+    const mcpTools = mcpIntegration.getAllTools();
+    for (const { serverId, tools: serverTools } of mcpTools) {
+      for (const tool of serverTools) {
+        tools.push(this.convertMcpToolToDescription(tool, serverId));
+      }
     }
 
     return tools;
   }
 
   /**
-   * 转换工具定义为描述格式
+   * Convert MCP tool definition to description format
+   */
+  private convertMcpToolToDescription(
+    tool: { name: string; description: string; inputSchema?: any },
+    serverId: string
+  ): ToolDescription {
+    const parameters: ToolDescription['parameters'] = [];
+
+    if (tool.inputSchema?.properties) {
+      for (const [name, prop] of Object.entries(tool.inputSchema.properties)) {
+        const propObj = prop as { type?: string; description?: string };
+        parameters.push({
+          name,
+          type: propObj.type || 'string',
+          description: propObj.description || '',
+          required: tool.inputSchema.required?.includes(name) ?? false,
+        });
+      }
+    }
+
+    return {
+      name: tool.name,
+      description: `[MCP:${serverId}] ${tool.description}`,
+      parameters,
+    };
+  }
+
+  /**
+   * Convert tool definition to description format
    */
   private convertToDescription(tool: BuiltInTool | SkillTool): ToolDescription {
     const parameters: ToolDescription["parameters"] = [];
