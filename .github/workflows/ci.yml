@@ -2,180 +2,231 @@ name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
   pull_request:
-    branches: [ main, develop ]
+    branches: [main, develop]
 
 env:
-  NODE_VERSION: '18'
+  NODE_VERSION: '20'
+  CACHE_DIR: ~/.cache
 
 jobs:
-  lint-and-format:
-    name: Lint and Format Check
+  # ==================== 代码检查 ====================
+  lint:
+    name: Lint & Format
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js ${{ env.NODE_VERSION }}
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-          cache-dependency-path: |
-            apex-bridge/package-lock.json
-            abp-rag-sdk/package-lock.json
 
       - name: Install dependencies
-        run: |
-          cd apex-bridge && npm ci
-          cd ../abp-rag-sdk && npm ci
+        run: npm ci
 
       - name: Run ESLint
-        run: |
-          cd apex-bridge && npm run lint
-          cd ../abp-rag-sdk && npm run lint
+        run: npm run lint
 
       - name: Check formatting
-        run: |
-          cd apex-bridge && npm run format:check
-          cd ../abp-rag-sdk && npm run format:check
+        run: npm run format:check
 
+  # ==================== 测试 ====================
   test:
-    name: Test Suite
+    name: Test (Node.js ${{ matrix.node-version }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        node-version: [16.x, 18.x, 20.x]
+        node-version: [18.x, 20.x, 22.x]
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js ${{ matrix.node-version }}
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
-          cache-dependency-path: |
-            apex-bridge/package-lock.json
-            abp-rag-sdk/package-lock.json
 
       - name: Install dependencies
-        run: |
-          cd apex-bridge && npm ci
-          cd ../abp-rag-sdk && npm ci
+        run: npm ci
 
-      - name: Run tests for main project
-        run: |
-          cd apex-bridge
-          npm run test:coverage
-        env:
-          CI: true
-
-      - name: Run tests for ABP RAG SDK
-        run: |
-          cd abp-rag-sdk
-          npm test
+      - name: Run tests with coverage
+        run: npm run test:coverage
         env:
           CI: true
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
-          directory: ./apex-bridge/coverage
+          directory: ./coverage
           flags: unittests
           name: codecov-umbrella
           fail_ci_if_error: false
 
+  # ==================== 构建 ====================
   build:
-    name: Build Check
+    name: Build
     runs-on: ubuntu-latest
+    needs: [lint, test]
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js ${{ env.NODE_VERSION }}
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-          cache-dependency-path: |
-            apex-bridge/package-lock.json
-            abp-rag-sdk/package-lock.json
 
       - name: Install dependencies
-        run: |
-          cd apex-bridge && npm ci
-          cd ../abp-rag-sdk && npm ci
+        run: npm ci
 
-      - name: Build main project
-        run: |
-          cd apex-bridge
-          npm run build
+      - name: Build TypeScript
+        run: npm run build
 
-      - name: Build ABP RAG SDK
+      - name: Verify build artifacts
         run: |
-          cd abp-rag-sdk
-          npm run build
+          if [ -d "dist" ] && [ -f "dist/server.js" ]; then
+            echo "✅ Build artifacts verified"
+            ls -la dist/
+          else
+            echo "❌ Build failed: dist/server.js not found"
+            exit 1
+          fi
 
-      - name: Check for build artifacts
-        run: |
-          test -d apex-bridge/dist && echo "✅ Main project built successfully"
-          test -d abp-rag-sdk/dist && echo "✅ ABP RAG SDK built successfully"
-
-  documentation:
-    name: Documentation Check
+  # ==================== 安全审计 ====================
+  security:
+    name: Security Audit
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js ${{ env.NODE_VERSION }}
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
 
-      - name: Check markdown files
-        uses: articulate/actions-markdownlint@v1
-        with:
-          files: '**/*.md'
-          config: .markdownlint.json
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Check README badges
+      - name: Run npm audit
+        run: npm audit --audit-level=high --production || true
+
+      - name: Check for known vulnerabilities
         run: |
-          node scripts/check-badges.js
+          if command -v npm-audit-html &> /dev/null; then
+            npm-audit-html -o audit-report.html || true
+          fi
 
-      - name: Generate API documentation
-        run: |
-          cd apex-bridge
-          npm run docs:generate || true
-
-  dependency-audit:
-    name: Dependency Security Audit
+  # ==================== 类型检查 ====================
+  typecheck:
+    name: Type Check
     runs-on: ubuntu-latest
+    needs: lint
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js ${{ env.NODE_VERSION }}
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
 
-      - name: Run security audit
-        run: |
-          cd apex-bridge && npm audit --audit-level=moderate || true
-          cd ../abp-rag-sdk && npm audit --audit-level=moderate || true
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Run Snyk security check
-        uses: snyk/actions/node@master
-        continue-on-error: true
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      - name: Run TypeScript type check (no emit)
+        run: npx tsc --noEmit
+
+  # ==================== 完整性检查 ====================
+  integrity:
+    name: Integrity Check
+    runs-on: ubuntu-latest
+    needs: [build, typecheck]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          args: --severity-threshold=high
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify package.json scripts
+        run: |
+          echo "Verifying package.json scripts..."
+          npm run --silent > /dev/null 2>&1 && echo "✅ All scripts are executable"
+          for script in build test lint format:check; do
+            if npm run --silent $script > /dev/null 2>&1; then
+              echo "✅ npm run $script"
+            else
+              echo "❌ npm run $script failed"
+              exit 1
+            fi
+          done
+
+      - name: Check for required files
+        run: |
+          required_files=(
+            "package.json"
+            "tsconfig.json"
+            "README.md"
+            ".env.example"
+          )
+          for file in "${required_files[@]}"; do
+            if [ -f "$file" ]; then
+              echo "✅ $file exists"
+            else
+              echo "❌ $file missing"
+              exit 1
+            fi
+          done
+
+# ==================== 部署到制品仓库 ====================
+  # publish:
+  #   name: Publish to Registry
+  #   runs-on: ubuntu-latest
+  #   needs: [lint, test, build, security]
+  #   if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  #   permissions:
+  #     contents: read
+  #     packages: write
+  #
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
+  #
+  #     - name: Setup Node.js
+  #       uses: actions/setup-node@v4
+  #       with:
+  #         node-version: ${{ env.NODE_VERSION }}
+  #         registry-url: 'https://npm.pkg.github.com'
+  #
+  #     - name: Install dependencies
+  #       run: npm ci
+  #
+  #     - name: Build
+  #       run: npm run build
+  #
+  #     - name: Publish to GitHub Packages
+  #       run: npm publish
+  #       env:
+  #         NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -21,6 +21,7 @@ import {
 import { LLMModelType } from "../types/llm-models";
 import { logger } from "../utils/logger";
 import { LLMConfigService } from "./LLMConfigService";
+import { THRESHOLDS } from "../constants";
 
 // LLMManager 延迟导入，避免循环依赖
 let llmManagerInstance: any = null;
@@ -745,7 +746,7 @@ export class ToolRetrievalService {
   async findRelevantSkills(
     query: string,
     limit: number = 5,
-    threshold: number = 0.4 // 从0.20提升至0.40，过滤噪声，优化语义搜索
+    threshold: number = THRESHOLDS.RELEVANT_SKILLS
   ): Promise<ToolRetrievalResult[]> {
     try {
       logger.info(`Searching relevant skills for query: "${query}"`);
@@ -814,13 +815,13 @@ export class ToolRetrievalService {
       try {
         // 获取相似度分数
         // LanceDB 返回的是 _distance (余弦距离)，需要转换为相似度
-        // 余弦相似度 = 1 - distance
+        // 余弦距离范围 [0, 2]，所以相似度 = 1 - distance/2
+        // 正确的转换公式：cosine_similarity = 1 - (cosine_distance / 2)
         let score: number;
         if (result._distance !== undefined) {
-          // LanceDB 返回的是距离（余弦距离），转换为相似度
-          // 余弦距离范围 [0, 2]，所以相似度 = 1 - distance/2 或 1 - distance
-          // 根据LanceDB文档，余弦相似度搜索时distance已经是余弦距离
-          score = Math.max(0, 1 - result._distance);
+          // LanceDB 返回的是余弦距离，范围 [0, 2]
+          // 相似度 = 1 - distance/2
+          score = Math.max(0, 1 - result._distance / 2);
         } else if (result.score !== undefined) {
           score = result.score;
         } else if (result.similarity !== undefined) {
@@ -1282,7 +1283,7 @@ export function getToolRetrievalService(config?: ToolRetrievalConfig): ToolRetri
         model: "nomic-embed-text:latest",
         cacheSize: 1000,
         dimensions: 768, // 初始值，会在初始化时被实际模型维度覆盖
-        similarityThreshold: 0.4, // 从0.20提升至0.40，过滤噪声，优化语义搜索
+        similarityThreshold: THRESHOLDS.RELEVANT_SKILLS,
         maxResults: 10,
       };
     }

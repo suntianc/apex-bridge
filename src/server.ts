@@ -35,7 +35,6 @@ import {
   chatCompletionSchema,
   modelsListSchema,
   interruptRequestSchema,
-  simpleStreamSchema,
   validateModelBeforeAddSchema,
 } from "./api/middleware/validationSchemas";
 // 清理中间件
@@ -270,13 +269,6 @@ export class ABPIntelliCore {
       "/v1/chat/completions",
       // createValidationMiddleware(chatCompletionSchema),  // ❌ 临时禁用：可能截断大型图片数据
       (req, res) => chatController.chatCompletions(req, res)
-    );
-
-    // 🆕 简化版流式聊天接口（专为前端看板娘设计）
-    this.app.post(
-      "/v1/chat/simple-stream",
-      createValidationMiddleware(simpleStreamSchema),
-      (req, res) => chatController.simpleChatStream(req, res)
     );
 
     // 🆕 会话管理API

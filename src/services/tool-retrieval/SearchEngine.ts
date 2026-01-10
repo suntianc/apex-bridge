@@ -4,16 +4,17 @@
  * Handles vector search, result formatting, and filtering.
  */
 
-import { logger } from '../../utils/logger';
+import { logger } from "../../utils/logger";
 import {
   ToolRetrievalResult,
   RetrievalFilter,
   RetrievalSortingOptions,
   ToolsTable,
-  ToolType
-} from './types';
-import { ILanceDBConnection } from './LanceDBConnection';
-import { IEmbeddingGenerator } from './EmbeddingGenerator';
+  ToolType,
+} from "./types";
+import { ILanceDBConnection } from "./LanceDBConnection";
+import { IEmbeddingGenerator } from "./EmbeddingGenerator";
+import { THRESHOLDS } from "../../constants";
 
 /**
  * SearchEngine interface
@@ -21,10 +22,7 @@ import { IEmbeddingGenerator } from './EmbeddingGenerator';
 export interface ISearchEngine {
   search(query: string, limit?: number, minScore?: number): Promise<ToolRetrievalResult[]>;
   formatResults(results: unknown[]): ToolRetrievalResult[];
-  applyFilters(
-    results: ToolRetrievalResult[],
-    filters: RetrievalFilter[]
-  ): ToolRetrievalResult[];
+  applyFilters(results: ToolRetrievalResult[], filters: RetrievalFilter[]): ToolRetrievalResult[];
   sortResults(
     results: ToolRetrievalResult[],
     options: RetrievalSortingOptions
@@ -44,7 +42,7 @@ export class SearchEngine implements ISearchEngine {
     connection: ILanceDBConnection,
     embeddingGenerator: IEmbeddingGenerator,
     defaultLimit: number = 5,
-    defaultThreshold: number = 0.4
+    defaultThreshold: number = THRESHOLDS.RELEVANT_SKILLS
   ) {
     this.connection = connection;
     this.embeddingGenerator = embeddingGenerator;
@@ -55,16 +53,14 @@ export class SearchEngine implements ISearchEngine {
   /**
    * Search for relevant skills
    */
-  async search(
-    query: string,
-    limit?: number,
-    minScore?: number
-  ): Promise<ToolRetrievalResult[]> {
+  async search(query: string, limit?: number, minScore?: number): Promise<ToolRetrievalResult[]> {
     const effectiveLimit = limit ?? this.defaultLimit;
     const effectiveThreshold = minScore ?? this.defaultThreshold;
 
     try {
-      logger.info(`[SearchEngine] Searching for: "${query}" (limit: ${effectiveLimit}, threshold: ${effectiveThreshold})`);
+      logger.info(
+        `[SearchEngine] Searching for: "${query}" (limit: ${effectiveLimit}, threshold: ${effectiveThreshold})`
+      );
 
       // Generate query vector
       const queryVector = await this.embeddingGenerator.generateForText(query);
@@ -72,24 +68,28 @@ export class SearchEngine implements ISearchEngine {
       // Get table
       const table = await this.connection.getTable();
       if (!table) {
-        logger.warn('[SearchEngine] Table not initialized');
+        logger.warn("[SearchEngine] Table not initialized");
         return [];
       }
 
       // Execute vector search
-      const vectorQuery = table.query()
+      const vectorQuery = table
+        .query()
         .nearestTo(queryVector.values)
-        .distanceType('cosine')
+        .distanceType("cosine")
         .limit(effectiveLimit * 2); // Get more results for threshold filtering
 
       const results = await vectorQuery.toArray();
 
       // Format and filter results
-      const formattedResults = this.formatSearchResults(results, effectiveLimit, effectiveThreshold);
+      const formattedResults = this.formatSearchResults(
+        results,
+        effectiveLimit,
+        effectiveThreshold
+      );
 
       logger.info(`[SearchEngine] Found ${formattedResults.length} relevant skill(s)`);
       return formattedResults;
-
     } catch (error) {
       logger.error(`[SearchEngine] Search failed for query "${query}":`, error);
       throw error;
@@ -125,7 +125,9 @@ export class SearchEngine implements ISearchEngine {
 
         // Apply threshold filter
         if (score < threshold) {
-          logger.debug(`[SearchEngine] Filtered out result with score ${score.toFixed(4)} < threshold ${threshold}`);
+          logger.debug(
+            `[SearchEngine] Filtered out result with score ${score.toFixed(4)} < threshold ${threshold}`
+          );
           continue;
         }
 
@@ -140,13 +142,12 @@ export class SearchEngine implements ISearchEngine {
           name: data.name,
           description: data.description,
           score,
-          toolType: data.toolType || 'skill',
+          toolType: data.toolType || "skill",
           metadata: tool as Record<string, unknown>,
-          tags: data.tags || []
+          tags: data.tags || [],
         });
-
       } catch (error) {
-        logger.warn('[SearchEngine] Failed to format search result:', error);
+        logger.warn("[SearchEngine] Failed to format search result:", error);
       }
     }
 
@@ -157,9 +158,9 @@ export class SearchEngine implements ISearchEngine {
    * Extract result data from LanceDB response
    */
   private extractResultData(result: unknown): ToolsTable {
-    if (result && typeof result === 'object') {
+    if (result && typeof result === "object") {
       const r = result as Record<string, unknown>;
-      if ('item' in r) {
+      if ("item" in r) {
         return r.item as ToolsTable;
       }
     }
@@ -170,7 +171,7 @@ export class SearchEngine implements ISearchEngine {
    * Calculate similarity score from result
    */
   private calculateScore(result: unknown): number {
-    if (result && typeof result === 'object') {
+    if (result && typeof result === "object") {
       const r = result as Record<string, number>;
 
       if (r._distance !== undefined) {
@@ -193,12 +194,12 @@ export class SearchEngine implements ISearchEngine {
    */
   private parseMetadata(data: ToolsTable): Record<string, unknown> {
     try {
-      if (typeof data.metadata === 'string') {
+      if (typeof data.metadata === "string") {
         return JSON.parse(data.metadata);
       }
       return data.metadata || {};
     } catch {
-      logger.warn('[SearchEngine] Failed to parse metadata JSON');
+      logger.warn("[SearchEngine] Failed to parse metadata JSON");
       return {};
     }
   }
@@ -207,23 +208,23 @@ export class SearchEngine implements ISearchEngine {
    * Format tool based on type
    */
   private formatTool(data: ToolsTable, metadata: Record<string, unknown>): Record<string, unknown> {
-    if (data.toolType === 'mcp') {
+    if (data.toolType === "mcp") {
       // MCP tool format
       return {
         name: data.name,
         description: data.description,
-        type: 'mcp' as const,
+        type: "mcp" as const,
         source: data.source,
         tags: data.tags,
         metadata: {
           ...metadata,
           version: data.version,
-          path: data.path
-        }
+          path: data.path,
+        },
       };
     }
 
-    if (data.toolType === 'builtin') {
+    if (data.toolType === "builtin") {
       // Builtin tool format
       return {
         name: data.name,
@@ -234,8 +235,8 @@ export class SearchEngine implements ISearchEngine {
         path: data.path,
         metadata: {
           ...metadata,
-          builtin: true
-        }
+          builtin: true,
+        },
       };
     }
 
@@ -247,25 +248,26 @@ export class SearchEngine implements ISearchEngine {
       tags: data.tags,
       version: data.version,
       path: data.path,
-      parameters: (metadata.parameters as Record<string, unknown>) || { type: 'object', properties: {}, required: [] },
+      parameters: (metadata.parameters as Record<string, unknown>) || {
+        type: "object",
+        properties: {},
+        required: [],
+      },
       enabled: true,
-      level: 1
+      level: 1,
     };
   }
 
   /**
    * Apply filters to results
    */
-  applyFilters(
-    results: ToolRetrievalResult[],
-    filters: RetrievalFilter[]
-  ): ToolRetrievalResult[] {
+  applyFilters(results: ToolRetrievalResult[], filters: RetrievalFilter[]): ToolRetrievalResult[] {
     if (!filters || filters.length === 0) {
       return results;
     }
 
-    return results.filter(result => {
-      return filters.every(filter => this.applyFilter(result, filter));
+    return results.filter((result) => {
+      return filters.every((filter) => this.applyFilter(result, filter));
     });
   }
 
@@ -282,21 +284,21 @@ export class SearchEngine implements ISearchEngine {
    */
   private compareValues(
     actual: unknown,
-    operator: RetrievalFilter['operator'],
+    operator: RetrievalFilter["operator"],
     expected: unknown
   ): boolean {
     switch (operator) {
-      case 'eq':
+      case "eq":
         return actual === expected;
-      case 'ne':
+      case "ne":
         return actual !== expected;
-      case 'gt':
-        return typeof actual === 'number' && actual > (expected as number);
-      case 'lt':
-        return typeof actual === 'number' && actual < (expected as number);
-      case 'contains':
-        return typeof actual === 'string' && actual.includes(expected as string);
-      case 'in':
+      case "gt":
+        return typeof actual === "number" && actual > (expected as number);
+      case "lt":
+        return typeof actual === "number" && actual < (expected as number);
+      case "contains":
+        return typeof actual === "string" && actual.includes(expected as string);
+      case "in":
         return Array.isArray(expected) && expected.includes(actual);
       default:
         return true;
@@ -317,15 +319,15 @@ export class SearchEngine implements ISearchEngine {
       let bValue: number | string;
 
       switch (options.field) {
-        case 'score':
+        case "score":
           aValue = a.score;
           bValue = b.score;
           break;
-        case 'relevance':
+        case "relevance":
           aValue = a.score;
           bValue = b.score;
           break;
-        case 'popularity':
+        case "popularity":
           aValue = (a.metadata?.useCount as number) || 0;
           bValue = (b.metadata?.useCount as number) || 0;
           break;
@@ -334,7 +336,7 @@ export class SearchEngine implements ISearchEngine {
           bValue = b.score;
       }
 
-      if (options.order === 'asc') {
+      if (options.order === "asc") {
         return aValue > bValue ? 1 : -1;
       } else {
         return aValue < bValue ? 1 : -1;

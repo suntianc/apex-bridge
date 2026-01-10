@@ -1,194 +1,194 @@
 /**
  * Validation Schemas - API 端点验证模式定义
- * 
+ *
  * 为所有 API 端点定义 JSON Schema 验证模式
  */
 
-import { ValidationSchema } from './validationMiddleware';
+import { ValidationSchema } from "./validationMiddleware";
 
 /**
  * 聊天补全请求验证模式
  */
 export const chatCompletionSchema: ValidationSchema = {
   body: {
-    type: 'object',
-    required: ['messages'],
+    type: "object",
+    required: ["messages"],
     properties: {
       model: {
-        type: 'string',
-        pattern: '^[a-zA-Z0-9._:-]+$',
-        maxLength: 100
+        type: "string",
+        pattern: "^[a-zA-Z0-9._:-]+$",
+        maxLength: 100,
       },
       messages: {
-        type: 'array',
+        type: "array",
         minItems: 1,
         maxItems: 100,
         items: {
-          type: 'object',
-          required: ['role', 'content'],
+          type: "object",
+          required: ["role", "content"],
           properties: {
             role: {
-              type: 'string',
-              enum: ['system', 'user', 'assistant']
+              type: "string",
+              enum: ["system", "user", "assistant"],
             },
             content: {
               anyOf: [
-                { type: 'string', maxLength: 100000 },
+                { type: "string", maxLength: 100000 },
                 {
-                  type: 'array',
+                  type: "array",
                   maxItems: 50,
                   items: {
-                    type: 'object',
-                    required: ['type'],
+                    type: "object",
+                    required: ["type"],
                     properties: {
                       type: {
-                        type: 'string',
-                        enum: ['text', 'image_url']
+                        type: "string",
+                        enum: ["text", "image_url"],
                       },
                       text: {
-                        type: 'string',
-                        maxLength: 50000
+                        type: "string",
+                        maxLength: 50000,
                       },
                       image_url: {
-                        type: 'object',
+                        type: "object",
                         properties: {
                           url: {
-                            type: 'string',
-                            maxLength: 10000000  // ✅ 修复：增加到10MB，支持大型图片的base64编码
-                          }
+                            type: "string",
+                            maxLength: 10000000, // ✅ 修复：增加到10MB，支持大型图片的base64编码
+                          },
                         },
-                        required: ['url']
-                      }
-                    }
-                  }
-                }
-              ]
+                        required: ["url"],
+                      },
+                    },
+                  },
+                },
+              ],
             },
             name: {
-              type: 'string',
-              maxLength: 100
-            }
-          }
-        }
+              type: "string",
+              maxLength: 100,
+            },
+          },
+        },
       },
       temperature: {
-        type: 'number',
+        type: "number",
         minimum: 0,
         maximum: 2,
-        default: 1
+        default: 1,
       },
       max_tokens: {
-        type: 'integer',
+        type: "integer",
         minimum: 1,
-        maximum: 4096
+        maximum: 4096,
       },
       top_p: {
-        type: 'number',
+        type: "number",
         minimum: 0,
-        maximum: 1
+        maximum: 1,
       },
       frequency_penalty: {
-        type: 'number',
+        type: "number",
         minimum: -2,
-        maximum: 2
+        maximum: 2,
       },
       presence_penalty: {
-        type: 'number',
+        type: "number",
         minimum: -2,
-        maximum: 2
+        maximum: 2,
       },
       stop: {
         oneOf: [
           {
-            type: 'string',
-            maxLength: 100
+            type: "string",
+            maxLength: 100,
           },
           {
-            type: 'array',
+            type: "array",
             items: {
-              type: 'string',
-              maxLength: 100
+              type: "string",
+              maxLength: 100,
             },
-            maxItems: 4
-          }
-        ]
+            maxItems: 4,
+          },
+        ],
       },
       n: {
-        type: 'integer',
+        type: "integer",
         minimum: 1,
-        maximum: 10
+        maximum: 10,
       },
       stream: {
-        type: 'boolean',
-        default: false
+        type: "boolean",
+        default: false,
       },
       user: {
-        type: 'string',
-        maxLength: 100
+        type: "string",
+        maxLength: 100,
       },
       agent_id: {
-        type: 'string',
-        pattern: '^[a-zA-Z0-9._-]+$',
-        maxLength: 100
+        type: "string",
+        pattern: "^[a-zA-Z0-9._-]+$",
+        maxLength: 100,
       },
       selfThinking: {
-        type: 'object',
+        type: "object",
         properties: {
           enabled: {
-            type: 'boolean'
+            type: "boolean",
           },
           maxIterations: {
-            type: 'integer',
+            type: "integer",
             minimum: 1,
             maximum: 100,
-            default: 50
+            default: 50,
           },
           includeThoughtsInResponse: {
-            type: 'boolean',
-            default: true
+            type: "boolean",
+            default: true,
           },
           systemPrompt: {
-            type: 'string',
-            maxLength: 10000
+            type: "string",
+            maxLength: 10000,
           },
           additionalPrompts: {
-            type: 'array',
+            type: "array",
             items: {
-            type: 'string',
-            maxLength: 2000
-          },
-            maxItems: 10
+              type: "string",
+              maxLength: 2000,
+            },
+            maxItems: 10,
           },
           tools: {
-            type: 'array',
+            type: "array",
             items: {
-              type: 'object',
+              type: "object",
               properties: {
                 name: {
-                  type: 'string',
-                  pattern: '^[a-zA-Z0-9_]+$',
-                  maxLength: 50
+                  type: "string",
+                  pattern: "^[a-zA-Z0-9_]+$",
+                  maxLength: 50,
                 },
                 description: {
-                  type: 'string',
-                  maxLength: 500
+                  type: "string",
+                  maxLength: 500,
                 },
                 parameters: {
-                  type: 'object'
-                }
+                  type: "object",
+                },
               },
-              required: ['name', 'description', 'parameters']
+              required: ["name", "description", "parameters"],
             },
-            maxItems: 20
+            maxItems: 20,
           },
           enableStreamThoughts: {
-            type: 'boolean',
-            default: false
-          }
-        }
-      }
-    }
-  }
+            type: "boolean",
+            default: false,
+          },
+        },
+      },
+    },
+  },
 };
 
 /**
@@ -196,84 +196,33 @@ export const chatCompletionSchema: ValidationSchema = {
  */
 export const modelsListSchema: ValidationSchema = {
   query: {
-    type: 'object',
+    type: "object",
     properties: {
       provider: {
-        type: 'string',
-        pattern: '^[a-zA-Z0-9._-]+$',
-        maxLength: 50
-      }
-    }
-  }
+        type: "string",
+        pattern: "^[a-zA-Z0-9._-]+$",
+        maxLength: 50,
+      },
+    },
+  },
 };
 
-
-
-/**
- * 简化流式聊天请求验证模式（专为前端看板娘设计）
- */
-export const simpleStreamSchema: ValidationSchema = {
-  body: {
-    type: 'object',
-    required: ['messages', 'model'],
-    properties: {
-      messages: {
-        type: 'array',
-        minItems: 1,
-        maxItems: 50, // 简化接口限制消息数量
-        items: {
-          type: 'object',
-          required: ['role', 'content'],
-          properties: {
-            role: {
-              type: 'string',
-              enum: ['system', 'user', 'assistant']
-            },
-            content: {
-              type: 'string',
-              maxLength: 50000 // 简化接口限制内容长度
-            }
-          }
-        }
-      },
-      model: {
-        type: 'string',
-        pattern: '^[a-zA-Z0-9._:-]+$',
-        maxLength: 100
-      },
-      temperature: {
-        type: 'number',
-        minimum: 0,
-        maximum: 2
-      },
-      max_tokens: {
-        type: 'number',
-        minimum: 1,
-        maximum: 10000
-      },
-      user: {
-        type: 'string',
-        maxLength: 100
-      }
-    }
-  }
-};
 /**
  * 中断请求验证模式
  */
 export const interruptRequestSchema: ValidationSchema = {
   body: {
-    type: 'object',
-    required: ['requestId'],
+    type: "object",
+    required: ["requestId"],
     properties: {
       requestId: {
-        type: 'string',
-        pattern: '^[a-zA-Z0-9._-]+$',
+        type: "string",
+        pattern: "^[a-zA-Z0-9._-]+$",
         minLength: 1,
-        maxLength: 200
-      }
-    }
-  }
+        maxLength: 200,
+      },
+    },
+  },
 };
 
 /**
@@ -281,44 +230,44 @@ export const interruptRequestSchema: ValidationSchema = {
  */
 export const validateModelBeforeAddSchema: ValidationSchema = {
   body: {
-    type: 'object',
-    required: ['provider', 'baseConfig', 'model'],
+    type: "object",
+    required: ["provider", "baseConfig", "model"],
     properties: {
       provider: {
-        type: 'string',
-        enum: ['openai', 'deepseek', 'zhipu', 'claude', 'ollama', 'custom']
+        type: "string",
+        enum: ["openai", "deepseek", "zhipu", "claude", "ollama", "custom"],
       },
       baseConfig: {
-        type: 'object',
-        required: ['apiKey'],
+        type: "object",
+        required: ["apiKey"],
         properties: {
           apiKey: {
-            type: 'string',
-            minLength: 1
+            type: "string",
+            minLength: 1,
           },
           baseURL: {
-            type: 'string',
-            format: 'uri',
-            pattern: '^https?://'
+            type: "string",
+            format: "uri",
+            pattern: "^https?://",
           },
           timeout: {
-            type: 'integer',
+            type: "integer",
             minimum: 1000,
-            maximum: 60000
+            maximum: 60000,
           },
           maxRetries: {
-            type: 'integer',
+            type: "integer",
             minimum: 0,
-            maximum: 5
-          }
-        }
+            maximum: 5,
+          },
+        },
       },
       model: {
-        type: 'string',
-        pattern: '^[a-zA-Z0-9._-]+$',
+        type: "string",
+        pattern: "^[a-zA-Z0-9._-]+$",
         minLength: 1,
-        maxLength: 100
-      }
-    }
-  }
+        maxLength: 100,
+      },
+    },
+  },
 };

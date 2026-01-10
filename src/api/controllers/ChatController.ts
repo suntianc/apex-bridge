@@ -87,11 +87,8 @@ export class ChatController {
         logger.warn("[ChatController] Multimodal messages lost after validation!");
       }
 
-      if (options.stream) {
-        await this.handleStreamResponse(res, messages, options);
-      } else {
-        await this.handleNormalResponse(res, messages, options);
-      }
+      // 深度思考模式：强制流式输出思考过程
+      await this.handleStreamResponse(res, messages, options);
     } catch (error: any) {
       logger.error("Error in chatCompletions:", error);
 

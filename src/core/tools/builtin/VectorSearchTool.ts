@@ -3,9 +3,13 @@
  * 使用LanceDB搜索相关的Skills工具
  */
 
-import { ToolResult, BuiltInTool, ToolType } from '../../../types/tool-system';
-import { getToolRetrievalService, ToolRetrievalService } from '../../../services/ToolRetrievalService';
-import { logger } from '../../../utils/logger';
+import { ToolResult, BuiltInTool, ToolType } from "../../../types/tool-system";
+import {
+  getToolRetrievalService,
+  ToolRetrievalService,
+} from "../../../services/ToolRetrievalService";
+import { logger } from "../../../utils/logger";
+import { THRESHOLDS } from "../../../constants";
 
 /**
  * VectorSearchTool参数接口
@@ -27,8 +31,11 @@ export interface VectorSearchArgs {
  */
 export class VectorSearchTool {
   private static readonly DEFAULT_LIMIT = 5;
-  private static readonly DEFAULT_THRESHOLD = 0.40;  // 使用Nomic模型，提高至0.40，过滤噪声，优化语义搜索
   private static readonly MAX_LIMIT = 20;
+
+  private static get DEFAULT_THRESHOLD(): number {
+    return THRESHOLDS.RELEVANT_SKILLS;
+  }
 
   /**
    * 执行向量搜索
@@ -65,9 +72,8 @@ export class VectorSearchTool {
         success: true,
         output: formattedResults,
         duration,
-        exitCode: 0
+        exitCode: 0,
       };
-
     } catch (error) {
       const duration = Date.now() - startTime;
 
@@ -77,8 +83,8 @@ export class VectorSearchTool {
         success: false,
         error: this.formatError(error),
         duration,
-        errorCode: 'VECTOR_SEARCH_ERROR',
-        exitCode: 1
+        errorCode: "VECTOR_SEARCH_ERROR",
+        exitCode: 1,
       };
     }
   }
@@ -87,17 +93,17 @@ export class VectorSearchTool {
    * 验证参数
    */
   private static validateArgs(args: VectorSearchArgs): void {
-    if (!args.query || typeof args.query !== 'string') {
-      throw new Error('Query is required and must be a non-empty string');
+    if (!args.query || typeof args.query !== "string") {
+      throw new Error("Query is required and must be a non-empty string");
     }
 
     if (args.query.trim().length === 0) {
-      throw new Error('Query cannot be empty or whitespace only');
+      throw new Error("Query cannot be empty or whitespace only");
     }
 
     if (args.limit !== undefined) {
-      if (typeof args.limit !== 'number') {
-        throw new Error('Limit must be a number');
+      if (typeof args.limit !== "number") {
+        throw new Error("Limit must be a number");
       }
       if (args.limit < 1 || args.limit > this.MAX_LIMIT) {
         throw new Error(`Limit must be between 1 and ${this.MAX_LIMIT}`);
@@ -105,11 +111,11 @@ export class VectorSearchTool {
     }
 
     if (args.threshold !== undefined) {
-      if (typeof args.threshold !== 'number') {
-        throw new Error('Threshold must be a number');
+      if (typeof args.threshold !== "number") {
+        throw new Error("Threshold must be a number");
       }
       if (args.threshold < 0 || args.threshold > 1) {
-        throw new Error('Threshold must be between 0.0 and 1.0');
+        throw new Error("Threshold must be between 0.0 and 1.0");
       }
     }
   }
@@ -135,15 +141,15 @@ export class VectorSearchTool {
       output += this.formatResult(result, index + 1, args);
     });
 
-    output += '\n';
-    output += '=== How to Use These Tools ===\n\n';
+    output += "\n";
+    output += "=== How to Use These Tools ===\n\n";
 
     // 根据工具类型显示不同的使用说明
     const firstTool = results[0]?.tool;
 
     switch (firstTool?.type) {
-      case 'mcp':
-        output += '🔌 MCP Tool: Use tool_action with the tool name\n';
+      case "mcp":
+        output += "🔌 MCP Tool: Use tool_action with the tool name\n";
         output += `Example:\n`;
         output += `<tool_action name="${firstTool.name}" type="mcp">\n`;
         if (firstTool.metadata?.inputSchema?.properties) {
@@ -155,19 +161,19 @@ export class VectorSearchTool {
         output += `</tool_action>\n\n`;
         break;
 
-      case 'builtin':
+      case "builtin":
         output += '⚙️ Built-in Tool: Use tool_action with type="builtin"\n';
         output += `Example:\n`;
         output += `<tool_action name="${firstTool.name}" type="builtin">\n`;
         output += `</tool_action>\n\n`;
         break;
 
-      case 'skill':
+      case "skill":
       default:
         // Skill 类型
         const hasExecuteScript = firstTool?.path && this.checkIfExecutable(firstTool.path);
         if (hasExecuteScript) {
-          output += '🔧 Executable Skill: Use tool_action to execute\n';
+          output += "🔧 Executable Skill: Use tool_action to execute\n";
           output += `Example:\n`;
           output += `<tool_action name="${firstTool.name}" type="skill">\n`;
           if (firstTool.parameters?.properties) {
@@ -178,16 +184,16 @@ export class VectorSearchTool {
           }
           output += `</tool_action>\n\n`;
         } else {
-          output += '📚 Knowledge Skill: Use read-skill to get full documentation\n';
+          output += "📚 Knowledge Skill: Use read-skill to get full documentation\n";
           output += `Example:\n`;
           output += `<tool_action name="read-skill" type="builtin">\n`;
-          output += `  <skillName value="${firstTool?.name || 'skill-name'}" />\n`;
+          output += `  <skillName value="${firstTool?.name || "skill-name"}" />\n`;
           output += `</tool_action>\n\n`;
         }
         break;
     }
 
-    output += 'Note: After reading or executing, you can apply the knowledge to help the user.\n';
+    output += "Note: After reading or executing, you can apply the knowledge to help the user.\n";
 
     return output;
   }
@@ -221,27 +227,28 @@ export class VectorSearchTool {
     let typeDescription: string;
 
     switch (tool.type) {
-      case 'mcp':
-        typeIcon = '🔌';
-        typeLabel = 'MCP Tool';
-        typeDescription = 'External MCP server tool';
+      case "mcp":
+        typeIcon = "🔌";
+        typeLabel = "MCP Tool";
+        typeDescription = "External MCP server tool";
         break;
-      case 'builtin':
-        typeIcon = '⚙️';
-        typeLabel = 'Built-in Tool';
-        typeDescription = 'System built-in tool';
+      case "builtin":
+        typeIcon = "⚙️";
+        typeLabel = "Built-in Tool";
+        typeDescription = "System built-in tool";
         break;
-      case 'skill':
+      case "skill":
       default:
         // Skill 类型根据 parameters 判断可执行性
-        const isExecutable = tool.parameters &&
-                            tool.parameters.properties &&
-                            Object.keys(tool.parameters.properties).length > 0;
-        typeIcon = isExecutable ? '🔧' : '📚';
-        typeLabel = isExecutable ? 'Executable Skill' : 'Knowledge Skill';
+        const isExecutable =
+          tool.parameters &&
+          tool.parameters.properties &&
+          Object.keys(tool.parameters.properties).length > 0;
+        typeIcon = isExecutable ? "🔧" : "📚";
+        typeLabel = isExecutable ? "Executable Skill" : "Knowledge Skill";
         typeDescription = isExecutable
-          ? 'Use tool_action to execute'
-          : 'Use read-skill to get full documentation';
+          ? "Use tool_action to execute"
+          : "Use read-skill to get full documentation";
         break;
     }
 
@@ -250,16 +257,16 @@ export class VectorSearchTool {
     output += `   Description: ${tool.description}\n`;
     output += `   Type: ${typeDescription}\n`;
 
-    if (tool.source && tool.type === 'mcp') {
+    if (tool.source && tool.type === "mcp") {
       output += `   Source: ${tool.source}\n`;
     }
 
     if (tool.tags && Array.isArray(tool.tags) && tool.tags.length > 0) {
-      output += `   Tags: ${tool.tags.join(', ')}\n`;
+      output += `   Tags: ${tool.tags.join(", ")}\n`;
     }
 
     // 显示参数（Skill 和 MCP 工具）
-    if (tool.type === 'skill' && tool.parameters?.properties) {
+    if (tool.type === "skill" && tool.parameters?.properties) {
       output += `   Parameters:\n`;
       const properties = tool.parameters.properties;
       const required = tool.parameters.required || [];
@@ -267,7 +274,7 @@ export class VectorSearchTool {
       Object.entries(properties).forEach(([paramName, paramSchema]) => {
         const schema: any = paramSchema;
         const isRequired = required.includes(paramName);
-        const requiredMarker = isRequired ? ' (required)' : '';
+        const requiredMarker = isRequired ? " (required)" : "";
         output += `     - ${paramName}${requiredMarker}: ${schema.description}\n`;
 
         if (schema.type) {
@@ -279,7 +286,7 @@ export class VectorSearchTool {
         }
 
         if (schema.enum) {
-          output += `       Enum: ${schema.enum.join(', ')}\n`;
+          output += `       Enum: ${schema.enum.join(", ")}\n`;
         }
       });
     }
@@ -292,7 +299,7 @@ export class VectorSearchTool {
       output += `   Reason: ${result.reason}\n`;
     }
 
-    output += '\n';
+    output += "\n";
     return output;
   }
 
@@ -303,10 +310,10 @@ export class VectorSearchTool {
     if (error instanceof Error) {
       return error.message;
     }
-    if (typeof error === 'string') {
+    if (typeof error === "string") {
       return error;
     }
-    return 'Unknown error occurred during vector search';
+    return "Unknown error occurred during vector search";
   }
 
   /**
@@ -314,39 +321,41 @@ export class VectorSearchTool {
    */
   static getMetadata() {
     return {
-      name: 'vector-search',
-      description: 'Search for relevant Skills tools using vector similarity. Use this when you need to find tools to help with a task.',
-      category: 'search',
+      name: "vector-search",
+      description:
+        "Search for relevant Skills tools using vector similarity. Use this when you need to find tools to help with a task.",
+      category: "search",
       level: 1,
       parameters: {
-        type: 'object',
+        type: "object",
         properties: {
           query: {
-            type: 'string',
-            description: 'Search query describing what kind of tool or functionality you need'
+            type: "string",
+            description: "Search query describing what kind of tool or functionality you need",
           },
           limit: {
-            type: 'number',
+            type: "number",
             description: `Maximum number of results to return (default: ${this.DEFAULT_LIMIT}, max: ${this.MAX_LIMIT})`,
             default: this.DEFAULT_LIMIT,
             minimum: 1,
-            maximum: this.MAX_LIMIT
+            maximum: this.MAX_LIMIT,
           },
           threshold: {
-            type: 'number',
-            description: 'Similarity threshold (0.0 to 1.0, default: 0.40). Higher values = more strict matching',
+            type: "number",
+            description:
+              "Similarity threshold (0.0 to 1.0, default: 0.40). Higher values = more strict matching",
             default: this.DEFAULT_THRESHOLD,
             minimum: 0.0,
-            maximum: 1.0
+            maximum: 1.0,
           },
           includeMetadata: {
-            type: 'boolean',
-            description: 'Include additional metadata in results',
-            default: false
-          }
+            type: "boolean",
+            description: "Include additional metadata in results",
+            default: false,
+          },
         },
-        required: ['query']
-      }
+        required: ["query"],
+      },
     };
   }
 
@@ -356,7 +365,7 @@ export class VectorSearchTool {
   private static async getQueryEmbedding(query: string): Promise<number[]> {
     // 这个方法将由ToolRetrievalService实现
     // 这里只是占位符
-    throw new Error('getQueryEmbedding not implemented');
+    throw new Error("getQueryEmbedding not implemented");
   }
 
   /**
@@ -364,20 +373,22 @@ export class VectorSearchTool {
    */
   private static extractParametersFromResults(results: any[]): string {
     if (results.length === 0) {
-      return 'No tools found';
+      return "No tools found";
     }
 
     const tool = results[0].tool;
     if (!tool.parameters || !tool.parameters.properties) {
-      return 'No parameters defined';
+      return "No parameters defined";
     }
 
-    const params = Object.entries(tool.parameters.properties).map(([name, schema]: [string, any]) => {
-      const required = tool.parameters.required?.includes(name) ? ' (required)' : '';
-      return `    ${name}${required}: ${schema.type} - ${schema.description}`;
-    });
+    const params = Object.entries(tool.parameters.properties).map(
+      ([name, schema]: [string, any]) => {
+        const required = tool.parameters.required?.includes(name) ? " (required)" : "";
+        return `    ${name}${required}: ${schema.type} - ${schema.description}`;
+      }
+    );
 
-    return params.join('\n');
+    return params.join("\n");
   }
 }
 
@@ -391,6 +402,6 @@ export function createVectorSearchTool() {
     enabled: true,
     execute: async (args: Record<string, any>) => {
       return VectorSearchTool.execute(args as VectorSearchArgs);
-    }
+    },
   } as BuiltInTool;
 }

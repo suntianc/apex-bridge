@@ -19,22 +19,29 @@ export class StrategySelector {
 
   /**
    * 根据选项选择合适的策略
+   * 优先使用 ReActStrategy（深度思考），如果没有则报错
    */
   select(options: ChatOptions): ChatStrategy {
-    // 遍历所有策略，找到第一个支持的
+    // 优先使用 ReActStrategy（深度思考模式）
+    const reactStrategy = this.strategyMap.get("ReActStrategy");
+    if (reactStrategy && reactStrategy.supports(options)) {
+      logger.debug(`[StrategySelector] Selected strategy: ${reactStrategy.getName()}`);
+      return reactStrategy;
+    }
+
+    // 如果 ReActStrategy 不支持，尝试其他策略
     for (const strategy of this.strategyMap.values()) {
+      if (strategy.getName() === "ReActStrategy") continue; // 已检查
       if (strategy.supports(options)) {
         logger.debug(`[StrategySelector] Selected strategy: ${strategy.getName()}`);
         return strategy;
       }
     }
 
-    // 默认使用单轮策略
-    const defaultStrategy = this.strategyMap.get("SingleRoundStrategy");
-    if (!defaultStrategy) {
-      throw new Error("No suitable chat strategy found");
-    }
-    return defaultStrategy;
+    // 没有可用策略，抛出错误（不再回退到单轮策略）
+    throw new Error(
+      "No suitable chat strategy found. ReActStrategy requires selfThinking.enabled=true"
+    );
   }
 
   /**
