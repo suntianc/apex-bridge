@@ -148,7 +148,7 @@ export class VectorSearchTool {
     const firstTool = results[0]?.tool;
 
     switch (firstTool?.type) {
-      case "mcp":
+      case "mcp": {
         output += "🔌 MCP Tool: Use tool_action with the tool name\n";
         output += `Example:\n`;
         output += `<tool_action name="${firstTool.name}" type="mcp">\n`;
@@ -160,16 +160,18 @@ export class VectorSearchTool {
         }
         output += `</tool_action>\n\n`;
         break;
+      }
 
-      case "builtin":
+      case "builtin": {
         output += '⚙️ Built-in Tool: Use tool_action with type="builtin"\n';
         output += `Example:\n`;
         output += `<tool_action name="${firstTool.name}" type="builtin">\n`;
         output += `</tool_action>\n\n`;
         break;
+      }
 
       case "skill":
-      default:
+      default: {
         // Skill 类型
         const hasExecuteScript = firstTool?.path && this.checkIfExecutable(firstTool.path);
         if (hasExecuteScript) {
@@ -191,6 +193,7 @@ export class VectorSearchTool {
           output += `</tool_action>\n\n`;
         }
         break;
+      }
     }
 
     output += "Note: After reading or executing, you can apply the knowledge to help the user.\n";
@@ -227,18 +230,20 @@ export class VectorSearchTool {
     let typeDescription: string;
 
     switch (tool.type) {
-      case "mcp":
+      case "mcp": {
         typeIcon = "🔌";
         typeLabel = "MCP Tool";
         typeDescription = "External MCP server tool";
         break;
-      case "builtin":
+      }
+      case "builtin": {
         typeIcon = "⚙️";
         typeLabel = "Built-in Tool";
         typeDescription = "System built-in tool";
         break;
+      }
       case "skill":
-      default:
+      default: {
         // Skill 类型根据 parameters 判断可执行性
         const isExecutable =
           tool.parameters &&
@@ -250,6 +255,7 @@ export class VectorSearchTool {
           ? "Use tool_action to execute"
           : "Use read-skill to get full documentation";
         break;
+      }
     }
 
     let output = `${index}. ${tool.name} [${typeIcon} ${typeLabel}]\n`;

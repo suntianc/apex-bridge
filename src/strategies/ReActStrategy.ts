@@ -211,7 +211,7 @@ export class ReActStrategy implements ChatStrategy {
           });
           break;
 
-        case "reasoning-delta":
+        case "reasoning-delta": {
           // 推理内容增量（替换原来的 reasoning 事件）
           const reasoningChunk = JSON.stringify({
             reasoning_content: event.data,
@@ -222,6 +222,7 @@ export class ReActStrategy implements ChatStrategy {
           yield reasoningChunk;
           collectedThinking.push(event.data);
           break;
+        }
 
         case "reasoning-end":
           // 推理结束事件
@@ -252,7 +253,7 @@ export class ReActStrategy implements ChatStrategy {
           });
           break;
 
-        case "content":
+        case "content": {
           const contentChunk = JSON.stringify({
             reasoning_content: null,
             content: event.data,
@@ -262,6 +263,7 @@ export class ReActStrategy implements ChatStrategy {
           yield contentChunk;
           collectedContent += event.data;
           break;
+        }
 
         case "tool_start":
           yield JSON.stringify({
