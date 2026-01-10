@@ -2,6 +2,17 @@
  * ApexBridge Server - 主服务器入口（ABP-only）
  */
 
+// 全局错误处理 - 必须在最顶层，任何导入之前
+process.on("unhandledRejection", (reason: any) => {
+  console.error("FATAL UNHANDLED REJECTION:", reason?.message || reason);
+  process.exit(99);
+});
+
+process.on("uncaughtException", (error: any) => {
+  console.error("FATAL UNCAUGHT EXCEPTION:", error?.message || error);
+  process.exit(99);
+});
+
 // 加载环境变量（必须在其他导入之前）
 import dotenv from "dotenv";
 import path from "path";
@@ -113,8 +124,11 @@ export class ABPIntelliCore {
 
       // 初始化LLM配置服务（确保SQLite数据库和表已创建）
       const { LLMConfigService } = await import("./services/LLMConfigService");
-      LLMConfigService.getInstance(); // 触发 DB 初始化
+      const llmConfigService = LLMConfigService.getInstance(); // 触发 DB 初始化
       logger.debug("✅ LLMConfigService initialized");
+
+      // 自动初始化默认提供商（如果不存在）
+      llmConfigService.initializeDefaultProviders();
 
       // 初始化SkillManager（确保在ChatService之前）
       const { SkillManager } = await import("./services/SkillManager");

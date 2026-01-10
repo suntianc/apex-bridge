@@ -57,14 +57,16 @@ export class OllamaAdapter extends BaseOpenAICompatibleAdapter {
    */
   async embed(texts: string[], model?: string): Promise<number[][]> {
     try {
+      // Ollama 0.13.5 使用 prompt 参数，不支持 input 参数
       const requestBody = {
         model: model || this.config.defaultModel,
-        input: texts,
+        prompt: texts[0] || "", // Ollama 只支持单个文本
       };
 
       logger.debug(`[${this.providerName}] Embedding request`, {
         model: requestBody.model,
         textCount: texts.length,
+        textPreview: (texts[0] || "").substring(0, 50),
       });
 
       // Ollama 使用 /api/embeddings 端点

@@ -189,13 +189,7 @@ users/
 profiles/
 user-data/
 # Database files
-.data/*.db
-.data/*.db-shm
-.data/*.db-wal
-.data/ace/*
-.data/skills.lance/*
-.data/playbooks.lance/*
-.data/skills/*/.vectorized
+.data
 # Runtime logs
 logs/*.log
 opencode/

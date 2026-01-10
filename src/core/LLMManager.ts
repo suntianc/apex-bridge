@@ -378,7 +378,7 @@ export class LLMManager {
         `🔢 Using embedding model: ${model.modelName} (${model.provider}/${model.modelKey})`
       );
 
-      const embeddings = await adapter.embed(texts, model.modelName);
+      const embeddings = await adapter.embed(texts, model.modelKey);
 
       logger.debug(
         `✅ Generated ${embeddings.length} embeddings with ${embeddings[0]?.length || 0} dimensions`
