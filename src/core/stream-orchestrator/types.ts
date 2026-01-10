@@ -41,44 +41,22 @@ export interface ReActOptions {
   signal?: AbortSignal;
 
   /** 其他LLM参数 */
-  [key: string]: unknown;
+  [key: string]: any;
 }
 
 // ── 流式事件类型 ────────────────────────────────────────────────────────
 export type StreamEventType =
-  | "reasoning-start" // 推理开始
-  | "reasoning" // 推理内容（流式）
-  | "reasoning-delta" // 推理内容增量
-  | "reasoning-end" // 推理结束
-  | "step-start" // 步骤开始
-  | "step-finish" // 步骤完成
-  | "content" // 内容输出
-  | "tool_start" // 工具调用开始
-  | "tool_end" // 工具调用结束
-  | "done" // 完成
-  | "error"; // 错误
-
-// ── 流式事件数据 ───────────────────────────────────────────────────────────
-export interface StreamEventData {
-  /** 推理内容 (reasoning events) */
-  reasoning?: string;
-  /** 步骤名称 (step events) */
-  stepName?: string;
-  /** 步骤描述 (step events) */
-  stepDescription?: string;
-  /** 内容文本 (content events) */
-  content?: string;
-  /** 工具名称 (tool events) */
-  toolName?: string;
-  /** 工具输入参数 (tool_start) */
-  toolInput?: Record<string, unknown>;
-  /** 工具执行结果 (tool_end) */
-  toolResult?: string;
-  /** 错误信息 (error events) */
-  error?: string;
-  /** 其他数据 */
-  [key: string]: unknown;
-}
+  | 'reasoning-start'   // 推理开始
+  | 'reasoning'         // 推理内容（流式）
+  | 'reasoning-delta'   // 推理内容增量
+  | 'reasoning-end'     // 推理结束
+  | 'step-start'        // 步骤开始
+  | 'step-finish'       // 步骤完成
+  | 'content'           // 内容输出
+  | 'tool_start'        // 工具调用开始
+  | 'tool_end'          // 工具调用结束
+  | 'done'              // 完成
+  | 'error';            // 错误
 
 // ── 流式事件定义 ────────────────────────────────────────────────────────
 export interface StreamEvent {
@@ -86,7 +64,7 @@ export interface StreamEvent {
   type: StreamEventType;
 
   /** 事件数据 */
-  data: StreamEventData;
+  data: any;
 
   /** 时间戳 */
   timestamp: number;
@@ -116,7 +94,7 @@ export interface ToolCall {
   };
 
   /** 工具类型 */
-  type: "function";
+  type: 'function';
 }
 
 // ── 工具结果定义 ────────────────────────────────────────────────────────
@@ -128,10 +106,10 @@ export interface ToolResult {
   name: string;
 
   /** 执行状态 */
-  status: "success" | "error";
+  status: 'success' | 'error';
 
   /** 执行结果 */
-  result: unknown;
+  result: any;
 
   /** 错误信息 (status为error时) */
   error?: string;
@@ -144,11 +122,11 @@ export interface ToolResult {
 export interface LLMOptions {
   /** 工具列表 */
   tools?: Array<{
-    type: "function";
+    type: 'function';
     function: {
       name: string;
       description: string;
-      parameters: Record<string, unknown>;
+      parameters: any;
     };
   }>;
 
@@ -165,7 +143,7 @@ export interface LLMOptions {
   maxTokens?: number;
 
   /** 其他参数 */
-  [key: string]: unknown;
+  [key: string]: any;
 }
 
 /**
@@ -181,11 +159,11 @@ export interface LLMAdapter {
    * @param signal 中止信号
    */
   streamChat(
-    messages: Array<{ role: string; content: string }>,
+    messages: any[],
     options?: LLMOptions,
-    tools?: Array<{ name: string; description: string; parameters: Record<string, unknown> }>,
+    tools?: any[],  // ✅ 新增：工具列表
     signal?: AbortSignal
-  ): AsyncGenerator<StreamEvent, void, void>;
+  ): AsyncGenerator<any, void, void>;
 }
 
 // ── 工具接口定义 ────────────────────────────────────────────────────────
@@ -201,7 +179,7 @@ export interface Tool {
   description: string;
 
   /** 参数JSON Schema */
-  parameters: Record<string, unknown>;
+  parameters: any;
 
   /**
    * 执行函数
@@ -209,10 +187,7 @@ export interface Tool {
    * @param signal 中止信号
    * @returns 可以是同步值、Promise或AsyncGenerator(流式)
    */
-  execute(
-    args: Record<string, unknown>,
-    signal?: AbortSignal
-  ): unknown | Promise<unknown> | AsyncGenerator<unknown>;
+  execute(args: any, signal?: AbortSignal): any | Promise<any> | AsyncGenerator<any>;
 
   /** 是否为流式工具 */
   isStreaming?: boolean;
@@ -266,7 +241,7 @@ export interface BatchTask {
   taskId: string;
 
   /** 消息列表 */
-  messages: Array<{ role: string; content: string }>;
+  messages: any[];
 
   /** ReAct选项 */
   options?: Partial<ReActOptions>;
@@ -277,8 +252,9 @@ export interface BatchResult {
   taskId: string;
 
   /** 执行结果 */
-  result: Array<StreamEvent>;
+  result: any[];
 
   /** 时间戳 */
   timestamp: number;
 }
+
