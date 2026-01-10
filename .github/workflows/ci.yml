@@ -8,7 +8,6 @@ on:
 
 env:
   NODE_VERSION: '20'
-  CACHE_DIR: ~/.cache
 
 jobs:
   # ==================== 代码检查 ====================
