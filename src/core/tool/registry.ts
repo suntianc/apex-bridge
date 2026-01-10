@@ -57,39 +57,6 @@ interface RegisteredTool extends Tool.Info {
 
 /**
  * 工具注册表
- * 管理工具的注册、注销和查询
- */
-export interface ToolInfo {
-  /** 工具ID */
-  id: string;
-  /** 工具描述 */
-  description: string;
-  /** 参数模式 */
-  parameters?: {
-    type: "object";
-    properties: Record<string, any>;
-    required?: string[];
-  };
-  /** 执行函数 */
-  execute: (args: Record<string, unknown>) => Promise<{
-    output: string;
-    metadata?: Record<string, any>;
-  }>;
-}
-
-/**
- * 注册工具项（带类型信息和状态）
- */
-interface RegisteredTool extends Tool.Info {
-  type: ToolType;
-  registeredAt: Date;
-  status: ToolStatus;
-  lastError?: string;
-  lastCheckAt?: Date;
-}
-
-/**
- * 工具注册表
  * 提供工具的注册、注销、查询等生命周期管理功能
  */
 export class ToolRegistry {

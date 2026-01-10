@@ -10,33 +10,33 @@
  *   npm run migrations -- --help         Show help
  */
 
-import { MigrationRunner } from './MigrationRunner';
-import * as path from 'path';
+import { MigrationRunner } from "./MigrationRunner";
+import * as path from "path";
 
 // Configuration
-const DATABASE_PATH = process.env.PLAYBOOK_DB_PATH || '.data/playbook.db';
-const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
+const DATABASE_PATH = process.env.PLAYBOOK_DB_PATH || ".data/playbook.db";
+const MIGRATIONS_DIR = path.join(__dirname, "migrations");
 
 // Parse command line arguments
 function parseArgs(): { action: string; count?: number; help?: boolean } {
   const args = process.argv.slice(2);
-  const result: { action: string; count?: number; help?: boolean } = { action: 'run' };
+  const result: { action: string; count?: number; help?: boolean } = { action: "run" };
 
   for (const arg of args) {
-    if (arg === '--status' || arg === '-s') {
-      result.action = 'status';
-    } else if (arg === '--help' || arg === '-h') {
-      result.action = 'help';
-    } else if (arg.startsWith('--rollback=')) {
-      result.action = 'rollback';
-      const countStr = arg.split('=')[1];
+    if (arg === "--status" || arg === "-s") {
+      result.action = "status";
+    } else if (arg === "--help" || arg === "-h") {
+      result.action = "help";
+    } else if (arg.startsWith("--rollback=")) {
+      result.action = "rollback";
+      const countStr = arg.split("=")[1];
       result.count = parseInt(countStr, 10);
       if (isNaN(result.count) || result.count <= 0) {
-        console.error('Error: Rollback count must be a positive number');
+        console.error("Error: Rollback count must be a positive number");
         process.exit(1);
       }
-    } else if (arg === '--rollback') {
-      result.action = 'rollback';
+    } else if (arg === "--rollback") {
+      result.action = "rollback";
       result.count = 1;
     }
   }
@@ -70,40 +70,40 @@ Examples:
  * Display migration status
  */
 async function showStatus(runner: MigrationRunner): Promise<void> {
-  console.log('Database Migration Status\n');
-  console.log('=' .repeat(60));
+  console.log("Database Migration Status\n");
+  console.log("=".repeat(60));
 
   const currentVersion = runner.getCurrentVersion();
-  console.log(`Current Version: ${currentVersion || 'None'}`);
+  console.log(`Current Version: ${currentVersion || "None"}`);
 
   const isUpToDate = runner.isUpToDate();
-  console.log(`Status: ${isUpToDate ? '✓ Up to date' : '✗ Out of date'}`);
+  console.log(`Status: ${isUpToDate ? "✓ Up to date" : "✗ Out of date"}`);
 
-  console.log('\nMigration History:');
-  console.log('-'.repeat(60));
+  console.log("\nMigration History:");
+  console.log("-".repeat(60));
 
   const history = runner.getMigrationHistory();
 
   if (history.length === 0) {
-    console.log('No migrations have been executed yet.');
+    console.log("No migrations have been executed yet.");
   } else {
     for (const migration of history) {
       const date = new Date(migration.executed_at).toLocaleString();
       console.log(
         `  ${migration.version} - ${migration.name.padEnd(40)} ` +
-        `(${migration.duration}ms) - ${date}`
+          `(${migration.duration}ms) - ${date}`
       );
     }
   }
 
   if (!isUpToDate) {
-    console.log('\nPending Migrations:');
-    console.log('-'.repeat(60));
+    console.log("\nPending Migrations:");
+    console.log("-".repeat(60));
     // Note: We need to reload pending migrations from files
     // This is a simplified status check
   }
 
-  console.log('\n');
+  console.log("\n");
 }
 
 /**
@@ -112,14 +112,14 @@ async function showStatus(runner: MigrationRunner): Promise<void> {
 async function main(): Promise<void> {
   const args = parseArgs();
 
-  if (args.action === 'help') {
+  if (args.action === "help") {
     showHelp();
     process.exit(0);
   }
 
   // Ensure database directory exists
   const dbDir = path.dirname(DATABASE_PATH);
-  const fs = require('fs');
+  const fs = require("fs");
   if (!fs.existsSync(dbDir)) {
     fs.mkdirSync(dbDir, { recursive: true });
     console.log(`Created database directory: ${dbDir}\n`);
@@ -129,11 +129,11 @@ async function main(): Promise<void> {
 
   try {
     switch (args.action) {
-      case 'status':
+      case "status":
         await showStatus(runner);
         break;
 
-      case 'rollback':
+      case "rollback": {
         console.log(`Rolling back last ${args.count || 1} migration(s)...\n`);
         const rollbackResults = runner.rollback(args.count || 1);
 
@@ -145,24 +145,25 @@ async function main(): Promise<void> {
           }
         }
         break;
+      }
 
-      case 'run':
-      default:
+      case "run":
+      default: {
         const results = await runner.run();
 
-        console.log('\n' + '='.repeat(60));
-        console.log('Migration Summary:');
-        console.log('='.repeat(60));
+        console.log("\n" + "=".repeat(60));
+        console.log("Migration Summary:");
+        console.log("=".repeat(60));
 
-        const successful = results.filter(r => r.success).length;
-        const failed = results.filter(r => !r.success).length;
+        const successful = results.filter((r) => r.success).length;
+        const failed = results.filter((r) => !r.success).length;
 
         console.log(`Total: ${results.length}`);
         console.log(`Successful: ${successful}`);
         console.log(`Failed: ${failed}`);
 
         if (failed > 0) {
-          console.log('\nFailed Migrations:');
+          console.log("\nFailed Migrations:");
           for (const result of results) {
             if (!result.success) {
               console.log(`  ${result.version}: ${result.error}`);
@@ -171,9 +172,10 @@ async function main(): Promise<void> {
           process.exit(1);
         }
         break;
+      }
     }
   } catch (error) {
-    console.error('\nError:', error);
+    console.error("\nError:", error);
     process.exit(1);
   } finally {
     runner.close();
@@ -181,7 +183,7 @@ async function main(): Promise<void> {
 }
 
 // Run main function
-main().catch(error => {
-  console.error('Unhandled error:', error);
+main().catch((error) => {
+  console.error("Unhandled error:", error);
   process.exit(1);
 });
