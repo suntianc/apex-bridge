@@ -209,60 +209,87 @@ export class ToolRetrievalService {
 
   /**
    * 检查表的向量维度是否匹配
-   * 通过检查文件系统中的表结构来判断
+   * 直接从表的 schema 读取实际的向量维度
    */
   private async checkTableDimensions(tableName: string): Promise<boolean> {
     try {
       logger.debug(`Checking table dimensions for: ${tableName}`);
 
-      // 通过尝试添加一个记录来检查维度是否匹配
-      // 如果维度不匹配，LanceDB会抛出错误
+      // 打开表
       const tempTable = await this.db!.openTable(tableName);
 
-      try {
-        // 创建一个测试向量
-        const testVector = new Array(this.config.dimensions).fill(0.1);
+      // 从表的 schema 中获取实际的向量维度
+      const actualDimension = await this.getTableVectorDimension(tempTable);
 
-        // 尝试添加一个临时记录（使用临时ID避免冲突）
-        const tempId = `dimension-check-${Date.now()}`;
-        await tempTable.add([
-          {
-            id: tempId,
-            name: "Dimension Check",
-            description: "Temporary record for dimension validation",
-            tags: [],
-            path: "temp",
-            version: "1.0",
-            metadata: JSON.stringify({}), // 转换为JSON字符串以匹配schema
-            vector: testVector,
-            indexedAt: new Date(),
-          },
-        ]);
-
-        // 如果成功，删除测试记录
-        await tempTable.delete(`id = '${tempId}'`);
-
-        logger.info(`Table dimensions match: ${this.config.dimensions}`);
-        return true;
-      } catch (insertError: any) {
-        // 检查是否是维度不匹配的错误
-        const errorMsg = insertError.message || "";
-        if (
-          errorMsg.includes("dimension") ||
-          errorMsg.includes("length") ||
-          errorMsg.includes("schema") ||
-          errorMsg.includes("FixedSizeList")
-        ) {
-          logger.info(`Table dimensions do not match config. Config: ${this.config.dimensions}`);
-          logger.debug("Dimension mismatch error:", errorMsg);
-          return false;
-        }
-        // 其他错误，重新抛出
-        throw insertError;
+      if (actualDimension === null) {
+        logger.warn(`Could not determine vector dimension from table schema`);
+        return false;
       }
+
+      const configDimension = this.config.dimensions;
+      const matches = actualDimension === configDimension;
+
+      if (matches) {
+        logger.info(`Table dimensions match: config=${configDimension}, actual=${actualDimension}`);
+      } else {
+        logger.info(
+          `Table dimensions mismatch: config=${configDimension}, actual=${actualDimension}`
+        );
+      }
+
+      return matches;
     } catch (error) {
       logger.error("Failed to check table dimensions:", error);
       return false;
+    }
+  }
+
+  /**
+   * 从表的 schema 中获取向量字段的维度
+   */
+  private async getTableVectorDimension(table: lancedb.Table): Promise<number | null> {
+    try {
+      // 获取表的 Arrow schema
+      const schema = await table.schema();
+
+      // 查找 vector 字段
+      const vectorField = schema.fields.find((f: { name: string }) => f.name === "vector");
+
+      if (!vectorField) {
+        logger.warn("No vector field found in table schema");
+        return null;
+      }
+
+      // FixedSizeList 类型在 Arrow 中表示向量
+      // FixedSizeList<List<Float32>, dimension>
+      const type = vectorField.type;
+
+      // 检查是否是 FixedSizeList 类型
+      if (type && typeof type === "object" && "children" in type) {
+        // FixedSizeList 有 children 字段，第二个元素是维度
+        // 例如: FixedSizeList(List<Float32>, 768)
+        if (Array.isArray((type as { children: unknown }).children)) {
+          // children[1] 是表示维度的字面量或对象
+          const dimensionValue = (
+            type as { children: [unknown, { value?: number; length?: number }] }
+          ).children;
+          if (dimensionValue[1] && typeof dimensionValue[1] === "object") {
+            return dimensionValue[1].value || dimensionValue[1].length || null;
+          }
+        }
+      }
+
+      // 备选方案：直接从 type 对象获取维度
+      // LanceDB FixedSizeList 的 type 可能有 numChildren 或类似属性
+      if ("numChildren" in type) {
+        return (type as { numChildren: number }).numChildren;
+      }
+
+      logger.warn(`Unknown vector field type: ${JSON.stringify(type)}`);
+      return null;
+    } catch (error) {
+      logger.error("Failed to get table vector dimension:", error);
+      return null;
     }
   }
 

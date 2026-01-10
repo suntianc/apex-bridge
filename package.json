@@ -22,7 +22,11 @@
     "migrations": "ts-node src/database/run-migrations.ts",
     "migrations:run": "npm run migrations",
     "migrations:status": "npm run migrations -- --status",
-    "migrations:rollback": "npm run migrations -- --rollback"
+    "migrations:rollback": "npm run migrations -- --rollback",
+    "test:context-compression": "npx ts-node tests/context-compression-test.ts",
+    "test:all-strategies": "npx ts-node tests/all-strategies-test.ts",
+    "test:compression-integration": "npx ts-node tests/compression-integration-test.ts",
+    "test:compression-realistic": "npx ts-node tests/compression-realistic-test.ts"
   },
   "keywords": [
     "ai",

@@ -22,6 +22,8 @@ import { MessagePreprocessor } from "./chat/MessagePreprocessor";
 import { ConversationSaver } from "./chat/ConversationSaver";
 import { StrategySelector } from "./chat/StrategySelector";
 import { TIMEOUT } from "../constants";
+import { ModelRegistry } from "./ModelRegistry";
+import { getContextCompressionService } from "./context-compression";
 
 export class ChatService {
   private conversationHistoryService: ConversationHistoryService;
@@ -128,15 +130,43 @@ export class ChatService {
       );
       const processedMessages = preprocessResult.messages;
 
-      // 5. 检查是否为流式模式
+      // 5. 应用上下文压缩（如果启用）
+      let messagesForLLM = processedMessages;
+      if (options.contextCompression?.enabled) {
+        // 获取模型上下文限制
+        const model = ModelRegistry.getInstance().findModel(
+          options.provider || "default",
+          options.model || "default"
+        );
+        const contextLimit = model?.modelConfig?.contextWindow || 8000;
+
+        // 应用压缩
+        const compressionResult = await getContextCompressionService().compress(
+          processedMessages,
+          contextLimit,
+          options
+        );
+
+        messagesForLLM = compressionResult.messages;
+
+        // 记录压缩统计信息
+        if (compressionResult.stats.savingsRatio > 0) {
+          logger.debug(
+            `[ChatService] Context compression: ${(compressionResult.stats.savingsRatio * 100).toFixed(1)}% saved, ` +
+              `${compressionResult.stats.originalTokens} -> ${compressionResult.stats.compactedTokens} tokens`
+          );
+        }
+      }
+
+      // 6. 检查是否为流式模式
       if (options.stream) {
         // 流式模式，返回AsyncGenerator
-        return strategy.execute(processedMessages, options) as AsyncIterableIterator<any>;
+        return strategy.execute(messagesForLLM, options) as AsyncIterableIterator<any>;
       } else {
         // 普通模式，返回ChatResult
-        const result = (await strategy.execute(processedMessages, options)) as any;
+        const result = (await strategy.execute(messagesForLLM, options)) as any;
 
-        // 6. 更新会话元数据
+        // 7. 更新会话元数据
         if (options.sessionId && result?.usage) {
           await this.conversationSaver
             .updateSessionMetadata(options.sessionId, result.usage)
@@ -145,7 +175,7 @@ export class ChatService {
             });
         }
 
-        // 7. 统一保存对话历史（非流式模式）
+        // 8. 统一保存对话历史（非流式模式）
         if (options.conversationId) {
           await this.conversationSaver.save(
             options.conversationId,
@@ -315,12 +345,36 @@ export class ChatService {
       );
       const processedMessages = preprocessResult.messages;
 
-      // 4. 执行流式处理
-      for await (const chunk of strategy.stream(
-        processedMessages,
-        options,
-        abortController.signal
-      )) {
+      // 4. 应用上下文压缩（如果启用）
+      let messagesForLLM = processedMessages;
+      if (options.contextCompression?.enabled) {
+        // 获取模型上下文限制
+        const model = ModelRegistry.getInstance().findModel(
+          options.provider || "default",
+          options.model || "default"
+        );
+        const contextLimit = model?.modelConfig?.contextWindow || 8000;
+
+        // 应用压缩
+        const compressionResult = await getContextCompressionService().compress(
+          processedMessages,
+          contextLimit,
+          options
+        );
+
+        messagesForLLM = compressionResult.messages;
+
+        // 记录压缩统计信息
+        if (compressionResult.stats.savingsRatio > 0) {
+          logger.debug(
+            `[ChatService] Context compression (stream): ${(compressionResult.stats.savingsRatio * 100).toFixed(1)}% saved, ` +
+              `${compressionResult.stats.originalTokens} -> ${compressionResult.stats.compactedTokens} tokens`
+          );
+        }
+      }
+
+      // 5. 执行流式处理
+      for await (const chunk of strategy.stream(messagesForLLM, options, abortController.signal)) {
         if (abortController.signal.aborted) {
           logger.debug(`[ChatService] Stream aborted for ${requestId}`);
           break;

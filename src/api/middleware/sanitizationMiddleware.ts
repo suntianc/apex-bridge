@@ -60,20 +60,20 @@ function sanitizeString(value: string, options?: SanitizationOptions): string {
 /**
  * 递归清理对象
  */
-function sanitizeObject(obj: any, options?: SanitizationOptions, fieldPath: string = ""): any {
+function sanitizeObject<T>(obj: T, options?: SanitizationOptions, fieldPath: string = ""): T {
   if (!obj || typeof obj !== "object") {
     return obj;
   }
 
   if (Array.isArray(obj)) {
-    return obj.map((item, index) => sanitizeObject(item, options, `${fieldPath}[${index}]`));
+    return obj.map((item, index) => sanitizeObject(item, options, `${fieldPath}[${index}]`)) as T;
   }
 
-  const sanitized: any = {};
+  const sanitized: Record<string, unknown> = {};
   for (const key in obj) {
     if (Object.prototype.hasOwnProperty.call(obj, key)) {
       const currentPath = fieldPath ? `${fieldPath}.${key}` : key;
-      const value = obj[key];
+      const value = (obj as Record<string, unknown>)[key];
 
       // 检查是否需要跳过敏感字段
       if (options?.skipFields?.includes(key) || options?.skipFields?.includes(currentPath)) {
@@ -88,7 +88,7 @@ function sanitizeObject(obj: any, options?: SanitizationOptions, fieldPath: stri
     }
   }
 
-  return sanitized;
+  return sanitized as T;
 }
 
 /**

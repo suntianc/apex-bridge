@@ -1,217 +1,259 @@
 <div align="center">
+  <img src="./assets/banner.png" alt="ApexBridge Banner" width="100%" />
 
-# 🌉 ApexBridge
+# ApexBridge
 
-**AI Bridge Protocol — 连接 LLM 与工具的轻量级智能桥梁**
+**下一代轻量级 AI Agent 框架，MCP 协议集成专家**
 
-[![Version](https://img.shields.io/badge/Version-1.0.1-blue?style=flat-square)](https://github.com/suntianc/apex-bridge/releases)
+连接智能的桥梁 · 轻量级架构 · 多模型编排 · 技能扩展
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0%2B-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Runtime](https://img.shields.io/badge/Node.js-%E2%89%A516-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
-[![License](https://img.shields.io/badge/License-Apache--2.0-green.svg?style=flat-square)](LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
+[![MCP Ready](https://img.shields.io/badge/MCP-Ready-green.svg)](https://github.com/model-context-protocol)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 
-[**Quick Start**](#-quick-start) | [**Features**](#-core-features) | [**Architecture**](#%EF%B8%8F-architecture) | [**API**](#-api-reference)
+[核心特性](#-核心特性) • [快速开始](#-快速开始) • [使用示例](#-使用示例) • [路线图](#-路线图) • [贡献指南](#-贡献指南)
 
 </div>
 
 ---
-![架构](images/image.png)
 
-## 📖 What is ApexBridge?
+## 📖 项目介绍
 
-**ApexBridge** 是一个**轻量级 AI 桥接服务**，旨在让 LLM 与外部工具实现无缝对话。它不只是一个 API 代理，而是一个完整的智能体（Agent）框架。
+**ApexBridge** 是一个高性能的 AI Agent 框架，旨在构建孤立的大语言模型（LLM）与现实行动之间的桥梁。专为速度和灵活性而设计，是多智能体系统的连接纽带。
 
-### Key Highlights
+与笨重的传统框架不同，ApexBridge 专注于：
 
-* 🧠 **多轮思考 (Multi-round Reasoning)**
-    * 基于 ReAct 策略，支持最多 **50 轮** 迭代推理，解决复杂任务。
-* 🔍 **工具发现 (Tool Discovery)**
-    * 集成 **LanceDB** 向量数据库，通过语义搜索自动匹配最佳工具。
-* ⚖️ **双轨并行 (Dual-Track)**
-    * **Skills** (本地高性能工具) + **MCP** (远程标准化工具) 统一调度。
-* 🌊 **流式输出 (Streaming)**
-    * WebSocket 实时推送思考过程与结果，支持随时中断。
+- **轻量级架构**：高效的内存管理，适合本地部署和边缘设备。
+- **MCP 原生支持**：深度集成 **Model Context Protocol (MCP)**，标准化上下文共享和工具调用。
+- **模型无关编排**：无缝切换 OpenAI、Claude、DeepSeek、Ollama 等多种 LLM。
+- **智能上下文管理**：支持 4 层上下文压缩策略，长对话无忧。
+
+> "连接智能与执行的桥梁，开启自主代理新时代。"
 
 ---
 
-## 🚀 Quick Start
+## ✨ 核心特性
 
-### Installation
+| 特性                  | 描述                                                                                                      |
+| :-------------------- | :-------------------------------------------------------------------------------------------------------- |
+| 🧠 **多模型支持**     | 统一接口支持 GPT-4、Claude 3.5、Llama 3、DeepSeek 等，根据任务复杂度动态切换模型。                        |
+| 🔌 **MCP 协议集成**   | 完全兼容 **Model Context Protocol**，实现代理间标准化上下文共享和工具使用。                               |
+| 🛠️ **技能系统**       | 模块化技能注册，支持通过 YAML 定义工具并动态绑定到代理。                                                  |
+| ⚡ **高性能执行**     | 核心逻辑针对低延迟进行优化，适合实时交互和边缘计算场景。                                                  |
+| 🔄 **智能上下文压缩** | 4 层压缩策略（Truncate/Prune/Summary/Hybrid），100 条消息可压缩至 ~4000 tokens，节省高达 44% 上下文空间。 |
+| 🌊 **流式响应**       | WebSocket 实时推送思考过程与结果，支持随时中断。                                                          |
+
+---
+
+## 🏗️ 系统架构
+
+```mermaid
+graph TD
+    User[用户 / 客户端] -->|请求| API[ApexBridge 核心]
+
+    subgraph "ApexBridge 引擎"
+        API --> Router[模型路由器]
+        Router -->|简单任务| Local[本地 LLM]
+        Router -->|复杂任务| Cloud[云端 LLM]
+
+        Context[上下文管理器] <--> Router
+        Memory[(向量数据库)] <--> Context
+    end
+
+    subgraph "能力层"
+        Tools[技能注册表]
+        MCP[MCP 客户端]
+    end
+
+    Router --> Tools
+    Router --> MCP
+    MCP --> External[外部应用 / 数据源]
+```
+
+### 核心组件
+
+| 组件                          | 功能                                                 |
+| ----------------------------- | ---------------------------------------------------- |
+| **ChatService**               | 聊天协调器，处理消息流和压缩逻辑                     |
+| **LLMManager**                | 多模型适配器管理，支持 OpenAI/Claude/DeepSeek/Ollama |
+| **ContextCompressionService** | 4 层上下文压缩引擎                                   |
+| **ToolRetrievalService**      | 基于 LanceDB 的向量检索和工具匹配                    |
+| **SkillManager**              | 本地技能管理和索引                                   |
+| **MCPIntegrationService**     | MCP 协议客户端和服务端                               |
+
+---
+
+## 🚀 快速开始
+
+### 环境要求
+
+- **Node.js**: 18.0+
+- **包管理器**: npm / yarn / pnpm
+- **API Keys**: OpenAI / Anthropic / DeepSeek 等（根据使用的模型）
+
+### 安装部署
 
 ```bash
+# 克隆仓库
+git clone https://github.com/suntianc/apex-bridge.git
+cd apex-bridge
+
 # 安装依赖
 npm install
 
 # 启动开发服务器
 npm run dev
+
+# 生产构建
+npm run build
+npm start
 ```
 
-### Basic Usage
+### 环境配置
 
-测试聊天接口（OpenAI 兼容）：
+在项目根目录创建 `.env` 文件：
+
+```ini
+# .env 配置示例
+NODE_ENV=development
+PORT=8088
+
+# LLM API 配置
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+DEEPSEEK_API_KEY=...
+
+# Embedding 模型（用于向量搜索）
+EMBEDDING_PROVIDER=openai
+EMBEDDING_MODEL=text-embedding-3-small
+
+# 日志级别
+LOG_LEVEL=info
+```
+
+---
+
+## 💻 使用示例
+
+### 1. 基础聊天请求
 
 ```bash
+# 调用聊天完成接口（OpenAI 兼容）
 curl -X POST http://localhost:8088/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer your-api-key" \
   -d '{
-    "messages": [{"role": "user", "content": "Hello, introduce yourself."}],
+    "messages": [
+      {"role": "system", "content": "你是一个专业助手"},
+      {"role": "user", "content": "请介绍一下 ApexBridge"}
+    ],
+    "model": "gpt-4",
     "stream": false
+  }'
+```
+
+### 2. 启用上下文压缩
+
+```typescript
+// 启用智能上下文压缩
+const result = await chatService.processMessage(messages, {
+  model: "gpt-4",
+  contextCompression: {
+    enabled: true,
+    strategy: "hybrid", // truncate | prune | summary | hybrid
+    auto: true, // 自动检测溢出
+    preserveSystemMessage: true,
+  },
+});
+```
+
+### 3. 流式响应
+
+```bash
+# 启用流式输出
+curl -X POST http://localhost:8088/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [{"role": "user", "content": "写一个 Python 快速排序"}],
+    "model": "gpt-4",
+    "stream": true
   }'
 ```
 
 ---
 
-## ✨ Core Features
+## 🗺️ 路线图
 
-### 1. Multi-LLM Support
-统一适配器接口，支持运行时热切换模型。
-
-```typescript
-// 支持 6 个主流 LLM 提供商
-const providers = ['openai', 'deepseek', 'zhipu', 'ollama', 'claude', 'custom'];
-
-// API: POST /api/llm/providers/:id/models
-```
-
-### 2. Skills System & MCP Integration
-支持本地 YAML 定义的 Skills 和标准的 MCP (Model Context Protocol) 服务。
-
-| Type | Description | Definition |
-|------|-------------|------------|
-| **Skills** | 本地高性能自定义工具 | `.data/skills/my-skill/SKILL.md` |
-| **MCP** | 标准化外部协议集成 | `curl -X POST /api/mcp/servers` |
-
-### 3. Unified Tool Calling
-LLM 输出统一格式化为 XML Action，便于解析与分发。
-
-```xml
-<tool_action name="web_search" type="mcp">
-  <query value="latest AI news" />
-</tool_action>
-
-<tool_action name="git-commit-helper" type="skill">
-  <message value="feat: add feature" />
-</tool_action>
-```
-
-### 4. ReAct Strategy
-自动化推理循环，处理复杂的用户请求。
-
-```mermaid
-graph LR
-    User(用户请求) --> Think[思考]
-    Think --> Search[向量搜索工具]
-    Search --> Action[执行工具]
-    Action --> Observation[观察结果]
-    Observation --> Think
-    Think -->|完成| Finish(最终回复)
-```
+| 版本 | 状态      | 特性                           |
+| ---- | --------- | ------------------------------ |
+| v1.0 | ✅ 已完成 | 核心架构、事件循环、多模型支持 |
+| v1.1 | ✅ 已完成 | MCP 协议完整实现、上下文压缩   |
+| v1.2 | 🔄 开发中 | WebSocket 分布式代理节点       |
 
 ---
 
-## 🛠 Architecture
-
-<details>
-<summary><strong>📂 点击展开完整目录结构</strong></summary>
+## 📁 项目结构
 
 ```
-src/
-├── core/                    # 核心引擎 (Core Engine)
-│   ├── ProtocolEngine.ts    # ABP 协议解析
-│   ├── LLMManager.ts        # LLM 适配器管理
-│   ├── llm/adapters/        # 6 个 LLM 适配器
-│   ├── tool-action/         # 工具调用系统
-│   │   ├── ToolActionParser.ts   # <tool_action> 解析
-│   │   └── ToolDispatcher.ts     # 类型路由调度
-│   └── tools/builtin/       # 内置工具
+apex-bridge/
+├── src/
+│   ├── core/                    # 核心引擎
+│   │   ├── ProtocolEngine.ts    # ABP 协议解析
+│   │   ├── LLMManager.ts        # LLM 适配器管理
+│   │   └── llm/adapters/        # 6 个 LLM 适配器实现
+│   │
+│   ├── services/                # 业务服务
+│   │   ├── ChatService.ts       # 聊天协调器
+│   │   ├── ContextCompression/  # 上下文压缩（4 层策略）
+│   │   ├── ToolRetrievalService/ # 向量检索和工具匹配
+│   │   ├── SkillManager.ts      # 技能管理
+│   │   └── MCPIntegrationService.ts # MCP 集成
+│   │
+│   ├── strategies/              # 策略模式
+│   │   ├── ReActStrategy.ts     # 多轮思考策略
+│   │   └── SingleRoundStrategy.ts # 单轮快速响应
+│   │
+│   └── api/                     # 接口层
+│       ├── controllers/         # 控制器
+│       ├── routes/              # 路由定义
+│       └── websocket/           # WebSocket 实时通信
 │
-├── services/                # 业务服务 (Business Services)
-│   ├── ChatService.ts       # 聊天协调器 (~200行)
-│   ├── SkillManager.ts      # Skills 管理
-│   ├── MCPIntegrationService.ts  # MCP 集成
-│   └── ToolRetrievalService.ts   # 向量检索
-│
-├── strategies/              # 策略模式 (Strategies)
-│   ├── ReActStrategy.ts     # 多轮思考 (selfThinking=true)
-│   └── SingleRoundStrategy.ts    # 单轮快速响应
-│
-└── api/                     # REST/WebSocket
-    ├── controllers/         # 控制器
-    ├── routes/              # 路由
-    └── websocket/           # 实时通信
-```
-</details>
-
-### Design Patterns
-
-| Pattern | Application Context |
-|---------|---------------------|
-| 🔌 **Adapter** | 统一 OpenAI, Claude, Ollama 等不同 API 接口 |
-| ♟️ **Strategy** | 运行时切换 `ReActStrategy` 或 `SingleRoundStrategy` |
-| 🏭 **Factory** | 适配器创建与执行器实例化 |
-| 📡 **Observer** | 事件总线 (EventBus) 与 MCP 状态监控 |
-
----
-
-## 📚 API Reference
-
-### Chat API (OpenAI Compatible)
-
-| Method | Endpoint | Description |
-|:------:|----------|-------------|
-| `POST` | `/v1/chat/completions` | 标准聊天完成接口 |
-| `POST` | `/v1/chat/simple-stream` | 简化版流式输出 |
-| `POST` | `/v1/interrupt` | 中断当前生成/思考 |
-| `GET` | `/v1/models` | 获取可用模型列表 |
-
-### MCP Management
-
-| Method | Endpoint | Description |
-|:------:|----------|-------------|
-| `GET/POST` | `/api/mcp/servers` | MCP 服务器注册与查询 |
-| `GET` | `/api/mcp/servers/:id/tools` | 获取指定服务器的工具 |
-| `POST` | `/api/mcp/tools/call` | 手动调试工具调用 |
-
-> **WebSocket Info:** Connect to `ws://localhost:8088/chat/api_key=your-key` for real-time interaction.
-
----
-
-## ⚙️ Configuration & Data
-
-### Environment Variables
-`.env` 文件配置：
-```bash
-API_KEY=your-secure-api-key
-PORT=8088
-LOG_LEVEL=info
+├── tests/                       # 测试文件
+├── assets/                      # 静态资源
+├── docs/                        # 文档
+└── .data/                       # 数据存储（SQLite + LanceDB）
 ```
 
-### Storage
-系统采用混合存储架构：
-
-* 🗄️ **SQLite**: 用于结构化数据（LLM 配置, MCP 服务器, 对话历史）。
-* ⚡ **LanceDB**: 用于向量索引（工具语义搜索）。
-
 ---
 
-## 💻 Tech Stack
+## 🛠 技术栈
 
-![NodeJS](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white)
-![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
+<div align="center">
+
+![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?style=for-the-badge&logo=node.js&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.0%2B-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
 ![Express](https://img.shields.io/badge/Express.js-000000?style=for-the-badge&logo=express&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white)
 ![LanceDB](https://img.shields.io/badge/LanceDB-Vector-FF6C37?style=for-the-badge)
 
-## 📄 License
-
-This project is licensed under the [Apache License 2.0](LICENSE).
+</div>
 
 ---
 
-<div align="center">
+## 📚 文档
 
-**Made with ☕ curiosity and code**
+| 文档                                      | 说明                 |
+| ----------------------------------------- | -------------------- |
+| [快速开始](docs/getting-started.md)       | 入门指南和安装配置   |
+| [架构设计](docs/architecture.md)          | 系统设计深度解析     |
+| [API 参考](docs/api-reference.md)         | 完整的 API 文档      |
+| [上下文压缩](docs/context-compression.md) | 4 层压缩策略详解     |
+| [MCP 集成指南](docs/mcp-integration.md)   | MCP 服务器配置和使用 |
+---
 
-[🐛 Report Issues](https://github.com/suntianc/apex-bridge/issues) · [💬 Discussions](https://github.com/suntianc/apex-bridge/discussions)
+## 📄 许可证
 
-</div>
+本项目基于 MIT 许可证开源 - 查看 [LICENSE](LICENSE) 文件了解详情。
+
+---

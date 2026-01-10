@@ -27,7 +27,7 @@ export interface RetryConfig {
    * 注意：如果提供此函数，将完全接管重试判断逻辑，内置的 5xx/网络错误判断将失效
    * 如果希望基于内置逻辑扩展，请使用 defaultShouldRetry 并在函数内部自行组合
    */
-  shouldRetry?: (error: any) => boolean;
+  shouldRetry?: (error: unknown) => boolean;
 }
 
 /**
@@ -50,31 +50,38 @@ const DEFAULT_CONFIG: Required<Omit<RetryConfig, "shouldRetry">> = {
  * @param retryOn4xx - 是否对4xx错误重试
  * @returns 是否应该重试
  */
-export function defaultShouldRetry(error: any, retryOn4xx: boolean = false): boolean {
+export function defaultShouldRetry(error: unknown, retryOn4xx: boolean = false): boolean {
+  // Extract error properties safely
+  const errorObj = error instanceof Error ? error : null;
+  const errorMessage = errorObj?.message ?? String(error);
+  const errorCode = (errorObj as { code?: string })?.code ?? "";
+  const errorResponse = (error as { response?: { status?: number } })?.response;
+  const responseStatus = errorResponse?.status;
+
   // 1. 网络错误或超时，应该重试
   if (
-    error.code === "ECONNABORTED" ||
-    error.code === "ETIMEDOUT" ||
-    error.code === "ENOTFOUND" ||
-    error.code === "ECONNREFUSED" ||
-    error.message?.includes("timeout") ||
-    error.message?.includes("network")
+    errorCode === "ECONNABORTED" ||
+    errorCode === "ETIMEDOUT" ||
+    errorCode === "ENOTFOUND" ||
+    errorCode === "ECONNREFUSED" ||
+    errorMessage.includes("timeout") ||
+    errorMessage.includes("network")
   ) {
     return true;
   }
 
   // 2. 429 Too Many Requests（无论 retryOn4xx 如何都应该重试）
-  if (error.response?.status === 429) {
+  if (responseStatus === 429) {
     return true;
   }
 
   // 3. 5xx服务器错误，应该重试
-  if (error.response?.status >= 500 && error.response?.status < 600) {
+  if (responseStatus !== undefined && responseStatus >= 500 && responseStatus < 600) {
     return true;
   }
 
   // 4. 4xx客户端错误，默认不重试（除非配置允许）
-  if (error.response?.status >= 400 && error.response?.status < 500) {
+  if (responseStatus !== undefined && responseStatus >= 400 && responseStatus < 500) {
     return retryOn4xx;
   }
 
@@ -126,7 +133,7 @@ function sleep(ms: number): Promise<void> {
 export async function retry<T>(fn: () => Promise<T>, config: RetryConfig = {}): Promise<T> {
   const finalConfig = { ...DEFAULT_CONFIG, ...config };
 
-  let lastError: any;
+  let lastError: unknown;
   let attempt = 0;
 
   // 循环条件：尝试次数 <= 最大重试次数
@@ -142,13 +149,14 @@ export async function retry<T>(fn: () => Promise<T>, config: RetryConfig = {}): 
       }
 
       return result;
-    } catch (error: any) {
+    } catch (error: unknown) {
       lastError = error;
+      const errorMessage = error instanceof Error ? error.message : String(error);
 
       // 检查是否达到最大重试次数
       if (attempt >= finalConfig.maxRetries) {
         logger.warn(
-          `❌ Max retries (${finalConfig.maxRetries}) exceeded. Last error: ${error.message}`
+          `❌ Max retries (${finalConfig.maxRetries}) exceeded. Last error: ${errorMessage}`
         );
         throw error;
       }
@@ -166,7 +174,7 @@ export async function retry<T>(fn: () => Promise<T>, config: RetryConfig = {}): 
       }
 
       if (!shouldRetry) {
-        logger.debug(`⚠️ Error not retriable: ${error.message}`);
+        logger.debug(`⚠️ Error not retriable: ${errorMessage}`);
         throw error;
       }
 
@@ -176,7 +184,7 @@ export async function retry<T>(fn: () => Promise<T>, config: RetryConfig = {}): 
       const delay = calculateBackoffDelay(attempt, finalConfig);
 
       logger.warn(
-        `⚠️ Request failed: ${error.message}. ` +
+        `⚠️ Request failed: ${errorMessage}. ` +
           `Retrying attempt ${attempt}/${finalConfig.maxRetries} in ${delay}ms...`
       );
 
@@ -191,11 +199,11 @@ export async function retry<T>(fn: () => Promise<T>, config: RetryConfig = {}): 
 /**
  * 创建重试包装器
  */
-export function withRetry<T extends (...args: any[]) => Promise<any>>(
+export function withRetry<T extends (...args: unknown[]) => Promise<unknown>>(
   fn: T,
   config?: RetryConfig
 ): T {
-  return ((...args: any[]) => {
+  return ((...args: unknown[]) => {
     return retry(() => fn(...args), config);
   }) as T;
 }

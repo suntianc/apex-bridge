@@ -3,7 +3,7 @@
  * 提供TTL、自动失效、LRU等功能的智能缓存
  */
 
-import { logger } from './logger';
+import { logger } from "./logger";
 
 /**
  * 缓存项接口
@@ -55,7 +55,7 @@ export class Cache<T = any> {
     this.config = {
       defaultTTL: config.defaultTTL ?? 0, // 0表示永不过期
       maxSize: config.maxSize ?? 1000,
-      enableStats: config.enableStats ?? true
+      enableStats: config.enableStats ?? true,
     };
 
     this.cache = new Map();
@@ -66,7 +66,7 @@ export class Cache<T = any> {
       deletes: 0,
       evictions: 0,
       size: 0,
-      hitRate: 0
+      hitRate: 0,
     };
 
     // 如果启用TTL，启动定期清理
@@ -130,7 +130,7 @@ export class Cache<T = any> {
       expiresAt,
       createdAt: now,
       accessCount: 0,
-      lastAccessedAt: now
+      lastAccessedAt: now,
     };
 
     this.cache.set(key, item);
@@ -159,7 +159,7 @@ export class Cache<T = any> {
   clear(): void {
     const size = this.cache.size;
     this.cache.clear();
-    
+
     if (this.config.enableStats) {
       this.stats.evictions += size;
       this.updateStats();
@@ -222,7 +222,7 @@ export class Cache<T = any> {
       deletes: 0,
       evictions: 0,
       size: 0,
-      hitRate: 0
+      hitRate: 0,
     };
   }
 
@@ -244,8 +244,10 @@ export class Cache<T = any> {
 
     // O(N) 遍历：优先淘汰访问次数最少的，如果相同则淘汰最久未访问的
     for (const [key, item] of this.cache.entries()) {
-      if (item.accessCount < minAccessCount || 
-          (item.accessCount === minAccessCount && item.lastAccessedAt < oldestAccess)) {
+      if (
+        item.accessCount < minAccessCount ||
+        (item.accessCount === minAccessCount && item.lastAccessedAt < oldestAccess)
+      ) {
         minAccessCount = item.accessCount;
         oldestAccess = item.lastAccessedAt;
         lruKey = key;
@@ -289,13 +291,16 @@ export class Cache<T = any> {
    */
   private startCleanup(): void {
     // 每5分钟清理一次过期项
-    this.cleanupInterval = setInterval(() => {
-      this.cleanupExpired();
-    }, 5 * 60 * 1000);
-    
+    this.cleanupInterval = setInterval(
+      () => {
+        this.cleanupExpired();
+      },
+      5 * 60 * 1000
+    );
+
     // ✅ 关键修复：不阻止进程退出
     // 允许进程在没有其他任务时自动退出，避免定时器阻止 Node.js 进程退出
-    if (this.cleanupInterval && typeof this.cleanupInterval.unref === 'function') {
+    if (this.cleanupInterval && typeof this.cleanupInterval.unref === "function") {
       this.cleanupInterval.unref();
     }
   }
@@ -342,7 +347,7 @@ export function createCache<T = any>(ttl: number, maxSize?: number): Cache<T> {
   return new Cache<T>({
     defaultTTL: ttl,
     maxSize: maxSize || 1000,
-    enableStats: true
+    enableStats: true,
   });
 }
 
@@ -353,13 +358,13 @@ export function createPermanentCache<T = any>(maxSize?: number): Cache<T> {
   return new Cache<T>({
     defaultTTL: 0,
     maxSize: maxSize || 1000,
-    enableStats: true
+    enableStats: true,
   });
 }
 
 // ========== ACE服务专用缓存工具 ==========
 
-import { EventEmitter } from 'events';
+import { EventEmitter } from "events";
 
 /**
  * Simple async lock for concurrency control
@@ -379,7 +384,7 @@ export class AsyncLock {
 
     // Create new lock
     let releaseLock: () => void;
-    const lockPromise = new Promise<void>(resolve => {
+    const lockPromise = new Promise<void>((resolve) => {
       releaseLock = resolve;
     });
 
@@ -420,8 +425,8 @@ export class ReadWriteLock {
   async acquireRead(): Promise<() => void> {
     // Wait if there's a writer or pending writer
     while (this.writers > 0 || this.pendingWriters > 0) {
-      await new Promise<void>(resolve => {
-        this.events.once('readReady', resolve);
+      await new Promise<void>((resolve) => {
+        this.events.once("readReady", resolve);
       });
     }
 
@@ -430,7 +435,7 @@ export class ReadWriteLock {
     return () => {
       this.readers--;
       if (this.readers === 0) {
-        this.events.emit('writeReady');
+        this.events.emit("writeReady");
       }
     };
   }
@@ -440,8 +445,8 @@ export class ReadWriteLock {
 
     // Wait for all readers and writers to finish
     while (this.readers > 0 || this.writers > 0) {
-      await new Promise<void>(resolve => {
-        this.events.once('writeReady', resolve);
+      await new Promise<void>((resolve) => {
+        this.events.once("writeReady", resolve);
       });
     }
 
@@ -450,8 +455,8 @@ export class ReadWriteLock {
 
     return () => {
       this.writers--;
-      this.events.emit('readReady');
-      this.events.emit('writeReady');
+      this.events.emit("readReady");
+      this.events.emit("writeReady");
     };
   }
 
@@ -495,17 +500,13 @@ export class EventListenerTracker {
   private listeners: Array<{
     emitter: EventEmitter;
     event: string;
-    listener: (...args: any[]) => void;
+    listener: (...args: unknown[]) => void;
   }> = [];
 
   /**
    * Add a tracked listener
    */
-  addListener(
-    emitter: EventEmitter,
-    event: string,
-    listener: (...args: any[]) => void
-  ): void {
+  addListener(emitter: EventEmitter, event: string, listener: (...args: unknown[]) => void): void {
     emitter.on(event, listener);
     this.listeners.push({ emitter, event, listener });
   }
@@ -516,12 +517,12 @@ export class EventListenerTracker {
   addOnceListener(
     emitter: EventEmitter,
     event: string,
-    listener: (...args: any[]) => void
+    listener: (...args: unknown[]) => void
   ): void {
-    const wrappedListener = (...args: any[]) => {
+    const wrappedListener = (...args: unknown[]) => {
       // Remove from tracking after execution
       const idx = this.listeners.findIndex(
-        l => l.emitter === emitter && l.event === event && l.listener === wrappedListener
+        (l) => l.emitter === emitter && l.event === event && l.listener === wrappedListener
       );
       if (idx !== -1) {
         this.listeners.splice(idx, 1);
@@ -560,7 +561,7 @@ export class LRUMap<K, V> {
 
   constructor(private maxSize: number = 1000) {
     if (maxSize <= 0) {
-      throw new Error('LRU map maxSize must be positive');
+      throw new Error("LRU map maxSize must be positive");
     }
   }
 
