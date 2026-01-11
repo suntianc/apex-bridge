@@ -149,7 +149,9 @@ export class LLMConfigService {
       CREATE INDEX IF NOT EXISTS idx_model_ace_l6 ON llm_models(is_ace_layer_l6);
     `);
 
-    logger.debug("✅ LLM v2 tables initialized with ACE layer support");
+    logger.debug(
+      "✅ LLM v2 tables initialized (ACE layer support retained for backward compatibility)"
+    );
   }
 
   /**

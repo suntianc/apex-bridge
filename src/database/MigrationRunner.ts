@@ -3,9 +3,9 @@
  * Executes SQL migration scripts in order and tracks execution history
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
-import Database from 'better-sqlite3';
+import * as fs from "fs";
+import * as path from "path";
+import Database from "better-sqlite3";
 
 export interface Migration {
   version: string;
@@ -26,7 +26,7 @@ export class MigrationRunner {
   private db: Database.Database;
   private migrationsDir: string;
 
-  constructor(dbPath: string, migrationsDir: string = path.join(__dirname, 'migrations')) {
+  constructor(dbPath: string, migrationsDir: string = path.join(__dirname, "migrations")) {
     this.db = new Database(dbPath);
     this.migrationsDir = migrationsDir;
 
@@ -60,8 +60,8 @@ export class MigrationRunner {
    * Calculate checksum for SQL file
    */
   private calculateChecksum(sql: string): string {
-    const crypto = require('crypto');
-    return crypto.createHash('sha256').update(sql).digest('hex');
+    const crypto = require("crypto");
+    return crypto.createHash("sha256").update(sql).digest("hex");
   }
 
   /**
@@ -72,11 +72,12 @@ export class MigrationRunner {
       return [];
     }
 
-    const files = fs.readdirSync(this.migrationsDir)
-      .filter(file => file.match(/^\d+_.*\.sql$/))
+    const files = fs
+      .readdirSync(this.migrationsDir)
+      .filter((file) => file.match(/^\d+_.*\.sql$/))
       .sort();
 
-    return files.map(file => path.join(this.migrationsDir, file));
+    return files.map((file) => path.join(this.migrationsDir, file));
   }
 
   /**
@@ -90,7 +91,7 @@ export class MigrationRunner {
       throw new Error(`Invalid migration filename: ${filename}`);
     }
 
-    const version = match[1].padStart(3, '0'); // Pad with zeros for proper sorting
+    const version = match[1].padStart(3, "0"); // Pad with zeros for proper sorting
     const name = match[2];
 
     return { version, name };
@@ -105,12 +106,12 @@ export class MigrationRunner {
 
     for (const file of migrationFiles) {
       const { version, name } = this.parseMigrationFilename(file);
-      const sql = fs.readFileSync(file, 'utf-8');
+      const sql = fs.readFileSync(file, "utf-8");
       const checksum = this.calculateChecksum(sql);
 
       // Check if migration was already executed
       const row = this.db
-        .prepare('SELECT checksum FROM schema_migrations WHERE version = ?')
+        .prepare("SELECT checksum FROM schema_migrations WHERE version = ?")
         .get(version) as { checksum: string } | undefined;
 
       if (row) {
@@ -120,7 +121,7 @@ export class MigrationRunner {
         } else {
           throw new Error(
             `Migration ${version} (${name}) has already been executed with different content. ` +
-            `Expected checksum: ${checksum}, found: ${row.checksum}`
+              `Expected checksum: ${checksum}, found: ${row.checksum}`
           );
         }
       }
@@ -129,7 +130,7 @@ export class MigrationRunner {
         version,
         name,
         sql,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
     }
 
@@ -144,52 +145,60 @@ export class MigrationRunner {
 
     try {
       // Begin transaction
-      this.db.exec('BEGIN TRANSACTION');
+      this.db.exec("BEGIN TRANSACTION");
 
       // Execute the migration SQL
       this.db.exec(migration.sql);
 
       // Record migration in schema_migrations table
       const checksum = this.calculateChecksum(migration.sql);
-      this.db.prepare(`
+      this.db
+        .prepare(
+          `
         INSERT INTO schema_migrations (version, name, executed_at, duration, checksum)
         VALUES (?, ?, ?, ?, ?)
-      `).run(
-        migration.version,
-        migration.name,
-        migration.timestamp,
-        0, // Will update with actual duration after commit
-        checksum
-      );
+      `
+        )
+        .run(
+          migration.version,
+          migration.name,
+          migration.timestamp,
+          0, // Will update with actual duration after commit
+          checksum
+        );
 
       // Commit transaction
-      this.db.exec('COMMIT');
+      this.db.exec("COMMIT");
 
       const duration = Date.now() - startTime;
 
       // Update duration
-      this.db.prepare(`
+      this.db
+        .prepare(
+          `
         UPDATE schema_migrations
         SET duration = ?
         WHERE version = ?
-      `).run(duration, migration.version);
+      `
+        )
+        .run(duration, migration.version);
 
       return {
         success: true,
         version: migration.version,
         name: migration.name,
-        duration
+        duration,
       };
     } catch (error) {
       // Rollback on error
-      this.db.exec('ROLLBACK');
+      this.db.exec("ROLLBACK");
 
       return {
         success: false,
         version: migration.version,
         name: migration.name,
         duration: Date.now() - startTime,
-        error: error instanceof Error ? error.message : String(error)
+        error: error instanceof Error ? error.message : String(error),
       };
     }
   }
@@ -201,12 +210,12 @@ export class MigrationRunner {
     const pendingMigrations = this.loadPendingMigrations();
 
     if (pendingMigrations.length === 0) {
-      console.log('No pending migrations to execute.');
+      console.log("No pending migrations to execute.");
       return [];
     }
 
     console.log(`Found ${pendingMigrations.length} pending migration(s).`);
-    console.log('Starting migration process...\n');
+    console.log("Starting migration process...\n");
 
     const results: MigrationResult[] = [];
 
@@ -220,12 +229,12 @@ export class MigrationRunner {
         console.log(`  ✓ Completed in ${result.duration}ms`);
       } else {
         console.error(`  ✗ Failed: ${result.error}`);
-        console.error('\nMigration process halted. Please resolve the error and try again.');
+        console.error("\nMigration process halted. Please resolve the error and try again.");
         break;
       }
     }
 
-    console.log('\nMigration process completed.');
+    console.log("\nMigration process completed.");
     return results;
   }
 
@@ -240,18 +249,20 @@ export class MigrationRunner {
     checksum: string;
   }> {
     const rows = this.db
-      .prepare(`
+      .prepare(
+        `
         SELECT version, name, executed_at, duration, checksum
         FROM schema_migrations
         ORDER BY version ASC
-      `)
+      `
+      )
       .all() as Array<{
-        version: string;
-        name: string;
-        executed_at: number;
-        duration: number;
-        checksum: string;
-      }>;
+      version: string;
+      name: string;
+      executed_at: number;
+      duration: number;
+      checksum: string;
+    }>;
 
     return rows;
   }
@@ -261,7 +272,7 @@ export class MigrationRunner {
    */
   public rollback(count: number = 1): MigrationResult[] {
     if (count <= 0) {
-      throw new Error('Rollback count must be positive');
+      throw new Error("Rollback count must be positive");
     }
 
     console.log(`Rolling back last ${count} migration(s)...\n`);
@@ -271,16 +282,18 @@ export class MigrationRunner {
     try {
       // Get the last N migrations to rollback
       const migrationsToRollback = this.db
-        .prepare(`
+        .prepare(
+          `
           SELECT version, name
           FROM schema_migrations
           ORDER BY version DESC
           LIMIT ?
-        `)
+        `
+        )
         .all(count) as Array<{ version: string; name: string }>;
 
       if (migrationsToRollback.length === 0) {
-        console.log('No migrations to rollback.');
+        console.log("No migrations to rollback.");
         return [];
       }
 
@@ -290,9 +303,7 @@ export class MigrationRunner {
         try {
           const startTime = Date.now();
 
-          this.db
-            .prepare('DELETE FROM schema_migrations WHERE version = ?')
-            .run(migration.version);
+          this.db.prepare("DELETE FROM schema_migrations WHERE version = ?").run(migration.version);
 
           console.log(`Rolled back migration ${migration.version}: ${migration.name}`);
 
@@ -300,7 +311,7 @@ export class MigrationRunner {
             success: true,
             version: migration.version,
             name: migration.name,
-            duration: Date.now() - startTime
+            duration: Date.now() - startTime,
           });
         } catch (error) {
           results.push({
@@ -308,14 +319,14 @@ export class MigrationRunner {
             version: migration.version,
             name: migration.name,
             duration: 0,
-            error: error instanceof Error ? error.message : String(error)
+            error: error instanceof Error ? error.message : String(error),
           });
         }
       }
 
-      console.log('\nRollback process completed.');
+      console.log("\nRollback process completed.");
     } catch (error) {
-      console.error('Rollback failed:', error);
+      console.error("Rollback failed:", error);
     }
 
     return results;
@@ -326,7 +337,7 @@ export class MigrationRunner {
    */
   public getCurrentVersion(): string | null {
     const row = this.db
-      .prepare('SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1')
+      .prepare("SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1")
       .get() as { version: string } | undefined;
 
     return row?.version || null;
@@ -346,9 +357,3 @@ export class MigrationRunner {
     this.db.close();
   }
 }
-
-// Example usage:
-// const runner = new MigrationRunner('.data/playbook.db');
-// const results = await runner.run();
-// console.log('Migration results:', results);
-// runner.close();

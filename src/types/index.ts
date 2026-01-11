@@ -2,8 +2,8 @@
  * ApexBridge (ABP-only) - TypeScript类型定义
  */
 
-// 重新导出 ace-core 类型
-export type * from "./ace-core.d.ts";
+// 重新导出 ace-core 类型（ACE 已删除，保留空导出以兼容）
+// export type * from "./ace-core.d.ts";
 
 export interface Message {
   role: "system" | "user" | "assistant";
@@ -41,14 +41,9 @@ export interface ChatOptions {
     enableToolActionParsing?: boolean; // 是否启用 tool_action 标签解析（默认true）
     toolActionTimeout?: number; // tool_action 工具执行超时时间（毫秒，默认30000）
   };
-  // 🆕 P1阶段：ACE编排模式配置（L4执行功能层）
-  aceOrchestration?: {
-    enabled?: boolean; // 是否启用ACE编排模式
-    maxTasks?: number; // 最大任务数限制（默认100）
-    taskTimeout?: number; // 任务执行超时（毫秒，默认30000）
-    allowParallel?: boolean; // 是否允许并发执行（暂未实现）
-    maxConcurrent?: number; // 最大并发任务数（默认3）
-  };
+  // ACE编排模式配置已删除 (2026-01-11)
+  // 如需恢复，可从 trash/ 目录恢复备份
+
   // 🆕 上下文压缩配置
   contextCompression?: {
     enabled?: boolean; // 是否启用上下文压缩（默认false）

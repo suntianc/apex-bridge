@@ -1,5 +1,6 @@
 /**
- * ApexBridge (ABP-only, no ACE) - 聊天控制器
+ * ApexBridge 聊天控制器
+ * Playbook 和 ACE 功能已删除 (2026-01-11)
  * 处理HTTP聊天请求
  */
 
@@ -582,7 +583,7 @@ export class ChatController {
 
   /**
    * GET /v1/chat/sessions/:conversationId
-   * 获取会话状态（简化版，无ACE）
+   * 获取会话状态
    */
   async getSession(req: Request, res: Response): Promise<void> {
     try {
@@ -643,7 +644,7 @@ export class ChatController {
 
   /**
    * GET /v1/chat/sessions/active
-   * 获取会话列表（简化版，无ACE）
+   * 获取会话列表
    */
   async getActiveSessions(req: Request, res: Response): Promise<void> {
     try {
@@ -698,7 +699,7 @@ export class ChatController {
 
   /**
    * GET /v1/chat/sessions/:conversationId/history
-   * 获取会话历史（简化版，无ACE）
+   * 获取会话历史
    */
   async getSessionHistory(req: Request, res: Response): Promise<void> {
     try {
@@ -744,15 +745,15 @@ export class ChatController {
         };
       }
 
-      // 基础历史（无ACE遥测）
+      // 基础历史（ACE遥测已删除）
       if (type === "all" || type === "telemetry") {
-        history.telemetry = []; // 无ACE，无遥测数据
-        history.note = "ACE telemetry not available";
+        history.telemetry = [];
+        history.note = "ACE telemetry deleted (2026-01-11)";
       }
 
       if (type === "all" || type === "directives") {
-        history.directives = []; // 无ACE，无指令日志
-        history.note = "ACE directives not available";
+        history.directives = [];
+        history.note = "ACE directives deleted (2026-01-11)";
       }
 
       res.json({

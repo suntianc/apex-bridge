@@ -7,6 +7,8 @@
  * - 配置验证逻辑迁移到 ConfigValidator
  * - 配置写入逻辑迁移到 ConfigWriter
  * - 主服务仅保留协调逻辑
+ *
+ * ACE 功能已删除 (2026-01-11)
  */
 
 import { logger } from "../utils/logger";
@@ -27,19 +29,6 @@ import type {
   ApiKeyInfo,
   RateLimitSettings,
   RedisConfig,
-  AceConfig,
-  AceOrchestrationConfig,
-  AceLayersConfig,
-  AceLayerL1Config,
-  AceLayerL2Config,
-  AceLayerL3Config,
-  AceLayerL4Config,
-  AceLayerL5Config,
-  AceLayerL6Config,
-  AceMemoryConfig,
-  AceOptimizationConfig,
-  AceSkillsConfig,
-  AceLocalImplementationConfig,
   RateLimitStrategyType,
   RateLimitStrategyConfig,
   RateLimitMatcherConfig,
@@ -242,7 +231,6 @@ export class ConfigService {
       performance: config.performance,
       redis: config.redis,
       security: config.security,
-      ace: config.ace,
     };
   }
 
@@ -270,7 +258,6 @@ export class ConfigService {
       performance: appConfig.performance,
       redis: appConfig.redis,
       appSecurity: appConfig.security,
-      ace: appConfig.ace,
     };
   }
 
@@ -329,19 +316,6 @@ export type {
   RateLimitSettings,
   RedisConfig,
   AdminConfig,
-  AceConfig,
-  AceOrchestrationConfig,
-  AceLayersConfig,
-  AceLayerL1Config,
-  AceLayerL2Config,
-  AceLayerL3Config,
-  AceLayerL4Config,
-  AceLayerL5Config,
-  AceLayerL6Config,
-  AceMemoryConfig,
-  AceOptimizationConfig,
-  AceSkillsConfig,
-  AceLocalImplementationConfig,
   RateLimitStrategyType,
   RateLimitStrategyConfig,
   RateLimitMatcherConfig,

@@ -1,7 +1,12 @@
+/**
+ * 管理员配置类型定义
+ *
+ * ACE 功能已删除 (2026-01-11)
+ */
+
 import type { ApiKeyInfo } from "./api-key";
 import type { RateLimitSettings } from "./rate-limit";
 import type { RedisConfig } from "./redis";
-import type { AceConfig } from "./ace";
 
 /**
  * API 配置
@@ -120,8 +125,6 @@ export interface AdminConfig {
   redis?: RedisConfig;
   /** 安全配置 */
   security?: SecurityConfig;
-  /** ACE 架构配置 */
-  ace?: AceConfig;
   /** 设置完成状态 */
   setup_completed?: boolean;
   /** 允许动态属性 */
@@ -222,5 +225,4 @@ export interface FullConfig {
   performance?: PerformanceConfig;
   redis?: RedisConfig;
   appSecurity?: SecurityConfig;
-  ace?: AceConfig;
 }

@@ -1,5 +1,6 @@
 /**
- * SessionManager - 会话生命周期管理（简化版，无ACE依赖）
+ * SessionManager - 会话生命周期管理
+ * Playbook 和 ACE 功能已删除 (2026-01-11)
  * 职责：会话的创建、验证、更新、归档
  */
 

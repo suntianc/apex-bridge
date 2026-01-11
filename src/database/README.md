@@ -116,10 +116,6 @@ Tracks similarity scores between type tags for clustering and merging.
 
 Maintains a complete audit trail of all changes to type tags.
 
-### Playbook Type Assignments
-
-Many-to-many relationship between types and their assigned type tags.
-
 ### Prompt Templates
 
 Reusable prompt templates associated with specific type tags.
