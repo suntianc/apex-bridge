@@ -170,8 +170,12 @@ export class ChatService {
         if (options.sessionId && result?.usage) {
           await this.conversationSaver
             .updateSessionMetadata(options.sessionId, result.usage)
-            .catch((err) => {
-              logger.warn(`[ChatService] Failed to update session metadata: ${err.message}`);
+            .catch((err: Error) => {
+              logger.error(`[ChatService] Failed to update session metadata: ${err.message}`, {
+                stack: err.stack,
+                sessionId: options.sessionId,
+                requestId,
+              });
             });
         }
 
@@ -487,6 +491,14 @@ export class ChatService {
   async getConversationLastMessage(conversationId: string): Promise<ConversationMessage | null> {
     const historyService = this.conversationHistoryService || null;
     return historyService?.getLastMessage(conversationId) || null;
+  }
+
+  /**
+   * 获取对话第一条消息（代理到ConversationHistoryService）
+   */
+  async getConversationFirstMessage(conversationId: string): Promise<ConversationMessage | null> {
+    const historyService = this.conversationHistoryService || null;
+    return historyService?.getFirstMessage(conversationId) || null;
   }
 
   /**

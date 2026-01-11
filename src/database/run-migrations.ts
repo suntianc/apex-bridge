@@ -1,7 +1,7 @@
 #!/usr/bin/env ts-node
 /**
  * Migration Runner Script
- * Run database migrations for the Playbook system
+ * Run database migrations for the LLM providers system
  *
  * Usage:
  *   npm run migrations --                Run all pending migrations
@@ -14,7 +14,7 @@ import { MigrationRunner } from "./MigrationRunner";
 import * as path from "path";
 
 // Configuration
-const DATABASE_PATH = process.env.PLAYBOOK_DB_PATH || ".data/playbook.db";
+const DATABASE_PATH = process.env.DATABASE_PATH || ".data/llm_providers.db";
 const MIGRATIONS_DIR = path.join(__dirname, "migrations");
 
 // Parse command line arguments

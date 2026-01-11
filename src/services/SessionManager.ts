@@ -3,8 +3,8 @@
  * 职责：会话的创建、验证、更新、归档
  */
 
-import { ConversationHistoryService } from './ConversationHistoryService';
-import { logger } from '../utils/logger';
+import { ConversationHistoryService } from "./ConversationHistoryService";
+import { logger } from "../utils/logger";
 
 /**
  * 会话元数据接口
@@ -35,11 +35,14 @@ export class SessionManager {
   private sessionMap = new Map<string, string>();
   // sessionId -> metadata 缓存
   private metadataCache = new Map<string, SessionMetadata>();
+  // pendingPromises 用于防止竞态条件：conversationId -> 创建会话的 Promise
+  private pendingPromises = new Map<string, Promise<string>>();
 
   constructor(private historyService: ConversationHistoryService) {}
 
   /**
-   * 获取或创建会话
+   * 获取或创建会话（并发安全版本）
+   * 使用 Promise 锁确保同一 conversationId 的并发请求等待同一创建操作
    * @param agentId Agent ID（可选）
    * @param userId 用户ID（可选）
    * @param conversationId 对话ID（必需）
@@ -52,21 +55,31 @@ export class SessionManager {
   ): Promise<string | null> {
     // 1. 如果没有 conversationId，无法创建会话
     if (!conversationId) {
-      logger.debug('[SessionManager] No conversationId provided, processing without session');
+      logger.debug("[SessionManager] No conversationId provided, processing without session");
       return null;
     }
 
-    // 2. 检查是否已存在会话映射
+    // 2. 检查是否有正在进行的创建操作（防止竞态条件）
+    const existingPromise = this.pendingPromises.get(conversationId);
+    if (existingPromise) {
+      // 如果已有请求正在创建此会话，等待它完成
+      logger.debug(`[SessionManager] Waiting for existing session creation: ${conversationId}`);
+      return existingPromise;
+    }
+
+    // 3. 检查是否已存在会话映射
     const existingSessionId = this.sessionMap.get(conversationId);
     if (existingSessionId) {
-      logger.debug(`[SessionManager] Reused existing session: ${existingSessionId} for conversation: ${conversationId}`);
+      logger.debug(
+        `[SessionManager] Reused existing session: ${existingSessionId} for conversation: ${conversationId}`
+      );
       return existingSessionId;
     }
 
-    // 3. 创建新会话（使用 conversationId 作为 sessionId）
+    // 4. 创建新会话（使用 conversationId 作为 sessionId）
     const sessionId = conversationId;
 
-    // 4. 初始化元数据
+    // 5. 初始化元数据
     const metadata: SessionMetadata = {
       agentId,
       userId,
@@ -76,15 +89,35 @@ export class SessionManager {
       messageCount: 0,
       totalTokens: 0,
       totalInputTokens: 0,
-      totalOutputTokens: 0
+      totalOutputTokens: 0,
     };
 
-    // 5. 保存映射和元数据
-    this.sessionMap.set(conversationId, sessionId);
-    this.metadataCache.set(sessionId, metadata);
+    // 6. 使用 Promise 锁确保原子性
+    const creationPromise = (async () => {
+      // 双重检查（防止在异步等待期间已被其他请求创建）
+      const cachedSessionId = this.sessionMap.get(conversationId);
+      if (cachedSessionId) {
+        logger.debug(`[SessionManager] Session created by concurrent request: ${conversationId}`);
+        return cachedSessionId;
+      }
 
-    logger.info(`[SessionManager] Created new session: ${sessionId} for conversation: ${conversationId}`);
-    return sessionId;
+      // 保存映射和元数据
+      this.sessionMap.set(conversationId, sessionId);
+      this.metadataCache.set(sessionId, metadata);
+
+      logger.info(
+        `[SessionManager] Created new session: ${sessionId} for conversation: ${conversationId}`
+      );
+      return sessionId;
+    })();
+
+    // 7. 注册 Promise 并在完成后清理
+    this.pendingPromises.set(conversationId, creationPromise);
+    creationPromise.finally(() => {
+      this.pendingPromises.delete(conversationId);
+    });
+
+    return creationPromise;
   }
 
   /**
@@ -154,7 +187,9 @@ export class SessionManager {
     // 移除缓存和映射
     this.metadataCache.delete(sessionId);
     this.sessionMap.delete(conversationId);
-    logger.info(`[SessionManager] Archived session: ${sessionId} for conversation: ${conversationId}`);
+    logger.info(
+      `[SessionManager] Archived session: ${sessionId} for conversation: ${conversationId}`
+    );
   }
 
   /**
@@ -171,7 +206,7 @@ export class SessionManager {
    * @param conversationIds 对话ID数组
    */
   removeSessionMappings(conversationIds: string[]): void {
-    conversationIds.forEach(id => {
+    conversationIds.forEach((id) => {
       const sessionId = this.sessionMap.get(id);
       if (sessionId) {
         this.metadataCache.delete(sessionId);

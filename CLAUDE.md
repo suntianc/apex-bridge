@@ -36,7 +36,7 @@ npm run migrations:rollback # Rollback migrations
 ```
 src/
 ├── api/              # REST/WebSocket layer (controllers, routes, middleware)
-├── core/             # Core engine (LLM adapters, tool-action, playbook)
+├── core/             # Core engine (LLM adapters, tool-action)
 ├── services/         # Business services (ChatService, SkillManager, etc.)
 ├── strategies/       # Reasoning strategies (ReActStrategy, SingleRoundStrategy)
 ├── types/            # TypeScript type definitions
@@ -54,12 +54,12 @@ src/
 
 ### Design Patterns
 
-| Pattern | Usage |
-|---------|-------|
-| **Adapter** | Unified interface for LLM providers (OpenAI, Claude, DeepSeek, Zhipu, Ollama, Custom) |
-| **Strategy** | Runtime switch between ReActStrategy (50 iterations) and SingleRoundStrategy |
-| **Factory** | Adapter and executor instantiation |
-| **Observer** | EventBus for MCP state monitoring |
+| Pattern      | Usage                                                                                 |
+| ------------ | ------------------------------------------------------------------------------------- |
+| **Adapter**  | Unified interface for LLM providers (OpenAI, Claude, DeepSeek, Zhipu, Ollama, Custom) |
+| **Strategy** | Runtime switch between ReActStrategy (50 iterations) and SingleRoundStrategy          |
+| **Factory**  | Adapter and executor instantiation                                                    |
+| **Observer** | EventBus for MCP state monitoring                                                     |
 
 ### Data Storage
 

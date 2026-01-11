@@ -3,17 +3,167 @@
  * 提供通用的OpenAI兼容适配器实现
  */
 
-import axios, { AxiosInstance } from 'axios';
-import { Message, ChatOptions, LLMResponse, LLMProviderConfig } from '../../../types';
-import { logger } from '../../../utils/logger';
-import { retry, RetryConfig } from '../../../utils/retry';
+import axios, { AxiosInstance } from "axios";
+import { Message, ChatOptions, LLMResponse, LLMProviderConfig } from "../../../types";
+import { logger } from "../../../utils/logger";
+import { retry, RetryConfig } from "../../../utils/retry";
+
+/**
+ * Axios 请求配置接口
+ */
+export interface AxiosRequestConfig {
+  baseURL: string;
+  headers: Record<string, string>;
+  timeout: number;
+  proxy?:
+    | false
+    | {
+        host: string;
+        port: number;
+        protocol?: string;
+        auth?: {
+          username: string;
+          password: string;
+        };
+      };
+}
+
+/**
+ * OpenAI 兼容 API 请求体接口
+ */
+export interface OpenAIRequestBody {
+  model: string;
+  messages: Array<{
+    role: string;
+    content:
+      | string
+      | Array<{
+          type: string;
+          text?: string;
+          image_url?: string | { url: string };
+        }>;
+    name?: string;
+  }>;
+  stream: boolean;
+  temperature?: number;
+  top_p?: number;
+  frequency_penalty?: number;
+  presence_penalty?: number;
+  repetition_penalty?: number;
+  seed?: number;
+  logit_bias?: Record<string, number>;
+  max_tokens?: number;
+  response_format?: { type: string };
+  stop?: string[];
+  tools?: unknown[];
+  tool_choice?: string;
+}
+
+/**
+ * OpenAI 兼容 API 响应接口
+ */
+export interface OpenAIResponse {
+  id: string;
+  object: string;
+  created: number;
+  model: string;
+  choices: Array<{
+    index: number;
+    message?: {
+      role: string;
+      content: string;
+      tool_calls?: unknown[];
+    };
+    finish_reason?: string;
+  }>;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+  };
+}
 
 /**
  * LLM适配器接口
  */
 export interface ILLMAdapter {
   chat(messages: Message[], options: ChatOptions, signal?: AbortSignal): Promise<LLMResponse>;
-  streamChat(messages: Message[], options: ChatOptions, tools?: any[], signal?: AbortSignal): AsyncIterableIterator<string>;
+  streamChat(
+    messages: Message[],
+    options: ChatOptions,
+    tools?: any[],
+    signal?: AbortSignal
+  ): AsyncIterableIterator<string>;
+  getModels(): Promise<string[]>;
+  embed?(texts: string[], model?: string): Promise<number[][]>;
+}
+
+/**
+ * OpenAI 兼容 API 请求体接口
+ */
+export interface OpenAIRequestBody {
+  model: string;
+  messages: Array<{
+    role: string;
+    content:
+      | string
+      | Array<{
+          type: string;
+          text?: string;
+          image_url?: string | { url: string };
+        }>;
+    name?: string;
+  }>;
+  stream: boolean;
+  temperature?: number;
+  top_p?: number;
+  frequency_penalty?: number;
+  presence_penalty?: number;
+  repetition_penalty?: number;
+  seed?: number;
+  logit_bias?: Record<string, number>;
+  max_tokens?: number;
+  response_format?: { type: string };
+  stop?: string[];
+  tools?: unknown[];
+  tool_choice?: string;
+}
+
+/**
+ * OpenAI 兼容 API 响应接口
+ */
+export interface OpenAIResponse {
+  id: string;
+  object: string;
+  created: number;
+  model: string;
+  choices: Array<{
+    index: number;
+    message?: {
+      role: string;
+      content: string;
+      tool_calls?: unknown[];
+    };
+    finish_reason?: string;
+  }>;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+  };
+}
+
+/**
+ * LLM适配器接口
+ */
+export interface ILLMAdapter {
+  chat(messages: Message[], options: ChatOptions, signal?: AbortSignal): Promise<LLMResponse>;
+  streamChat(
+    messages: Message[],
+    options: ChatOptions,
+    tools?: any[],
+    signal?: AbortSignal
+  ): AsyncIterableIterator<string>;
   getModels(): Promise<string[]>;
   embed?(texts: string[], model?: string): Promise<number[][]>;
 }
@@ -31,13 +181,13 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
     this.config = config;
 
     // 构建axios配置
-    const axiosConfig: any = {
+    const axiosConfig: AxiosRequestConfig = {
       baseURL: config.baseURL,
       headers: {
-        ...(config.apiKey && { 'Authorization': `Bearer ${config.apiKey}` }),
-        'Content-Type': 'application/json'
+        ...(config.apiKey && { Authorization: `Bearer ${config.apiKey}` }),
+        "Content-Type": "application/json",
       },
-      timeout: config.timeout || 60000
+      timeout: config.timeout || 60000,
     };
 
     // 如果配置中指定了proxy，使用它
@@ -47,7 +197,9 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
 
     this.client = axios.create(axiosConfig);
 
-    logger.debug(`${providerName} adapter initialized (${config.baseURL}${config.proxy === false ? ', proxy disabled' : ''})`);
+    logger.debug(
+      `${providerName} adapter initialized (${config.baseURL}${config.proxy === false ? ", proxy disabled" : ""})`
+    );
   }
 
   /**
@@ -62,43 +214,43 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
    * 🆕 支持新的配置结构
    * 🆕 支持多模态消息（文本+图像）
    */
-  protected buildRequestBody(messages: Message[], options: ChatOptions): any {
+  protected buildRequestBody(messages: Message[], options: ChatOptions): OpenAIRequestBody {
     const { provider, ...apiOptions } = options;
     const filteredOptions = this.filterOptions(apiOptions);
 
     // 🐾 处理消息格式（支持多模态）
-    const processedMessages = messages.map(msg => {
+    const processedMessages = messages.map((msg) => {
       if (Array.isArray(msg.content)) {
         // 多模态消息：转换为OpenAI兼容格式
         return {
           ...msg,
-          content: msg.content.map(part => {
-            if (part.type === 'image_url') {
+          content: msg.content.map((part) => {
+            if (part.type === "image_url") {
               return {
-                type: 'image_url',
-                image_url: part.image_url
+                type: "image_url",
+                image_url: part.image_url,
               };
             }
             return {
-              type: 'text',
-              text: part.text || ''
+              type: "text",
+              text: part.text || "",
             };
-          })
+          }),
         };
       }
       // 纯文本消息
       return {
         ...msg,
-        content: msg.content
+        content: msg.content,
       };
     });
 
     // 🐾 构建基础请求体
-    const requestBody: any = {
+    const requestBody: OpenAIRequestBody = {
       model: options.model || this.config.defaultModel,
-      messages: processedMessages,
+      messages: processedMessages as OpenAIRequestBody["messages"],
       stream: false,
-      ...filteredOptions
+      temperature: options.temperature,
     };
 
     // 🐾 处理温度参数（基础配置）
@@ -151,10 +303,10 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
       }
 
       // 输出格式
-      if (oc.outputFormat === 'json') {
-        requestBody.response_format = { type: 'json_object' };
-      } else if (oc.outputFormat === 'text') {
-        requestBody.response_format = { type: 'text' };
+      if (oc.outputFormat === "json") {
+        requestBody.response_format = { type: "json_object" };
+      } else if (oc.outputFormat === "text") {
+        requestBody.response_format = { type: "text" };
       }
 
       // 停止序列
@@ -166,7 +318,11 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
     return requestBody;
   }
 
-  async chat(messages: Message[], options: ChatOptions, signal?: AbortSignal): Promise<LLMResponse> {
+  async chat(
+    messages: Message[],
+    options: ChatOptions,
+    signal?: AbortSignal
+  ): Promise<LLMResponse> {
     const maxRetries = this.config.maxRetries || 3;
     const retryConfig: RetryConfig = {
       maxRetries,
@@ -175,15 +331,19 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
       backoffMultiplier: 2,
       retryOn4xx: false,
       shouldRetry: (error: any) => {
-        if (signal?.aborted || error.name === 'AbortError' || error.code === 'ERR_CANCELED') {
+        if (signal?.aborted || error.name === "AbortError" || error.code === "ERR_CANCELED") {
           return false;
         }
-        if (error.response?.status === 400 || error.response?.status === 401 ||
-            error.response?.status === 403 || error.response?.status === 404) {
+        if (
+          error.response?.status === 400 ||
+          error.response?.status === 401 ||
+          error.response?.status === 403 ||
+          error.response?.status === 404
+        ) {
           return false;
         }
         return true;
-      }
+      },
     };
 
     return retry(async () => {
@@ -192,16 +352,16 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
 
         logger.debug(`[${this.providerName}] Request body`, {
           model: requestBody.model,
-          messageCount: messages.length
+          messageCount: messages.length,
         });
 
-        const response = await this.client.post('/chat/completions', requestBody, {
-          signal
+        const response = await this.client.post("/chat/completions", requestBody, {
+          signal,
         });
 
         return response.data;
       } catch (error: any) {
-        if (signal?.aborted || error.name === 'AbortError' || error.code === 'ERR_CANCELED') {
+        if (signal?.aborted || error.name === "AbortError" || error.code === "ERR_CANCELED") {
           throw error;
         }
 
@@ -210,11 +370,11 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
           logger.error(`   HTTP状态: ${error.response.status}`);
           // 🐛 修复：安全序列化，避免循环引用
           try {
-            if (error.response.data && typeof error.response.data === 'object') {
+            if (error.response.data && typeof error.response.data === "object") {
               // 只序列化 data 字段，避免序列化整个 response 对象
               logger.error(`   错误详情: ${JSON.stringify(error.response.data, null, 2)}`);
             } else {
-              logger.error(`   错误详情: ${error.response.data || '无详细信息'}`);
+              logger.error(`   错误详情: ${error.response.data || "无详细信息"}`);
             }
           } catch (e) {
             // 如果序列化失败，只记录错误消息
@@ -226,48 +386,53 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
     }, retryConfig);
   }
 
-  async *streamChat(messages: Message[], options: ChatOptions, tools?: any[], signal?: AbortSignal): AsyncIterableIterator<string> {
+  async *streamChat(
+    messages: Message[],
+    options: ChatOptions,
+    tools?: any[],
+    signal?: AbortSignal
+  ): AsyncIterableIterator<string> {
     try {
       const { provider, ...apiOptions } = options;
       const filteredOptions = this.filterOptions(apiOptions);
 
       // 🐾 处理消息格式（支持多模态）
-      const processedMessages = messages.map(msg => {
+      const processedMessages = messages.map((msg) => {
         if (Array.isArray(msg.content)) {
           return {
             ...msg,
-            content: msg.content.map(part => {
-              if (part.type === 'image_url') {
+            content: msg.content.map((part) => {
+              if (part.type === "image_url") {
                 return {
-                  type: 'image_url',
-                  image_url: part.image_url
+                  type: "image_url",
+                  image_url: part.image_url,
                 };
               }
               return {
-                type: 'text',
-                text: part.text || ''
+                type: "text",
+                text: part.text || "",
               };
-            })
+            }),
           };
         }
         return {
           ...msg,
-          content: msg.content
+          content: msg.content,
         };
       });
 
       // 🐾 构建基础请求体（与 buildRequestBody 保持一致）
-      const requestBody: any = {
+      const requestBody: OpenAIRequestBody = {
         model: options.model || this.config.defaultModel,
         messages: processedMessages,
         stream: true,
-        ...filteredOptions
+        ...filteredOptions,
       };
 
       // ✅ 新增：传递给LLM的工具列表
       if (tools && tools.length > 0) {
         requestBody.tools = tools;
-        requestBody.tool_choice = 'auto';
+        requestBody.tool_choice = "auto";
       }
 
       // 🐾 处理温度参数
@@ -281,7 +446,8 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
         if (gc.topP !== undefined) requestBody.top_p = gc.topP;
         if (gc.frequencyPenalty !== undefined) requestBody.frequency_penalty = gc.frequencyPenalty;
         if (gc.presencePenalty !== undefined) requestBody.presence_penalty = gc.presencePenalty;
-        if (gc.repetitionPenalty !== undefined) requestBody.repetition_penalty = gc.repetitionPenalty;
+        if (gc.repetitionPenalty !== undefined)
+          requestBody.repetition_penalty = gc.repetitionPenalty;
         if (gc.seed !== undefined) requestBody.seed = gc.seed;
         if (gc.logitBias) requestBody.logit_bias = gc.logitBias;
       }
@@ -290,10 +456,10 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
       if (options.outputConfig) {
         const oc = options.outputConfig;
         if (oc.maxOutputTokens !== undefined) requestBody.max_tokens = oc.maxOutputTokens;
-        if (oc.outputFormat === 'json') {
-          requestBody.response_format = { type: 'json_object' };
-        } else if (oc.outputFormat === 'text') {
-          requestBody.response_format = { type: 'text' };
+        if (oc.outputFormat === "json") {
+          requestBody.response_format = { type: "json_object" };
+        } else if (oc.outputFormat === "text") {
+          requestBody.response_format = { type: "text" };
         }
         if (oc.stopSequences && oc.stopSequences.length > 0) {
           requestBody.stop = oc.stopSequences;
@@ -304,22 +470,25 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
         model: requestBody.model,
         messageCount: messages.length,
         hasTools: !!tools,
-        toolCount: tools?.length
+        toolCount: tools?.length,
       });
 
-      const response = await this.client.post('/chat/completions', requestBody, {
-        responseType: 'stream',
-        signal
+      const response = await this.client.post("/chat/completions", requestBody, {
+        responseType: "stream",
+        signal,
       });
 
       for await (const chunk of response.data) {
-        const lines = chunk.toString().split('\n').filter((line: string) => line.trim());
+        const lines = chunk
+          .toString()
+          .split("\n")
+          .filter((line: string) => line.trim());
 
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
+          if (line.startsWith("data: ")) {
             const data = line.substring(6);
 
-            if (data === '[DONE]') {
+            if (data === "[DONE]") {
               return;
             }
 
@@ -340,7 +509,7 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
                 yield JSON.stringify({
                   reasoning_content: reasoning,
                   content: content,
-                  tool_calls: toolCalls
+                  tool_calls: toolCalls,
                 });
               }
             } catch (e) {
@@ -355,11 +524,11 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
         logger.error(`   HTTP状态: ${error.response.status}`);
         // 🐛 修复：安全序列化，避免循环引用
         try {
-          if (error.response.data && typeof error.response.data === 'object') {
+          if (error.response.data && typeof error.response.data === "object") {
             // 只序列化 data 字段，避免序列化整个 response 对象
             logger.error(`   错误详情: ${JSON.stringify(error.response.data, null, 2)}`);
           } else {
-            logger.error(`   错误详情: ${error.response.data || '无详细信息'}`);
+            logger.error(`   错误详情: ${error.response.data || "无详细信息"}`);
           }
         } catch (e) {
           // 如果序列化失败，只记录错误消息
@@ -372,7 +541,7 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
 
   async getModels(): Promise<string[]> {
     try {
-      const response = await this.client.get('/models');
+      const response = await this.client.get("/models");
       const models = response.data.data || response.data.models || [];
       return models.map((m: any) => m.id || m.name);
     } catch (error: any) {
@@ -388,15 +557,15 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
     try {
       const requestBody = {
         model: model || this.config.defaultModel,
-        input: texts
+        input: texts,
       };
 
       logger.debug(`[${this.providerName}] Embedding request`, {
         model: requestBody.model,
-        textCount: texts.length
+        textCount: texts.length,
       });
 
-      const response = await this.client.post('/embeddings', requestBody);
+      const response = await this.client.post("/embeddings", requestBody);
 
       // OpenAI 格式: { data: [{ embedding: [...] }] }
       if (response.data?.data) {
@@ -411,13 +580,13 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
         return response.data.embeddings;
       }
 
-      throw new Error('Unexpected embedding response format');
+      throw new Error("Unexpected embedding response format");
     } catch (error: any) {
       logger.error(`❌ ${this.providerName} embed error:`, error.message);
       if (error.response) {
         logger.error(`   HTTP状态: ${error.response.status}`);
         try {
-          if (error.response.data && typeof error.response.data === 'object') {
+          if (error.response.data && typeof error.response.data === "object") {
             logger.error(`   错误详情: ${JSON.stringify(error.response.data, null, 2)}`);
           }
         } catch (e) {
@@ -428,4 +597,3 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
     }
   }
 }
-

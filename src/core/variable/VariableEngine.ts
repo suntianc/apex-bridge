@@ -4,14 +4,23 @@
  * 统一的变量引擎实现
  * 职责：对固定格式{{placeholder}}进行变量替换
  * 特点：支持缓存、批量处理、递归解析
+ *
+ * 修复内容：
+ * - M-004: 添加 MAX_CACHE_SIZE = 10000 限制
+ * - 实现 LRU 缓存淘汰策略
  */
 
-import { logger } from '../../utils/logger';
-import type { Message } from '../../types';
+import { logger } from "../../utils/logger";
+import type { Message } from "../../types";
+
+/** M-004: 缓存最大大小限制 */
+const MAX_CACHE_SIZE = 10000;
 
 interface CacheEntry {
   resolved: string;
   timestamp: number;
+  /** LRU: 最近访问时间 */
+  lastAccessed: number;
 }
 
 export interface VariableEngineConfig {
@@ -35,7 +44,7 @@ export class VariableEngine {
     placeholderPattern: RegExp;
   };
 
-  // 缓存相关
+  // M-004: 缓存相关 - 添加 LRU 支持
   private cache = new Map<string, CacheEntry>();
   private enableCache: boolean;
   private cacheTtlMs: number;
@@ -61,8 +70,12 @@ export class VariableEngine {
    * @param options - 解析选项
    * @returns 解析后的内容
    */
-  async resolveAll(content: string, variables: Record<string, string> = {}, options?: { fillEmptyOnMissing?: boolean }): Promise<string> {
-    if (!content || typeof content !== 'string') {
+  async resolveAll(
+    content: string,
+    variables: Record<string, string> = {},
+    options?: { fillEmptyOnMissing?: boolean }
+  ): Promise<string> {
+    if (!content || typeof content !== "string") {
       return content;
     }
 
@@ -76,18 +89,18 @@ export class VariableEngine {
     // 启用递归解析
     let result = content;
     let depth = 0;
-    let previousResult = '';
+    let previousResult = "";
 
     // 最多递归 maxRecursionDepth 次，或直到结果不再变化
     while (depth < this.options.maxRecursionDepth) {
       previousResult = result;
       result = await this.resolveOnce(result, variables, fillEmptyOnMissing);
-      
+
       // 如果结果不再变化，说明没有更多变量需要解析
       if (result === previousResult) {
         break;
       }
-      
+
       depth++;
     }
 
@@ -103,11 +116,15 @@ export class VariableEngine {
   /**
    * 单次解析（不递归）
    */
-  private async resolveOnce(content: string, variables: Record<string, string>, fillEmptyOnMissing: boolean = false): Promise<string> {
+  private async resolveOnce(
+    content: string,
+    variables: Record<string, string>,
+    fillEmptyOnMissing: boolean = false
+  ): Promise<string> {
     // 确保使用全局标志
-    const pattern = new RegExp(this.options.placeholderPattern.source, 'g');
+    const pattern = new RegExp(this.options.placeholderPattern.source, "g");
     const matches = Array.from(content.matchAll(pattern));
-    
+
     if (matches.length === 0) {
       return content;
     }
@@ -127,15 +144,15 @@ export class VariableEngine {
     for (const variableKey of uniqueKeys) {
       try {
         const resolvedValue = await this.resolveVariable(variableKey, variables);
-        
+
         if (resolvedValue !== null) {
           // 使用正则全局替换，并使用回调函数防止 '$' 字符解析错误
           // 转义变量键中的特殊字符，构建精确的正则模式
           const keyPattern = new RegExp(
             `\\{\\{\\s*${this.escapeRegex(variableKey)}\\s*\\}\\}`,
-            'g'
+            "g"
           );
-          
+
           // 使用回调函数确保替换值被视为纯文本，不会被解析为特殊替换模式
           result = result.replace(keyPattern, () => resolvedValue);
         } else {
@@ -144,17 +161,23 @@ export class VariableEngine {
             // 自动填充为空字符串
             const keyPattern = new RegExp(
               `\\{\\{\\s*${this.escapeRegex(variableKey)}\\s*\\}\\}`,
-              'g'
+              "g"
             );
-            result = result.replace(keyPattern, '');
-            logger.debug(`[VariableEngine] Variable "${variableKey}" not found, filled with empty string`);
+            result = result.replace(keyPattern, "");
+            logger.debug(
+              `[VariableEngine] Variable "${variableKey}" not found, filled with empty string`
+            );
           } else {
             // 保留原始占位符
-            logger.debug(`[VariableEngine] Variable "${variableKey}" not resolved, keeping original placeholder`);
+            logger.debug(
+              `[VariableEngine] Variable "${variableKey}" not resolved, keeping original placeholder`
+            );
           }
         }
       } catch (error: any) {
-        logger.warn(`[VariableEngine] Failed to resolve variable "${variableKey}": ${error.message || error}`);
+        logger.warn(
+          `[VariableEngine] Failed to resolve variable "${variableKey}": ${error.message || error}`
+        );
         // 解析失败时保留原始占位符
       }
     }
@@ -170,22 +193,32 @@ export class VariableEngine {
    * @param variables - 变量键值对映射
    * @returns 解析后的值，如果未找到则返回 null
    */
-  async resolveSingle(content: string, key: string, variables: Record<string, string> = {}): Promise<string | null> {
+  async resolveSingle(
+    content: string,
+    key: string,
+    variables: Record<string, string> = {}
+  ): Promise<string | null> {
     // 检查内容中是否包含该变量
     const pattern = this.options.placeholderPattern;
-    const variablePattern = new RegExp(`\\{\\{${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\}\\}`, 'g');
-    
+    const variablePattern = new RegExp(
+      `\\{\\{${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\}\\}`,
+      "g"
+    );
+
     if (!variablePattern.test(content)) {
       return null;
     }
-    
+
     return this.resolveVariable(key, variables);
   }
 
   /**
    * 解析变量值（内部方法）
    */
-  private async resolveVariable(key: string, variables: Record<string, string>): Promise<string | null> {
+  private async resolveVariable(
+    key: string,
+    variables: Record<string, string>
+  ): Promise<string | null> {
     // 直接从variables映射中查找
     if (key in variables) {
       const value = variables[key];
@@ -201,7 +234,7 @@ export class VariableEngine {
    * 转义正则表达式特殊字符
    */
   private escapeRegex(string: string): string {
-    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
 
   /**
@@ -211,7 +244,7 @@ export class VariableEngine {
    * @returns true如果包含占位符，否则false
    */
   hasPlaceholders(text: string): boolean {
-    if (!text || typeof text !== 'string') {
+    if (!text || typeof text !== "string") {
       return false;
     }
     return this.options.placeholderPattern.test(text);
@@ -224,21 +257,21 @@ export class VariableEngine {
    * @returns 占位符key数组
    */
   getPlaceholderKeys(text: string): string[] {
-    if (!text || typeof text !== 'string') {
+    if (!text || typeof text !== "string") {
       return [];
     }
-    
-    const pattern = new RegExp(this.options.placeholderPattern.source, 'g');
+
+    const pattern = new RegExp(this.options.placeholderPattern.source, "g");
     const matches = Array.from(text.matchAll(pattern));
     const keys = new Set<string>();
-    
+
     for (const match of matches) {
       const key = match[1]?.trim();
       if (key) {
         keys.add(key);
       }
     }
-    
+
     return Array.from(keys);
   }
 
@@ -247,7 +280,7 @@ export class VariableEngine {
    */
   reset(): void {
     this.clearCache();
-    logger.debug('[VariableEngine] Engine reset');
+    logger.debug("[VariableEngine] Engine reset");
   }
 
   /**
@@ -269,16 +302,17 @@ export class VariableEngine {
    * @param variables 变量键值对映射
    * @returns 解析后的消息数组
    */
-  async resolveMessages(messages: Message[], variables: Record<string, string> = {}): Promise<Message[]> {
+  async resolveMessages(
+    messages: Message[],
+    variables: Record<string, string> = {}
+  ): Promise<Message[]> {
     if (!messages || messages.length === 0) {
       return [];
     }
 
     logger.debug(`[VariableEngine] Resolving variables in ${messages.length} messages`);
 
-    return Promise.all(
-      messages.map(msg => this.resolveMessage(msg, variables))
-    );
+    return Promise.all(messages.map((msg) => this.resolveMessage(msg, variables)));
   }
 
   /**
@@ -286,19 +320,23 @@ export class VariableEngine {
    */
   private async resolveMessage(msg: Message, variables: Record<string, string>): Promise<Message> {
     // 🐾 多模态消息直接返回，不做任何处理
-    if (!msg.content || typeof msg.content !== 'string') {
+    if (!msg.content || typeof msg.content !== "string") {
       // 🔍 DEBUG: 检查多模态消息是否完整
       if (Array.isArray(msg.content)) {
-        const imageCount = msg.content.filter(p => p.type === 'image_url').length;
+        const imageCount = msg.content.filter((p) => p.type === "image_url").length;
         if (imageCount > 0) {
-          logger.debug(`[VariableEngine] Multimodal message detected, passing through unchanged (${imageCount} images)`);
+          logger.debug(
+            `[VariableEngine] Multimodal message detected, passing through unchanged (${imageCount} images)`
+          );
 
           // 验证图片数据完整性
           msg.content.forEach((part, idx) => {
-            if (part.type === 'image_url') {
-              const url = typeof part.image_url === 'string' ? part.image_url : part.image_url?.url;
+            if (part.type === "image_url") {
+              const url = typeof part.image_url === "string" ? part.image_url : part.image_url?.url;
               if (url) {
-                logger.debug(`[VariableEngine] Image #${idx}: ${url.length} chars, has ;base64, marker: ${url.includes(';base64,')}`);
+                logger.debug(
+                  `[VariableEngine] Image #${idx}: ${url.length} chars, has ;base64, marker: ${url.includes(";base64,")}`
+                );
               }
             }
           });
@@ -313,15 +351,11 @@ export class VariableEngine {
     // 如果启用缓存，检查缓存
     if (this.enableCache) {
       const cacheKey = `${originalContent}:${JSON.stringify(variables)}`;
-      const cached = this.cache.get(cacheKey);
+      const cached = this.getFromCache(cacheKey);
       if (cached) {
         const age = Date.now() - cached.timestamp;
-        if (age < this.cacheTtlMs) {
-          logger.debug(`[VariableEngine] Cache hit (${msg.role}, ${age}ms old)`);
-          return { ...msg, content: cached.resolved };
-        } else {
-          this.cache.delete(cacheKey);
-        }
+        logger.debug(`[VariableEngine] Cache hit (${msg.role}, ${age}ms old)`);
+        return { ...msg, content: cached.resolved };
       }
     }
 
@@ -334,13 +368,10 @@ export class VariableEngine {
         );
       }
 
-      // 存入缓存
+      // M-004: 存入缓存（带 LRU 策略）
       if (this.enableCache) {
         const cacheKey = `${originalContent}:${JSON.stringify(variables)}`;
-        this.cache.set(cacheKey, {
-          resolved: resolvedContent,
-          timestamp: Date.now()
-        });
+        this.addToCache(cacheKey, resolvedContent);
       }
 
       return { ...msg, content: resolvedContent };
@@ -353,6 +384,65 @@ export class VariableEngine {
   }
 
   // ==================== 缓存管理方法 ====================
+
+  /**
+   * M-004: 添加缓存条目（带 LRU 淘汰策略）
+   */
+  private addToCache(key: string, value: string): void {
+    if (!this.enableCache) return;
+
+    // 如果缓存已满，执行 LRU 淘汰
+    if (this.cache.size >= MAX_CACHE_SIZE) {
+      this.evictLRU();
+    }
+
+    const now = Date.now();
+    this.cache.set(key, {
+      resolved: value,
+      timestamp: now,
+      lastAccessed: now,
+    });
+  }
+
+  /**
+   * M-004: LRU 缓存淘汰 - 移除最近最少使用的条目
+   */
+  private evictLRU(): void {
+    let oldestEntry: [string, CacheEntry] | null = null;
+
+    for (const entry of this.cache.entries()) {
+      if (!oldestEntry || entry[1].lastAccessed < oldestEntry[1].lastAccessed) {
+        oldestEntry = entry;
+      }
+    }
+
+    if (oldestEntry) {
+      this.cache.delete(oldestEntry[0]);
+      logger.debug(
+        `[VariableEngine] LRU cache eviction: removed "${oldestEntry[0].substring(0, 50)}..."`
+      );
+    }
+  }
+
+  /**
+   * 获取缓存条目（更新访问时间）
+   */
+  private getFromCache(key: string): CacheEntry | null {
+    const entry = this.cache.get(key);
+    if (!entry) return null;
+
+    const now = Date.now();
+    const age = now - entry.timestamp;
+
+    if (age > this.cacheTtlMs) {
+      this.cache.delete(key);
+      return null;
+    }
+
+    // 更新访问时间（用于 LRU）
+    entry.lastAccessed = now;
+    return entry;
+  }
 
   /**
    * 清理缓存
@@ -368,11 +458,12 @@ export class VariableEngine {
   /**
    * 获取缓存统计信息
    */
-  getCacheStats(): { size: number; ttlMs: number; enabled: boolean } {
+  getCacheStats(): { size: number; ttlMs: number; enabled: boolean; maxSize: number } {
     return {
       size: this.cache.size,
       ttlMs: this.cacheTtlMs,
-      enabled: this.enableCache
+      enabled: this.enableCache,
+      maxSize: MAX_CACHE_SIZE,
     };
   }
 

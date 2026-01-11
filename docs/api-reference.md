@@ -1,359 +1,405 @@
-# ApexBridge API 参考文档
+# ApexBridge API Reference
 
-**文档版本:** v1.0.0  
-**最后更新:** 2026-01-10  
-**基础 URL:** `http://localhost:8088`
+**Generated:** 2026-01-11  
+**Version:** 2.0.0
 
----
-
-## 目录
-
-1. [概述](#概述)
-2. [认证](#认证)
-3. [聊天完成 API](#聊天完成-api)
-4. [流式 API](#流式-api)
-5. [模型管理 API](#模型管理-api)
-6. [技能 API](#技能-api)
-7. [MCP API](#mcp-api)
-8. [会话 API](#会话-api)
-9. [WebSocket API](#websocket-api)
-10. [错误代码](#错误代码)
+ApexBridge provides a comprehensive REST API for managing AI agents, models, skills, and MCP servers.
 
 ---
 
-## 概述
+## Table of Contents
 
-ApexBridge 是一个企业级 AI Agent 框架，提供 OpenAI 兼容的 REST API 和 WebSocket 接口。本文档涵盖所有 API 端点的详细说明，包括请求格式、响应格式和代码示例。
-
-所有 API 响应均采用 JSON 格式，错误响应包含 `error` 对象，成功响应包含 `success` 或 `data` 字段。
-
-**服务器默认端口:** `8088`
-
----
-
-## 认证
-
-### API Key 认证
-
-ApexBridge 支持基于 Bearer Token 的 API Key 认证方式。
-
-**请求头格式:**
-
-```
-Authorization: Bearer <your_api_key>
-```
-
-**配置方式:**
-API Key 可通过配置文件 (`config/admin-config.json`) 或环境变量 (`API_KEY` / `ABP_API_KEY`) 设置。
-
-**示例请求:**
-
-```bash
-curl -X GET http://localhost:8088/v1/models \
-  -H "Authorization: Bearer your_api_key_here"
-```
-
-**注意:**
-
-- 认证可在配置中禁用 (`auth.enabled: false`)
-- 公共端点 (`/health`, `/metrics`) 无需认证
-- 静态资源无需认证
+1. [Chat API](#chat-api) - OpenAI-compatible chat completions
+2. [Models API](#models-api) - Model management
+3. [Providers API](#providers-api) - LLM provider management
+4. [Skills API](#skills-api) - Skill management
+5. [MCP API](#mcp-api) - MCP server management
+6. [WebSocket API](#websocket-api) - Real-time communication
+7. [System API](#system-api) - Health checks and monitoring
 
 ---
 
-## 聊天完成 API
+## Base URL
 
-### POST /v1/chat/completions
-
-创建聊天完成请求，支持同步和流式两种模式。
-
-#### 请求参数
-
-| 参数名              | 类型    | 必填 | 默认值   | 说明               |
-| ------------------- | ------- | ---- | -------- | ------------------ |
-| `messages`          | Array   | 是   | -        | 消息数组           |
-| `model`             | String  | 否   | 默认模型 | 模型 ID            |
-| `provider`          | String  | 否   | -        | 提供商标识         |
-| `temperature`       | Number  | 否   | 1        | 温度参数 (0-2)     |
-| `max_tokens`        | Integer | 否   | 4096     | 最大生成 token 数  |
-| `top_p`             | Number  | 否   | 1        | Top-p 采样参数     |
-| `frequency_penalty` | Number  | 否   | 0        | 频率惩罚 (-2 到 2) |
-| `presence_penalty`  | Number  | 否   | 0        | 存在惩罚 (-2 到 2) |
-| `stream`            | Boolean | 否   | false    | 是否启用流式输出   |
-| `user`              | String  | 否   | -        | 用户标识           |
-| `selfThinking`      | Object  | 否   | -        | 深度思考配置       |
-| `conversation_id`   | String  | 否   | 自动生成 | 会话 ID            |
-
-#### 消息格式
-
-```typescript
-// 文本消息
-{
-  "role": "user" | "assistant" | "system",
-  "content": "你好，世界"
-}
-
-// 多模态消息
-{
-  "role": "user",
-  "content": [
-    { "type": "text", "text": "描述这张图片" },
-    { "type": "image_url", "image_url": { "url": "https://example.com/image.jpg" } }
-  ]
-}
+```
+http://localhost:8088
 ```
 
-#### 请求示例
-
-**同步模式:**
-
-```bash
-curl -X POST http://localhost:8088/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer your_api_key" \
-  -d '{
-    "messages": [
-      { "role": "system", "content": "你是一个专业助手" },
-      { "role": "user", "content": "请介绍一下 ApexBridge" }
-    ],
-    "model": "gpt-4",
-    "temperature": 0.7,
-    "max_tokens": 1000
-  }'
-```
-
-**流式模式:**
-
-```bash
-curl -X POST http://localhost:8088/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer your_api_key" \
-  -d '{
-    "messages": [
-      { "role": "user", "content": "写一个 Python 快速排序算法" }
-    ],
-    "model": "gpt-4",
-    "stream": true
-  }'
-```
-
-#### 响应示例
-
-**同步响应:**
+All API responses follow a consistent format:
 
 ```json
 {
-  "id": "chatcmpl-1736486400",
+  "success": true,
+  "data": { ... },
+  "meta": {
+    "timestamp": "2026-01-11T15:45:30.000Z"
+  }
+}
+```
+
+Error responses:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "Human readable error message"
+  }
+}
+```
+
+---
+
+## Chat API
+
+OpenAI-compatible chat completions API with streaming support.
+
+### POST /v1/chat/completions
+
+Create a chat completion request.
+
+**Method:** `POST`  
+**Path:** `/v1/chat/completions`  
+**File:** `src/api/controllers/ChatController.ts` (line 31)
+
+**Request Body:**
+
+```json
+{
+  "messages": [
+    { "role": "system", "content": "You are a helpful assistant." },
+    { "role": "user", "content": "Hello, world!" }
+  ],
+  "model": "gpt-4",
+  "stream": false,
+  "max_tokens": 1000,
+  "temperature": 0.7,
+  "contextCompression": {
+    "enabled": true,
+    "strategy": "hybrid",
+    "auto": true
+  }
+}
+```
+
+**Parameters:**
+
+| Parameter            | Type    | Required | Description                                      |
+| -------------------- | ------- | -------- | ------------------------------------------------ |
+| `messages`           | Array   | Yes      | Array of message objects with role and content   |
+| `model`              | String  | No       | Model ID to use (defaults to configured default) |
+| `stream`             | Boolean | No       | Enable streaming response (default: false)       |
+| `max_tokens`         | Integer | No       | Maximum tokens to generate                       |
+| `temperature`        | Number  | No       | Temperature for random sampling (0-2)            |
+| `contextCompression` | Object  | No       | Context compression settings                     |
+
+**Context Compression Options:**
+
+| Option                  | Type    | Description                                    |
+| ----------------------- | ------- | ---------------------------------------------- |
+| `enabled`               | Boolean | Enable 4-layer context compression             |
+| `strategy`              | String  | `truncate` \| `prune` \| `summary` \| `hybrid` |
+| `auto`                  | Boolean | Auto-detect context overflow                   |
+| `preserveSystemMessage` | Boolean | Keep system message intact                     |
+
+**Response (non-streaming):**
+
+```json
+{
+  "id": "chatcmpl-1704997530123",
   "object": "chat.completion",
-  "created": 1736486400,
+  "created": 1704997530,
   "model": "gpt-4",
   "choices": [
     {
       "index": 0,
       "message": {
         "role": "assistant",
-        "content": "ApexBridge 是一个高性能的 AI Agent 框架..."
+        "content": "Hello! How can I help you today?"
       },
       "finish_reason": "stop"
     }
   ],
   "usage": {
-    "prompt_tokens": 50,
-    "completion_tokens": 150,
-    "total_tokens": 200
+    "prompt_tokens": 25,
+    "completion_tokens": 15,
+    "total_tokens": 40
   }
 }
 ```
 
-**流式响应 (SSE 格式):**
+---
+
+### GET /v1/chat/sessions/active
+
+Get list of active chat sessions.
+
+**Method:** `GET`  
+**Path:** `/v1/chat/sessions/active`  
+**File:** `src/server.ts` (line 292)
+
+**Response:**
 
 ```json
-data: {"id":"chatcmpl-1736486400","object":"chat.completion.chunk","created":1736486400,"model":"gpt-4","choices":[{"index":0,"delta":{"content":""},"finish_reason":null}]}
-
-data: {"id":"chatcmpl-1736486400","object":"chat.completion.chunk","created":1736486400,"model":"gpt-4","choices":[{"index":0,"delta":{"content":"A"},"finish_reason":null}]}
-
-data: {"id":"chatcmpl-1736486400","object":"chat.completion.chunk","created":1736486400,"model":"gpt-4","choices":[{"index":0,"delta":{"content":"pex"},"finish_reason":null}]}
-
-data: [DONE]
+{
+  "success": true,
+  "data": [
+    {
+      "conversationId": "conv_123456",
+      "model": "gpt-4",
+      "createdAt": "2026-01-11T10:00:00Z",
+      "messageCount": 15
+    }
+  ],
+  "meta": {
+    "total": 1,
+    "timestamp": "2026-01-11T15:45:30.000Z"
+  }
+}
 ```
 
 ---
 
-### GET /v1/models
+### GET /v1/chat/sessions/:conversationId/history
 
-获取所有可用的模型列表。
+Get session history (ACE Engine internal logs).
 
-#### 请求示例
+**Method:** `GET`  
+**Path:** `/v1/chat/sessions/:conversationId/history`  
+**File:** `src/server.ts` (line 297)
 
-```bash
-curl -X GET http://localhost:8088/v1/models \
-  -H "Authorization: Bearer your_api_key"
-```
+**Parameters:**
 
-#### 响应示例
+| Parameter        | Type   | Description        |
+| ---------------- | ------ | ------------------ |
+| `conversationId` | String | Session identifier |
 
-```json
-{
-  "object": "list",
-  "data": [
-    {
-      "id": "gpt-4",
-      "object": "model",
-      "owned_by": "openai",
-      "created": 1736486400
-    },
-    {
-      "id": "claude-3-5-sonnet",
-      "object": "model",
-      "owned_by": "anthropic",
-      "created": 1736486400
-    }
-  ]
-}
-```
+---
+
+### GET /v1/chat/sessions/:conversationId/messages
+
+Get conversation messages (user dialog messages).
+
+**Method:** `GET`  
+**Path:** `/v1/chat/sessions/:conversationId/messages`  
+**File:** `src/server.ts` (line 302)
+
+**Parameters:**
+
+| Parameter        | Type   | Description        |
+| ---------------- | ------ | ------------------ |
+| `conversationId` | String | Session identifier |
+
+---
+
+### GET /v1/chat/sessions/:conversationId
+
+Get a single session details.
+
+**Method:** `GET`  
+**Path:** `/v1/chat/sessions/:conversationId`  
+**File:** `src/server.ts` (line 307)
+
+**Parameters:**
+
+| Parameter        | Type   | Description        |
+| ---------------- | ------ | ------------------ |
+| `conversationId` | String | Session identifier |
+
+---
+
+### DELETE /v1/chat/sessions/:conversationId
+
+Delete a chat session.
+
+**Method:** `DELETE`  
+**Path:** `/v1/chat/sessions/:conversationId`  
+**File:** `src/server.ts` (line 312)
+
+**Parameters:**
+
+| Parameter        | Type   | Description        |
+| ---------------- | ------ | ------------------ |
+| `conversationId` | String | Session identifier |
 
 ---
 
 ### POST /v1/interrupt
 
-中断正在进行的流式请求。
+Interrupt an ongoing request.
 
-#### 请求参数
+**Method:** `POST`  
+**Path:** `/v1/interrupt`  
+**File:** `src/server.ts` (line 322)
 
-| 参数名      | 类型   | 必填 | 说明    |
-| ----------- | ------ | ---- | ------- |
-| `requestId` | String | 是   | 请求 ID |
+**Request Body:**
 
-#### 请求示例
-
-```bash
-curl -X POST http://localhost:8088/v1/interrupt \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer your_api_key" \
-  -d '{
-    "requestId": "conv_1736486400_abc123"
-  }'
+```json
+{
+  "conversationId": "conv_123456"
+}
 ```
 
-#### 响应示例
+---
 
-**成功:**
+## Models API
+
+### GET /v1/models
+
+Get list of available models.
+
+**Method:** `GET`  
+**Path:** `/v1/models`  
+**File:** `src/server.ts` (line 317)  
+**Middleware:** `modelsListSchema` validation
+
+**Response:**
 
 ```json
 {
   "success": true,
-  "message": "Request interrupted successfully",
-  "requestId": "conv_1736486400_abc123",
-  "interrupted": true
-}
-```
-
-**失败 (请求不存在):**
-
-```json
-{
-  "success": false,
-  "message": "Request not found or already completed",
-  "requestId": "conv_1736486400_abc123",
-  "reason": "not_found"
-}
-```
-
----
-
-### POST /v1/chat/simple-stream
-
-简化版流式聊天接口，专为前端看板娘设计。
-
-#### 请求参数
-
-| 参数名        | 类型   | 必填 | 说明       |
-| ------------- | ------ | ---- | ---------- |
-| `messages`    | Array  | 是   | 消息数组   |
-| `model`       | String | 是   | 模型 ID    |
-| `provider`    | String | 否   | 提供商标识 |
-| `temperature` | Number | 否   | 温度参数   |
-
-#### 请求示例
-
-```bash
-curl -X POST http://localhost:8088/v1/chat/simple-stream \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer your_api_key" \
-  -d '{
-    "messages": [{ "role": "user", "content": "你好" }],
-    "model": "gpt-4"
-  }'
-```
-
----
-
-## 流式 API
-
-### 流式响应事件类型
-
-当启用流式输出时，服务器会发送多种 SSE 事件:
-
-| 事件类型          | 说明           |
-| ----------------- | -------------- |
-| `data`            | 标准聊天完成块 |
-| `thought_start`   | 思考过程开始   |
-| `thought`         | 思考内容块     |
-| `thought_end`     | 思考过程结束   |
-| `action_start`    | 工具调用开始   |
-| `observation`     | 工具执行结果   |
-| `answer_start`    | 最终答案开始   |
-| `answer`          | 最终答案内容   |
-| `answer_end`      | 最终答案结束   |
-| `conversation_id` | 会话 ID        |
-| `stream_done`     | 流式响应完成   |
-
-### 深度思考配置
-
-```json
-{
-  "selfThinking": {
-    "enabled": true,
-    "maxIterations": 50,
-    "includeThoughtsInResponse": true,
-    "enableStreamThoughts": true,
-    "systemPrompt": "你是一个专业助手",
-    "additionalPrompts": [],
-    "tools": []
+  "data": [
+    {
+      "id": "gpt-4",
+      "type": "NLP",
+      "provider": "openai",
+      "contextWindow": 128000,
+      "maxOutputTokens": 4096
+    },
+    {
+      "id": "claude-3-5-sonnet-20241022",
+      "type": "NLP",
+      "provider": "anthropic",
+      "contextWindow": 200000,
+      "maxOutputTokens": 8192
+    }
+  ],
+  "meta": {
+    "total": 8,
+    "timestamp": "2026-01-11T15:45:30.000Z"
   }
 }
 ```
 
 ---
 
-## 模型管理 API
+### GET /api/llm/models
+
+Query models across all providers.
+
+**Method:** `GET`  
+**Path:** `/api/llm/models`  
+**File:** `src/server.ts` (line 352)  
+**Controller:** `ModelController.queryModels`
+
+---
+
+### GET /api/llm/models/default
+
+Get the default model.
+
+**Method:** `GET`  
+**Path:** `/api/llm/models/default`  
+**File:** `src/server.ts` (line 353)  
+**Controller:** `ModelController.getDefaultModel`
+
+---
+
+## Providers API
+
+LLM Provider management with two-level structure (Provider → Models).
 
 ### GET /api/llm/providers
 
-获取所有 LLM 提供商列表。
+List all LLM providers.
 
-#### 响应示例
+**Method:** `GET`  
+**Path:** `/api/llm/providers`  
+**File:** `src/server.ts` (line 331)  
+**Controller:** `ProviderController.listProviders`
+
+**Response:**
 
 ```json
 {
   "success": true,
-  "providers": [
+  "data": [
     {
-      "id": 1,
-      "provider": "openai",
+      "id": "openai",
       "name": "OpenAI",
-      "description": "OpenAI GPT 系列模型",
-      "enabled": true,
-      "modelCount": 3,
-      "baseConfig": {
-        "baseURL": "https://api.openai.com/v1",
-        "timeout": 60000,
-        "maxRetries": 3
-      },
-      "createdAt": "2026-01-01T00:00:00Z",
-      "updatedAt": "2026-01-10T00:00:00Z"
+      "type": "openai",
+      "models": [
+        { "id": "gpt-4", "name": "GPT-4" },
+        { "id": "gpt-4o", "name": "GPT-4o" }
+      ]
     }
-  ]
+  ],
+  "meta": {
+    "total": 1,
+    "timestamp": "2026-01-11T15:45:30.000Z"
+  }
+}
+```
+
+---
+
+### GET /api/llm/providers/adapters
+
+List available LLM adapters.
+
+**Method:** `GET`  
+**Path:** `/api/llm/providers/adapters`  
+**File:** `src/server.ts` (line 332)  
+**Controller:** `ProviderController.listAdapters`
+
+---
+
+### GET /api/llm/providers/:id
+
+Get a specific provider by ID.
+
+**Method:** `GET`  
+**Path:** `/api/llm/providers/:id`  
+**File:** `src/server.ts` (line 333)  
+**Controller:** `ProviderController.getProvider`
+
+**Parameters:**
+
+| Parameter | Type   | Description         |
+| --------- | ------ | ------------------- |
+| `id`      | String | Provider identifier |
+
+---
+
+### POST /api/llm/providers/test-connect
+
+Test provider connection.
+
+**Method:** `POST`  
+**Path:** `/api/llm/providers/test-connect`  
+**File:** `src/server.ts` (line 334)  
+**Controller:** `ProviderController.testProviderConnection`
+
+**Request Body:**
+
+```json
+{
+  "type": "openai",
+  "apiKey": "sk-...",
+  "baseUrl": "https://api.openai.com/v1"
+}
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "connected": true,
+    "latency": 150
+  }
 }
 ```
 
@@ -361,419 +407,270 @@ curl -X POST http://localhost:8088/v1/chat/simple-stream \
 
 ### POST /api/llm/providers
 
-创建新的 LLM 提供商。
+Create a new provider.
 
-#### 请求参数
+**Method:** `POST`  
+**Path:** `/api/llm/providers`  
+**File:** `src/server.ts` (line 340)  
+**Controller:** `ProviderController.createProvider`
 
-| 参数名                  | 类型   | 必填 | 说明            |
-| ----------------------- | ------ | ---- | --------------- |
-| `provider`              | String | 是   | 提供商标识      |
-| `name`                  | String | 是   | 提供商名称      |
-| `description`           | String | 否   | 提供商描述      |
-| `baseConfig`            | Object | 是   | 基础配置        |
-| `baseConfig.apiKey`     | String | 是   | API Key         |
-| `baseConfig.baseURL`    | String | 是   | API 基础 URL    |
-| `baseConfig.timeout`    | Number | 否   | 超时时间 (毫秒) |
-| `baseConfig.maxRetries` | Number | 否   | 最大重试次数    |
+**Request Body:**
 
-#### 请求示例
-
-```bash
-curl -X POST http://localhost:8088/api/llm/providers \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer your_api_key" \
-  -d '{
-    "provider": "openai",
-    "name": "OpenAI GPT-4",
-    "description": "OpenAI GPT-4 模型",
-    "baseConfig": {
-      "apiKey": "sk-...",
-      "baseURL": "https://api.openai.com/v1",
-      "timeout": 60000,
-      "maxRetries": 3
-    }
-  }'
+```json
+{
+  "name": "My OpenAI",
+  "type": "openai",
+  "apiKey": "sk-...",
+  "baseUrl": "https://api.openai.com/v1",
+  "enabled": true
+}
 ```
 
 ---
 
 ### PUT /api/llm/providers/:id
 
-更新提供商信息。
+Update a provider.
+
+**Method:** `PUT`  
+**Path:** `/api/llm/providers/:id`  
+**File:** `src/server.ts` (line 341)  
+**Controller:** `ProviderController.updateProvider`
 
 ---
 
 ### DELETE /api/llm/providers/:id
 
-删除提供商。
+Delete a provider.
+
+**Method:** `DELETE`  
+**Path:** `/api/llm/providers/:id`  
+**File:** `src/server.ts` (line 342)  
+**Controller:** `ProviderController.deleteProvider`
 
 ---
 
 ### GET /api/llm/providers/:providerId/models
 
-获取指定提供商的所有模型。
+List models for a specific provider.
 
-#### 响应示例
+**Method:** `GET`  
+**Path:** `/api/llm/providers/:providerId/models`  
+**File:** `src/server.ts` (line 345)  
+**Controller:** `ModelController.listProviderModels`
 
-```json
-{
-  "success": true,
-  "provider": {
-    "id": 1,
-    "provider": "openai",
-    "name": "OpenAI"
-  },
-  "models": [
-    {
-      "id": 1,
-      "modelKey": "gpt-4",
-      "modelName": "GPT-4",
-      "modelType": "nlp",
-      "enabled": true,
-      "isDefault": true,
-      "displayOrder": 1
-    }
-  ]
-}
-```
+---
+
+### GET /api/llm/providers/:providerId/models/:modelId
+
+Get a specific model.
+
+**Method:** `GET`  
+**Path:** `/api/llm/providers/:providerId/models/:modelId`  
+**File:** `src/server.ts` (line 346)  
+**Controller:** `ModelController.getModel`
 
 ---
 
 ### POST /api/llm/providers/:providerId/models
 
-创建新模型。
+Create a new model for a provider.
 
-#### 请求参数
-
-| 参数名        | 类型    | 必填 | 说明                            |
-| ------------- | ------- | ---- | ------------------------------- |
-| `modelKey`    | String  | 是   | 模型标识                        |
-| `modelName`   | String  | 是   | 模型名称                        |
-| `modelType`   | String  | 是   | 模型类型 (nlp/embedding/vision) |
-| `modelConfig` | Object  | 否   | 模型特定配置                    |
-| `enabled`     | Boolean | 否   | 是否启用                        |
+**Method:** `POST`  
+**Path:** `/api/llm/providers/:providerId/models`  
+**File:** `src/server.ts` (line 347)  
+**Controller:** `ModelController.createModel`
 
 ---
 
-### GET /api/llm/models
+### PUT /api/llm/providers/:providerId/models/:modelId
 
-查询模型 (跨提供商)。
+Update a model.
 
-#### 查询参数
-
-| 参数名    | 类型    | 说明                            |
-| --------- | ------- | ------------------------------- |
-| `type`    | String  | 模型类型 (nlp/embedding/vision) |
-| `enabled` | Boolean | 是否启用                        |
-| `default` | Boolean | 是否默认模型                    |
-
-#### 请求示例
-
-```bash
-curl -X GET "http://localhost:8088/api/llm/models?type=nlp&enabled=true" \
-  -H "Authorization: Bearer your_api_key"
-```
+**Method:** `PUT`  
+**Path:** `/api/llm/providers/:providerId/models/:modelId`  
+**File:** `src/server.ts` (line 348)  
+**Controller:** `ModelController.updateModel`
 
 ---
 
-### GET /api/llm/models/default
+### DELETE /api/llm/providers/:providerId/models/:modelId
 
-获取默认模型。
+Delete a model.
 
-#### 查询参数
-
-| 参数名 | 类型   | 必填 | 说明     |
-| ------ | ------ | ---- | -------- |
-| `type` | String | 是   | 模型类型 |
-
-#### 请求示例
-
-```bash
-curl -X GET "http://localhost:8088/api/llm/models/default?type=nlp" \
-  -H "Authorization: Bearer your_api_key"
-```
+**Method:** `DELETE`  
+**Path:** `/api/llm/providers/:providerId/models/:modelId`  
+**File:** `src/server.ts` (line 349)  
+**Controller:** `ModelController.deleteModel`
 
 ---
 
-### POST /api/llm/providers/test-connect
+## Skills API
 
-测试提供商连接。
+Skill management RESTful API routes.
 
-#### 请求示例
-
-```bash
-curl -X POST http://localhost:8088/api/llm/providers/test-connect \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer your_api_key" \
-  -d '{
-    "provider": "openai",
-    "baseConfig": {
-      "apiKey": "sk-...",
-      "baseURL": "https://api.openai.com/v1"
-    }
-  }'
-```
-
-#### 响应示例
-
-**成功:**
-
-```json
-{
-  "success": true,
-  "latency": 150,
-  "message": "连接成功",
-  "details": {
-    "provider": "openai",
-    "testedAt": "2026-01-10T00:00:00Z"
-  }
-}
-```
-
----
-
-### POST /api/llm/providers/validate-model
-
-验证模型可用性。
-
-#### 请求参数
-
-| 参数名       | 类型   | 必填 | 说明       |
-| ------------ | ------ | ---- | ---------- |
-| `provider`   | String | 是   | 提供商标识 |
-| `baseConfig` | Object | 是   | 基础配置   |
-| `model`      | String | 是   | 模型 ID    |
-
----
-
-## 技能 API
-
-### GET /api/skills
-
-列出所有技能。
-
-#### 查询参数
-
-| 参数名      | 类型   | 默认值 | 说明                  |
-| ----------- | ------ | ------ | --------------------- |
-| `page`      | Number | 1      | 页码                  |
-| `limit`     | Number | 50     | 每页数量              |
-| `name`      | String | -      | 按名称过滤            |
-| `tags`      | String | -      | 按标签过滤 (逗号分隔) |
-| `sortBy`    | String | name   | 排序字段              |
-| `sortOrder` | String | asc    | 排序方向              |
-
-#### 请求示例
-
-```bash
-curl -X GET "http://localhost:8088/api/skills?page=1&limit=20&tags=utility" \
-  -H "Authorization: Bearer your_api_key"
-```
-
-#### 响应示例
-
-```json
-{
-  "success": true,
-  "data": {
-    "skills": [
-      {
-        "name": "calculator",
-        "description": "数学计算工具",
-        "type": "tool",
-        "tags": ["utility", "math"],
-        "version": "1.0.0",
-        "author": "ApexBridge",
-        "enabled": true,
-        "level": 1,
-        "path": "/skills/calculator",
-        "parameters": {
-          "type": "object",
-          "properties": {},
-          "required": []
-        }
-      }
-    ],
-    "pagination": {
-      "total": 50,
-      "page": 1,
-      "limit": 20,
-      "totalPages": 3
-    }
-  }
-}
-```
-
----
-
-### GET /api/skills/:name
-
-获取单个技能详情。
-
-#### 请求示例
-
-```bash
-curl -X GET http://localhost:8088/api/skills/calculator \
-  -H "Authorization: Bearer your_api_key"
-```
+**Base Path:** `/api/skills`  
+**File:** `src/api/routes/skillRoutes.ts`
 
 ---
 
 ### POST /api/skills/install
 
-安装技能 (ZIP 文件上传)。
+Install skills from ZIP file upload.
 
-#### 请求头
+**Method:** `POST`  
+**Path:** `/api/skills/install`  
+**File:** `src/api/routes/skillRoutes.ts` (line 27)  
+**Controller:** `SkillsController.installSkill`
 
-```
-Content-Type: multipart/form-data
-```
+**Content-Type:** `multipart/form-data`
 
-#### 请求参数
+**Body Parameters:**
 
-| 参数名              | 类型    | 说明               |
-| ------------------- | ------- | ------------------ |
-| `file`              | File    | ZIP 文件           |
-| `overwrite`         | Boolean | 是否覆盖已存在技能 |
-| `skipVectorization` | Boolean | 是否跳过向量化     |
-
-#### 请求示例
-
-```bash
-curl -X POST http://localhost:8088/api/skills/install \
-  -H "Authorization: Bearer your_api_key" \
-  -F "file=@my-skill.zip" \
-  -F "overwrite=true"
-```
-
-#### 响应示例
-
-```json
-{
-  "success": true,
-  "message": "Skill installed successfully",
-  "skillName": "my-skill",
-  "installedAt": "2026-01-10T00:00:00Z",
-  "duration": 1500,
-  "vectorized": true
-}
-```
+| Parameter           | Type    | Required | Description                          |
+| ------------------- | ------- | -------- | ------------------------------------ |
+| `file`              | File    | Yes      | ZIP file containing skill definition |
+| `overwrite`         | Boolean | No       | Overwrite existing skill             |
+| `skipVectorization` | Boolean | No       | Skip vector indexing                 |
 
 ---
 
 ### DELETE /api/skills/:name
 
-卸载技能。
+Uninstall a skill.
 
-#### 请求示例
+**Method:** `DELETE`  
+**Path:** `/api/skills/:name`  
+**File:** `src/api/routes/skillRoutes.ts` (line 38)  
+**Controller:** `SkillsController.uninstallSkill`
 
-```bash
-curl -X DELETE http://localhost:8088/api/skills/calculator \
-  -H "Authorization: Bearer your_api_key"
-```
+**Parameters:**
+
+| Parameter | Type   | Description             |
+| --------- | ------ | ----------------------- |
+| `name`    | String | Skill name to uninstall |
 
 ---
 
 ### PUT /api/skills/:name/description
 
-更新技能描述。
+Update skill description.
 
-#### 请求体
+**Method:** `PUT`  
+**Path:** `/api/skills/:name/description`  
+**File:** `src/api/routes/skillRoutes.ts` (line 46)  
+**Controller:** `SkillsController.updateSkillDescription`
+
+**Request Body:**
 
 ```json
 {
-  "description": "新的技能描述"
+  "description": "Updated skill description"
 }
 ```
+
+---
+
+### GET /api/skills
+
+List all skills with pagination, filtering, and sorting.
+
+**Method:** `GET`  
+**Path:** `/api/skills`  
+**File:** `src/api/routes/skillRoutes.ts` (line 54)  
+**Controller:** `SkillsController.listSkills`
+
+**Query Parameters:**
+
+| Parameter   | Type    | Description                  |
+| ----------- | ------- | ---------------------------- |
+| `page`      | Integer | Page number (default: 1)     |
+| `limit`     | Integer | Items per page (default: 20) |
+| `name`      | String  | Filter by name               |
+| `tags`      | String  | Filter by tags               |
+| `sortBy`    | String  | Field to sort by             |
+| `sortOrder` | String  | `asc` or `desc`              |
+
+---
+
+### GET /api/skills/:name
+
+Get a single skill details.
+
+**Method:** `GET`  
+**Path:** `/api/skills/:name`  
+**File:** `src/api/routes/skillRoutes.ts` (line 61)  
+**Controller:** `SkillsController.getSkill`
 
 ---
 
 ### GET /api/skills/:name/exists
 
-检查技能是否存在。
+Check if a skill exists.
 
-#### 响应示例
-
-```json
-{
-  "success": true,
-  "data": {
-    "name": "calculator",
-    "exists": true
-  }
-}
-```
+**Method:** `GET`  
+**Path:** `/api/skills/:name/exists`  
+**File:** `src/api/routes/skillRoutes.ts` (line 68)  
+**Controller:** `SkillsController.checkSkillExists`
 
 ---
 
 ### GET /api/skills/stats
 
-获取技能统计信息。
+Get skill statistics.
 
-#### 响应示例
-
-```json
-{
-  "success": true,
-  "data": {
-    "total": 50,
-    "enabled": 45,
-    "disabled": 5,
-    "byType": {
-      "tool": 30,
-      "agent": 15,
-      "utility": 5
-    },
-    "byTags": {}
-  }
-}
-```
+**Method:** `GET`  
+**Path:** `/api/skills/stats`  
+**File:** `src/api/routes/skillRoutes.ts` (line 75)  
+**Controller:** `SkillsController.getSkillStats`
 
 ---
 
 ### POST /api/skills/reindex
 
-重新索引所有技能。
+Reindex all skills (for vector database rebuild).
+
+**Method:** `POST`  
+**Path:** `/api/skills/reindex`  
+**File:** `src/api/routes/skillRoutes.ts` (line 82)  
+**Controller:** `SkillsController.reindexAllSkills`
 
 ---
 
 ## MCP API
 
+MCP (Model Context Protocol) server management REST API.
+
+**Base Path:** `/api/mcp`  
+**File:** `src/api/routes/mcpRoutes.ts`
+
+---
+
 ### GET /api/mcp/servers
 
-获取所有注册的 MCP 服务器列表。
+Get all registered MCP servers.
 
-#### 响应示例
+**Method:** `GET`  
+**Path:** `/api/mcp/servers`  
+**File:** `src/api/routes/mcpRoutes.ts` (line 17)
+
+**Response:**
 
 ```json
 {
   "success": true,
   "data": [
     {
-      "id": "server-1",
+      "id": "server_1",
       "name": "Filesystem Server",
       "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"],
       "status": "running",
-      "tools": [
-        {
-          "name": "read_file",
-          "description": "Read file contents",
-          "parameters": {
-            "type": "object",
-            "properties": {
-              "path": { "type": "string" }
-            },
-            "required": ["path"]
-          }
-        }
-      ]
+      "tools": ["read_file", "write_file", "list_dir"]
     }
   ],
   "meta": {
     "total": 1,
-    "timestamp": "2026-01-10T00:00:00Z"
+    "timestamp": "2026-01-11T15:45:30.000Z"
   }
 }
 ```
@@ -782,67 +679,80 @@ curl -X DELETE http://localhost:8088/api/skills/calculator \
 
 ### POST /api/mcp/servers
 
-注册新的 MCP 服务器。
+Register a new MCP server.
 
-#### 请求参数
+**Method:** `POST`  
+**Path:** `/api/mcp/servers`  
+**File:** `src/api/routes/mcpRoutes.ts` (line 46)
 
-| 参数名    | 类型   | 必填 | 说明                  |
-| --------- | ------ | ---- | --------------------- |
-| `id`      | String | 是   | 服务器 ID             |
-| `type`    | String | 是   | 连接类型 (stdio/http) |
-| `command` | String | 是   | 启动命令              |
-| `args`    | Array  | 否   | 命令参数              |
-| `env`     | Object | 否   | 环境变量              |
+**Request Body:**
 
-#### 请求示例
-
-```bash
-curl -X POST http://localhost:8088/api/mcp/servers \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer your_api_key" \
-  -d '{
-    "id": "filesystem-server",
-    "type": "stdio",
-    "command": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
-  }'
+```json
+{
+  "id": "my-server",
+  "name": "My MCP Server",
+  "type": "stdio",
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-filesystem", "./data"],
+  "env": {
+    "KEY": "value"
+  }
+}
 ```
+
+**Required Fields:** `id`, `type`, `command`
 
 ---
 
 ### GET /api/mcp/servers/:serverId
 
-获取特定 MCP 服务器详情。
+Get specific MCP server details.
+
+**Method:** `GET`  
+**Path:** `/api/mcp/servers/:serverId`  
+**File:** `src/api/routes/mcpRoutes.ts` (line 97)
 
 ---
 
 ### DELETE /api/mcp/servers/:serverId
 
-注销 MCP 服务器。
+Unregister an MCP server.
+
+**Method:** `DELETE`  
+**Path:** `/api/mcp/servers/:serverId`  
+**File:** `src/api/routes/mcpRoutes.ts` (line 133)
 
 ---
 
 ### POST /api/mcp/servers/:serverId/restart
 
-重启 MCP 服务器。
+Restart an MCP server.
+
+**Method:** `POST`  
+**Path:** `/api/mcp/servers/:serverId/restart`  
+**File:** `src/api/routes/mcpRoutes.ts` (line 172)
 
 ---
 
 ### GET /api/mcp/servers/:serverId/status
 
-获取 MCP 服务器状态。
+Get MCP server status.
 
-#### 响应示例
+**Method:** `GET`  
+**Path:** `/api/mcp/servers/:serverId/status`  
+**File:** `src/api/routes/mcpRoutes.ts` (line 211)
+
+**Response:**
 
 ```json
 {
   "success": true,
   "data": {
-    "serverId": "filesystem-server",
+    "serverId": "server_1",
     "status": {
-      "state": "running",
+      "healthy": true,
       "uptime": 3600,
-      "lastPing": "2026-01-10T00:00:00Z"
+      "lastCheck": "2026-01-11T15:45:00.000Z"
     }
   }
 }
@@ -852,445 +762,200 @@ curl -X POST http://localhost:8088/api/mcp/servers \
 
 ### GET /api/mcp/servers/:serverId/tools
 
-获取 MCP 服务器的工具列表。
+Get tools list for an MCP server.
+
+**Method:** `GET`  
+**Path:** `/api/mcp/servers/:serverId/tools`  
+**File:** `src/api/routes/mcpRoutes.ts` (line 250)
 
 ---
 
 ### POST /api/mcp/servers/:serverId/tools/:toolName/call
 
-调用 MCP 工具。
+Call an MCP tool by name.
 
-#### 请求示例
+**Method:** `POST`  
+**Path:** `/api/mcp/servers/:serverId/tools/:toolName/call`  
+**File:** `src/api/routes/mcpRoutes.ts` (line 290)
 
-```bash
-curl -X POST http://localhost:8088/api/mcp/servers/filesystem-server/tools/read_file/call \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer your_api_key" \
-  -d '{
-    "path": "/tmp/example.txt"
-  }'
+**Request Body:**
+
+```json
+{
+  "path": "/some/file.txt"
+}
 ```
 
 ---
 
 ### POST /api/mcp/tools/call
 
-调用 MCP 工具 (自动发现)。
+Call an MCP tool with auto-discovery.
 
-#### 请求参数
+**Method:** `POST`  
+**Path:** `/api/mcp/tools/call`  
+**File:** `src/api/routes/mcpRoutes.ts` (line 322)
 
-| 参数名      | 类型   | 必填 | 说明     |
-| ----------- | ------ | ---- | -------- |
-| `toolName`  | String | 是   | 工具名称 |
-| `arguments` | Object | 否   | 工具参数 |
-
----
-
-### GET /api/mcp/statistics
-
-获取 MCP 统计信息。
-
-#### 响应示例
+**Request Body:**
 
 ```json
 {
-  "success": true,
-  "data": {
-    "totalServers": 2,
-    "runningServers": 2,
-    "totalTools": 15,
-    "callsTotal": 150,
-    "callsSuccess": 148,
-    "callsFailed": 2
+  "toolName": "read_file",
+  "arguments": {
+    "path": "/some/file.txt"
   }
 }
 ```
 
 ---
 
+### GET /api/mcp/statistics
+
+Get MCP statistics.
+
+**Method:** `GET`  
+**Path:** `/api/mcp/statistics`  
+**File:** `src/api/routes/mcpRoutes.ts` (line 362)
+
+---
+
 ### GET /api/mcp/health
 
-MCP 健康检查。
+MCP health check.
 
-#### 响应示例
+**Method:** `GET`  
+**Path:** `/api/mcp/health`  
+**File:** `src/api/routes/mcpRoutes.ts` (line 387)
+
+**Response:**
 
 ```json
 {
   "success": true,
   "data": {
     "healthy": true,
-    "servers": [
-      {
-        "id": "filesystem-server",
-        "healthy": true,
-        "latency": 5
-      }
-    ],
-    "timestamp": "2026-01-10T00:00:00Z"
-  }
-}
-```
-
----
-
-## 会话 API
-
-### GET /v1/chat/sessions/:conversationId
-
-获取会话状态。
-
-#### 响应示例
-
-```json
-{
-  "success": true,
-  "data": {
-    "sessionId": "sess_abc123",
-    "conversationId": "conv_1736486400_abc123",
-    "status": "active",
-    "messageCount": 10,
-    "lastActivityAt": 1736486400000,
-    "metadata": {
-      "hasHistory": true
+    "servers": {
+      "total": 2,
+      "running": 2,
+      "stopped": 0
     }
   }
 }
 ```
-
----
-
-### GET /v1/chat/sessions/active
-
-获取活动会话列表。
-
-#### 响应示例
-
-```json
-{
-  "success": true,
-  "data": {
-    "sessions": [
-      {
-        "sessionId": "sess_abc123",
-        "conversationId": "conv_1736486400_abc123",
-        "status": "active",
-        "messageCount": 10,
-        "lastActivityAt": 1736486400000,
-        "lastMessage": "用户最后一条消息..."
-      }
-    ],
-    "total": 1
-  }
-}
-```
-
----
-
-### GET /v1/chat/sessions/:conversationId/history
-
-获取会话历史。
-
-#### 查询参数
-
-| 参数名  | 类型   | 默认值 | 说明                                      |
-| ------- | ------ | ------ | ----------------------------------------- |
-| `type`  | String | all    | 历史类型 (all/state/telemetry/directives) |
-| `limit` | String | 100    | 限制数量                                  |
-
----
-
-### GET /v1/chat/sessions/:conversationId/messages
-
-获取对话消息历史。
-
-#### 查询参数
-
-| 参数名   | 类型   | 默认值 | 说明     |
-| -------- | ------ | ------ | -------- |
-| `limit`  | String | 100    | 限制数量 |
-| `offset` | String | 0      | 偏移量   |
-
-#### 响应示例
-
-```json
-{
-  "success": true,
-  "data": {
-    "messages": [
-      {
-        "id": "msg_1",
-        "role": "user",
-        "content": "你好",
-        "created_at": 1736486400000
-      }
-    ],
-    "total": 1,
-    "limit": 100,
-    "offset": 0
-  }
-}
-```
-
----
-
-### DELETE /v1/chat/sessions/:conversationId
-
-删除会话。
 
 ---
 
 ## WebSocket API
 
-### WS /chat
+Real-time communication for streaming responses and interrupts.
 
-实时聊天 WebSocket 连接。
+**File:** `src/api/websocket/WebSocketManager.ts`
 
-**连接 URL:**
-
-```
-ws://localhost:8088/chat/api_key=<your_api_key>
-```
-
-**或:**
+### Connection
 
 ```
-ws://localhost:8088/v1/chat/api_key=<your_api_key>
+ws://localhost:8088/ws
 ```
 
-### 客户端消息格式
+### Events
 
-```typescript
-interface ChatMessage {
-  type: "chat" | "stream_chat" | "stop";
-  payload?: {
-    messages?: Message[];
-    options?: ChatOptions;
-    requestId?: string;
-  };
-}
-```
+| Event       | Direction     | Description                |
+| ----------- | ------------- | -------------------------- |
+| `message`   | Client→Server | Send chat message          |
+| `stream`    | Server→Client | Receive streaming response |
+| `interrupt` | Client→Server | Interrupt ongoing request  |
+| `error`     | Server→Client | Error notification         |
+| `close`     | Server→Client | Connection closed          |
 
-#### 发送普通聊天消息
+### WebSocket Channels
 
-```json
-{
-  "type": "chat",
-  "payload": {
-    "messages": [{ "role": "user", "content": "你好" }],
-    "options": {
-      "model": "gpt-4"
-    }
-  }
-}
-```
-
-#### 发送流式聊天消息
-
-```json
-{
-  "type": "stream_chat",
-  "payload": {
-    "messages": [{ "role": "user", "content": "写一个 Python 快速排序" }],
-    "options": {
-      "model": "gpt-4",
-      "temperature": 0.7
-    }
-  }
-}
-```
-
-#### 发送中断请求
-
-```json
-{
-  "type": "stop"
-}
-```
-
-### 服务器消息格式
-
-```typescript
-interface ChatResponse {
-  type: "chat_response" | "stream_chunk" | "stream_done" | "error" | "status" | "meta_event";
-  payload?: any;
-  error?: string;
-}
-```
-
-#### 响应示例
-
-**普通响应:**
-
-```json
-{
-  "type": "chat_response",
-  "payload": {
-    "id": "chatcmpl-1736486400",
-    "content": "这是一个回复..."
-  }
-}
-```
-
-**流式响应:**
-
-```json
-{
-  "type": "stream_chunk",
-  "payload": {
-    "id": "chatcmpl-1736486400",
-    "delta": { "content": "这" },
-    "finish_reason": null
-  }
-}
-```
-
-**元事件:**
-
-```json
-{
-  "type": "meta_event",
-  "payload": {
-    "requestId": "conv_1736486400_abc123"
-  }
-}
-```
-
-**完成:**
-
-```json
-{
-  "type": "stream_done"
-}
-```
-
-**错误:**
-
-```json
-{
-  "type": "error",
-  "error": "Internal server error"
-}
-```
-
-**状态:**
-
-```json
-{
-  "type": "status",
-  "payload": {
-    "status": "interrupted",
-    "success": true,
-    "requestId": "conv_1736486400_abc123"
-  }
-}
-```
-
-### 心跳机制
-
-WebSocket 连接每 30 秒发送一次心跳 (ping/pong)。无响应连接将被自动断开。
+| Channel    | Purpose                    |
+| ---------- | -------------------------- |
+| `/ws/chat` | Chat completions streaming |
+| `/ws/mcp`  | MCP tool calls             |
 
 ---
 
-## 错误代码
+## System API
 
-### HTTP 状态码
+### GET /health
 
-| 状态码 | 说明           |
-| ------ | -------------- |
-| 200    | 成功           |
-| 201    | 创建成功       |
-| 400    | 请求参数错误   |
-| 401    | 未授权         |
-| 403    | 禁止访问       |
-| 404    | 资源不存在     |
-| 409    | 资源冲突       |
-| 429    | 请求频率超限   |
-| 500    | 服务器内部错误 |
-| 503    | 服务不可用     |
+Health check endpoint.
 
-### 错误响应格式
+**Method:** `GET`  
+**Path:** `/health`  
+**File:** `src/server.ts` (line 370)
+
+**Response:**
 
 ```json
 {
-  "error": {
-    "message": "错误描述",
-    "type": "error_type",
-    "code": "ERROR_CODE"
-  }
+  "status": "ok",
+  "version": "2.0.0",
+  "uptime": 3600,
+  "plugins": 5,
+  "activeRequests": 2
 }
 ```
 
-### 常见错误类型
+---
 
-| 类型                   | 说明           |
-| ---------------------- | -------------- |
-| `invalid_request`      | 请求参数无效   |
-| `authentication_error` | 认证失败       |
-| `permission_denied`    | 权限不足       |
-| `not_found`            | 资源不存在     |
-| `rate_limit_error`     | 超出频率限制   |
-| `server_error`         | 服务器内部错误 |
-| `service_unavailable`  | 服务不可用     |
+## Middleware
 
-### MCP 错误代码
+### Authentication
 
-| 代码                   | 说明               |
-| ---------------------- | ------------------ |
-| `GET_SERVERS_FAILED`   | 获取服务器列表失败 |
-| `REGISTRATION_FAILED`  | 服务器注册失败     |
-| `SERVER_NOT_FOUND`     | 服务器不存在       |
-| `UNREGISTRATION_ERROR` | 服务器注销失败     |
-| `RESTART_ERROR`        | 服务器重启失败     |
-| `GET_STATUS_FAILED`    | 获取状态失败       |
-| `GET_TOOLS_FAILED`     | 获取工具列表失败   |
-| `TOOL_CALL_ERROR`      | 工具调用失败       |
-| `HEALTH_CHECK_FAILED`  | 健康检查失败       |
+All `/api/*` endpoints require API Key authentication.
 
-### 技能错误代码
+```bash
+curl -H "X-API-Key: your-api-key" http://localhost:8088/api/llm/providers
+```
 
-| 代码                      | 说明           |
-| ------------------------- | -------------- |
-| `SKILL_NOT_FOUND`         | 技能不存在     |
-| `SKILL_ALREADY_EXISTS`    | 技能已存在     |
-| `SKILL_INVALID_STRUCTURE` | 技能结构无效   |
-| `VECTOR_DB_ERROR`         | 向量数据库错误 |
+### Rate Limiting
+
+- **In-memory limiter**: For development
+- **Redis limiter**: For production
+
+### Validation Schemas
+
+| Schema                         | Endpoint                               | Description                  |
+| ------------------------------ | -------------------------------------- | ---------------------------- |
+| `modelsListSchema`             | GET /v1/models                         | Model list query validation  |
+| `interruptRequestSchema`       | POST /v1/interrupt                     | Interrupt request validation |
+| `validateModelBeforeAddSchema` | POST /api/llm/providers/validate-model | Model validation             |
 
 ---
 
-## 速率限制
+## Error Codes
 
-| 端点类型 | 限制        |
-| -------- | ----------- |
-| 聊天完成 | 60 次/分钟  |
-| 模型查询 | 120 次/分钟 |
-| MCP API  | 120 次/分钟 |
-| 技能管理 | 30 次/分钟  |
-
-超过速率限制将返回 `429 Too Many Requests` 错误。
-
----
-
-## 附录
-
-### 支持的模型提供商
-
-| 提供商           | 标识符     |
-| ---------------- | ---------- |
-| OpenAI           | `openai`   |
-| Anthropic Claude | `claude`   |
-| DeepSeek         | `deepseek` |
-| Ollama           | `ollama`   |
-| 智谱 AI          | `zhipu`    |
-| 自定义           | `custom`   |
-
-### 支持的模型类型
-
-| 类型        | 说明             |
-| ----------- | ---------------- |
-| `nlp`       | 自然语言处理模型 |
-| `embedding` | 向量嵌入模型     |
-| `vision`    | 视觉模型         |
+| Code                  | HTTP Status | Description                           |
+| --------------------- | ----------- | ------------------------------------- |
+| `INVALID_CONFIG`      | 400         | Missing required configuration fields |
+| `REGISTRATION_FAILED` | 400         | MCP server registration failed        |
+| `SERVER_NOT_FOUND`    | 404         | Requested server/resource not found   |
+| `GET_SERVERS_FAILED`  | 500         | Internal error fetching servers       |
+| `TOOL_CALL_ERROR`     | 500         | Error executing MCP tool              |
+| `HEALTH_CHECK_FAILED` | 503         | Health check failed                   |
 
 ---
 
-_文档最后更新: 2026-01-10_
+## Rate Limits
+
+| Endpoint               | Requests | Window     |
+| ---------------------- | -------- | ---------- |
+| `/v1/chat/completions` | 100      | per minute |
+| `/api/mcp/*`           | 60       | per minute |
+| `/api/skills/*`        | 30       | per minute |
+
+---
+
+## Response Timeouts
+
+| Endpoint               | Timeout          |
+| ---------------------- | ---------------- |
+| `/v1/chat/completions` | 120s (streaming) |
+| `/api/mcp/tools/call`  | 30s              |
+| Other endpoints        | 10s              |
+
+---
+
+_Generated by ApexBridge API Documentation Generator_

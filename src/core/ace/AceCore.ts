@@ -1,8 +1,20 @@
-import { EventEmitter } from 'events';
-import crypto from 'crypto';
-import { logger } from '../../utils/logger';
-import { ApexLLMAdapter } from './ApexLLMAdapter';
-import { ReadWriteLock } from '../../utils/cache';
+/**
+ * ⚠️ DEPRECATED - 此文件已废弃，AceCore 未被实际使用
+ *
+ * AceCore - Agent Cognition Engine (废弃)
+ *
+ * 保留此文件以备将来参考或重新启用。
+ * 当前状态：从未被实例化或导入使用
+ *
+ * @deprecated since 2024-01-11
+ * @see trash/ace-backup-20260111/AceCore.ts 备份版本
+ */
+
+import { EventEmitter } from "events";
+import crypto from "crypto";
+import { logger } from "../../utils/logger";
+import { ApexLLMAdapter } from "./ApexLLMAdapter";
+import { ReadWriteLock } from "../../utils/cache";
 
 // ========== 本地化类型定义 ==========
 
@@ -18,12 +30,12 @@ export interface Trajectory {
   user_input: string;
   steps: TrajectoryStep[];
   final_result: string;
-  outcome: 'SUCCESS' | 'FAILURE';
+  outcome: "SUCCESS" | "FAILURE";
   environment_feedback: string;
   used_rule_ids: string[];
   timestamp: number;
   duration_ms: number;
-  evolution_status: 'PENDING' | 'COMPLETED' | 'FAILED';
+  evolution_status: "PENDING" | "COMPLETED" | "FAILED";
 }
 
 export interface ReflectionTrigger {
@@ -40,12 +52,12 @@ export interface AceCoreConfig {
   reflectionCycleInterval?: number;
   maxSessionAge?: number;
   storage?: {
-    mode: 'memory' | 'sqlite';
+    mode: "memory" | "sqlite";
     sqlitePath?: string;
     logsPath?: string;
   };
   memory?: {
-    provider: 'memory' | 'lancedb';
+    provider: "memory" | "lancedb";
     endpoint?: string;
     collectionPrefix?: string;
   };
@@ -91,7 +103,7 @@ export class AceCore {
   // 事件总线
   public readonly bus = {
     northbound: new EventEmitter(),
-    southbound: new EventEmitter()
+    southbound: new EventEmitter(),
   };
 
   // 存储（这些map现在通过读写锁保护）
@@ -113,9 +125,12 @@ export class AceCore {
    */
   private startSessionCleanupScheduler(): void {
     // 每5分钟清理一次过期会话
-    const cleanupInterval = setInterval(async () => {
-      await this.cleanupExpiredSessions();
-    }, 5 * 60 * 1000);
+    const cleanupInterval = setInterval(
+      async () => {
+        await this.cleanupExpiredSessions();
+      },
+      5 * 60 * 1000
+    );
 
     // 确保不阻止进程退出
     if (cleanupInterval.unref) {
@@ -146,7 +161,7 @@ export class AceCore {
     this.bus.northbound.removeAllListeners();
     this.bus.southbound.removeAllListeners();
 
-    logger.debug('[AceCore] Destroyed and cleaned up all resources');
+    logger.debug("[AceCore] Destroyed and cleaned up all resources");
   }
 
   /**
@@ -155,7 +170,7 @@ export class AceCore {
    */
   async start(): Promise<void> {
     if (this.scheduler) {
-      logger.warn('[AceCore] Scheduler already started');
+      logger.warn("[AceCore] Scheduler already started");
       return;
     }
 
@@ -176,7 +191,7 @@ export class AceCore {
     if (this.scheduler) {
       clearInterval(this.scheduler);
       this.scheduler = null;
-      logger.debug('[AceCore] Scheduler stopped');
+      logger.debug("[AceCore] Scheduler stopped");
     }
   }
 
@@ -189,21 +204,21 @@ export class AceCore {
     return await this.sessionOperationLock.withWriteLock(async () => {
       const finalSessionId = sessionId || crypto.randomUUID();
       const session: Session = {
-        userId: metadata?.userId || 'unknown',
+        userId: metadata?.userId || "unknown",
         metadata: metadata || {},
         createdAt: Date.now(),
-        lastActivity: Date.now()
+        lastActivity: Date.now(),
       };
 
       this.sessions.set(finalSessionId, session);
 
       // 上报会话创建事件
-      this.bus.northbound.emit('SESSION_CREATED', {
+      this.bus.northbound.emit("SESSION_CREATED", {
         data: {
           sessionId: finalSessionId,
           config: metadata,
-          timestamp: Date.now()
-        }
+          timestamp: Date.now(),
+        },
       });
 
       logger.debug(`[AceCore] Created session: ${finalSessionId}`);
@@ -222,11 +237,11 @@ export class AceCore {
         session.lastActivity = Date.now();
 
         // 上报会话活动事件
-        this.bus.northbound.emit('SESSION_ACTIVITY', {
+        this.bus.northbound.emit("SESSION_ACTIVITY", {
           data: {
             sessionId,
-            timestamp: Date.now()
-          }
+            timestamp: Date.now(),
+          },
         });
 
         logger.debug(`[AceCore] Updated session activity: ${sessionId}`);
@@ -257,8 +272,8 @@ export class AceCore {
 
       return {
         sessionId,
-        status: 'active',
-        ...session
+        status: "active",
+        ...session,
       };
     });
   }
@@ -304,8 +319,8 @@ export class AceCore {
       for (const [sessionId, session] of this.sessions.entries()) {
         sessions.push({
           sessionId,
-          status: 'active',
-          ...session
+          status: "active",
+          ...session,
         });
       }
       return sessions;
@@ -328,7 +343,7 @@ export class AceCore {
         sessionId,
         createdAt: session.createdAt,
         lastActivity: session.lastActivity,
-        metadata: session.metadata
+        metadata: session.metadata,
       };
     });
   }
@@ -357,8 +372,8 @@ export class AceCore {
       }
 
       const layerScratchpad = this.scratchpads.get(sessionId)!;
-      const existing = layerScratchpad.get(layerId) || '';
-      layerScratchpad.set(layerId, existing + '\n' + content);
+      const existing = layerScratchpad.get(layerId) || "";
+      layerScratchpad.set(layerId, existing + "\n" + content);
 
       logger.debug(`[AceCore] Appended to scratchpad: ${layerId} for session: ${sessionId}`);
     });
@@ -372,7 +387,7 @@ export class AceCore {
    */
   async getScratchpad(sessionId: string, layerId: string): Promise<string> {
     return await this.rwLock.withReadLock(async () => {
-      return this.scratchpads.get(sessionId)?.get(layerId) || '';
+      return this.scratchpads.get(sessionId)?.get(layerId) || "";
     });
   }
 
@@ -407,12 +422,12 @@ export class AceCore {
   async evolve(trajectory: Trajectory): Promise<void> {
     try {
       // 上报轨迹保存事件
-      this.bus.northbound.emit('TRAJECTORY_SAVED', {
+      this.bus.northbound.emit("TRAJECTORY_SAVED", {
         data: {
           taskId: trajectory.task_id,
           sessionId: trajectory.session_id,
-          timestamp: trajectory.timestamp
-        }
+          timestamp: trajectory.timestamp,
+        },
       });
 
       logger.debug(`[AceCore] Trajectory saved for evolution: ${trajectory.task_id}`);
@@ -428,21 +443,17 @@ export class AceCore {
    * @param content 消息内容
    * @param layer 目标层级
    */
-  async publishWithSession(
-    sessionId: string,
-    content: string,
-    layer: string
-  ): Promise<void> {
+  async publishWithSession(sessionId: string, content: string, layer: string): Promise<void> {
     try {
       const message = {
         sessionId,
         content,
         layer,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       };
 
-      this.bus.southbound.emit('MESSAGE', {
-        data: message
+      this.bus.southbound.emit("MESSAGE", {
+        data: message,
       });
 
       logger.debug(`[AceCore] Published message to ${layer} for session: ${sessionId}`);
@@ -461,7 +472,7 @@ export class AceCore {
 
     // 上报到总线
     this.bus.northbound.emit(trigger.level as string, {
-      data: { trigger }
+      data: { trigger },
     });
 
     logger.debug(`[AceCore] Reflection triggered: ${trigger.type}`);
@@ -481,26 +492,26 @@ export class AceCore {
    */
   private async runReflectionCycle(): Promise<void> {
     try {
-      logger.debug('[AceCore] Running scheduled reflection cycle');
+      logger.debug("[AceCore] Running scheduled reflection cycle");
 
       // 1. 清理过期会话
       await this.cleanupExpiredSessions();
 
       // 2. 触发全局反思事件
       const reflectionTrigger: ReflectionTrigger = {
-        type: 'PERIODIC_REFLECTION',
-        level: 'GLOBAL_STRATEGY',
-        sessionId: 'system',
+        type: "PERIODIC_REFLECTION",
+        level: "GLOBAL_STRATEGY",
+        sessionId: "system",
         traceId: crypto.randomUUID(),
         timestamp: Date.now(),
-        context: 'Periodic reflection cycle'
+        context: "Periodic reflection cycle",
       };
 
       await this.triggerReflection(reflectionTrigger);
 
-      logger.debug('[AceCore] Reflection cycle completed');
+      logger.debug("[AceCore] Reflection cycle completed");
     } catch (error) {
-      logger.error('[AceCore] Reflection cycle failed:', error);
+      logger.error("[AceCore] Reflection cycle failed:", error);
     }
   }
 
@@ -511,7 +522,7 @@ export class AceCore {
   private async cleanupExpiredSessions(): Promise<void> {
     return await this.sessionOperationLock.withWriteLock(async () => {
       const now = Date.now();
-      const maxAge = this.config.maxSessionAge || (24 * 60 * 60 * 1000); // 24小时
+      const maxAge = this.config.maxSessionAge || 24 * 60 * 60 * 1000; // 24小时
 
       let cleanedCount = 0;
 

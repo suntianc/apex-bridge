@@ -5,13 +5,33 @@
  * 使用 as const 确保类型安全
  */
 
+// ==================== 工具超时配置 ====================
+
+export interface ToolTimeoutConfig {
+  default: number;
+  byType: Record<string, number>;
+}
+
+export const TOOL_TIMEOUT: ToolTimeoutConfig = {
+  default: 30000,
+  byType: {
+    skill: 30000,
+    mcp: 60000,
+    builtin: 10000,
+    file_read: 15000,
+    file_write: 15000,
+    vector_search: 20000,
+    web_search: 30000,
+  },
+} as const;
+
 // ==================== 超时常量 ====================
 
 export const TIMEOUT = {
-  /** 工具执行超时 (毫秒) */
+  /** 工具执行超时 (毫秒, 默认30秒) */
   TOOL_EXECUTION: 30000,
 
-  /** LLM 请求超时 (毫秒) */
+  /** LLM 请求超时 (毫秒, 默认60秒) */
   LLM_REQUEST: 60000,
 
   /** 清理定时器间隔 (毫秒) */

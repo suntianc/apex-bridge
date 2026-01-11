@@ -5,7 +5,7 @@
  * Provides public API for tool/skill retrieval operations.
  */
 
-import { logger } from '../../utils/logger';
+import { logger } from "../../utils/logger";
 import {
   ToolRetrievalConfig,
   ToolRetrievalResult,
@@ -13,20 +13,24 @@ import {
   ServiceStatus,
   ToolError,
   ToolErrorCode,
-  SkillTool
-} from './types';
-import { LanceDBConnection, ILanceDBConnection } from './LanceDBConnection';
-import { EmbeddingGenerator, IEmbeddingGenerator } from './EmbeddingGenerator';
-import { SkillIndexer, ISkillIndexer } from './SkillIndexer';
-import { SearchEngine, ISearchEngine } from './SearchEngine';
-import { MCPToolSupport, IMCPToolSupport } from './MCPToolSupport';
+  SkillTool,
+} from "./types";
+import { LanceDBConnection, ILanceDBConnection } from "./LanceDBConnection";
+import { EmbeddingGenerator, IEmbeddingGenerator } from "./EmbeddingGenerator";
+import { SkillIndexer, ISkillIndexer } from "./SkillIndexer";
+import { SearchEngine, ISearchEngine } from "./SearchEngine";
+import { MCPToolSupport, IMCPToolSupport } from "./MCPToolSupport";
 
 /**
  * ToolRetrievalService interface
  */
 export interface IToolRetrievalService {
   initialize(): Promise<void>;
-  findRelevantSkills(query: string, limit?: number, threshold?: number): Promise<ToolRetrievalResult[]>;
+  findRelevantSkills(
+    query: string,
+    limit?: number,
+    threshold?: number
+  ): Promise<ToolRetrievalResult[]>;
   indexSkill(skill: SkillData): Promise<void>;
   removeSkill(skillId: string): Promise<void>;
   scanAndIndexAllSkills(skillsDir?: string): Promise<void>;
@@ -58,31 +62,25 @@ export class ToolRetrievalService implements IToolRetrievalService {
     // Initialize sub-modules
     this.connection = new LanceDBConnection();
     this.embeddingGenerator = new EmbeddingGenerator({
-      provider: 'openai', // Will be determined dynamically
+      provider: "openai", // Will be determined dynamically
       model: config.model,
-      dimensions: config.dimensions
+      dimensions: config.dimensions,
     });
-    this.skillIndexer = new SkillIndexer(
-      this.connection,
-      this.embeddingGenerator
-    );
+    this.skillIndexer = new SkillIndexer(this.connection, this.embeddingGenerator);
     this.searchEngine = new SearchEngine(
       this.connection,
       this.embeddingGenerator,
       config.maxResults,
       config.similarityThreshold
     );
-    this.mcpToolSupport = new MCPToolSupport(
-      this.embeddingGenerator,
-      this.connection
-    );
+    this.mcpToolSupport = new MCPToolSupport(this.embeddingGenerator, this.connection);
 
-    logger.info('[ToolRetrievalService] Created with config:', {
+    logger.info("[ToolRetrievalService] Created with config:", {
       vectorDbPath: config.vectorDbPath,
       model: config.model,
       dimensions: config.dimensions,
       similarityThreshold: config.similarityThreshold,
-      maxResults: config.maxResults
+      maxResults: config.maxResults,
     });
   }
 
@@ -91,27 +89,29 @@ export class ToolRetrievalService implements IToolRetrievalService {
    */
   async initialize(): Promise<void> {
     if (this.isInitialized) {
-      logger.debug('[ToolRetrievalService] Already initialized');
+      logger.debug("[ToolRetrievalService] Already initialized");
       return;
     }
 
     const startTime = Date.now();
 
     try {
-      logger.info('[ToolRetrievalService] Initializing...');
+      logger.info("[ToolRetrievalService] Initializing...");
 
       // Get actual embedding dimensions from LLMConfigService
       const actualDimensions = await this.embeddingGenerator.getActualDimensions();
       if (actualDimensions !== this.config.dimensions) {
-        logger.info(`[ToolRetrievalService] Updating dimensions from ${this.config.dimensions} to ${actualDimensions}`);
+        logger.info(
+          `[ToolRetrievalService] Updating dimensions from ${this.config.dimensions} to ${actualDimensions}`
+        );
         this.config.dimensions = actualDimensions;
       }
 
       // Connect to LanceDB
       await this.connection.connect({
         databasePath: this.config.vectorDbPath,
-        tableName: 'skills',
-        vectorDimensions: this.config.dimensions
+        tableName: "skills",
+        vectorDimensions: this.config.dimensions,
       });
 
       // Initialize table
@@ -121,9 +121,8 @@ export class ToolRetrievalService implements IToolRetrievalService {
 
       const duration = Date.now() - startTime;
       logger.debug(`[ToolRetrievalService] Initialized in ${duration}ms`);
-
     } catch (error) {
-      logger.error('[ToolRetrievalService] Initialization failed:', error);
+      logger.error("[ToolRetrievalService] Initialization failed:", error);
       throw new ToolError(
         `ToolRetrievalService initialization failed: ${this.formatError(error)}`,
         ToolErrorCode.VECTOR_DB_ERROR
@@ -142,12 +141,11 @@ export class ToolRetrievalService implements IToolRetrievalService {
     try {
       // Ensure initialized
       if (!this.isInitialized) {
-        logger.warn('[ToolRetrievalService] Not initialized, initializing now...');
+        logger.warn("[ToolRetrievalService] Not initialized, initializing now...");
         await this.initialize();
       }
 
       return this.searchEngine.search(query, limit, threshold);
-
     } catch (error) {
       logger.error(`[ToolRetrievalService] findRelevantSkills failed for "${query}":`, error);
       throw new ToolError(
@@ -186,7 +184,7 @@ export class ToolRetrievalService implements IToolRetrievalService {
     try {
       logger.info(`[ToolRetrievalService] Indexing ${tools.length} tools...`);
 
-      const records: import('./types').ToolsTable[] = [];
+      const records: import("./types").ToolsTable[] = [];
 
       for (const tool of tools) {
         try {
@@ -199,7 +197,7 @@ export class ToolRetrievalService implements IToolRetrievalService {
           );
 
           // Prepare record
-          const record: import('./types').ToolsTable = {
+          const record: import("./types").ToolsTable = {
             id: toolId,
             name: tool.name,
             description: tool.description,
@@ -207,10 +205,10 @@ export class ToolRetrievalService implements IToolRetrievalService {
             path: tool.path,
             version: tool.version,
             source: tool.path || tool.name,
-            toolType: tool.type as 'skill' | 'mcp' || 'skill',
+            toolType: (tool.type as "skill" | "mcp") || "skill",
             metadata: JSON.stringify(tool.metadata || {}),
             vector: vector.values,
-            indexedAt: new Date()
+            indexedAt: new Date(),
           };
 
           records.push(record);
@@ -229,9 +227,8 @@ export class ToolRetrievalService implements IToolRetrievalService {
         await this.connection.addRecords(records);
         logger.info(`[ToolRetrievalService] Successfully indexed ${records.length} tools`);
       }
-
     } catch (error) {
-      logger.error('[ToolRetrievalService] Failed to index tools:', error);
+      logger.error("[ToolRetrievalService] Failed to index tools:", error);
       throw error;
     }
   }
@@ -253,30 +250,47 @@ export class ToolRetrievalService implements IToolRetrievalService {
       indexStatus: {
         indexedCount: 0,
         indexingCount: 0,
-        pendingCount: 0
+        pendingCount: 0,
       },
       ready: this.isInitialized && dbStatus.connected,
-      healthy: this.isInitialized && dbStatus.connected
+      healthy: this.isInitialized && dbStatus.connected,
     };
   }
 
   /**
-   * Cleanup resources
+   * Cleanup resources - 完整清理
    */
   async cleanup(): Promise<void> {
-    logger.info('[ToolRetrievalService] Cleaning up...');
+    logger.info("[ToolRetrievalService] Cleaning up...");
 
-    await this.connection.disconnect();
-    this.isInitialized = false;
+    try {
+      // 关闭数据库连接
+      if (this.connection) {
+        await this.connection.disconnect();
+        logger.debug("[ToolRetrievalService] Database connection closed");
+      }
 
-    logger.info('[ToolRetrievalService] Cleanup completed');
+      // 清理状态
+      this.isInitialized = false;
+
+      // 清理模块级变量（通过导出的重置函数）
+      resetToolRetrievalService();
+
+      logger.info("[ToolRetrievalService] Cleanup completed");
+    } catch (error) {
+      logger.error("[ToolRetrievalService] Cleanup failed:", error);
+      throw new ToolError(
+        `ToolRetrievalService cleanup failed: ${this.formatError(error)}`,
+        ToolErrorCode.VECTOR_DB_ERROR
+      );
+    }
   }
 
   /**
    * Get default skills directory
    */
   private getDefaultSkillsDir(): string {
-    return './.data/skills';
+    return "./.data/skills";
   }
 
   /**
@@ -284,10 +298,10 @@ export class ToolRetrievalService implements IToolRetrievalService {
    */
   private generateToolId(tool: SkillTool): string {
     const source = tool.path || tool.name;
-    return require('crypto')
-      .createHash('md5')
+    return require("crypto")
+      .createHash("md5")
       .update(`${tool.type}:${source}:${tool.name}`)
-      .digest('hex');
+      .digest("hex");
   }
 
   /**
@@ -297,10 +311,10 @@ export class ToolRetrievalService implements IToolRetrievalService {
     if (error instanceof Error) {
       return error.message;
     }
-    if (typeof error === 'string') {
+    if (typeof error === "string") {
       return error;
     }
-    return 'Unknown error occurred in ToolRetrievalService';
+    return "Unknown error occurred in ToolRetrievalService";
   }
 }
 
@@ -311,18 +325,16 @@ let instance: ToolRetrievalService | null = null;
 /**
  * Get tool retrieval service instance (singleton)
  */
-export function getToolRetrievalService(
-  config?: ToolRetrievalConfig
-): ToolRetrievalService {
+export function getToolRetrievalService(config?: ToolRetrievalConfig): ToolRetrievalService {
   if (!instance) {
     if (!config) {
       config = {
-        vectorDbPath: './.data',
-        model: 'nomic-embed-text:latest',
+        vectorDbPath: "./.data",
+        model: "nomic-embed-text:latest",
         cacheSize: 1000,
         dimensions: 768,
         similarityThreshold: 0.4,
-        maxResults: 10
+        maxResults: 10,
       };
     }
     instance = new ToolRetrievalService(config);

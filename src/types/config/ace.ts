@@ -1,5 +1,11 @@
 /**
- * ACE 架构配置
+ * ⚠️ DEPRECATED - ACE 配置接口定义
+ *
+ * 此文件定义了 ACE (Agent Configuration/Execution) 架构的配置接口。
+ * 当前状态：配置类型已定义但未被实际实例化使用
+ *
+ * 保留此文件以保持类型完整性，同时标记为废弃。
+ * @deprecated since 2024-01-11
  */
 export interface AceConfig {
   /** 是否启用 */
@@ -25,7 +31,7 @@ export interface AceOrchestrationConfig {
   /** 是否启用 */
   enabled?: boolean;
   /** 编排模式 */
-  mode?: 'full' | 'minimal' | 'custom';
+  mode?: "full" | "minimal" | "custom";
 }
 
 /**
@@ -55,7 +61,7 @@ export interface AceLayerL1Config {
   /** 宪法文件路径 */
   constitutionPath?: string;
   /** 模型来源 */
-  modelSource?: 'sqlite';
+  modelSource?: "sqlite";
 }
 
 /**
@@ -65,7 +71,7 @@ export interface AceLayerL2Config {
   /** 是否启用 */
   enabled?: boolean;
   /** 模型来源 */
-  modelSource?: 'sqlite';
+  modelSource?: "sqlite";
 }
 
 /**
@@ -75,7 +81,7 @@ export interface AceLayerL3Config {
   /** 是否启用 */
   enabled?: boolean;
   /** 模型来源 */
-  modelSource?: 'sqlite';
+  modelSource?: "sqlite";
 }
 
 /**
@@ -85,7 +91,7 @@ export interface AceLayerL4Config {
   /** 是否启用 */
   enabled?: boolean;
   /** 模型来源 */
-  modelSource?: 'sqlite';
+  modelSource?: "sqlite";
 }
 
 /**
@@ -95,7 +101,7 @@ export interface AceLayerL5Config {
   /** 是否启用 */
   enabled?: boolean;
   /** 模型来源 */
-  modelSource?: 'sqlite';
+  modelSource?: "sqlite";
   /** 是否回退到进化模式 */
   fallbackToEvolution?: boolean;
 }
@@ -115,7 +121,7 @@ export interface AceLayerL6Config {
  */
 export interface AceMemoryConfig {
   /** 提供商类型 */
-  provider?: 'lancedb' | 'memory' | 'custom';
+  provider?: "lancedb" | "memory" | "custom";
   /** 向量数据库路径 */
   vectorDbPath?: string;
   /** 集合前缀 */

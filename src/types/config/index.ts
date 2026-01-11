@@ -51,5 +51,6 @@ export type {
   SystemSecurityConfig,
   EnvironmentConfig,
   DatabaseConfig,
-  PlaybookConfig
+  // PlaybookConfig 已移除
+
 } from './admin';

@@ -1,7 +1,7 @@
-import type { ApiKeyInfo } from './api-key';
-import type { RateLimitSettings } from './rate-limit';
-import type { RedisConfig } from './redis';
-import type { AceConfig } from './ace';
+import type { ApiKeyInfo } from "./api-key";
+import type { RateLimitSettings } from "./rate-limit";
+import type { RedisConfig } from "./redis";
+import type { AceConfig } from "./ace";
 
 /**
  * API 配置
@@ -122,8 +122,6 @@ export interface AdminConfig {
   security?: SecurityConfig;
   /** ACE 架构配置 */
   ace?: AceConfig;
-  /** Playbook 配置 */
-  playbook?: Record<string, unknown>;
   /** 设置完成状态 */
   setup_completed?: boolean;
   /** 允许动态属性 */
@@ -189,18 +187,6 @@ export interface DatabaseConfig {
 }
 
 /**
- * Playbook 配置
- */
-export interface PlaybookConfig {
-  /** 提取超时（毫秒） */
-  extractionTimeout: number;
-  /** 相似度阈值 */
-  similarityThreshold: number;
-  /** 最大推荐数 */
-  maxRecommendations: number;
-}
-
-/**
  * 系统级配置接口
  */
 export interface SystemConfig {
@@ -216,8 +202,6 @@ export interface SystemConfig {
   environment: EnvironmentConfig;
   /** 数据库配置 */
   database: DatabaseConfig;
-  /** Playbook 配置 */
-  playbook: PlaybookConfig;
 }
 
 /**
@@ -231,7 +215,6 @@ export interface FullConfig {
   systemSecurity: SystemSecurityConfig;
   environment: EnvironmentConfig;
   database: DatabaseConfig;
-  playbookConfig: PlaybookConfig;
   /** 应用级配置 */
   setup_completed?: boolean;
   api?: ApiConfig;
@@ -240,5 +223,4 @@ export interface FullConfig {
   redis?: RedisConfig;
   appSecurity?: SecurityConfig;
   ace?: AceConfig;
-  playbook?: Record<string, unknown>;
 }

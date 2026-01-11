@@ -67,6 +67,8 @@ export interface ChatOptions {
       severeThreshold?: number; // 严重溢出阈值（上下文比例，默认: 0.8）
     };
   };
+  // 注意: [key: string]: any 允许任意属性扩展
+  // L-003 建议: 在使用时进行类型守卫检查
   [key: string]: any;
 }
 

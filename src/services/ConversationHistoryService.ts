@@ -3,17 +3,17 @@
  * 负责存储、查询和删除对话消息历史
  */
 
-import Database from 'better-sqlite3';
-import * as fs from 'fs';
-import * as path from 'path';
-import { logger } from '../utils/logger';
-import { PathService } from './PathService';
-import { Message } from '../types';
+import Database from "better-sqlite3";
+import * as fs from "fs";
+import * as path from "path";
+import { logger } from "../utils/logger";
+import { PathService } from "./PathService";
+import { Message } from "../types";
 
 export interface ConversationMessage {
   id: number;
   conversation_id: string;
-  role: 'user' | 'assistant' | 'system';
+  role: "user" | "assistant" | "system";
   content: string;
   created_at: number;
   metadata?: string; // JSON string for additional metadata
@@ -36,13 +36,13 @@ export class ConversationHistoryService {
       fs.mkdirSync(dataDir, { recursive: true });
     }
 
-    this.dbPath = path.join(dataDir, 'conversation_history.db');
+    this.dbPath = path.join(dataDir, "conversation_history.db");
     this.db = new Database(this.dbPath);
 
     // 启用 WAL 模式提升性能
-    this.db.pragma('journal_mode = WAL');
+    this.db.pragma("journal_mode = WAL");
     // 启用外键约束
-    this.db.pragma('foreign_keys = ON');
+    this.db.pragma("foreign_keys = ON");
 
     this.initializeDatabase();
     logger.debug(`ConversationHistoryService initialized (database: ${this.dbPath})`);
@@ -79,7 +79,7 @@ export class ConversationHistoryService {
       CREATE INDEX IF NOT EXISTS idx_created_at ON conversation_messages(created_at);
     `);
 
-    logger.debug('✅ Conversation history tables initialized');
+    logger.debug("✅ Conversation history tables initialized");
   }
 
   /**
@@ -87,7 +87,7 @@ export class ConversationHistoryService {
    * 将 content 数组转换为 "文本内容\n<img>base64...</img>\n<img>base64...</img>"
    */
   private formatMultimodalContent(content: string | any[]): string {
-    if (typeof content === 'string') {
+    if (typeof content === "string") {
       return content;
     }
 
@@ -95,12 +95,12 @@ export class ConversationHistoryService {
       const parts: string[] = [];
 
       for (const part of content) {
-        if (part.type === 'text' && part.text) {
+        if (part.type === "text" && part.text) {
           parts.push(part.text);
-        } else if (part.type === 'image_url') {
+        } else if (part.type === "image_url") {
           // 提取图片URL
-          let imageUrl: string = '';
-          if (typeof part.image_url === 'string') {
+          let imageUrl: string = "";
+          if (typeof part.image_url === "string") {
             imageUrl = part.image_url;
           } else if (part.image_url?.url) {
             imageUrl = part.image_url.url;
@@ -113,7 +113,7 @@ export class ConversationHistoryService {
         }
       }
 
-      return parts.join('\n');
+      return parts.join("\n");
     }
 
     // 其他类型（如对象），回退到JSON序列化
@@ -140,18 +140,14 @@ export class ConversationHistoryService {
           // 🐾 格式化多模态消息内容
           const contentToStore = this.formatMultimodalContent(msg.content);
 
-          stmt.run(
-            conversationId,
-            msg.role,
-            contentToStore,
-            Date.now(),
-            metadata
-          );
+          stmt.run(conversationId, msg.role, contentToStore, Date.now(), metadata);
         }
       });
 
       insertMany(messages);
-      logger.debug(`[ConversationHistory] Saved ${messages.length} messages for conversation: ${conversationId}`);
+      logger.debug(
+        `[ConversationHistory] Saved ${messages.length} messages for conversation: ${conversationId}`
+      );
     } catch (error: any) {
       logger.error(`[ConversationHistory] Failed to save messages: ${error.message}`);
       throw error;
@@ -220,7 +216,9 @@ export class ConversationHistoryService {
       `);
 
       const result = stmt.run(conversationId);
-      logger.info(`[ConversationHistory] Deleted ${result.changes} messages for conversation: ${conversationId}`);
+      logger.info(
+        `[ConversationHistory] Deleted ${result.changes} messages for conversation: ${conversationId}`
+      );
     } catch (error: any) {
       logger.error(`[ConversationHistory] Failed to delete messages: ${error.message}`);
       throw error;
@@ -240,7 +238,9 @@ export class ConversationHistoryService {
       `);
 
       const result = stmt.run(beforeTimestamp);
-      logger.info(`[ConversationHistory] Deleted ${result.changes} messages before ${new Date(beforeTimestamp).toISOString()}`);
+      logger.info(
+        `[ConversationHistory] Deleted ${result.changes} messages before ${new Date(beforeTimestamp).toISOString()}`
+      );
       return result.changes;
     } catch (error: any) {
       logger.error(`[ConversationHistory] Failed to delete old messages: ${error.message}`);
@@ -262,9 +262,9 @@ export class ConversationHistoryService {
       `);
 
       const rows = stmt.all() as Array<{ conversation_id: string; last_message_at: number }>;
-      return rows.map(row => row.conversation_id);
+      return rows.map((row) => row.conversation_id);
     } catch (error) {
-      logger.error('❌ Failed to get all conversation IDs:', error);
+      logger.error("❌ Failed to get all conversation IDs:", error);
       throw error;
     }
   }
@@ -293,11 +293,33 @@ export class ConversationHistoryService {
   }
 
   /**
+   * 获取对话的第一条消息
+   * @param conversationId 对话ID
+   * @returns 第一条消息或null
+   */
+  async getFirstMessage(conversationId: string): Promise<ConversationMessage | null> {
+    try {
+      const stmt = this.db.prepare(`
+        SELECT id, conversation_id, role, content, created_at, metadata
+        FROM conversation_messages
+        WHERE conversation_id = ?
+        ORDER BY created_at ASC
+        LIMIT 1
+      `);
+
+      const row = stmt.get(conversationId) as ConversationMessage | undefined;
+      return row || null;
+    } catch (error: any) {
+      logger.error(`[ConversationHistory] Failed to get first message: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
    * 关闭数据库连接
    */
   close(): void {
     this.db.close();
-    logger.info('✅ ConversationHistoryService database closed');
+    logger.info("✅ ConversationHistoryService database closed");
   }
 }
-

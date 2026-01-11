@@ -1,6 +1,18 @@
-import { LLMManager } from '../LLMManager';
-import { Message } from '../../types';
-import { logger } from '../../utils/logger';
+/**
+ * ⚠️ DEPRECATED - 此文件已废弃，ApexLLMAdapter 未被实际使用
+ *
+ * ApexLLMAdapter - Dual-Channel LLM 路由适配器 (废弃)
+ *
+ * 保留此文件以备将来参考或重新启用。
+ * 当前状态：从未被实例化或导入使用
+ *
+ * @deprecated since 2024-01-11
+ * @see trash/ace-backup-20260111/ApexLLMAdapter.ts 备份版本
+ */
+
+import { LLMManager } from "../LLMManager";
+import { Message } from "../../types";
+import { logger } from "../../utils/logger";
 
 export interface ApexLLMAdapterConfig {
   /**
@@ -24,7 +36,7 @@ export class ApexLLMAdapter {
   constructor(
     private llmManager: LLMManager,
     private config: ApexLLMAdapterConfig
-  ) { }
+  ) {}
 
   /**
    * Generate text
@@ -36,19 +48,21 @@ export class ApexLLMAdapter {
       ? this.config.evolutionModel
       : this.config.executionModelGetter();
 
-    logger.debug(`[ACE Adapter] Routing to ${targetModel.provider}/${targetModel.model} (Is Evolution: ${isEvolutionTask})`);
+    logger.debug(
+      `[ACE Adapter] Routing to ${targetModel.provider}/${targetModel.model} (Is Evolution: ${isEvolutionTask})`
+    );
 
     try {
       // 2. Call LLMManager
-      const messages: Message[] = [{ role: 'user', content: prompt }];
+      const messages: Message[] = [{ role: "user", content: prompt }];
 
       const response = await this.llmManager.chat(messages, {
         provider: targetModel.provider,
         model: targetModel.model,
-        stream: false // ACE Core expects complete response
+        stream: false, // ACE Core expects complete response
       });
 
-      return (response.choices[0]?.message?.content as string) || '';
+      return (response.choices[0]?.message?.content as string) || "";
     } catch (error: any) {
       logger.error(`[ACE Adapter] Generate failed: ${error.message}`);
       throw error;
@@ -72,7 +86,7 @@ export class ApexLLMAdapter {
       return JSON.parse(cleanJson) as T;
     } catch (e) {
       logger.error(`[ACE Adapter] JSON Parse Error. Raw: ${result.substring(0, 100)}...`);
-      throw new Error('Failed to parse structured output from LLM');
+      throw new Error("Failed to parse structured output from LLM");
     }
   }
 
@@ -81,10 +95,10 @@ export class ApexLLMAdapter {
    */
   private detectEvolutionContext(prompt: string): boolean {
     // Keywords from ACE Core prompts
-    if (prompt.includes('You are an advanced Reflector')) return true;
-    if (prompt.includes('You are a distinct Curator')) return true;
-    if (prompt.includes('Analyze the following task execution trajectory')) return true; // Reflector
-    if (prompt.includes('Manage and evolve the rule library')) return true; // Curator
+    if (prompt.includes("You are an advanced Reflector")) return true;
+    if (prompt.includes("You are a distinct Curator")) return true;
+    if (prompt.includes("Analyze the following task execution trajectory")) return true; // Reflector
+    if (prompt.includes("Manage and evolve the rule library")) return true; // Curator
 
     return false;
   }

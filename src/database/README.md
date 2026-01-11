@@ -1,26 +1,29 @@
-# Playbook System Database Migration Guide
+# Database Migration Guide
 
-This directory contains database migration scripts for the Playbook system's SQLite database.
+This directory contains database migration scripts for the LLM providers system.
 
 ## Overview
 
-The migration system manages schema changes for the Playbook system, which includes:
+The migration system manages schema changes for the LLM providers system, which includes:
+
 - Type vocabulary management
 - Type similarity matrix
 - Type evolution history tracking
-- Playbook-type assignments
+- Type assignments
 - Prompt templates
 
 ## Files
 
 ### Migration Scripts
+
 - `001_create_type_vocabulary.sql` - Creates the type vocabulary table
 - `002_create_type_similarity_matrix.sql` - Creates the type similarity matrix
 - `003_create_type_evolution_history.sql` - Creates the type evolution history table
-- `004_create_playbook_type_assignments.sql` - Creates playbook-type assignments table
+- `004_create_type_assignments.sql` - Creates type assignments table
 - `005_create_prompt_templates.sql` - Creates the prompt templates table
 
 ### Core Files
+
 - `MigrationRunner.ts` - Core migration execution engine
 - `run-migrations.ts` - CLI script for running migrations
 
@@ -59,11 +62,11 @@ npm run migrations -- --help
 ## Programmatic Usage
 
 ```typescript
-import { MigrationRunner } from './src/database/MigrationRunner';
-import * as path from 'path';
+import { MigrationRunner } from "./src/database/MigrationRunner";
+import * as path from "path";
 
 // Initialize runner
-const runner = new MigrationRunner('.data/playbook.db');
+const runner = new MigrationRunner(".data/llm_providers.db");
 
 // Run migrations
 const results = await runner.run();
@@ -85,6 +88,7 @@ runner.close();
 ## Migration Tracking
 
 All executed migrations are tracked in the `schema_migrations` table with:
+
 - Version number
 - Name
 - Execution timestamp
@@ -101,40 +105,51 @@ All executed migrations are tracked in the `schema_migrations` table with:
 ## Database Schema
 
 ### Type Vocabulary Table
-Stores all type tags extracted from playbooks with metadata and confidence scores.
+
+Stores all type tags with metadata and confidence scores.
 
 ### Type Similarity Matrix
+
 Tracks similarity scores between type tags for clustering and merging.
 
 ### Type Evolution History
+
 Maintains a complete audit trail of all changes to type tags.
 
 ### Playbook Type Assignments
-Many-to-many relationship between playbooks and their assigned type tags.
+
+Many-to-many relationship between types and their assigned type tags.
 
 ### Prompt Templates
+
 Reusable prompt templates associated with specific type tags.
 
 ## Environment Variables
 
-- `PLAYBOOK_DB_PATH` - Path to the SQLite database file (default: `.data/playbook.db`)
+- `DATABASE_PATH` - Path to the SQLite database file (default: `.data/llm_providers.db`)
 
 ## Troubleshooting
 
 ### Migration Already Executed Error
+
 If you see an error about a migration already being executed with different content:
+
 1. Check if the SQL file was modified
 2. Use rollback to revert the migration
 3. Re-run the migration
 
 ### Database Locked Error
+
 If the database is locked:
+
 1. Ensure no other processes are using the database
 2. Check for stuck transactions
 3. Restart the application
 
 ### Rollback Limitations
+
 The current rollback implementation simply removes migration records. For production, you should:
+
 1. Create explicit rollback scripts for each migration
 2. Test rollback procedures thoroughly
 3. Maintain database backups

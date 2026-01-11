@@ -3,13 +3,13 @@
  * 在隔离的Node.js子进程中执行Skills，提供进程级安全沙箱
  */
 
-import { spawn, ChildProcess } from 'child_process';
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import * as os from 'os';
-import { EventEmitter } from 'events';
-import * as crypto from 'crypto';
-import { BaseToolExecutor } from './ToolExecutor';
+import { spawn, ChildProcess } from "child_process";
+import * as fs from "fs/promises";
+import * as path from "path";
+import * as os from "os";
+import { EventEmitter } from "events";
+import * as crypto from "crypto";
+import { BaseToolExecutor } from "./ToolExecutor";
 import {
   ToolExecuteOptions,
   ToolResult,
@@ -17,10 +17,16 @@ import {
   SandboxExecutionResult,
   SkillTool,
   ToolError,
-  ToolErrorCode
-} from '../../types/tool-system';
-import { logger } from '../../utils/logger';
-import { getSkillManager } from '../SkillManager';
+  ToolErrorCode,
+} from "../../types/tool-system";
+import { logger } from "../../utils/logger";
+import { getSkillManager } from "../SkillManager";
+
+// 最大参数大小限制 (1MB)
+const MAX_ARGS_SIZE = 1 * 1024 * 1024;
+
+// 进程最大生命周期 (5分钟)
+const MAX_PROCESS_LIFETIME = 5 * 60 * 1000;
 
 /**
  * 执行统计记录
@@ -44,6 +50,9 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
   private stats: Map<string, ExecutionStats> = new Map();
   private activeProcesses: Map<string, ChildProcess> = new Map();
   private executionOptions: SandboxExecutionOptions;
+  private processMonitor: ReturnType<typeof setInterval> | null = null;
+  private readonly maxArgsSize = MAX_ARGS_SIZE;
+  private readonly maxProcessLifetime = MAX_PROCESS_LIFETIME;
 
   constructor(options: SandboxExecutionOptions = {}) {
     super();
@@ -52,19 +61,19 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
       maxOutputSize: 10 * 1024 * 1024, // 10MB
       memoryLimit: 512, // 512MB
       maxConcurrency: 3,
-      allowedEnvVars: ['PATH'],
-      workspacePath: path.join(os.tmpdir(), 'skill-workspaces'),
-      ...options
+      allowedEnvVars: ["PATH"],
+      workspacePath: path.join(os.tmpdir(), "skill-workspaces"),
+      ...options,
     };
 
     // 确保工作区目录存在
     this.ensureWorkspaceDirectory();
 
-    logger.debug('SkillsSandboxExecutor initialized', {
+    logger.debug("SkillsSandboxExecutor initialized", {
       timeout: this.executionOptions.timeout,
       maxOutputSize: this.executionOptions.maxOutputSize,
       memoryLimit: this.executionOptions.memoryLimit,
-      maxConcurrency: this.executionOptions.maxConcurrency
+      maxConcurrency: this.executionOptions.maxConcurrency,
     });
   }
 
@@ -76,8 +85,10 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
       await fs.mkdir(this.executionOptions.workspacePath!, { recursive: true });
       logger.debug(`Workspace directory created: ${this.executionOptions.workspacePath}`);
     } catch (error) {
-      logger.error('Failed to create workspace directory:', error);
-      throw new Error(`Failed to create workspace directory: ${this.executionOptions.workspacePath}`);
+      logger.error("Failed to create workspace directory:", error);
+      throw new Error(
+        `Failed to create workspace directory: ${this.executionOptions.workspacePath}`
+      );
     }
   }
 
@@ -99,13 +110,10 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
 
       // 检查Skills是否存在
       const skillPath = await this.getSkillPath(toolName);
-      const executeScript = path.join(skillPath, 'scripts', 'execute.js');
+      const executeScript = path.join(skillPath, "scripts", "execute.js");
 
       if (!(await this.fileExists(executeScript))) {
-        throw new ToolError(
-          `Skills not found: ${toolName}`,
-          ToolErrorCode.SKILL_NOT_FOUND
-        );
+        throw new ToolError(`Skills not found: ${toolName}`, ToolErrorCode.SKILL_NOT_FOUND);
       }
 
       // 创建隔离工作区
@@ -117,7 +125,7 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
         toolName,
         args: options.args,
         workspace: workspaceDir,
-        skillPath
+        skillPath,
       };
 
       // 执行Skills
@@ -138,9 +146,8 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
         output: result.stdout,
         stderr: result.stderr,
         duration: result.duration,
-        exitCode: result.exitCode
+        exitCode: result.exitCode,
       };
-
     } catch (error) {
       const duration = this.calculateDuration(startTime);
 
@@ -170,12 +177,7 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
     workspace: string;
     skillPath: string;
   }): Promise<SandboxExecutionResult> {
-    const {
-      toolName,
-      args,
-      workspace,
-      skillPath
-    } = execArgs;
+    const { toolName, args, workspace, skillPath } = execArgs;
 
     const startTime = Date.now();
 
@@ -190,25 +192,21 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
       const spawnOptions = this.prepareSpawnOptions(workspace, env);
 
       // 启动子进程
-      const executeScript = path.join(skillPath, 'scripts', 'execute.js');
-      const process = spawn(
-        'node',
-        [executeScript, ...processArgs],
-        spawnOptions
-      );
+      const executeScript = path.join(skillPath, "scripts", "execute.js");
+      const process = spawn("node", [executeScript, ...processArgs], spawnOptions);
 
       // 记录活跃进程
       const processId = crypto.randomUUID();
       this.activeProcesses.set(processId, process);
 
       // 设置输出收集
-      let stdout = '';
-      let stderr = '';
+      let stdout = "";
+      let stderr = "";
       let outputSize = 0;
       let truncated = false;
       const maxOutputSize = this.executionOptions.maxOutputSize!;
 
-      process.stdout?.on('data', (data: Buffer) => {
+      process.stdout?.on("data", (data: Buffer) => {
         const chunk = data.toString();
 
         // 检查输出大小限制
@@ -216,17 +214,20 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
 
         if (outputSize > maxOutputSize && !truncated) {
           truncated = true;
-          stdout += '\n[TRUNCATED: Output exceeded size limit]';
+          stdout += "\n[TRUNCATED: Output exceeded size limit]";
           logger.warn(`Skills ${toolName} output exceeded size limit (${maxOutputSize} bytes)`);
 
           // 终止进程
-          this.terminateProcess(process, 'SIGKILL');
+          this.terminateProcess(process, "SIGKILL");
+
+          // SIGKILL 不会触发 close 事件，需要手动清理
+          this.activeProcesses.delete(processId);
         } else if (!truncated) {
           stdout += chunk;
         }
       });
 
-      process.stderr?.on('data', (data: Buffer) => {
+      process.stderr?.on("data", (data: Buffer) => {
         const chunk = data.toString();
 
         if (!truncated) {
@@ -236,23 +237,28 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
 
       // 设置超时
       const timeout = setTimeout(() => {
-        logger.warn(`Skills ${toolName} execution timed out after ${this.executionOptions.timeout}ms`);
-        this.terminateProcess(process, 'SIGKILL');
+        logger.warn(
+          `Skills ${toolName} execution timed out after ${this.executionOptions.timeout}ms`
+        );
+        this.terminateProcess(process, "SIGKILL");
+
+        // SIGKILL 不会触发 close 事件，需要手动清理
+        this.activeProcesses.delete(processId);
 
         const duration = this.calculateDuration(startTime);
         resolve({
           success: false,
           stdout,
-          stderr: stderr || 'Execution timed out',
+          stderr: stderr || "Execution timed out",
           exitCode: -1,
           duration,
           error: `Execution timed out after ${this.executionOptions.timeout}ms`,
-          truncated
+          truncated,
         });
       }, this.executionOptions.timeout);
 
       // 处理进程退出
-      process.on('close', (code: number | null, signal: string | null) => {
+      process.on("close", (code: number | null, signal: string | null) => {
         // 清理活跃进程记录
         this.activeProcesses.delete(processId);
         clearTimeout(timeout);
@@ -276,12 +282,12 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
           exitCode: finalExitCode,
           duration,
           error: code !== 0 ? `Process exited with code ${code}` : undefined,
-          truncated
+          truncated,
         });
       });
 
       // 处理进程错误
-      process.on('error', (error: Error) => {
+      process.on("error", (error: Error) => {
         // 清理活跃进程记录
         this.activeProcesses.delete(processId);
         clearTimeout(timeout);
@@ -296,8 +302,19 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
    * 准备进程参数
    */
   private prepareProcessArgs(args: Record<string, any>): string[] {
-    // 将参数序列化为JSON字符串
-    return [JSON.stringify(args)];
+    const serialized = JSON.stringify(args);
+
+    // 检查参数大小限制
+    const argsSize = Buffer.byteLength(serialized);
+    if (argsSize > this.maxArgsSize) {
+      throw new ToolError(
+        `Tool arguments exceed maximum size limit (${this.maxArgsSize} bytes)`,
+        ToolErrorCode.TOOL_EXECUTION_FAILED,
+        { argsSize, maxSize: this.maxArgsSize }
+      );
+    }
+
+    return [serialized];
   }
 
   /**
@@ -308,7 +325,7 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
     const env: NodeJS.ProcessEnv = {};
 
     // 只允许指定的环境变量
-    allowedVars.forEach(varName => {
+    allowedVars.forEach((varName) => {
       const value = process.env[varName];
       if (value !== undefined) {
         env[varName] = value;
@@ -319,7 +336,7 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
     env.NODE_OPTIONS = `--max-old-space-size=${this.executionOptions.memoryLimit}`;
 
     // 设置其他安全选项
-    env.NODE_NO_WARNINGS = '1';
+    env.NODE_NO_WARNINGS = "1";
 
     return env;
   }
@@ -327,17 +344,14 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
   /**
    * 准备spawn选项
    */
-  private prepareSpawnOptions(
-    cwd: string,
-    env: NodeJS.ProcessEnv
-  ): any {
+  private prepareSpawnOptions(cwd: string, env: NodeJS.ProcessEnv): any {
     // 注意：不设置 cwd，使用脚本的绝对路径
     // workspace 只用于技能执行时的临时文件操作
     return {
       env,
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: ["pipe", "pipe", "pipe"],
       shell: false, // 不使用shell，防止注入
-      detached: false
+      detached: false,
     };
   }
 
@@ -345,7 +359,7 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
    * 创建隔离工作区
    */
   private async createIsolatedWorkspace(toolName: string): Promise<string> {
-    const workspaceId = `${toolName}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    const workspaceId = `${toolName}_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
     const workspacePath = path.join(this.executionOptions.workspacePath!, workspaceId);
 
     try {
@@ -380,7 +394,7 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
   /**
    * 终止进程
    */
-  private terminateProcess(process: ChildProcess, signal: string = 'SIGTERM'): void {
+  private terminateProcess(process: ChildProcess, signal: string = "SIGTERM"): void {
     if (!process.killed && process.pid) {
       try {
         process.kill(signal as any);
@@ -406,12 +420,12 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
       }
 
       // 如果找不到，尝试使用目录名直接拼接（兼容旧逻辑）
-      const basePath = './.data/skills';
+      const basePath = "./.data/skills";
       return path.join(basePath, skillName);
     } catch (error) {
       // 如果查询失败，回退到直接拼接
       logger.debug(`Failed to query skill path from SkillManager: ${error}`);
-      const basePath = './.data/skills';
+      const basePath = "./.data/skills";
       return path.join(basePath, skillName);
     }
   }
@@ -431,18 +445,13 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
   /**
    * 记录统计
    */
-  private recordStats(
-    toolName: string,
-    success: boolean,
-    duration: number,
-    error?: any
-  ): void {
+  private recordStats(toolName: string, success: boolean, duration: number, error?: any): void {
     if (!this.stats.has(toolName)) {
       this.stats.set(toolName, {
         callCount: 0,
         successCount: 0,
         totalDuration: 0,
-        errors: []
+        errors: [],
       });
     }
 
@@ -456,7 +465,7 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
       stats.errors.push({
         timestamp: Date.now(),
         error: this.formatError(error),
-        toolName
+        toolName,
       });
     }
   }
@@ -494,13 +503,13 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
     for (const process of this.activeProcesses.values()) {
       if (process.pid) {
         // 从工作区路径中提取工具名称
-        const cwd = (process as any).spawnfile || '';
+        const cwd = (process as any).spawnfile || "";
         const match = cwd.match(/\/data\/skills\/([^\/]+)/);
-        const toolName = match ? match[1] : 'unknown';
+        const toolName = match ? match[1] : "unknown";
 
         processes.push({
           pid: process.pid,
-          toolName
+          toolName,
         });
       }
     }
@@ -517,10 +526,10 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
     for (const process of this.activeProcesses.values()) {
       if (process.pid && !process.killed) {
         terminationPromises.push(
-          new Promise(resolve => {
-            process.once('exit', () => resolve());
+          new Promise((resolve) => {
+            process.once("exit", () => resolve());
             try {
-              process.kill('SIGKILL');
+              process.kill("SIGKILL");
             } catch {
               resolve();
             }
@@ -532,14 +541,14 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
     await Promise.all(terminationPromises);
     this.activeProcesses.clear();
 
-    logger.info('Terminated all active Skills processes');
+    logger.info("Terminated all active Skills processes");
   }
 
   /**
    * 清理资源（优雅关闭）
    */
   async cleanup(): Promise<void> {
-    logger.info('Cleaning up SkillsSandboxExecutor...');
+    logger.info("Cleaning up SkillsSandboxExecutor...");
 
     // 终止所有进程
     await this.terminateAllProcesses();
@@ -547,12 +556,12 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
     // 清理工作区
     try {
       await fs.rm(this.executionOptions.workspacePath!, { recursive: true, force: true });
-      logger.debug('Cleaned up workspace directory');
+      logger.debug("Cleaned up workspace directory");
     } catch (error) {
-      logger.warn('Failed to cleanup workspace directory:', error);
+      logger.warn("Failed to cleanup workspace directory:", error);
     }
 
-    logger.info('SkillsSandboxExecutor cleanup completed');
+    logger.info("SkillsSandboxExecutor cleanup completed");
   }
 
   /**
@@ -562,10 +571,10 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
     if (error instanceof Error) {
       return error.message;
     }
-    if (typeof error === 'string') {
+    if (typeof error === "string") {
       return error;
     }
-    return 'Unknown error occurred in Skills sandbox';
+    return "Unknown error occurred in Skills sandbox";
   }
 }
 

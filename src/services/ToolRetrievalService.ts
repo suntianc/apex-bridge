@@ -1164,21 +1164,32 @@ export class ToolRetrievalService {
   async cleanup(): Promise<void> {
     logger.info("Cleaning up ToolRetrievalService...");
 
-    // 关闭数据库连接
-    if (this.db) {
-      try {
-        await this.db.close();
-        logger.info("LanceDB connection closed successfully");
-      } catch (error) {
-        logger.warn("Error closing LanceDB connection:", error);
+    try {
+      // 关闭数据库连接
+      if (this.db) {
+        try {
+          await this.db.close();
+          logger.info("LanceDB connection closed successfully");
+        } catch (error) {
+          logger.warn("Error closing LanceDB connection:", error);
+        }
+        this.db = null;
       }
-      this.db = null;
+
+      this.table = null;
+      this.isInitialized = false;
+
+      // 清理模块级单例状态
+      resetToolRetrievalService();
+
+      logger.info("ToolRetrievalService cleanup completed");
+    } catch (error) {
+      logger.error("ToolRetrievalService cleanup failed:", error);
+      throw new ToolError(
+        `ToolRetrievalService cleanup failed: ${this.formatError(error)}`,
+        ToolErrorCode.VECTOR_DB_ERROR
+      );
     }
-
-    this.table = null;
-    this.isInitialized = false;
-
-    logger.info("ToolRetrievalService cleanup completed");
   }
 
   /**

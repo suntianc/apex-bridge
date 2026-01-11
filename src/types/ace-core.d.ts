@@ -1,33 +1,37 @@
 /**
- * 本地化AceCore类型定义
- * 替代ace-engine-core的类型定义
+ * ⚠️ DEPRECATED - 本地化 AceCore 类型定义
+ *
+ * 替代 ace-engine-core 的类型定义。
+ * 当前状态：类型已定义但未被实际使用
+ *
+ * @deprecated since 2024-01-11
  */
 
 // 错误类型枚举（新增）
 export enum ErrorType {
   /** 网络连接失败 */
-  NETWORK_ERROR = 'network',
+  NETWORK_ERROR = "network",
 
   /** 请求超时 */
-  TIMEOUT = 'timeout',
+  TIMEOUT = "timeout",
 
   /** API 速率限制 */
-  RATE_LIMIT = 'rate_limit',
+  RATE_LIMIT = "rate_limit",
 
   /** 输入参数错误 */
-  INVALID_INPUT = 'invalid_input',
+  INVALID_INPUT = "invalid_input",
 
   /** 业务逻辑错误 */
-  LOGIC_ERROR = 'logic',
+  LOGIC_ERROR = "logic",
 
   /** 资源耗尽（内存/磁盘） */
-  RESOURCE_EXHAUSTED = 'resource',
+  RESOURCE_EXHAUSTED = "resource",
 
   /** 权限不足 */
-  PERMISSION_DENIED = 'permission',
+  PERMISSION_DENIED = "permission",
 
   /** 未知错误 */
-  UNKNOWN = 'unknown'
+  UNKNOWN = "unknown",
 }
 
 // 工具调用详情（新增）
@@ -74,12 +78,12 @@ export interface Trajectory {
   user_input: string;
   steps: TrajectoryStep[];
   final_result: string;
-  outcome: 'SUCCESS' | 'FAILURE';
+  outcome: "SUCCESS" | "FAILURE";
   environment_feedback: string;
   used_rule_ids: string[];
   timestamp: number;
   duration_ms: number;
-  evolution_status: 'PENDING' | 'COMPLETED' | 'FAILED';
+  evolution_status: "PENDING" | "COMPLETED" | "FAILED";
 }
 
 // 反思触发器
@@ -98,12 +102,12 @@ export interface AceCoreConfig {
   reflectionCycleInterval?: number;
   maxSessionAge?: number;
   storage?: {
-    mode: 'memory' | 'sqlite';
+    mode: "memory" | "sqlite";
     sqlitePath?: string;
     logsPath?: string;
   };
   memory?: {
-    provider: 'memory' | 'lancedb';
+    provider: "memory" | "lancedb";
     endpoint?: string;
     collectionPrefix?: string;
   };

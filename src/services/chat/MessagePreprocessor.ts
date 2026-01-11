@@ -95,6 +95,8 @@ export class MessagePreprocessor {
 
   /**
    * 调试图片数据
+   *
+   * M-005 修复：敏感数据脱敏，不记录完整 URL
    */
   private debugImageData(messages: Message[], stage: string): void {
     const imageCount = messages.filter(
@@ -109,8 +111,11 @@ export class MessagePreprocessor {
             if (part.type === "image_url") {
               const url = typeof part.image_url === "string" ? part.image_url : part.image_url?.url;
               if (url) {
+                // M-005: 敏感数据脱敏 - 只记录 URL 长度和是否包含 base64，不记录完整 URL
+                const isBase64 = url.includes(";base64,");
+                const urlLength = url.length;
                 logger.debug(
-                  `[MessagePreprocessor] ${stage} msg[${idx}].content[${pIdx}]: ${url.length} chars, has ;base64,: ${url.includes(";base64,")}`
+                  `[MessagePreprocessor] ${stage} msg[${idx}].content[${pIdx}]: ${urlLength} chars, has ;base64,: ${isBase64}`
                 );
               }
             }

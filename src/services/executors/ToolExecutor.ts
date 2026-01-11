@@ -8,9 +8,36 @@ import {
   ToolExecuteOptions,
   ToolResult,
   BuiltInTool,
-  SkillTool
-} from '../../types/tool-system';
+  SkillTool,
+} from "../../types/tool-system";
 // 注意：不在这里导入 BuiltInToolsRegistry 以避免循环依赖
+
+/**
+ * 安全序列化函数 - 防止循环引用和特殊值导致的问题
+ */
+function safeStringify(obj: any): string {
+  const seen: any[] = [];
+  return JSON.stringify(obj, (key, value) => {
+    if (typeof value === "object" && value !== null) {
+      // 处理循环引用
+      if (seen.includes(value)) {
+        return "[Circular]";
+      }
+      seen.push(value);
+    }
+    // 处理特殊值
+    if (value === undefined) {
+      return null;
+    }
+    if (typeof value === "bigint") {
+      return value.toString();
+    }
+    if (typeof value === "function") {
+      return "[Function]";
+    }
+    return value;
+  });
+}
 
 /**
  * 抽象工具执行器基类
@@ -36,7 +63,7 @@ export abstract class BaseToolExecutor implements IToolExecutor {
    * @returns 是否存在
    */
   hasTool(name: string): boolean {
-    return this.listTools().some(tool => tool.name === name);
+    return this.listTools().some((tool) => tool.name === name);
   }
 
   /**
@@ -45,7 +72,7 @@ export abstract class BaseToolExecutor implements IToolExecutor {
    * @returns 工具详情或undefined
    */
   getTool(name: string): BuiltInTool | SkillTool | undefined {
-    return this.listTools().find(tool => tool.name === name);
+    return this.listTools().find((tool) => tool.name === name);
   }
 
   /**
@@ -54,24 +81,30 @@ export abstract class BaseToolExecutor implements IToolExecutor {
    * @throws 当选项无效时抛出错误
    */
   protected validateExecuteOptions(options: ToolExecuteOptions): void {
-    if (!options.name || typeof options.name !== 'string') {
-      throw new Error('Tool name is required and must be a string');
+    if (!options.name || typeof options.name !== "string") {
+      throw new Error("Tool name is required and must be a string");
     }
 
-    if (!options.args || typeof options.args !== 'object') {
-      throw new Error('Tool arguments are required and must be an object');
+    if (!options.args || typeof options.args !== "object") {
+      throw new Error("Tool arguments are required and must be an object");
     }
 
-    if (options.timeout && (typeof options.timeout !== 'number' || options.timeout <= 0)) {
-      throw new Error('Timeout must be a positive number');
+    if (options.timeout && (typeof options.timeout !== "number" || options.timeout <= 0)) {
+      throw new Error("Timeout must be a positive number");
     }
 
-    if (options.maxOutputSize && (typeof options.maxOutputSize !== 'number' || options.maxOutputSize <= 0)) {
-      throw new Error('Max output size must be a positive number');
+    if (
+      options.maxOutputSize &&
+      (typeof options.maxOutputSize !== "number" || options.maxOutputSize <= 0)
+    ) {
+      throw new Error("Max output size must be a positive number");
     }
 
-    if (options.concurrency && (typeof options.concurrency !== 'number' || options.concurrency <= 0)) {
-      throw new Error('Concurrency must be a positive number');
+    if (
+      options.concurrency &&
+      (typeof options.concurrency !== "number" || options.concurrency <= 0)
+    ) {
+      throw new Error("Concurrency must be a positive number");
     }
   }
 
@@ -86,7 +119,7 @@ export abstract class BaseToolExecutor implements IToolExecutor {
       success: true,
       output,
       duration,
-      exitCode: 0
+      exitCode: 0,
     };
   }
 
@@ -103,7 +136,7 @@ export abstract class BaseToolExecutor implements IToolExecutor {
       error,
       duration,
       errorCode,
-      exitCode: 1
+      exitCode: 1,
     };
   }
 
@@ -125,16 +158,15 @@ export abstract class BaseToolExecutor implements IToolExecutor {
     if (error instanceof Error) {
       return error.message;
     }
-    if (typeof error === 'string') {
+    if (typeof error === "string") {
       return error;
     }
-    return JSON.stringify(error);
+    return safeStringify(error);
   }
 }
 
 /**
  * 工具执行器工厂
- * 用于创建不同类型的工具执行器
  */
 export class ToolExecutorFactory {
   /**
@@ -144,7 +176,7 @@ export class ToolExecutorFactory {
   static createBuiltInExecutor(): IToolExecutor {
     // 使用延迟导入避免循环依赖
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { getBuiltInToolsRegistry } = require('../BuiltInToolsRegistry');
+    const { getBuiltInToolsRegistry } = require("../BuiltInToolsRegistry");
     return getBuiltInToolsRegistry();
   }
 
@@ -167,7 +199,7 @@ class EmptyToolExecutor extends BaseToolExecutor {
     return this.createErrorResult(
       `Skills sandbox executor not implemented. Tool: ${options.name}`,
       0,
-      'NOT_IMPLEMENTED'
+      "NOT_IMPLEMENTED"
     );
   }
 
@@ -184,8 +216,8 @@ export class ToolExecutorManager {
   private executors: Map<string, IToolExecutor> = new Map();
 
   constructor() {
-    this.registerExecutor('builtin', ToolExecutorFactory.createBuiltInExecutor());
-    this.registerExecutor('skill', ToolExecutorFactory.createSkillsSandboxExecutor());
+    this.registerExecutor("builtin", ToolExecutorFactory.createBuiltInExecutor());
+    this.registerExecutor("skill", ToolExecutorFactory.createSkillsSandboxExecutor());
   }
 
   /**

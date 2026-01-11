@@ -114,6 +114,7 @@ export class ReActEngine {
   /**
    * 增强的 XML 内容转义
    * 处理所有 XML 特殊字符，防止破坏 XML 结构
+   * 包括：基本转义、CDATA 保护、注释、处理指令
    * @param content 原始内容
    * @returns 转义后的安全内容
    */
@@ -123,12 +124,16 @@ export class ReActEngine {
     }
 
     return content
-      .replace(/&/g, "&amp;") // 必须最先处理
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&apos;")
-      .replace(/]]>/g, "]]]]><![CDATA["); // CDATA 保护
+      .replace(/&/g, "&#x26;") // 必须最先处理
+      .replace(/</g, "&#x3C;")
+      .replace(/>/g, "&#x3E;")
+      .replace(/"/g, "&#x22;")
+      .replace(/'/g, "&#x27;")
+      .replace(/<!--/g, "&#x3C;!--") // 注释开始标记保护
+      .replace(/-->/g, "--&#x3E;") // 注释结束标记保护
+      .replace(/<\?/g, "&#x3C;?") // 处理指令开始保护
+      .replace(/\?>/g, "?&#x3E;") // 处理指令结束保护
+      .replace(/\]\]>/g, "]]&#x3E;"); // CDATA 结束保护
   }
 
   /**

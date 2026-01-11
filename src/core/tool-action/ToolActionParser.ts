@@ -8,19 +8,23 @@
  *   </tool_action>
  */
 
-import { ToolActionCall, ParseResult, TextSegment, ToolType } from './types';
-import { logger } from '../../utils/logger';
+import { ToolActionCall, ParseResult, TextSegment, ToolType } from "./types";
+import { logger } from "../../utils/logger";
 
 export class ToolActionParser {
+  // 最大输入长度限制（防止 ReDoS 攻击）
+  private static readonly MAX_INPUT_LENGTH = 50000;
+
   // 匹配完整的 action 标签（支持 tool_action 向后兼容）
+  // 使用非贪婪匹配并添加长度限制，防止 ReDoS
   private static readonly TAG_REGEX =
-    /<(action|tool_action)\s+name="([^"]+)"(?:\s+type="([^"]+)")?\s*>([\s\S]*?)<\/\1>/g;
+    /<(action|tool_action)\s+name="([^"]{1,1000})"(?:\s+type="([^"]{1,100})")?\s*>([\s\S]{0,5000})<\/\1>/g;
 
   // 匹配参数子标签 - 支持两种格式:
   // 1. 自闭合: <param value="xxx" />
   // 2. 标准闭合: <param value="xxx"></param>
   private static readonly PARAM_REGEX =
-    /<(\w+)\s+value="([^"]*)"(?:\s*\/>|\s*><\/\1>)/g;
+    /<(\w{1,100})\s+value="([^"]{0,5000})"(?:\s*\/>|\s*><\/\1>)/g;
 
   // 检测未闭合的标签开始 - 更宽松的匹配
   private static readonly PENDING_TAG_REGEX = /<(action|tool_action)[^>]*>/;
@@ -31,6 +35,12 @@ export class ToolActionParser {
    * @returns 解析结果
    */
   parse(text: string): ParseResult {
+    // 输入长度验证（防止 ReDoS 攻击）
+    if (!text || typeof text !== "string" || text.length > ToolActionParser.MAX_INPUT_LENGTH) {
+      logger.warn(`[ToolActionParser] Input too long or invalid: ${text?.length ?? 0} chars`);
+      return { toolCalls: [], textSegments: [], pendingText: "" };
+    }
+
     const toolCalls: ToolActionCall[] = [];
     const textSegments: TextSegment[] = [];
 
@@ -50,24 +60,15 @@ export class ToolActionParser {
         textSegments.push({
           content: text.slice(lastIndex, startIndex),
           startIndex: lastIndex,
-          endIndex: startIndex
+          endIndex: startIndex,
         });
       }
 
       // 解析参数
       const parameters = this.extractParameters(content);
 
-      // 确定工具类型（默认为 builtin，如果明确指定则使用指定类型）
-      let type: ToolType = ToolType.BUILTIN;
-      if (toolType) {
-        // 验证类型有效性
-        const validTypes = Object.values(ToolType);
-        if (validTypes.includes(toolType as ToolType)) {
-          type = toolType as ToolType;
-        } else {
-          logger.warn(`[ToolActionParser] Invalid tool type: ${toolType}, using default: builtin`);
-        }
-      }
+      // L-001 修复：使用公共方法解析工具类型
+      const type = ToolActionParser.parseToolType(toolType);
 
       toolCalls.push({
         name: toolName,
@@ -75,7 +76,7 @@ export class ToolActionParser {
         parameters,
         rawText: fullMatch,
         startIndex,
-        endIndex
+        endIndex,
       });
 
       lastIndex = endIndex;
@@ -87,35 +88,35 @@ export class ToolActionParser {
 
       // 检查是否有未完成的标签（有开始但没有结束）
       if (this.hasPendingTag(remainingText)) {
-        const openTagIndex = remainingText.indexOf('<tool_action');
+        const openTagIndex = remainingText.indexOf("<tool_action");
 
         // 未完成标签前的文本
         if (openTagIndex > 0) {
           textSegments.push({
             content: remainingText.slice(0, openTagIndex),
             startIndex: lastIndex,
-            endIndex: lastIndex + openTagIndex
+            endIndex: lastIndex + openTagIndex,
           });
         }
 
         return {
           toolCalls,
           textSegments,
-          pendingText: remainingText.slice(openTagIndex >= 0 ? openTagIndex : 0)
+          pendingText: remainingText.slice(openTagIndex >= 0 ? openTagIndex : 0),
         };
       }
 
       textSegments.push({
         content: remainingText,
         startIndex: lastIndex,
-        endIndex: text.length
+        endIndex: text.length,
       });
     }
 
     return {
       toolCalls,
       textSegments,
-      pendingText: ''
+      pendingText: "",
     };
   }
 
@@ -126,12 +127,12 @@ export class ToolActionParser {
    */
   hasPendingTag(text: string): boolean {
     // 检查是否有 <tool_action 开始但没有 </tool_action> 结束
-    const openTagIndex = text.lastIndexOf('<tool_action');
+    const openTagIndex = text.lastIndexOf("<tool_action");
     if (openTagIndex === -1) {
       return false;
     }
 
-    const closeTagIndex = text.indexOf('</tool_action>', openTagIndex);
+    const closeTagIndex = text.indexOf("</tool_action>", openTagIndex);
     return closeTagIndex === -1;
   }
 
@@ -156,6 +157,24 @@ export class ToolActionParser {
   }
 
   /**
+   * L-001 修复：提取公共方法，消除代码重复
+   * 验证并解析工具类型
+   */
+  private static parseToolType(toolType: string | undefined): ToolType {
+    if (!toolType) {
+      return ToolType.BUILTIN;
+    }
+
+    const validTypes = Object.values(ToolType);
+    if (validTypes.includes(toolType as ToolType)) {
+      return toolType as ToolType;
+    }
+
+    logger.warn(`[ToolActionParser] Invalid tool type: ${toolType}, using default: builtin`);
+    return ToolType.BUILTIN;
+  }
+
+  /**
    * 解析单个工具调用标签
    * @param tagText 完整的标签文本
    * @returns 工具调用对象或 null
@@ -172,16 +191,8 @@ export class ToolActionParser {
     const [fullMatch, tagName, toolName, toolType, content] = match;
     const parameters = this.extractParameters(content);
 
-    // 确定工具类型
-    let type: ToolType = ToolType.BUILTIN;
-    if (toolType) {
-      const validTypes = Object.values(ToolType);
-      if (validTypes.includes(toolType as ToolType)) {
-        type = toolType as ToolType;
-      } else {
-        logger.warn(`[ToolActionParser] Invalid tool type: ${toolType}, using default: builtin`);
-      }
-    }
+    // L-001 修复：使用公共方法解析工具类型
+    const type = ToolActionParser.parseToolType(toolType);
 
     return {
       name: toolName,
@@ -189,7 +200,7 @@ export class ToolActionParser {
       parameters,
       rawText: fullMatch,
       startIndex: 0,
-      endIndex: fullMatch.length
+      endIndex: fullMatch.length,
     };
   }
 
@@ -200,9 +211,9 @@ export class ToolActionParser {
    */
   isValidToolAction(toolAction: ToolActionCall): boolean {
     return (
-      typeof toolAction.name === 'string' &&
+      typeof toolAction.name === "string" &&
       toolAction.name.length > 0 &&
-      typeof toolAction.parameters === 'object'
+      typeof toolAction.parameters === "object"
     );
   }
 }

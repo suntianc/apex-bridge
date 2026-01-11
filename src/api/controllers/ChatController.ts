@@ -656,6 +656,7 @@ export class ChatController {
           try {
             const messageCount = await this.chatService.getConversationMessageCount(sessionId);
             const lastMessage = await this.chatService.getConversationLastMessage(sessionId);
+            const firstMessage = await this.chatService.getConversationFirstMessage(sessionId);
 
             return {
               sessionId,
@@ -664,6 +665,7 @@ export class ChatController {
               messageCount,
               lastActivityAt: lastMessage?.created_at || 0,
               lastMessage: lastMessage?.content?.substring(0, 100) || "",
+              firstMessage: firstMessage?.content?.substring(0, 100) || "",
             };
           } catch (error: any) {
             logger.warn(

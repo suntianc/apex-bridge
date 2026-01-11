@@ -9,17 +9,13 @@
  * - 主服务仅保留协调逻辑
  */
 
-import { logger } from '../utils/logger';
-import {
-  ConfigLoader,
-  ConfigValidator,
-  ConfigWriter
-} from '../utils/config';
+import { logger } from "../utils/logger";
+import { ConfigLoader, ConfigValidator, ConfigWriter } from "../utils/config";
 import {
   DEFAULT_CONFIG,
   createDefaultRateLimitSettings,
-  DEFAULT_REDIS_CONFIG
-} from '../utils/config-constants';
+  DEFAULT_REDIS_CONFIG,
+} from "../utils/config-constants";
 import type {
   AdminConfig,
   SystemConfig,
@@ -27,7 +23,6 @@ import type {
   SystemSecurityConfig,
   EnvironmentConfig,
   DatabaseConfig,
-  PlaybookConfig,
   PathsConfig,
   ApiKeyInfo,
   RateLimitSettings,
@@ -49,8 +44,8 @@ import type {
   RateLimitStrategyConfig,
   RateLimitMatcherConfig,
   RateLimitRuleConfig,
-  RateLimitHeadersConfig
-} from '../types/config/index';
+  RateLimitHeadersConfig,
+} from "../types/config/index";
 
 /**
  * 配置服务
@@ -163,7 +158,11 @@ export class ConfigService {
   /**
    * 验证配置
    */
-  public validateConfig(config: AdminConfig): { valid: boolean; errors: string[]; warnings?: string[] } {
+  public validateConfig(config: AdminConfig): {
+    valid: boolean;
+    errors: string[];
+    warnings?: string[];
+  } {
     return this.validator.validate(config);
   }
 
@@ -176,11 +175,11 @@ export class ConfigService {
     const warnings: string[] = [];
 
     if (!systemConfig.security.abpApiKey) {
-      errors.push('ABP_API_KEY 未设置（环境变量）');
+      errors.push("ABP_API_KEY 未设置（环境变量）");
     }
 
     if (!systemConfig.security.jwtSecret) {
-      errors.push('JWT_SECRET 未设置（环境变量）');
+      errors.push("JWT_SECRET 未设置（环境变量）");
     }
 
     if (systemConfig.port < 1 || systemConfig.port > 65535) {
@@ -188,13 +187,13 @@ export class ConfigService {
     }
 
     if (!systemConfig.paths.rootDir) {
-      errors.push('APEX_BRIDGE_ROOT_DIR 未设置');
+      errors.push("APEX_BRIDGE_ROOT_DIR 未设置");
     }
 
     return {
       valid: errors.length === 0,
       errors,
-      warnings
+      warnings,
     };
   }
 
@@ -206,9 +205,9 @@ export class ConfigService {
   public isSetupCompleted(): boolean {
     try {
       const config = this.readConfig();
-      return !!(config?.auth?.apiKey && config.auth.apiKey.trim() !== '');
+      return !!(config?.auth?.apiKey && config.auth.apiKey.trim() !== "");
     } catch (error) {
-      logger.error('检查初始化状态失败:', error);
+      logger.error("检查初始化状态失败:", error);
       return false;
     }
   }
@@ -217,8 +216,8 @@ export class ConfigService {
    * 获取系统级配置（从环境变量读取）
    */
   public getSystemConfig(): SystemConfig {
-    const port = parseInt(process.env.PORT || '3000', 10);
-    const autostart = process.env.APEX_BRIDGE_AUTOSTART !== 'false';
+    const port = parseInt(process.env.PORT || "3000", 10);
+    const autostart = process.env.APEX_BRIDGE_AUTOSTART !== "false";
 
     return {
       port,
@@ -227,7 +226,6 @@ export class ConfigService {
       security: this.getSystemSecurityConfig(),
       environment: this.getEnvironmentConfig(),
       database: this.getDatabaseConfig(),
-      playbook: this.getPlaybookConfig()
     };
   }
 
@@ -245,7 +243,6 @@ export class ConfigService {
       redis: config.redis,
       security: config.security,
       ace: config.ace,
-      playbook: config.playbook
     };
   }
 
@@ -263,19 +260,17 @@ export class ConfigService {
       systemSecurity: systemConfig.security,
       environment: systemConfig.environment,
       database: systemConfig.database,
-      playbookConfig: systemConfig.playbook,
       setup_completed: appConfig.setup_completed,
       api: appConfig.api,
       auth: {
         ...appConfig.auth,
         apiKey: systemConfig.security.abpApiKey,
-        jwtSecret: systemConfig.security.jwtSecret
+        jwtSecret: systemConfig.security.jwtSecret,
       },
       performance: appConfig.performance,
       redis: appConfig.redis,
       appSecurity: appConfig.security,
       ace: appConfig.ace,
-      playbook: appConfig.playbook
     };
   }
 
@@ -287,42 +282,34 @@ export class ConfigService {
       configDir: process.env.APEX_BRIDGE_CONFIG_DIR || `${process.cwd()}/config`,
       dataDir: process.env.APEX_BRIDGE_DATA_DIR || `${process.cwd()}/.data`,
       logDir: process.env.APEX_BRIDGE_LOG_DIR || `${process.cwd()}/logs`,
-      vectorStoreDir: process.env.APEX_BRIDGE_VECTOR_STORE_DIR || `${process.cwd()}/.data/lancedb`
+      vectorStoreDir: process.env.APEX_BRIDGE_VECTOR_STORE_DIR || `${process.cwd()}/.data/lancedb`,
     };
   }
 
   private getSystemSecurityConfig(): SystemSecurityConfig {
     return {
-      abpApiKey: process.env.ABP_API_KEY || '',
-      jwtSecret: process.env.JWT_SECRET || '',
-      constitutionPath: process.env.CONSTITUTION_PATH || './config/constitution.md'
+      abpApiKey: process.env.ABP_API_KEY || "",
+      jwtSecret: process.env.JWT_SECRET || "",
+      constitutionPath: process.env.CONSTITUTION_PATH || "./config/constitution.md",
     };
   }
 
   private getEnvironmentConfig(): EnvironmentConfig {
     return {
-      nodeEnv: process.env.NODE_ENV || 'development',
-      logLevel: process.env.LOG_LEVEL || 'info',
-      logFile: process.env.LOG_FILE || './logs/apex-bridge.log',
-      maxRequestSize: process.env.MAX_REQUEST_SIZE || '100mb',
-      securityLogLevel: process.env.SECURITY_LOG_LEVEL || 'warn',
-      securityLogEnabled: process.env.SECURITY_LOG_ENABLED !== 'false',
-      verboseLogging: process.env.VERBOSE_LOGGING === 'true'
+      nodeEnv: process.env.NODE_ENV || "development",
+      logLevel: process.env.LOG_LEVEL || "info",
+      logFile: process.env.LOG_FILE || "./logs/apex-bridge.log",
+      maxRequestSize: process.env.MAX_REQUEST_SIZE || "100mb",
+      securityLogLevel: process.env.SECURITY_LOG_LEVEL || "warn",
+      securityLogEnabled: process.env.SECURITY_LOG_ENABLED !== "false",
+      verboseLogging: process.env.VERBOSE_LOGGING === "true",
     };
   }
 
   private getDatabaseConfig(): DatabaseConfig {
     return {
-      sqlitePath: process.env.SQLITE_PATH || './.data/llm_providers.db',
-      lancedbPath: process.env.LANCEDB_PATH || './.data/lancedb'
-    };
-  }
-
-  private getPlaybookConfig(): PlaybookConfig {
-    return {
-      extractionTimeout: parseInt(process.env.PLAYBOOK_EXTRACTION_TIMEOUT || '30000', 10),
-      similarityThreshold: parseFloat(process.env.PLAYBOOK_SIMILARITY_THRESHOLD || '0.5'),
-      maxRecommendations: parseInt(process.env.PLAYBOOK_MAX_RECOMMENDATIONS || '5', 10)
+      sqlitePath: process.env.SQLITE_PATH || "./.data/llm_providers.db",
+      lancedbPath: process.env.LANCEDB_PATH || "./.data/lancedb",
     };
   }
 }
@@ -333,8 +320,8 @@ export class ConfigService {
 export {
   DEFAULT_CONFIG,
   DEFAULT_REDIS_CONFIG,
-  createDefaultRateLimitSettings
-} from '../utils/config-constants';
+  createDefaultRateLimitSettings,
+} from "../utils/config-constants";
 
 // 导出类型（保持原有导出位置）
 export type {
@@ -361,5 +348,5 @@ export type {
   RateLimitRuleConfig,
   RateLimitHeadersConfig,
   SystemConfig,
-  FullConfig
-} from '../types/config/index';
+  FullConfig,
+} from "../types/config/index";
