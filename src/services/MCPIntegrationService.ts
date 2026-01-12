@@ -20,6 +20,8 @@ import type {
   MCPToolCall,
   MCPToolResult,
 } from "../types/mcp";
+import { ErrorClassifier } from "../utils/error-classifier";
+import { ErrorType } from "../types/trajectory";
 
 export interface MCPServerInfo {
   id: string;
@@ -359,7 +361,16 @@ export class MCPIntegrationService extends EventEmitter {
 
       return result;
     } catch (error: any) {
-      logger.error(`[MCP] Tool call failed:`, error);
+      const errorType = ErrorClassifier.classifyError(error);
+      const isRecoverable =
+        errorType !== ErrorType.RESOURCE_EXHAUSTED && errorType !== ErrorType.PERMISSION_DENIED;
+
+      logger.error(`[MCP] Tool call failed: ${error.message}`, {
+        toolName: params.toolName,
+        errorType: ErrorType[errorType],
+        recoverable: isRecoverable,
+        stack: error.stack,
+      });
 
       return {
         success: false,
@@ -368,6 +379,11 @@ export class MCPIntegrationService extends EventEmitter {
         error: {
           code: "TOOL_CALL_FAILED",
           message: error.message || "Unknown error",
+          details: {
+            type: ErrorType[errorType],
+            recoverable: isRecoverable,
+            suggestion: ErrorClassifier.getErrorTypeSuggestion(errorType),
+          },
         },
       };
     }

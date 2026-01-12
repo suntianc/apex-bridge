@@ -22,6 +22,7 @@ import { logger } from "../utils/logger";
 import { extractTextFromMessage } from "../utils/message-utils";
 import { TIMEOUT, LIMITS, THRESHOLDS } from "../constants";
 import { SKILL_TIMEOUT_MS } from "../constants/retention";
+import { ErrorClassifier } from "../utils/error-classifier";
 
 export class ReActStrategy implements ChatStrategy {
   private builtInRegistry: BuiltInToolsRegistry;
@@ -141,13 +142,19 @@ export class ReActStrategy implements ChatStrategy {
 
       logger.debug(`[${this.getName()}] ReAct completed in ${iterations} iterations`);
 
-      // 返回结果（包含原始思考过程，供ChatService统一保存）
+      const promptTokens = this.estimatePromptTokens(messages);
+      const completionTokens = this.estimateCompletionTokens(finalContent, thinkingProcess);
+
       return {
         content: finalContent,
         iterations,
         thinkingProcess: includeThoughtsInResponse ? thinkingProcess.join("\n") : undefined,
-        rawThinkingProcess: thinkingProcess, // 原始思考过程
-        usage: undefined, // TODO: 从LLMClient获取usage
+        rawThinkingProcess: thinkingProcess,
+        usage: {
+          prompt_tokens: promptTokens,
+          completion_tokens: completionTokens,
+          total_tokens: promptTokens + completionTokens,
+        },
       };
     } catch (error) {
       logger.error(`[${this.getName()}] ReAct execution failed: ${error}`);
@@ -306,12 +313,17 @@ export class ReActStrategy implements ChatStrategy {
       }
     }
 
-    // ChatService会统一保存历史，策略层只返回数据
-    // 返回收集的思考过程和内容
     return {
       content: collectedContent,
       rawThinkingProcess: collectedThinking,
     };
+  }
+
+  private async *createReturnIterator(result: {
+    content: string;
+    rawThinkingProcess: string[];
+  }): AsyncIterableIterator<{ content: string; rawThinkingProcess: string[] }> {
+    return result;
   }
 
   /**
@@ -552,5 +564,33 @@ export class ReActStrategy implements ChatStrategy {
     return statuses.length > 0
       ? `Active skills: ${statuses.join(", ")}`
       : "No active dynamic skills";
+  }
+
+  private estimatePromptTokens(messages: Message[]): number {
+    let totalChars = 0;
+
+    for (const msg of messages) {
+      if (typeof msg.content === "string") {
+        totalChars += msg.content.length;
+      } else if (Array.isArray(msg.content)) {
+        for (const part of msg.content) {
+          if (part.type === "text" && part.text) {
+            totalChars += part.text.length;
+          }
+        }
+      }
+      totalChars += msg.role.length + 10;
+    }
+
+    return ErrorClassifier.estimateTokens(String(totalChars));
+  }
+
+  private estimateCompletionTokens(content: string, thinkingProcess: string[]): number {
+    const contentTokens = ErrorClassifier.estimateTokens(content);
+    const thinkingTokens = thinkingProcess
+      ? ErrorClassifier.estimateTokens(thinkingProcess.join(" "))
+      : 0;
+
+    return contentTokens + thinkingTokens;
   }
 }

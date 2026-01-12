@@ -82,7 +82,17 @@ export class StreamResponseHandler {
               return;
             }
           } catch (parseError) {
-            logger.warn("[StreamResponseHandler] Failed to parse meta chunk:", metaJson);
+            const truncatedJson =
+              metaJson.length > 200 ? metaJson.substring(0, 200) + "..." : metaJson;
+            logger.warn("[StreamResponseHandler] Failed to parse meta chunk:", truncatedJson);
+            res.write(
+              `data: ${JSON.stringify({
+                error: {
+                  message: "Failed to parse meta chunk",
+                  type: "parse_error",
+                },
+              })}\n\n`
+            );
           }
           continue;
         }

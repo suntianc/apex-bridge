@@ -16,6 +16,9 @@ export interface SaveMetadata {
   completionTokens?: number;
 }
 
+const MAX_RETRY_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 1000;
+
 export class ConversationSaver {
   constructor(
     private conversationHistoryService: ConversationHistoryService,
@@ -32,40 +35,63 @@ export class ConversationSaver {
     thinkingProcess?: string[],
     isReAct: boolean = false
   ): Promise<void> {
-    try {
-      // 1. 检查历史记录数量
-      const count = await this.conversationHistoryService.getMessageCount(conversationId);
-      const messagesToSave: Message[] = [];
+    let lastError: Error | null = null;
 
-      // 2. 准备要保存的消息（统一逻辑）
-      if (count === 0) {
-        // 新对话：保存所有非assistant、非system消息
-        messagesToSave.push(
-          ...messages.filter((m) => m.role !== "assistant" && m.role !== "system")
-        );
-      } else {
-        // 已有对话：只保存最后一条非assistant、非system消息
-        const lastMessage = messages[messages.length - 1];
-        if (lastMessage && lastMessage.role !== "assistant" && lastMessage.role !== "system") {
-          messagesToSave.push(lastMessage);
+    for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+      try {
+        const count = await this.conversationHistoryService.getMessageCount(conversationId);
+        const messagesToSave: Message[] = [];
+
+        if (count === 0) {
+          messagesToSave.push(
+            ...messages.filter((m) => m.role !== "assistant" && m.role !== "system")
+          );
+        } else {
+          const lastMessage = messages[messages.length - 1];
+          if (lastMessage && lastMessage.role !== "assistant" && lastMessage.role !== "system") {
+            messagesToSave.push(lastMessage);
+          }
+        }
+
+        let assistantContent = this.formatAssistantContent(aiContent, thinkingProcess, isReAct);
+
+        messagesToSave.push({
+          role: "assistant",
+          content: assistantContent,
+        });
+
+        await this.conversationHistoryService.saveMessages(conversationId, messagesToSave);
+        logger.debug(`[ConversationSaver] Saved ${messagesToSave.length} messages to history`);
+        return;
+      } catch (err: any) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+
+        if (attempt < MAX_RETRY_ATTEMPTS) {
+          logger.warn(
+            `[ConversationSaver] Failed to save conversation history (attempt ${attempt}/${MAX_RETRY_ATTEMPTS}): ${lastError.message}`
+          );
+          await this.sleep(RETRY_DELAY_MS * attempt);
+        } else {
+          logger.error(
+            `[ConversationSaver] Failed to save conversation history after ${MAX_RETRY_ATTEMPTS} attempts:`,
+            lastError
+          );
+          this.sendToErrorMonitor(conversationId, lastError);
         }
       }
-
-      // 3. 构建AI回复内容（统一格式）
-      let assistantContent = this.formatAssistantContent(aiContent, thinkingProcess, isReAct);
-
-      // 4. 添加AI回复
-      messagesToSave.push({
-        role: "assistant",
-        content: assistantContent,
-      });
-
-      // 5. 保存到数据库
-      await this.conversationHistoryService.saveMessages(conversationId, messagesToSave);
-      logger.debug(`[ConversationSaver] Saved ${messagesToSave.length} messages to history`);
-    } catch (err: any) {
-      logger.warn(`[ConversationSaver] Failed to save conversation history: ${err.message}`);
     }
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private sendToErrorMonitor(conversationId: string, error: Error): void {
+    logger.error(`[ConversationSaver] Error monitoring: conversationId=${conversationId}`, {
+      error: error.message,
+      stack: error.stack,
+      timestamp: new Date().toISOString(),
+    });
   }
 
   /**

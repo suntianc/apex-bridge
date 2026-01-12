@@ -504,24 +504,14 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
    * 通过SkillManager查询Skill的实际路径，支持name与目录名不一致的情况
    */
   private async getSkillPath(skillName: string): Promise<string> {
-    try {
-      // 尝试通过SkillManager查询Skill
-      const skillManager = getSkillManager();
-      const skill = await skillManager.getSkillByName(skillName);
+    const skillManager = getSkillManager();
+    const skill = await skillManager.getSkillByName(skillName);
 
-      if (skill && skill.path) {
-        return skill.path;
-      }
-
-      // 如果找不到，尝试使用目录名直接拼接（兼容旧逻辑）
-      const basePath = "./.data/skills";
-      return path.join(basePath, skillName);
-    } catch (error) {
-      // 如果查询失败，回退到直接拼接
-      logger.debug(`Failed to query skill path from SkillManager: ${error}`);
-      const basePath = "./.data/skills";
-      return path.join(basePath, skillName);
+    if (skill && skill.path) {
+      return skill.path;
     }
+
+    throw new ToolError(`Skill not found: ${skillName}`, ToolErrorCode.SKILL_NOT_FOUND);
   }
 
   /**
