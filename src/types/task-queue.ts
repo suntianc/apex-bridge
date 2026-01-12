@@ -10,13 +10,13 @@
  */
 export enum TaskType {
   /** 生成 Playbook（从成功 Trajectory） */
-  GENERATE = 'GENERATE',
+  GENERATE = "GENERATE",
 
   /** 反思失败模式（从失败 Trajectory） */
-  REFLECT = 'REFLECT',
+  REFLECT = "REFLECT",
 
   /** 维护知识库（去重/归档） */
-  CURATE = 'CURATE'
+  CURATE = "CURATE",
 }
 
 /**
@@ -24,16 +24,16 @@ export enum TaskType {
  */
 export enum TaskStatus {
   /** 待处理 */
-  PENDING = 'PENDING',
+  PENDING = "PENDING",
 
   /** 处理中 */
-  PROCESSING = 'PROCESSING',
+  PROCESSING = "PROCESSING",
 
   /** 已完成 */
-  COMPLETED = 'COMPLETED',
+  COMPLETED = "COMPLETED",
 
   /** 失败 */
-  FAILED = 'FAILED'
+  FAILED = "FAILED",
 }
 
 /**
@@ -47,7 +47,7 @@ export enum TaskPriority {
   HIGH = 1,
 
   /** 紧急（手动触发） */
-  URGENT = 2
+  URGENT = 2,
 }
 
 /**

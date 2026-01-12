@@ -1,6 +1,6 @@
-import PQueue from 'p-queue';
-import { ReActEngine } from './ReActEngine';
-import type { LLMAdapter, BatchTask, BatchResult } from './types';
+import PQueue from "p-queue";
+import { ReActEngine } from "./ReActEngine";
+import type { LLMAdapter, BatchTask, BatchResult } from "./types";
 
 export interface PoolOptions {
   maxConcurrent?: number;
@@ -33,13 +33,11 @@ export class ReActEnginePool {
       return {
         taskId: task.taskId,
         result: chunks,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       };
     };
 
-    const promises = tasks.map(task =>
-      this.queue.add(() => executeTask(task))
-    );
+    const promises = tasks.map((task) => this.queue.add(() => executeTask(task)));
 
     for (const promise of promises) {
       yield await promise;

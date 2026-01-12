@@ -1,13 +1,13 @@
 /**
  * Security Headers Middleware - 安全头中间件
- * 
+ *
  * 配置 Helmet.js 安全头，包括 CSP、HSTS、X-Frame-Options 等
  */
 
-import { Request, Response, NextFunction } from 'express';
-import helmet from 'helmet';
-import { ConfigService } from '../../services/ConfigService';
-import { logger } from '../../utils/logger';
+import { Request, Response, NextFunction } from "express";
+import helmet from "helmet";
+import { ConfigService } from "../../services/ConfigService";
+import { logger } from "../../utils/logger";
 
 export interface SecurityHeadersConfig {
   enabled: boolean;
@@ -23,7 +23,7 @@ export interface SecurityHeadersConfig {
   };
   frameguard?: {
     enabled: boolean;
-    action?: 'DENY' | 'SAMEORIGIN';
+    action?: "DENY" | "SAMEORIGIN";
   };
   contentTypeNosniff?: boolean;
   xssFilter?: boolean;
@@ -36,7 +36,9 @@ export interface SecurityHeadersConfig {
  * @param config 安全头配置
  * @returns Express 中间件
  */
-export function createSecurityHeadersMiddleware(config?: Partial<SecurityHeadersConfig>): (req: Request, res: Response, next: NextFunction) => void {
+export function createSecurityHeadersMiddleware(
+  config?: Partial<SecurityHeadersConfig>
+): (req: Request, res: Response, next: NextFunction) => void {
   const configService = ConfigService.getInstance();
   const adminConfig = configService.readConfig();
 
@@ -46,41 +48,41 @@ export function createSecurityHeadersMiddleware(config?: Partial<SecurityHeaders
     csp: {
       enabled: true,
       directives: {
-        'default-src': ["'self'"],
-        'script-src': ["'self'", "'unsafe-inline'", "'unsafe-eval'"], // 允许内联脚本
-        'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'], // 允许内联样式 + Google Fonts
-        'style-src-elem': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
-        'img-src': ["'self'", 'data:', 'https:'], // 允许图片
-        'font-src': ["'self'", 'data:', 'https://fonts.gstatic.com'], // 允许字体
-        'connect-src': ["'self'", 'ws:', 'wss:'], // 允许 WebSocket 连接
-        'frame-ancestors': ["'none'"], // 不允许嵌入
-        'base-uri': ["'self'"], // 基础 URI
-        'form-action': ["'self'"], // 表单提交
-        'frame-src': ["'self'"], // iframe 源
-        'object-src': ["'none'"], // 不允许对象
-        'upgrade-insecure-requests': [] // 升级不安全请求
-      }
+        "default-src": ["'self'"],
+        "script-src": ["'self'", "'unsafe-inline'", "'unsafe-eval'"], // 允许内联脚本
+        "style-src": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"], // 允许内联样式 + Google Fonts
+        "style-src-elem": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        "img-src": ["'self'", "data:", "https:"], // 允许图片
+        "font-src": ["'self'", "data:", "https://fonts.gstatic.com"], // 允许字体
+        "connect-src": ["'self'", "ws:", "wss:"], // 允许 WebSocket 连接
+        "frame-ancestors": ["'none'"], // 不允许嵌入
+        "base-uri": ["'self'"], // 基础 URI
+        "form-action": ["'self'"], // 表单提交
+        "frame-src": ["'self'"], // iframe 源
+        "object-src": ["'none'"], // 不允许对象
+        "upgrade-insecure-requests": [], // 升级不安全请求
+      },
     },
     hsts: {
       enabled: true,
       maxAge: 31536000, // 1年
       includeSubDomains: true,
-      preload: false
+      preload: false,
     },
     frameguard: {
       enabled: true,
-      action: 'DENY'
+      action: "DENY",
     },
     contentTypeNosniff: true,
     xssFilter: true,
-    referrerPolicy: 'strict-origin-when-cross-origin',
+    referrerPolicy: "strict-origin-when-cross-origin",
     permissionsPolicy: {
-      'geolocation': [],
-      'microphone': [],
-      'camera': [],
-      'payment': [],
-      'usb': []
-    }
+      geolocation: [],
+      microphone: [],
+      camera: [],
+      payment: [],
+      usb: [],
+    },
   };
 
   // 合并配置
@@ -89,16 +91,16 @@ export function createSecurityHeadersMiddleware(config?: Partial<SecurityHeaders
     ...config,
     csp: {
       ...defaultConfig.csp,
-      ...config?.csp
+      ...config?.csp,
     },
     hsts: {
       ...defaultConfig.hsts,
-      ...config?.hsts
+      ...config?.hsts,
     },
     frameguard: {
       ...defaultConfig.frameguard,
-      ...config?.frameguard
-    }
+      ...config?.frameguard,
+    },
   };
 
   // 如果禁用，返回空中间件
@@ -110,48 +112,56 @@ export function createSecurityHeadersMiddleware(config?: Partial<SecurityHeaders
 
   // 配置 Helmet
   const helmetOptions: any = {
-    contentSecurityPolicy: securityConfig.csp?.enabled ? {
-      directives: securityConfig.csp.directives as any
-    } : false,
-    hsts: securityConfig.hsts?.enabled ? {
-      maxAge: securityConfig.hsts.maxAge || 31536000,
-      includeSubDomains: securityConfig.hsts.includeSubDomains !== false,
-      preload: securityConfig.hsts.preload === true
-    } : false,
-    frameguard: securityConfig.frameguard?.enabled ? {
-      action: securityConfig.frameguard.action === 'SAMEORIGIN' ? 'sameorigin' : 'deny'
-    } : false,
+    contentSecurityPolicy: securityConfig.csp?.enabled
+      ? {
+          directives: securityConfig.csp.directives as any,
+        }
+      : false,
+    hsts: securityConfig.hsts?.enabled
+      ? {
+          maxAge: securityConfig.hsts.maxAge || 31536000,
+          includeSubDomains: securityConfig.hsts.includeSubDomains !== false,
+          preload: securityConfig.hsts.preload === true,
+        }
+      : false,
+    frameguard: securityConfig.frameguard?.enabled
+      ? {
+          action: securityConfig.frameguard.action === "SAMEORIGIN" ? "sameorigin" : "deny",
+        }
+      : false,
     noSniff: securityConfig.contentTypeNosniff !== false,
     xssFilter: securityConfig.xssFilter !== false,
     referrerPolicy: {
-      policy: securityConfig.referrerPolicy as any || 'strict-origin-when-cross-origin'
+      policy: (securityConfig.referrerPolicy as any) || "strict-origin-when-cross-origin",
     },
     permittedCrossDomainPolicies: {
-      permittedPolicies: 'none'
+      permittedPolicies: "none",
     },
     expectCt: {
       maxAge: 86400, // 24小时
-      enforce: true
+      enforce: true,
     },
     crossOriginEmbedderPolicy: false, // 禁用，避免破坏现有功能
     crossOriginOpenerPolicy: {
-      policy: 'same-origin'
+      policy: "same-origin",
     },
     crossOriginResourcePolicy: {
-      policy: 'cross-origin'
+      policy: "cross-origin",
     },
     originAgentCluster: true,
     dnsPrefetchControl: {
-      allow: false
+      allow: false,
     },
     downloadOptions: {
-      action: 'deny'
+      action: "deny",
     },
     hidePoweredBy: true,
     ieNoOpen: true,
-    permissionsPolicy: securityConfig.permissionsPolicy ? {
-      features: securityConfig.permissionsPolicy as any
-    } : undefined
+    permissionsPolicy: securityConfig.permissionsPolicy
+      ? {
+          features: securityConfig.permissionsPolicy as any,
+        }
+      : undefined,
   };
 
   // 创建 Helmet 中间件
@@ -164,7 +174,7 @@ export function createSecurityHeadersMiddleware(config?: Partial<SecurityHeaders
       helmetMiddleware(req, res, () => {
         // 添加自定义安全头
         if (securityConfig.referrerPolicy) {
-          res.setHeader('Referrer-Policy', securityConfig.referrerPolicy);
+          res.setHeader("Referrer-Policy", securityConfig.referrerPolicy);
         }
 
         // 添加 Permissions-Policy 头
@@ -174,16 +184,16 @@ export function createSecurityHeadersMiddleware(config?: Partial<SecurityHeaders
               if (allowlist.length === 0) {
                 return `${feature}=()`;
               }
-              return `${feature}=(${allowlist.join(' ')})`;
+              return `${feature}=(${allowlist.join(" ")})`;
             })
-            .join(', ');
-          res.setHeader('Permissions-Policy', permissionsPolicyValue);
+            .join(", ");
+          res.setHeader("Permissions-Policy", permissionsPolicyValue);
         }
 
         next();
       });
     } catch (error: any) {
-      logger.error('❌ Security headers middleware error:', error);
+      logger.error("❌ Security headers middleware error:", error);
       next();
     }
   };

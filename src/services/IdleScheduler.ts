@@ -10,9 +10,9 @@
  * 调度器不再执行任何任务。
  */
 
-import os from 'os';
-import { TaskType, TaskHandler, IdleSchedulerOptions } from '../types/task-queue';
-import { logger } from '../utils/logger';
+import os from "os";
+import { TaskType, TaskHandler, IdleSchedulerOptions } from "../types/task-queue";
+import { logger } from "../utils/logger";
 
 export class IdleScheduler {
   private interval: NodeJS.Timeout | null = null;
@@ -26,7 +26,7 @@ export class IdleScheduler {
     this.cpuThreshold = options.cpuThreshold ?? 0.3;
     this.checkIntervalMs = options.checkIntervalMs ?? 30000;
     this.taskHandlers = new Map();
-    logger.info('[IdleScheduler] Initialized (no-op, Playbook removed)');
+    logger.info("[IdleScheduler] Initialized (no-op, Playbook removed)");
   }
 
   /**
@@ -42,12 +42,12 @@ export class IdleScheduler {
    */
   start(): void {
     if (this.isRunning) {
-      logger.warn('[IdleScheduler] Scheduler is already running');
+      logger.warn("[IdleScheduler] Scheduler is already running");
       return;
     }
 
     this.isRunning = true;
-    logger.info('[IdleScheduler] Started (no-op mode)');
+    logger.info("[IdleScheduler] Started (no-op mode)");
   }
 
   /**
@@ -60,14 +60,14 @@ export class IdleScheduler {
     }
 
     this.isRunning = false;
-    logger.info('[IdleScheduler] Stopped');
+    logger.info("[IdleScheduler] Stopped");
   }
 
   /**
    * 手动触发执行（前端调用）
    */
   async triggerManual(limit: number = 10): Promise<number> {
-    logger.info('[IdleScheduler] Manual trigger called (no tasks to process)');
+    logger.info("[IdleScheduler] Manual trigger called (no tasks to process)");
     return 0;
   }
 
@@ -91,7 +91,7 @@ export class IdleScheduler {
       cpuThreshold: this.cpuThreshold,
       checkIntervalMs: this.checkIntervalMs,
       registeredHandlers: Array.from(this.taskHandlers.keys()),
-      currentCpuLoad: loadAvg[0] / cpuCount
+      currentCpuLoad: loadAvg[0] / cpuCount,
     };
   }
 }

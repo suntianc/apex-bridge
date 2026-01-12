@@ -3,13 +3,13 @@
  * 负责从文件系统读取和缓存配置
  */
 
-import * as fs from 'fs';
-import * as fsPromises from 'fs/promises';
-import * as path from 'path';
-import { logger } from './logger';
-import type { AdminConfig } from '../types/config/index';
-import { DEFAULT_CONFIG } from './config-constants';
-import { PathService } from '../services/PathService';
+import * as fs from "fs";
+import * as fsPromises from "fs/promises";
+import * as path from "path";
+import { logger } from "./logger";
+import type { AdminConfig } from "../types/config/index";
+import { DEFAULT_CONFIG } from "./config-constants";
+import { PathService } from "../services/PathService";
 
 export class ConfigLoader {
   private static instance: ConfigLoader | null = null;
@@ -40,13 +40,13 @@ export class ConfigLoader {
     }
 
     try {
-      const configData = fs.readFileSync(this.configPath, 'utf-8');
+      const configData = fs.readFileSync(this.configPath, "utf-8");
       const config = JSON.parse(configData) as AdminConfig;
       this.configCache = config;
       return config;
     } catch (error: unknown) {
       const err = error as { code?: string; message?: string };
-      if (err.code === 'ENOENT') {
+      if (err.code === "ENOENT") {
         logger.warn(`配置文件不存在: ${this.configPath}，创建默认配置`);
         this.writeSync(DEFAULT_CONFIG);
         return DEFAULT_CONFIG;
@@ -65,13 +65,13 @@ export class ConfigLoader {
     }
 
     try {
-      const configData = await fsPromises.readFile(this.configPath, 'utf-8');
+      const configData = await fsPromises.readFile(this.configPath, "utf-8");
       const config = JSON.parse(configData) as AdminConfig;
       this.configCache = config;
       return config;
     } catch (error: unknown) {
       const err = error as { code?: string; message?: string };
-      if (err.code === 'ENOENT') {
+      if (err.code === "ENOENT") {
         logger.warn(`配置文件不存在: ${this.configPath}，创建默认配置`);
         await this.writeAsync(DEFAULT_CONFIG);
         return DEFAULT_CONFIG;
@@ -94,7 +94,7 @@ export class ConfigLoader {
       const configData = JSON.stringify(config, null, 2);
       const tempPath = `${this.configPath}.tmp`;
 
-      fs.writeFileSync(tempPath, configData, 'utf-8');
+      fs.writeFileSync(tempPath, configData, "utf-8");
       fs.renameSync(tempPath, this.configPath);
 
       this.configCache = config;
@@ -125,7 +125,7 @@ export class ConfigLoader {
       const configData = JSON.stringify(config, null, 2);
       const tempPath = `${this.configPath}.tmp`;
 
-      await fsPromises.writeFile(tempPath, configData, 'utf-8');
+      await fsPromises.writeFile(tempPath, configData, "utf-8");
       await fsPromises.rename(tempPath, this.configPath);
 
       this.configCache = config;

@@ -19,7 +19,7 @@ export interface ToolRetrievalResult {
   /** Similarity score (0-1) */
   score: number;
   /** Tool type: 'mcp' | 'builtin' | 'skill' */
-  toolType: 'mcp' | 'builtin' | 'skill';
+  toolType: "mcp" | "builtin" | "skill";
   /** Metadata */
   metadata?: Record<string, unknown>;
   /** Type tags */
@@ -31,9 +31,9 @@ export interface ToolRetrievalResult {
  */
 export interface RetrievalSortingOptions {
   /** Sort field */
-  field: 'score' | 'relevance' | 'popularity';
+  field: "score" | "relevance" | "popularity";
   /** Sort order */
-  order: 'asc' | 'desc';
+  order: "asc" | "desc";
 }
 
 // ==================== Skill Data ====================
@@ -115,7 +115,7 @@ export interface MCPToolRetrievalResult {
  */
 export interface EmbeddingConfig {
   /** Embedding model provider */
-  provider: 'openai' | 'deepseek' | 'zhipu' | 'ollama';
+  provider: "openai" | "deepseek" | "zhipu" | "ollama";
   /** Model name */
   model: string;
   /** Embedding dimensions */
@@ -217,7 +217,7 @@ export interface RetrievalFilter {
   /** Field name */
   field: string;
   /** Operator */
-  operator: 'eq' | 'ne' | 'gt' | 'lt' | 'contains' | 'in';
+  operator: "eq" | "ne" | "gt" | "lt" | "contains" | "in";
   /** Value */
   value: unknown;
 }
@@ -264,20 +264,20 @@ export interface ToolRetrievalConfig {
  * Tool type enumeration
  */
 export enum ToolType {
-  SKILL = 'skill',
-  MCP = 'mcp',
-  BUILTIN = 'builtin'
+  SKILL = "skill",
+  MCP = "mcp",
+  BUILTIN = "builtin",
 }
 
 /**
  * Tool error codes
  */
 export enum ToolErrorCode {
-  VECTOR_DB_ERROR = 'VECTOR_DB_ERROR',
-  EMBEDDING_MODEL_ERROR = 'EMBEDDING_MODEL_ERROR',
-  SKILL_NOT_FOUND = 'SKILL_NOT_FOUND',
-  SKILL_EXECUTION_ERROR = 'SKILL_EXECUTION_ERROR',
-  INVALID_CONFIG = 'INVALID_CONFIG'
+  VECTOR_DB_ERROR = "VECTOR_DB_ERROR",
+  EMBEDDING_MODEL_ERROR = "EMBEDDING_MODEL_ERROR",
+  SKILL_NOT_FOUND = "SKILL_NOT_FOUND",
+  SKILL_EXECUTION_ERROR = "SKILL_EXECUTION_ERROR",
+  INVALID_CONFIG = "INVALID_CONFIG",
 }
 
 /**
@@ -288,7 +288,7 @@ export class ToolError extends Error {
 
   constructor(message: string, code: ToolErrorCode) {
     super(message);
-    this.name = 'ToolError';
+    this.name = "ToolError";
     this.code = code;
   }
 }
@@ -322,7 +322,7 @@ export interface ToolsTable {
   path?: string;
   version?: string;
   source?: string;
-  toolType: 'skill' | 'mcp' | 'builtin';
+  toolType: "skill" | "mcp" | "builtin";
   metadata: string;
   vector: number[];
   indexedAt: Date;

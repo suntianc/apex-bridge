@@ -81,7 +81,7 @@ export class ReActStrategy implements ChatStrategy {
     await this.initializeToolSystem(messages);
 
     // 2. 生成工具提示词内容
-    const toolPromptContent = this.generateToolPromptContent();
+    const toolPromptContent = await this.generateToolPromptContent();
 
     // 3. 返回需要注入的变量
     return {
@@ -329,8 +329,8 @@ export class ReActStrategy implements ChatStrategy {
   /**
    * 生成工具提示词内容（用于变量替换）
    */
-  private generateToolPromptContent(): string {
-    const toolDescriptions = this.toolDispatcher.getAvailableTools();
+  private async generateToolPromptContent(): Promise<string> {
+    const toolDescriptions = await this.toolDispatcher.getAvailableTools();
 
     if (toolDescriptions.length === 0) {
       logger.debug(`[${this.getName()}] No tools available, returning empty prompt`);

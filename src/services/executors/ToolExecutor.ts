@@ -270,15 +270,16 @@ export class ToolExecutorManager {
    * @param name 工具名称
    * @returns 工具详情
    */
-  findTool(name: string): { tool: BuiltInTool | SkillTool; type: string } | undefined {
-    const entries = Array.from(this.executors.entries());
-    for (const [type, executor] of entries) {
-      const tool = executor.getTool(name);
-      if (tool) {
-        return { tool, type };
-      }
+  async findTool(
+    name: string
+  ): Promise<{ tool: BuiltInTool | SkillTool; type: string } | undefined> {
+    const { toolRegistry } = await import("../../core/tool/registry");
+    const tool = await toolRegistry.get(name);
+    if (!tool) {
+      return undefined;
     }
-    return undefined;
+    const type = (await toolRegistry.getType(name)) || "unknown";
+    return { tool: tool as unknown as BuiltInTool | SkillTool, type };
   }
 }
 

@@ -3,12 +3,12 @@
  * 负责 Trajectory 的 SQLite 数据库操作
  */
 
-import Database from 'better-sqlite3';
-import * as fs from 'fs';
-import * as path from 'path';
-import { Trajectory } from '../types/trajectory';
-import { PathService } from './PathService';
-import { logger } from '../utils/logger';
+import Database from "better-sqlite3";
+import * as fs from "fs";
+import * as path from "path";
+import { Trajectory } from "../types/trajectory";
+import { PathService } from "./PathService";
+import { logger } from "../utils/logger";
 
 export class TrajectoryStore {
   private static instance: TrajectoryStore;
@@ -24,13 +24,13 @@ export class TrajectoryStore {
       fs.mkdirSync(dataDir, { recursive: true });
     }
 
-    this.dbPath = path.join(dataDir, 'trajectories.db');
+    this.dbPath = path.join(dataDir, "trajectories.db");
     this.db = new Database(this.dbPath);
 
     // 启用 WAL 模式提升性能
-    this.db.pragma('journal_mode = WAL');
+    this.db.pragma("journal_mode = WAL");
     // 启用外键约束
-    this.db.pragma('foreign_keys = ON');
+    this.db.pragma("foreign_keys = ON");
 
     this.initializeDatabase();
     logger.debug(`TrajectoryStore initialized (database: ${this.dbPath})`);
@@ -72,7 +72,7 @@ export class TrajectoryStore {
       CREATE INDEX IF NOT EXISTS idx_trajectories_session_id ON trajectories(session_id);
     `);
 
-    logger.debug('[TrajectoryStore] Database tables initialized');
+    logger.debug("[TrajectoryStore] Database tables initialized");
   }
 
   /**
@@ -99,7 +99,7 @@ export class TrajectoryStore {
     `);
     const rows = stmt.all(limit) as any[];
 
-    return rows.map(row => this.mapRowToTrajectory(row));
+    return rows.map((row) => this.mapRowToTrajectory(row));
   }
 
   /**
@@ -114,7 +114,7 @@ export class TrajectoryStore {
     `);
     const rows = stmt.all(limit) as any[];
 
-    return rows.map(row => this.mapRowToTrajectory(row));
+    return rows.map((row) => this.mapRowToTrajectory(row));
   }
 
   /**
@@ -183,12 +183,22 @@ export class TrajectoryStore {
     completed: number;
     failed: number;
   } {
-    const totalStmt = this.db.prepare('SELECT COUNT(*) as count FROM trajectories');
-    const successStmt = this.db.prepare("SELECT COUNT(*) as count FROM trajectories WHERE outcome = 'SUCCESS'");
-    const failureStmt = this.db.prepare("SELECT COUNT(*) as count FROM trajectories WHERE outcome = 'FAILURE'");
-    const pendingStmt = this.db.prepare("SELECT COUNT(*) as count FROM trajectories WHERE evolution_status = 'PENDING'");
-    const completedStmt = this.db.prepare("SELECT COUNT(*) as count FROM trajectories WHERE evolution_status = 'COMPLETED'");
-    const failedStmt = this.db.prepare("SELECT COUNT(*) as count FROM trajectories WHERE evolution_status = 'FAILED'");
+    const totalStmt = this.db.prepare("SELECT COUNT(*) as count FROM trajectories");
+    const successStmt = this.db.prepare(
+      "SELECT COUNT(*) as count FROM trajectories WHERE outcome = 'SUCCESS'"
+    );
+    const failureStmt = this.db.prepare(
+      "SELECT COUNT(*) as count FROM trajectories WHERE outcome = 'FAILURE'"
+    );
+    const pendingStmt = this.db.prepare(
+      "SELECT COUNT(*) as count FROM trajectories WHERE evolution_status = 'PENDING'"
+    );
+    const completedStmt = this.db.prepare(
+      "SELECT COUNT(*) as count FROM trajectories WHERE evolution_status = 'COMPLETED'"
+    );
+    const failedStmt = this.db.prepare(
+      "SELECT COUNT(*) as count FROM trajectories WHERE evolution_status = 'FAILED'"
+    );
 
     const total = totalStmt.get() as any;
     const success = successStmt.get() as any;
@@ -203,7 +213,7 @@ export class TrajectoryStore {
       failure: failure.count,
       pending: pending.count,
       completed: completed.count,
-      failed: failed.count
+      failed: failed.count,
     };
   }
 
@@ -219,10 +229,10 @@ export class TrajectoryStore {
       final_result: row.final_result,
       outcome: row.outcome,
       environment_feedback: row.environment_feedback,
-      used_rule_ids: JSON.parse(row.used_rule_ids || '[]'),
+      used_rule_ids: JSON.parse(row.used_rule_ids || "[]"),
       timestamp: row.timestamp,
       duration_ms: row.duration_ms,
-      evolution_status: row.evolution_status
+      evolution_status: row.evolution_status,
     };
   }
 
@@ -230,13 +240,15 @@ export class TrajectoryStore {
    * 清理过期数据
    */
   async cleanup(olderThanDays: number = 30): Promise<number> {
-    const cutoffTime = Date.now() - (olderThanDays * 24 * 60 * 60 * 1000);
+    const cutoffTime = Date.now() - olderThanDays * 24 * 60 * 60 * 1000;
     const stmt = this.db.prepare(`
       DELETE FROM trajectories WHERE timestamp < ?
     `);
     const result = stmt.run(cutoffTime);
 
-    logger.info(`[TrajectoryStore] Cleaned up ${result.changes} trajectories older than ${olderThanDays} days`);
+    logger.info(
+      `[TrajectoryStore] Cleaned up ${result.changes} trajectories older than ${olderThanDays} days`
+    );
     return result.changes;
   }
 }

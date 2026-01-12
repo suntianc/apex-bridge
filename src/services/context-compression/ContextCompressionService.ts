@@ -17,6 +17,8 @@ import { SummaryStrategy } from "./strategies/SummaryStrategy";
 import { HybridStrategy } from "./strategies/HybridStrategy";
 import { logger } from "../../utils/logger";
 import { COMPRESSION, COMPACTION } from "../../constants/compression";
+import { AdaptiveTriggerConfig, DEFAULT_ADAPTIVE_TRIGGER_CONFIG } from "./AdaptiveTriggerConfig";
+import { CompressionMetrics, INITIAL_COMPRESSION_METRICS } from "./CompressionMetrics";
 
 /**
  * 压缩策略类型
@@ -112,6 +114,10 @@ export interface CompressionStats {
  * - 提供统一的压缩入口
  * - 管理压缩策略
  * - 记录压缩统计
+ * - P0: 早期退出优化
+ * - P1: 模型感知阈值计算
+ * - P2: 自适应触发策略
+ * - P3: 指标收集
  */
 export class ContextCompressionService {
   /**
@@ -151,6 +157,16 @@ export class ContextCompressionService {
    */
   private readonly ABSOLUTE_MIN_TOKENS = COMPACTION.ABSOLUTE_MIN_TOKENS;
 
+  /**
+   * 压缩指标收集 (P3)
+   */
+  private metrics: CompressionMetrics = { ...INITIAL_COMPRESSION_METRICS };
+
+  /**
+   * 严重溢出历史计数 (P2)
+   */
+  private severeOverflowHistory: number = 0;
+
   constructor() {
     logger.debug("[ContextCompressionService] Initialized");
   }
@@ -174,23 +190,32 @@ export class ContextCompressionService {
     modelContextLimit: number,
     options?: ChatOptions
   ): Promise<{ messages: Message[]; stats: CompressionStats }> {
-    // 1. 解析配置
+    const startTime = Date.now();
+
     const config = this.parseConfig(options, modelContextLimit);
     const openCodeConfig = config.openCodeConfig;
 
-    // 2. 快速检查：是否需要压缩
+    const notCompressedStats = this.buildStats(messages, 0, 0, config.strategy, false, {
+      overflowDetected: false,
+      compactionType: "none",
+      severity: "none",
+      protectedCount: 0,
+    });
+
+    if (!config.enabled) {
+      return {
+        messages: [...messages],
+        stats: notCompressedStats,
+      };
+    }
+
     const currentTokens = TokenEstimator.countMessages(messages);
     const usableLimit = config.contextLimit - config.outputReserve;
 
-    if (!config.enabled || currentTokens <= usableLimit) {
+    if (currentTokens <= usableLimit) {
       return {
         messages: [...messages],
-        stats: this.buildStats(messages, currentTokens, currentTokens, config.strategy, false, {
-          overflowDetected: false,
-          compactionType: "none",
-          severity: "none",
-          protectedCount: 0,
-        }),
+        stats: notCompressedStats,
       };
     }
 
@@ -303,6 +328,15 @@ export class ContextCompressionService {
       true,
       openCodeDecision
     );
+
+    // P3: 记录压缩指标
+    this.recordCompression({
+      originalTokens: currentTokens,
+      finalTokens,
+      strategy: config.strategy,
+      latency: Date.now() - startTime,
+      reasons: this.getTriggerReasons(openCodeDecision),
+    });
 
     return {
       messages: finalMessages,
@@ -787,6 +821,164 @@ export class ContextCompressionService {
       wasCompressed,
       openCodeDecision,
     };
+  }
+
+  /**
+   * P1: 计算模型感知的阈值
+   *
+   * @param contextLimit 模型上下文限制
+   * @returns 模型感知的阈值信息
+   */
+  calculateModelAwareThresholds(contextLimit: number): {
+    overflowThreshold: number;
+    outputReserve: number;
+    usableLimit: number;
+    warnThreshold: number;
+    severeThreshold: number;
+  } {
+    const outputReserve = Math.floor(contextLimit * COMPACTION.OUTPUT_RESERVE_RATIO);
+    const usableLimit = contextLimit - outputReserve;
+    const overflowThreshold = Math.floor(contextLimit * COMPACTION.OVERFLOW_RATIO);
+    const warnThreshold = Math.floor(usableLimit * COMPACTION.WARN_RATIO);
+    const severeThreshold = Math.floor(usableLimit * COMPACTION.SEVERE_RATIO);
+
+    return {
+      overflowThreshold,
+      outputReserve,
+      usableLimit,
+      warnThreshold,
+      severeThreshold,
+    };
+  }
+
+  /**
+   * P2: 判断是否应该触发压缩
+   *
+   * @param messages 消息列表
+   * @param contextLimit 模型上下文限制
+   * @param config 自适应触发配置
+   * @returns 触发判断结果
+   */
+  shouldTriggerCompression(
+    messages: Message[],
+    contextLimit: number,
+    config?: AdaptiveTriggerConfig
+  ): { trigger: boolean; reasons: string[] } {
+    const cfg = config ?? DEFAULT_ADAPTIVE_TRIGGER_CONFIG;
+    const reasons: string[] = [];
+
+    const currentTokens = TokenEstimator.countMessages(messages);
+    const usableLimit = contextLimit - contextLimit * COMPACTION.OUTPUT_RESERVE_RATIO;
+    const tokenRatio = currentTokens / usableLimit;
+
+    if (tokenRatio >= cfg.tokenThresholdRatio) {
+      reasons.push(`token_ratio:${tokenRatio.toFixed(2)}`);
+    }
+
+    if (messages.length >= cfg.messageCountThreshold) {
+      reasons.push(`message_count:${messages.length}`);
+    }
+
+    const estimatedNextRatio = tokenRatio * 1.1;
+    if (estimatedNextRatio >= cfg.growthRateThreshold) {
+      reasons.push(`growth_projection:${estimatedNextRatio.toFixed(2)}`);
+    }
+
+    if (this.severeOverflowHistory >= cfg.severeOverflowHistoryThreshold) {
+      reasons.push(`severe_overflow_history:${this.severeOverflowHistory}`);
+    }
+
+    const trigger = reasons.length > 0;
+
+    if (trigger) {
+      logger.debug(`[ContextCompressionService] Compression triggered: ${reasons.join(", ")}`);
+    }
+
+    return { trigger, reasons };
+  }
+
+  /**
+   * P3: 记录压缩指标
+   */
+  private recordCompression(data: {
+    originalTokens: number;
+    finalTokens: number;
+    strategy: string;
+    latency: number;
+    reasons: string[];
+  }): void {
+    this.metrics.totalRequests++;
+    this.metrics.lastUpdated = new Date();
+
+    if (data.originalTokens > data.finalTokens) {
+      this.metrics.compressedRequests++;
+    }
+
+    const savingsRatio =
+      data.originalTokens > 0 ? (data.originalTokens - data.finalTokens) / data.originalTokens : 0;
+
+    this.metrics.averageSavingsRatio =
+      (this.metrics.averageSavingsRatio * (this.metrics.compressedRequests - 1) + savingsRatio) /
+      Math.max(1, this.metrics.compressedRequests);
+
+    for (const reason of data.reasons) {
+      const key = reason.split(":")[0];
+      this.metrics.triggerReasons[key] = (this.metrics.triggerReasons[key] || 0) + 1;
+    }
+
+    this.metrics.averageLatency =
+      (this.metrics.averageLatency * (this.metrics.totalRequests - 1) + data.latency) /
+      this.metrics.totalRequests;
+
+    this.metrics.strategyDistribution[data.strategy] =
+      (this.metrics.strategyDistribution[data.strategy] || 0) + 1;
+  }
+
+  /**
+   * P3: 获取聚合指标
+   */
+  getAggregatedMetrics(): CompressionMetrics {
+    return { ...this.metrics };
+  }
+
+  /**
+   * P3: 重置指标
+   */
+  resetMetrics(): void {
+    this.metrics = { ...INITIAL_COMPRESSION_METRICS };
+    this.severeOverflowHistory = 0;
+    logger.debug("[ContextCompressionService] Metrics reset");
+  }
+
+  /**
+   * 获取触发原因 (P3)
+   */
+  private getTriggerReasons(openCodeDecision: {
+    overflowDetected: boolean;
+    compactionType: string;
+    severity: string;
+  }): string[] {
+    const reasons: string[] = [];
+
+    if (openCodeDecision.overflowDetected) {
+      reasons.push("overflow");
+    }
+
+    if (openCodeDecision.severity !== "none") {
+      reasons.push(openCodeDecision.severity);
+    }
+
+    if (openCodeDecision.compactionType !== "none") {
+      reasons.push(openCodeDecision.compactionType);
+    }
+
+    if (openCodeDecision.severity === "severe") {
+      this.severeOverflowHistory++;
+    } else if (openCodeDecision.severity === "none") {
+      this.severeOverflowHistory = Math.max(0, this.severeOverflowHistory - 1);
+    }
+
+    return reasons;
   }
 }
 

@@ -3,10 +3,16 @@
  * 通过直接方法调用执行内置工具，无进程开销
  */
 
-import { BaseToolExecutor } from './ToolExecutor';
-import { BuiltInTool, ToolExecuteOptions, ToolResult, ToolError, ToolErrorCode } from '../../types/tool-system';
-import { getBuiltInToolsRegistry } from '../BuiltInToolsRegistry';
-import { logger } from '../../utils/logger';
+import { BaseToolExecutor } from "./ToolExecutor";
+import {
+  BuiltInTool,
+  ToolExecuteOptions,
+  ToolResult,
+  ToolError,
+  ToolErrorCode,
+} from "../../types/tool-system";
+import { getBuiltInToolsRegistry } from "../BuiltInToolsRegistry";
+import { logger } from "../../utils/logger";
 
 /**
  * 内置工具执行器
@@ -17,7 +23,7 @@ export class BuiltInExecutor extends BaseToolExecutor {
 
   constructor() {
     super();
-    logger.debug('BuiltInExecutor initialized');
+    logger.debug("BuiltInExecutor initialized");
   }
 
   /**
@@ -63,9 +69,8 @@ export class BuiltInExecutor extends BaseToolExecutor {
 
       return {
         ...result,
-        duration: result.duration || duration
+        duration: result.duration || duration,
       };
-
     } catch (error) {
       const duration = this.calculateDuration(startTime);
 
@@ -148,8 +153,8 @@ export class BuiltInExecutor extends BaseToolExecutor {
    */
   getStatistics() {
     return {
-      type: 'builtin',
-      registryStats: this.registry.getStatistics()
+      type: "builtin",
+      registryStats: this.registry.getStatistics(),
     };
   }
 
@@ -161,7 +166,7 @@ export class BuiltInExecutor extends BaseToolExecutor {
     const tools = this.listTools();
     const categories: Record<string, number> = {};
 
-    tools.forEach(tool => {
+    tools.forEach((tool) => {
       categories[tool.category] = (categories[tool.category] || 0) + 1;
     });
 
@@ -186,7 +191,7 @@ export class BuiltInExecutor extends BaseToolExecutor {
           error: this.formatError(error),
           duration: 0,
           errorCode: ToolErrorCode.TOOL_EXECUTION_FAILED,
-          exitCode: 1
+          exitCode: 1,
         });
       }
     }
@@ -205,12 +210,10 @@ export class BuiltInExecutor extends BaseToolExecutor {
     concurrency: number = 5
   ): Promise<ToolResult[]> {
     // 使用p-limit控制并发
-    const pLimit = require('p-limit');
+    const pLimit = require("p-limit");
     const limit = pLimit(concurrency);
 
-    const promises = optionsList.map(options =>
-      limit(() => this.execute(options))
-    );
+    const promises = optionsList.map((options) => limit(() => this.execute(options)));
 
     return Promise.all(promises);
   }

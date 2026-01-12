@@ -3,20 +3,20 @@
  * 特殊处理：不支持top_k，max_tokens最大8192
  */
 
-import { BaseOpenAICompatibleAdapter } from './BaseAdapter';
-import { LLMProviderConfig } from '../../../types';
-import { ChatOptions } from '../../../types';
+import { BaseOpenAICompatibleAdapter } from "./BaseAdapter";
+import { LLMProviderConfig } from "../../../types";
+import { ChatOptions } from "../../../types";
 
 export class DeepSeekAdapter extends BaseOpenAICompatibleAdapter {
   constructor(config: LLMProviderConfig) {
-    super('DeepSeek', config);
+    super("DeepSeek", config);
   }
 
   protected filterOptions(options: ChatOptions): ChatOptions {
     const filtered = { ...options };
 
     // DeepSeek不支持top_k
-    if ('top_k' in filtered) {
+    if ("top_k" in filtered) {
       delete (filtered as any).top_k;
     }
 
@@ -28,4 +28,3 @@ export class DeepSeekAdapter extends BaseOpenAICompatibleAdapter {
     return filtered;
   }
 }
-

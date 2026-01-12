@@ -1,14 +1,14 @@
 /**
  * ModelController - 模型管理 API 控制器
- * 
+ *
  * 管理 LLM 模型的 CRUD 操作
  */
 
-import { Request, Response } from 'express';
-import { LLMConfigService } from '../../services/LLMConfigService';
-import { ModelRegistry } from '../../services/ModelRegistry';
-import { CreateModelInput, UpdateModelInput, LLMModelType } from '../../types/llm-models';
-import { logger } from '../../utils/logger';
+import { Request, Response } from "express";
+import { LLMConfigService } from "../../services/LLMConfigService";
+import { ModelRegistry } from "../../services/ModelRegistry";
+import { CreateModelInput, UpdateModelInput, LLMModelType } from "../../types/llm-models";
+import { logger } from "../../utils/logger";
 
 const configService = LLMConfigService.getInstance();
 const modelRegistry = ModelRegistry.getInstance();
@@ -16,7 +16,7 @@ const modelRegistry = ModelRegistry.getInstance();
 /**
  * 解析布尔值查询参数
  * 支持多种格式：'true', '1', true, 'TRUE' 等
- * 
+ *
  * @param value - 查询参数值
  * @returns 布尔值或 undefined（如果未提供）
  */
@@ -24,30 +24,30 @@ function parseBooleanQuery(value: any): boolean | undefined {
   if (value === undefined || value === null) {
     return undefined;
   }
-  
+
   // 处理字符串
-  if (typeof value === 'string') {
+  if (typeof value === "string") {
     const lower = value.toLowerCase().trim();
-    return lower === 'true' || lower === '1' || lower === 'yes';
+    return lower === "true" || lower === "1" || lower === "yes";
   }
-  
+
   // 处理布尔值
-  if (typeof value === 'boolean') {
+  if (typeof value === "boolean") {
     return value;
   }
-  
+
   // 处理数字
-  if (typeof value === 'number') {
+  if (typeof value === "number") {
     return value === 1;
   }
-  
+
   return undefined;
 }
 
 /**
  * 统一处理服务层错误
  * 将字符串匹配的错误转换为合适的 HTTP 状态码
- * 
+ *
  * @param res - Express 响应对象
  * @param error - 错误对象
  * @param action - 操作名称（用于日志）
@@ -55,39 +55,43 @@ function parseBooleanQuery(value: any): boolean | undefined {
  */
 function handleServiceError(res: Response, error: any, action: string): boolean {
   logger.error(`❌ Failed to ${action}:`, error);
-  
-  const msg = error.message || '';
-  
+
+  const msg = error.message || "";
+
   // 使用字符串匹配（如果 Service 层没有使用 AppError）
   // 注意：这是临时方案，理想情况下 Service 层应该抛出 AppError
-  if (msg.includes('not found') || msg.toLowerCase().includes('not found')) {
+  if (msg.includes("not found") || msg.toLowerCase().includes("not found")) {
     res.status(404).json({
-      error: 'Resource not found',
-      message: error.message
+      error: "Resource not found",
+      message: error.message,
     });
     return true;
   }
-  
-  if (msg.includes('already exists') || msg.toLowerCase().includes('already exists')) {
+
+  if (msg.includes("already exists") || msg.toLowerCase().includes("already exists")) {
     res.status(409).json({
-      error: 'Resource already exists',
-      message: error.message
+      error: "Resource already exists",
+      message: error.message,
     });
     return true;
   }
-  
-  if (msg.includes('required') || msg.includes('Invalid') || msg.toLowerCase().includes('validation')) {
+
+  if (
+    msg.includes("required") ||
+    msg.includes("Invalid") ||
+    msg.toLowerCase().includes("validation")
+  ) {
     res.status(400).json({
-      error: 'Validation failed',
-      message: error.message
+      error: "Validation failed",
+      message: error.message,
     });
     return true;
   }
-  
+
   // 默认返回 500
   res.status(500).json({
     error: `Failed to ${action}`,
-    message: error.message
+    message: error.message,
   });
   return true;
 }
@@ -99,11 +103,11 @@ function handleServiceError(res: Response, error: any, action: string): boolean 
 export async function listProviderModels(req: Request, res: Response): Promise<void> {
   try {
     const providerId = parseInt(req.params.providerId, 10);
-    
+
     if (isNaN(providerId)) {
       res.status(400).json({
-        error: 'Invalid provider ID',
-        message: 'Provider ID must be a number'
+        error: "Invalid provider ID",
+        message: "Provider ID must be a number",
       });
       return;
     }
@@ -112,8 +116,8 @@ export async function listProviderModels(req: Request, res: Response): Promise<v
     const provider = configService.getProvider(providerId);
     if (!provider) {
       res.status(404).json({
-        error: 'Provider not found',
-        message: `Provider with id ${providerId} not found`
+        error: "Provider not found",
+        message: `Provider with id ${providerId} not found`,
       });
       return;
     }
@@ -125,9 +129,9 @@ export async function listProviderModels(req: Request, res: Response): Promise<v
       provider: {
         id: provider.id,
         provider: provider.provider,
-        name: provider.name
+        name: provider.name,
       },
-      models: models.map(m => ({
+      models: models.map((m) => ({
         id: m.id,
         modelKey: m.modelKey,
         modelName: m.modelName,
@@ -138,14 +142,14 @@ export async function listProviderModels(req: Request, res: Response): Promise<v
         isDefault: m.isDefault,
         displayOrder: m.displayOrder,
         createdAt: m.createdAt,
-        updatedAt: m.updatedAt
-      }))
+        updatedAt: m.updatedAt,
+      })),
     });
   } catch (error: any) {
-    logger.error('❌ Failed to list models:', error);
+    logger.error("❌ Failed to list models:", error);
     res.status(500).json({
-      error: 'Failed to list models',
-      message: error.message
+      error: "Failed to list models",
+      message: error.message,
     });
   }
 }
@@ -158,21 +162,21 @@ export async function getModel(req: Request, res: Response): Promise<void> {
   try {
     const providerId = parseInt(req.params.providerId, 10);
     const modelId = parseInt(req.params.modelId, 10);
-    
+
     if (isNaN(providerId) || isNaN(modelId)) {
       res.status(400).json({
-        error: 'Invalid ID',
-        message: 'Provider ID and Model ID must be numbers'
+        error: "Invalid ID",
+        message: "Provider ID and Model ID must be numbers",
       });
       return;
     }
 
     const model = configService.getModel(modelId);
-    
+
     if (!model || model.providerId !== providerId) {
       res.status(404).json({
-        error: 'Model not found',
-        message: `Model with id ${modelId} not found for provider ${providerId}`
+        error: "Model not found",
+        message: `Model with id ${modelId} not found for provider ${providerId}`,
       });
       return;
     }
@@ -193,14 +197,14 @@ export async function getModel(req: Request, res: Response): Promise<void> {
         isDefault: model.isDefault,
         displayOrder: model.displayOrder,
         createdAt: model.createdAt,
-        updatedAt: model.updatedAt
-      }
+        updatedAt: model.updatedAt,
+      },
     });
   } catch (error: any) {
-    logger.error('❌ Failed to get model:', error);
+    logger.error("❌ Failed to get model:", error);
     res.status(500).json({
-      error: 'Failed to get model',
-      message: error.message
+      error: "Failed to get model",
+      message: error.message,
     });
   }
 }
@@ -212,11 +216,11 @@ export async function getModel(req: Request, res: Response): Promise<void> {
 export async function createModel(req: Request, res: Response): Promise<void> {
   try {
     const providerId = parseInt(req.params.providerId, 10);
-    
+
     if (isNaN(providerId)) {
       res.status(400).json({
-        error: 'Invalid provider ID',
-        message: 'Provider ID must be a number'
+        error: "Invalid provider ID",
+        message: "Provider ID must be a number",
       });
       return;
     }
@@ -226,20 +230,20 @@ export async function createModel(req: Request, res: Response): Promise<void> {
     // 基本验证
     if (!input.modelKey || !input.modelName || !input.modelType) {
       res.status(400).json({
-        error: 'Missing required fields',
-        message: 'modelKey, modelName, and modelType are required'
+        error: "Missing required fields",
+        message: "modelKey, modelName, and modelType are required",
       });
       return;
     }
 
     const created = configService.createModel(providerId, input);
-    
+
     // 刷新缓存
     modelRegistry.forceRefresh();
 
     res.status(201).json({
       success: true,
-      message: 'Model created successfully',
+      message: "Model created successfully",
       model: {
         id: created.id,
         providerId: created.providerId,
@@ -249,11 +253,11 @@ export async function createModel(req: Request, res: Response): Promise<void> {
         enabled: created.enabled,
         isDefault: created.isDefault,
         createdAt: created.createdAt,
-        updatedAt: created.updatedAt
-      }
+        updatedAt: created.updatedAt,
+      },
     });
   } catch (error: any) {
-    handleServiceError(res, error, 'create model');
+    handleServiceError(res, error, "create model");
   }
 }
 
@@ -265,11 +269,11 @@ export async function updateModel(req: Request, res: Response): Promise<void> {
   try {
     const providerId = parseInt(req.params.providerId, 10);
     const modelId = parseInt(req.params.modelId, 10);
-    
+
     if (isNaN(providerId) || isNaN(modelId)) {
       res.status(400).json({
-        error: 'Invalid ID',
-        message: 'Provider ID and Model ID must be numbers'
+        error: "Invalid ID",
+        message: "Provider ID and Model ID must be numbers",
       });
       return;
     }
@@ -278,8 +282,8 @@ export async function updateModel(req: Request, res: Response): Promise<void> {
 
     if (Object.keys(input).length === 0) {
       res.status(400).json({
-        error: 'No updates provided',
-        message: 'At least one field must be provided'
+        error: "No updates provided",
+        message: "At least one field must be provided",
       });
       return;
     }
@@ -288,20 +292,20 @@ export async function updateModel(req: Request, res: Response): Promise<void> {
     const existing = configService.getModel(modelId);
     if (!existing || existing.providerId !== providerId) {
       res.status(404).json({
-        error: 'Model not found',
-        message: `Model with id ${modelId} not found for provider ${providerId}`
+        error: "Model not found",
+        message: `Model with id ${modelId} not found for provider ${providerId}`,
       });
       return;
     }
 
     const updated = configService.updateModel(modelId, input);
-    
+
     // 刷新缓存
     modelRegistry.forceRefresh();
 
     res.json({
       success: true,
-      message: 'Model updated successfully',
+      message: "Model updated successfully",
       model: {
         id: updated.id,
         providerId: updated.providerId,
@@ -310,11 +314,11 @@ export async function updateModel(req: Request, res: Response): Promise<void> {
         modelType: updated.modelType,
         enabled: updated.enabled,
         isDefault: updated.isDefault,
-        updatedAt: updated.updatedAt
-      }
+        updatedAt: updated.updatedAt,
+      },
     });
   } catch (error: any) {
-    handleServiceError(res, error, 'update model');
+    handleServiceError(res, error, "update model");
   }
 }
 
@@ -326,11 +330,11 @@ export async function deleteModel(req: Request, res: Response): Promise<void> {
   try {
     const providerId = parseInt(req.params.providerId, 10);
     const modelId = parseInt(req.params.modelId, 10);
-    
+
     if (isNaN(providerId) || isNaN(modelId)) {
       res.status(400).json({
-        error: 'Invalid ID',
-        message: 'Provider ID and Model ID must be numbers'
+        error: "Invalid ID",
+        message: "Provider ID and Model ID must be numbers",
       });
       return;
     }
@@ -339,23 +343,23 @@ export async function deleteModel(req: Request, res: Response): Promise<void> {
     const existing = configService.getModel(modelId);
     if (!existing || existing.providerId !== providerId) {
       res.status(404).json({
-        error: 'Model not found',
-        message: `Model with id ${modelId} not found for provider ${providerId}`
+        error: "Model not found",
+        message: `Model with id ${modelId} not found for provider ${providerId}`,
       });
       return;
     }
 
     configService.deleteModel(modelId);
-    
+
     // 刷新缓存
     modelRegistry.forceRefresh();
 
     res.json({
       success: true,
-      message: 'Model deleted successfully'
+      message: "Model deleted successfully",
     });
   } catch (error: any) {
-    handleServiceError(res, error, 'delete model');
+    handleServiceError(res, error, "delete model");
   }
 }
 
@@ -371,13 +375,13 @@ export async function queryModels(req: Request, res: Response): Promise<void> {
     const isDefault = parseBooleanQuery(req.query.default);
 
     const params: any = {};
-    
+
     if (type) {
       // 验证模型类型
       if (!Object.values(LLMModelType).includes(type as LLMModelType)) {
         res.status(400).json({
-          error: 'Invalid model type',
-          message: `Model type must be one of: ${Object.values(LLMModelType).join(', ')}`
+          error: "Invalid model type",
+          message: `Model type must be one of: ${Object.values(LLMModelType).join(", ")}`,
         });
         return;
       }
@@ -398,7 +402,7 @@ export async function queryModels(req: Request, res: Response): Promise<void> {
     res.json({
       success: true,
       count: models.length,
-      models: models.map(m => ({
+      models: models.map((m) => ({
         id: m.id,
         providerId: m.providerId,
         provider: m.provider,
@@ -410,14 +414,14 @@ export async function queryModels(req: Request, res: Response): Promise<void> {
         apiEndpointSuffix: m.apiEndpointSuffix,
         enabled: m.enabled,
         isDefault: m.isDefault,
-        displayOrder: m.displayOrder
-      }))
+        displayOrder: m.displayOrder,
+      })),
     });
   } catch (error: any) {
-    logger.error('❌ Failed to query models:', error);
+    logger.error("❌ Failed to query models:", error);
     res.status(500).json({
-      error: 'Failed to query models',
-      message: error.message
+      error: "Failed to query models",
+      message: error.message,
     });
   }
 }
@@ -432,8 +436,8 @@ export async function getDefaultModel(req: Request, res: Response): Promise<void
 
     if (!type) {
       res.status(400).json({
-        error: 'Missing type parameter',
-        message: 'type query parameter is required'
+        error: "Missing type parameter",
+        message: "type query parameter is required",
       });
       return;
     }
@@ -441,8 +445,8 @@ export async function getDefaultModel(req: Request, res: Response): Promise<void
     // 验证模型类型
     if (!Object.values(LLMModelType).includes(type as LLMModelType)) {
       res.status(400).json({
-        error: 'Invalid model type',
-        message: `Model type must be one of: ${Object.values(LLMModelType).join(', ')}`
+        error: "Invalid model type",
+        message: `Model type must be one of: ${Object.values(LLMModelType).join(", ")}`,
       });
       return;
     }
@@ -451,8 +455,8 @@ export async function getDefaultModel(req: Request, res: Response): Promise<void
 
     if (!model) {
       res.status(404).json({
-        error: 'No default model found',
-        message: `No default model configured for type: ${type}`
+        error: "No default model found",
+        message: `No default model configured for type: ${type}`,
       });
       return;
     }
@@ -472,16 +476,15 @@ export async function getDefaultModel(req: Request, res: Response): Promise<void
         baseConfig: {
           baseURL: model.providerBaseConfig.baseURL,
           timeout: model.providerBaseConfig.timeout,
-          maxRetries: model.providerBaseConfig.maxRetries
-        }
-      }
+          maxRetries: model.providerBaseConfig.maxRetries,
+        },
+      },
     });
   } catch (error: any) {
-    logger.error('❌ Failed to get default model:', error);
+    logger.error("❌ Failed to get default model:", error);
     res.status(500).json({
-      error: 'Failed to get default model',
-      message: error.message
+      error: "Failed to get default model",
+      message: error.message,
     });
   }
 }
-

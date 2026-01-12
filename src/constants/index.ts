@@ -237,6 +237,16 @@ export function getThresholdValue(key: keyof typeof THRESHOLDS): number {
   return THRESHOLDS[key];
 }
 
+// ==================== 进程池常量 ====================
+
+export const PROCESS_POOL = {
+  DEFAULT_MIN_SIZE: 2,
+  DEFAULT_MAX_SIZE: 10,
+  DEFAULT_TTL: 5 * 60 * 1000,
+  DEFAULT_IDLE_TIMEOUT: 30 * 1000,
+  DEFAULT_HEALTH_CHECK: 30 * 1000,
+} as const;
+
 // ==================== 检索常量 ====================
 // 从专门的 retrieval 常量文件导入，保持关注点分离
 export * from "./retrieval";

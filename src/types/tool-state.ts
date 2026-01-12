@@ -2,24 +2,31 @@
  * Tool State - ToolState 状态机定义
  */
 
-import type { FilePart, ToolState, ToolStatePending, ToolStateRunning, ToolStateCompleted, ToolStateError } from './message-v2';
+import type {
+  FilePart,
+  ToolState,
+  ToolStatePending,
+  ToolStateRunning,
+  ToolStateCompleted,
+  ToolStateError,
+} from "./message-v2";
 
 // ==================== Tool State 类型守卫 ====================
 
 export function isToolStatePending(state: ToolState): state is ToolStatePending {
-  return state.status === 'pending';
+  return state.status === "pending";
 }
 
 export function isToolStateRunning(state: ToolState): state is ToolStateRunning {
-  return state.status === 'running';
+  return state.status === "running";
 }
 
 export function isToolStateCompleted(state: ToolState): state is ToolStateCompleted {
-  return state.status === 'completed';
+  return state.status === "completed";
 }
 
 export function isToolStateError(state: ToolState): state is ToolStateError {
-  return state.status === 'error';
+  return state.status === "error";
 }
 
 // ==================== Tool State 工厂函数 ====================
@@ -31,7 +38,7 @@ export interface CreateToolStatePendingOptions {
 
 export function createToolStatePending(options: CreateToolStatePendingOptions): ToolStatePending {
   return {
-    status: 'pending',
+    status: "pending",
     input: options.input,
     raw: options.raw,
   };
@@ -46,7 +53,7 @@ export interface CreateToolStateRunningOptions {
 
 export function createToolStateRunning(options: CreateToolStateRunningOptions): ToolStateRunning {
   return {
-    status: 'running',
+    status: "running",
     input: options.input,
     title: options.title,
     metadata: options.metadata,
@@ -64,10 +71,12 @@ export interface CreateToolStateCompletedOptions {
   endTime?: number;
 }
 
-export function createToolStateCompleted(options: CreateToolStateCompletedOptions): ToolStateCompleted {
+export function createToolStateCompleted(
+  options: CreateToolStateCompletedOptions
+): ToolStateCompleted {
   const startTime = options.startTime || Date.now();
   return {
-    status: 'completed',
+    status: "completed",
     input: options.input,
     output: options.output,
     title: options.title,
@@ -91,7 +100,7 @@ export interface CreateToolStateErrorOptions {
 export function createToolStateError(options: CreateToolStateErrorOptions): ToolStateError {
   const startTime = options.startTime || Date.now();
   return {
-    status: 'error',
+    status: "error",
     input: options.input,
     error: options.error,
     metadata: options.metadata,
@@ -106,7 +115,7 @@ export function createToolStateError(options: CreateToolStateErrorOptions): Tool
 
 export function pendingToRunning(pending: ToolStatePending, title?: string): ToolStateRunning {
   return {
-    status: 'running',
+    status: "running",
     input: pending.input,
     title,
     time: { start: Date.now() },
@@ -120,7 +129,7 @@ export function runningToCompleted(
   attachments?: FilePart[]
 ): ToolStateCompleted {
   return {
-    status: 'completed',
+    status: "completed",
     input: running.input,
     output,
     title,
@@ -133,9 +142,13 @@ export function runningToCompleted(
   };
 }
 
-export function runningToError(running: ToolStateRunning, error: string, metadata?: Record<string, unknown>): ToolStateError {
+export function runningToError(
+  running: ToolStateRunning,
+  error: string,
+  metadata?: Record<string, unknown>
+): ToolStateError {
   return {
-    status: 'error',
+    status: "error",
     input: running.input,
     error,
     metadata: metadata || running.metadata,
@@ -152,14 +165,14 @@ export function runningToError(running: ToolStateRunning, error: string, metadat
  * 检查 Tool 是否已完成（成功或失败）
  */
 export function isToolCompleted(state: ToolState): boolean {
-  return state.status === 'completed' || state.status === 'error';
+  return state.status === "completed" || state.status === "error";
 }
 
 /**
  * 获取 Tool 执行的持续时间（毫秒）
  */
 export function getToolDuration(state: ToolState): number | null {
-  if (state.status === 'pending' || state.status === 'running') return null;
+  if (state.status === "pending" || state.status === "running") return null;
   return state.time.end - state.time.start;
 }
 
@@ -173,6 +186,6 @@ export function compactToolState(completed: ToolStateCompleted): ToolStateComple
       ...completed.time,
       compacted: Date.now(),
     },
-    output: '[Old tool result content cleared]',
+    output: "[Old tool result content cleared]",
   };
 }

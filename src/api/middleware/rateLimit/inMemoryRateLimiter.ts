@@ -3,8 +3,8 @@ import {
   RateLimiterContext,
   RateLimiterHitResult,
   RateLimiterMode,
-  RateLimiterRuleState
-} from './types';
+  RateLimiterRuleState,
+} from "./types";
 
 export interface InMemoryRateLimiterOptions {
   defaultMode?: RateLimiterMode;
@@ -21,7 +21,7 @@ interface FixedWindowStateEntry {
   count: number;
 }
 
-const DEFAULT_MODE: RateLimiterMode = 'sliding';
+const DEFAULT_MODE: RateLimiterMode = "sliding";
 
 /**
  * 内存版限流器，实现滑动窗口与固定窗口两种算法，并支持突发流量放宽。
@@ -46,14 +46,14 @@ export class InMemoryRateLimiter implements RateLimiter {
 
   async hit(key: string, rule: RateLimiterRuleState): Promise<RateLimiterHitResult> {
     const mode = rule.mode ?? this.defaultMode;
-    if (mode === 'fixed') {
+    if (mode === "fixed") {
       return this.hitFixedWindow(key, rule);
     }
     return this.hitSlidingWindow(key, rule);
   }
 
   async undo(context: RateLimiterContext): Promise<void> {
-    if (context.mode === 'fixed') {
+    if (context.mode === "fixed") {
       this.undoFixedWindow(context);
     } else {
       this.undoSlidingWindow(context);
@@ -82,7 +82,7 @@ export class InMemoryRateLimiter implements RateLimiter {
         allowed: false,
         limit,
         remaining: 0,
-        reset: resetAt
+        reset: resetAt,
       };
     }
 
@@ -99,9 +99,9 @@ export class InMemoryRateLimiter implements RateLimiter {
       context: {
         ruleId: rule.id,
         key,
-        mode: 'sliding',
-        timestamp: now
-      }
+        mode: "sliding",
+        timestamp: now,
+      },
     };
   }
 
@@ -124,7 +124,7 @@ export class InMemoryRateLimiter implements RateLimiter {
         allowed: false,
         limit,
         remaining: 0,
-        reset: entry.windowStart + rule.windowMs
+        reset: entry.windowStart + rule.windowMs,
       };
     }
 
@@ -139,10 +139,10 @@ export class InMemoryRateLimiter implements RateLimiter {
       context: {
         ruleId: rule.id,
         key,
-        mode: 'fixed',
+        mode: "fixed",
         timestamp: now,
-        windowStart: entry.windowStart
-      }
+        windowStart: entry.windowStart,
+      },
     };
   }
 
@@ -233,5 +233,3 @@ export class InMemoryRateLimiter implements RateLimiter {
     return entry;
   }
 }
-
-

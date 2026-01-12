@@ -7,6 +7,7 @@ import { ToolError, ToolErrorCode } from "../../types/tool-system";
 import { logger } from "../../utils/logger";
 import { getSkillManager } from "../SkillManager";
 import { ParsedClaudeSkill } from "./types";
+import { LRUCache } from "lru-cache";
 
 /**
  * 权限验证模式
@@ -52,11 +53,26 @@ export interface PermissionDeniedDetails {
 }
 
 /**
+ * 权限缓存配置
+ */
+interface PermissionCacheConfig {
+  maxEntries: number;
+  ttl: number;
+}
+
+/**
  * 权限验证器
  * 验证 skill 执行时的工具调用权限
  */
 export class PermissionValidator {
   private config: PermissionValidationConfig;
+  private permissionCache: LRUCache<string, PermissionValidationResult>;
+  private cacheHits = 0;
+  private cacheMisses = 0;
+  private readonly permissionCacheConfig: PermissionCacheConfig = {
+    maxEntries: 1000,
+    ttl: 5 * 60 * 1000,
+  };
 
   constructor(config?: Partial<PermissionValidationConfig>) {
     this.config = {
@@ -66,6 +82,11 @@ export class PermissionValidator {
       caseSensitive: true,
       ...config,
     };
+
+    this.permissionCache = new LRUCache<string, PermissionValidationResult>({
+      max: this.permissionCacheConfig.maxEntries,
+      ttl: this.permissionCacheConfig.ttl,
+    });
   }
 
   /**
@@ -78,7 +99,6 @@ export class PermissionValidator {
     skillName: string,
     requestedTools: string[]
   ): Promise<PermissionValidationResult> {
-    // 如果权限验证已禁用，直接返回允许
     if (!this.config.enabled) {
       return {
         allowed: true,
@@ -86,7 +106,6 @@ export class PermissionValidator {
       };
     }
 
-    // 如果没有请求任何工具，直接允许
     if (!requestedTools || requestedTools.length === 0) {
       return {
         allowed: true,
@@ -94,61 +113,88 @@ export class PermissionValidator {
       };
     }
 
+    const cacheKey = `${skillName}:${requestedTools.sort().join(",")}`;
+    if (this.permissionCache.has(cacheKey)) {
+      this.cacheHits++;
+      return this.permissionCache.get(cacheKey)!;
+    }
+
+    this.cacheMisses++;
+
     try {
-      // 获取 skill 兼容性信息
       const skillManager = getSkillManager();
       const skill = await skillManager.getSkillByName(skillName);
 
       if (!skill) {
-        // Skill 不存在，根据模式决定行为
-        return this.handleSkillNotFound(skillName, requestedTools);
+        const result = this.handleSkillNotFound(skillName, requestedTools);
+        this.permissionCache.set(cacheKey, result);
+        return result;
       }
 
-      // 获取 allowedTools 配置
       const allowedTools = this.getAllowedToolsFromSkill(skill);
 
-      // 如果没有配置 allowedTools，允许所有工具
       if (!allowedTools || allowedTools.length === 0) {
-        logger.debug(`Skill ${skillName} has no allowedTools configured, allowing all tools`, {
-          requestedTools,
-        });
-        return {
+        const result = {
           allowed: true,
           deniedTools: [],
         };
+        this.permissionCache.set(cacheKey, result);
+        return result;
       }
 
-      // 执行权限检查
       const result = this.checkPermissions(requestedTools, allowedTools);
 
-      // 记录拒绝日志
       if (!result.allowed && this.config.logDeniedRequests) {
         this.logDeniedRequest(skillName, requestedTools, allowedTools, result.deniedTools);
       }
 
-      // 根据模式处理拒绝情况
       if (!result.allowed) {
-        return this.handlePermissionDenied(skillName, requestedTools, allowedTools);
+        const handledResult = this.handlePermissionDenied(skillName, requestedTools, allowedTools);
+        this.permissionCache.set(cacheKey, handledResult);
+        return handledResult;
       }
 
+      this.permissionCache.set(cacheKey, result);
       return result;
     } catch (error) {
       logger.error(`Permission validation failed for skill ${skillName}:`, error);
-      // 验证失败时，根据模式决定行为
       if (this.config.mode === "strict") {
         throw new ToolError(
           `Permission validation failed: ${this.formatError(error)}`,
           ToolErrorCode.TOOL_EXECUTION_FAILED
         );
       }
-      // warn 模式下，允许执行但记录警告
       logger.warn(`Permission validation failed for skill ${skillName}, allowing execution`);
-      return {
+      const result = {
         allowed: true,
         deniedTools: [],
         reason: "Validation failed, allowing due to warn mode",
       };
+      this.permissionCache.set(cacheKey, result);
+      return result;
     }
+  }
+
+  /**
+   * 获取权限缓存统计
+   */
+  getPermissionCacheStats(): { size: number; hits: number; misses: number; hitRate: number } {
+    return {
+      size: this.permissionCache.size,
+      hits: this.cacheHits,
+      misses: this.cacheMisses,
+      hitRate: this.cacheHits / (this.cacheHits + this.cacheMisses) || 0,
+    };
+  }
+
+  /**
+   * 清除权限缓存
+   */
+  clearPermissionCache(): void {
+    this.permissionCache.clear();
+    this.cacheHits = 0;
+    this.cacheMisses = 0;
+    logger.debug("Permission cache cleared");
   }
 
   /**

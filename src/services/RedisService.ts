@@ -1,6 +1,6 @@
-import { createClient } from 'redis';
-import { logger } from '../utils/logger';
-import { ConfigService, RedisConfig } from './ConfigService';
+import { createClient } from "redis";
+import { logger } from "../utils/logger";
+import { ConfigService, RedisConfig } from "./ConfigService";
 
 // ⚡️ 优化类型推导
 type ClientType = ReturnType<typeof createClient>;
@@ -46,17 +46,17 @@ export class RedisService {
       try {
         client = this.createClient(redisConfig);
         if (!client) {
-          throw new Error('Failed to create client instance');
+          throw new Error("Failed to create client instance");
         }
 
         await client.connect();
-        
-        logger.info('[RedisService] ✅ Redis client connected');
+
+        logger.info("[RedisService] ✅ Redis client connected");
         this.client = client;
         return client;
       } catch (error) {
-        logger.error('[RedisService] ❌ Failed to connect to Redis', error);
-        
+        logger.error("[RedisService] ❌ Failed to connect to Redis", error);
+
         if (client) {
           try {
             await client.disconnect();
@@ -64,7 +64,7 @@ export class RedisService {
             // ignore disconnect errors
           }
         }
-        
+
         return null;
       } finally {
         this.initializing = null;
@@ -80,11 +80,12 @@ export class RedisService {
       // 如果 tls 是对象（包含 ca/cert/key），需要传递给 socket.tls
       // 如果 tls 是 true，则仅开启 TLS
       // 如果 tls 是 false/undefined，则不使用 TLS
-      const tlsOptions = redisConfig.tls === true 
-        ? true // 仅开启 TLS，使用默认配置
-        : (typeof redisConfig.tls === 'object' && redisConfig.tls !== null 
-            ? redisConfig.tls 
-            : false); // 传递证书对象或 false
+      const tlsOptions =
+        redisConfig.tls === true
+          ? true // 仅开启 TLS，使用默认配置
+          : typeof redisConfig.tls === "object" && redisConfig.tls !== null
+            ? redisConfig.tls
+            : false; // 传递证书对象或 false
 
       const socketConfig: any = {
         host: redisConfig.host,
@@ -94,11 +95,11 @@ export class RedisService {
         // ⚡️ 建议：添加重试策略，防止无限挂起
         reconnectStrategy: (retries: number) => {
           if (retries > 20) {
-            return new Error('Redis retry exhausted after 20 attempts');
+            return new Error("Redis retry exhausted after 20 attempts");
           }
           // 指数退避，最大 3秒
           return Math.min(retries * 100, 3000);
-        }
+        },
       };
 
       // 处理 TLS 配置
@@ -119,26 +120,24 @@ export class RedisService {
         // 如果需要控制队列长度，应该使用其他配置项
       });
 
-      client.on('error', (err: any) => {
+      client.on("error", (err: any) => {
         // 忽略连接过程中的一些噪音错误，只记录严重的
-        logger.error('[RedisService] ⚠️ Redis error event:', err?.message || err);
+        logger.error("[RedisService] ⚠️ Redis error event:", err?.message || err);
       });
 
-      client.on('end', () => {
-        logger.warn('[RedisService] ⚠️ Redis connection ended');
+      client.on("end", () => {
+        logger.warn("[RedisService] ⚠️ Redis connection ended");
         this.client = null;
       });
 
-      client.on('reconnecting', () => {
-        logger.info('[RedisService] 🔁 Redis reconnecting...');
+      client.on("reconnecting", () => {
+        logger.info("[RedisService] 🔁 Redis reconnecting...");
       });
 
       return client;
     } catch (error) {
-      logger.error('[RedisService] ❌ Failed to create Redis client configuration', error);
+      logger.error("[RedisService] ❌ Failed to create Redis client configuration", error);
       return null;
     }
   }
 }
-
-

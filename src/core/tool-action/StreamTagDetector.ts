@@ -5,18 +5,18 @@
  * 使用状态机模式处理跨 chunk 的标签检测
  */
 
-import type { ToolActionCall, DetectionResult } from './types';
-import { DetectorState } from './types';
-import { ToolActionParser } from './ToolActionParser';
+import type { ToolActionCall, DetectionResult } from "./types";
+import { DetectorState } from "./types";
+import { ToolActionParser } from "./ToolActionParser";
 
 export class StreamTagDetector {
-  private buffer: string = '';
+  private buffer: string = "";
   private state: DetectorState = DetectorState.NORMAL;
   private parser: ToolActionParser;
 
   // 标签标识符
-  private static readonly OPEN_TAG_START = '<tool_action';
-  private static readonly CLOSE_TAG = '</tool_action>';
+  private static readonly OPEN_TAG_START = "<tool_action";
+  private static readonly CLOSE_TAG = "</tool_action>";
 
   constructor() {
     this.parser = new ToolActionParser();
@@ -58,24 +58,24 @@ export class StreamTagDetector {
 
       if (safeOutputEnd < this.buffer.length) {
         // 缓冲区末尾可能是标签开始的一部分，只输出安全部分
-        const textToEmit = safeOutputEnd > 0 ? this.buffer.slice(0, safeOutputEnd) : '';
+        const textToEmit = safeOutputEnd > 0 ? this.buffer.slice(0, safeOutputEnd) : "";
         this.buffer = this.buffer.slice(safeOutputEnd);
 
         return {
           complete: false,
           textToEmit,
-          bufferRemainder: this.buffer
+          bufferRemainder: this.buffer,
         };
       }
 
       // 没有潜在的标签开始，安全输出全部内容
       const textToEmit = this.buffer;
-      this.buffer = '';
+      this.buffer = "";
 
       return {
         complete: false,
         textToEmit,
-        bufferRemainder: ''
+        bufferRemainder: "",
       };
     }
 
@@ -93,7 +93,7 @@ export class StreamTagDetector {
   /**
    * 处理标签状态（标签检测中）
    */
-  private handleTagState(previousText: string = ''): DetectionResult {
+  private handleTagState(previousText: string = ""): DetectionResult {
     // 检查是否有完整的闭合标签
     const closeTagIndex = this.buffer.indexOf(StreamTagDetector.CLOSE_TAG);
 
@@ -104,7 +104,7 @@ export class StreamTagDetector {
       return {
         complete: false,
         textToEmit: previousText,
-        bufferRemainder: this.buffer
+        bufferRemainder: this.buffer,
       };
     }
 
@@ -124,7 +124,7 @@ export class StreamTagDetector {
       return {
         complete: false,
         textToEmit,
-        bufferRemainder: this.buffer
+        bufferRemainder: this.buffer,
       };
     }
 
@@ -137,7 +137,7 @@ export class StreamTagDetector {
       complete: true,
       toolAction,
       textToEmit: previousText,
-      bufferRemainder: remainingText
+      bufferRemainder: remainingText,
     };
   }
 
@@ -168,7 +168,7 @@ export class StreamTagDetector {
    * 重置检测器状态
    */
   reset(): void {
-    this.buffer = '';
+    this.buffer = "";
     this.state = DetectorState.NORMAL;
   }
 

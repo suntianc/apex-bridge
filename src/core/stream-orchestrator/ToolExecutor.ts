@@ -1,6 +1,6 @@
-import PQueue from 'p-queue';
-import type { ToolCall, ToolResult } from './types';
-import { ToolExecutorManager } from '../../services/executors/ToolExecutor';
+import PQueue from "p-queue";
+import type { ToolCall, ToolResult } from "./types";
+import { toolRegistry } from "../tool/registry";
 
 export interface ToolExecutorOptions {
   maxConcurrency?: number;
@@ -8,15 +8,11 @@ export interface ToolExecutorOptions {
 
 export class ToolExecutor {
   private queue: PQueue;
-  private executorManager: ToolExecutorManager;
 
   constructor(options: ToolExecutorOptions = {}) {
     this.queue = new PQueue({
-      concurrency: options.maxConcurrency ?? 5
+      concurrency: options.maxConcurrency ?? 5,
     });
-    // Create a new instance of ToolExecutorManager instead of using singleton
-    // to avoid circular dependency issues
-    this.executorManager = new ToolExecutorManager();
   }
 
   async *executeStreaming(
@@ -49,45 +45,45 @@ export class ToolExecutor {
       }
     };
 
-    await this.queue.addAll(
-      toolCalls.map(call => () => executeWithConcurrency(call))
-    );
+    await this.queue.addAll(toolCalls.map((call) => () => executeWithConcurrency(call)));
 
     return results;
   }
 
   private async executeTool(call: ToolCall, iteration: number): Promise<ToolResult> {
-    // Find the tool using executor manager
-    const toolInfo = this.executorManager.findTool(call.function.name);
+    const toolInfo = await toolRegistry.get(call.function.name);
 
     if (!toolInfo) {
       return {
         toolCallId: call.id,
         name: call.function.name,
-        status: 'error',
+        status: "error",
         result: null,
         error: `Tool "${call.function.name}" not found`,
-        durationMs: 0
+        durationMs: 0,
       };
     }
 
     const startTime = Date.now();
 
     try {
-      // Execute the tool using the appropriate executor
-      const result = await this.executorManager.execute(toolInfo.type, {
-        name: call.function.name,
-        args: JSON.parse(call.function.arguments || '{}')
+      const toolInit = await toolInfo.init();
+      const args = JSON.parse(call.function.arguments || "{}");
+      const result = await toolInit.execute(args, {
+        sessionID: "",
+        messageID: "",
+        agent: "",
+        abort: new AbortController().signal,
+        metadata: () => {},
       });
       const durationMs = Date.now() - startTime;
 
       return {
         toolCallId: call.id,
         name: call.function.name,
-        status: result.success ? 'success' : 'error',
-        result: result.success ? result.output : null,
-        error: result.success ? undefined : result.error,
-        durationMs
+        status: "success",
+        result: result.output,
+        durationMs,
       };
     } catch (error) {
       const durationMs = Date.now() - startTime;
@@ -95,10 +91,10 @@ export class ToolExecutor {
       return {
         toolCallId: call.id,
         name: call.function.name,
-        status: 'error',
+        status: "error",
         result: null,
         error: error instanceof Error ? error.message : String(error),
-        durationMs
+        durationMs,
       };
     }
   }

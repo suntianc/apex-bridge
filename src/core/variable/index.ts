@@ -5,9 +5,9 @@
  * 特点：移除提供者模式，只保留核心引擎
  */
 
-export * from '../../types/variable';
-import { VariableEngine } from './VariableEngine';
-import type { IVariableEngine, VariableEngineOptions } from '../../types/variable';
+export * from "../../types/variable";
+import { VariableEngine } from "./VariableEngine";
+import type { IVariableEngine, VariableEngineOptions } from "../../types/variable";
 
 export { VariableEngine };
 
@@ -20,4 +20,3 @@ export { VariableEngine };
 export function createVariableEngine(_options?: VariableEngineOptions): IVariableEngine {
   return new VariableEngine();
 }
-

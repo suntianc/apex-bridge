@@ -46,17 +46,17 @@ export interface ReActOptions {
 
 // ── 流式事件类型 ────────────────────────────────────────────────────────
 export type StreamEventType =
-  | 'reasoning-start'   // 推理开始
-  | 'reasoning'         // 推理内容（流式）
-  | 'reasoning-delta'   // 推理内容增量
-  | 'reasoning-end'     // 推理结束
-  | 'step-start'        // 步骤开始
-  | 'step-finish'       // 步骤完成
-  | 'content'           // 内容输出
-  | 'tool_start'        // 工具调用开始
-  | 'tool_end'          // 工具调用结束
-  | 'done'              // 完成
-  | 'error';            // 错误
+  | "reasoning-start" // 推理开始
+  | "reasoning" // 推理内容（流式）
+  | "reasoning-delta" // 推理内容增量
+  | "reasoning-end" // 推理结束
+  | "step-start" // 步骤开始
+  | "step-finish" // 步骤完成
+  | "content" // 内容输出
+  | "tool_start" // 工具调用开始
+  | "tool_end" // 工具调用结束
+  | "done" // 完成
+  | "error"; // 错误
 
 // ── 流式事件定义 ────────────────────────────────────────────────────────
 export interface StreamEvent {
@@ -94,7 +94,7 @@ export interface ToolCall {
   };
 
   /** 工具类型 */
-  type: 'function';
+  type: "function";
 }
 
 // ── 工具结果定义 ────────────────────────────────────────────────────────
@@ -106,7 +106,7 @@ export interface ToolResult {
   name: string;
 
   /** 执行状态 */
-  status: 'success' | 'error';
+  status: "success" | "error";
 
   /** 执行结果 */
   result: any;
@@ -122,7 +122,7 @@ export interface ToolResult {
 export interface LLMOptions {
   /** 工具列表 */
   tools?: Array<{
-    type: 'function';
+    type: "function";
     function: {
       name: string;
       description: string;
@@ -161,7 +161,7 @@ export interface LLMAdapter {
   streamChat(
     messages: any[],
     options?: LLMOptions,
-    tools?: any[],  // ✅ 新增：工具列表
+    tools?: any[], // ✅ 新增：工具列表
     signal?: AbortSignal
   ): AsyncGenerator<any, void, void>;
 }
@@ -257,4 +257,3 @@ export interface BatchResult {
   /** 时间戳 */
   timestamp: number;
 }
-

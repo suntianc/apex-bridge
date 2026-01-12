@@ -17,11 +17,11 @@ export function parseLLMChunk(chunkContent: string): { isReasoning: boolean; con
     const parsed = JSON.parse(chunkContent);
 
     // 如果包含嵌套JSON字符串（如glm-4的格式）
-    if (parsed.content && typeof parsed.content === 'string' && parsed.content.includes('{"')) {
+    if (parsed.content && typeof parsed.content === "string" && parsed.content.includes('{"')) {
       try {
         // 第二次解析：解析内层JSON
         const nested = JSON.parse(parsed.content);
-        
+
         // 优先判断内层是否有reasoning_content
         if (nested.reasoning_content !== undefined && nested.reasoning_content !== null) {
           return { isReasoning: true, content: nested.reasoning_content };
@@ -39,7 +39,7 @@ export function parseLLMChunk(chunkContent: string): { isReasoning: boolean; con
     if (parsed.reasoning_content !== undefined && parsed.reasoning_content !== null) {
       return { isReasoning: true, content: parsed.reasoning_content };
     }
-    
+
     if (parsed.content !== undefined && parsed.content !== null) {
       return { isReasoning: false, content: parsed.content };
     }
@@ -71,7 +71,8 @@ export function parseAggregatedContent(rawContent: string): {
 
   // 改进的正则：匹配完整的JSON对象，支持两个键值对和null值
   // 支持格式：{"key":"value"} 或 {"key1":"val1","key2":null}
-  const jsonPattern = /\{(?:"(?:content|reasoning_content)":(?:"(?:[^"\\]|\\.)*"|null)(?:,(?:"(?:content|reasoning_content)":(?:"(?:[^"\\]|\\.)*"|null)))?)\}/g;
+  const jsonPattern =
+    /\{(?:"(?:content|reasoning_content)":(?:"(?:[^"\\]|\\.)*"|null)(?:,(?:"(?:content|reasoning_content)":(?:"(?:[^"\\]|\\.)*"|null)))?)\}/g;
 
   let lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -101,8 +102,8 @@ export function parseAggregatedContent(rawContent: string): {
   }
 
   return {
-    reasoning: reasoningParts.join(''),
-    content: contentParts.join('')
+    reasoning: reasoningParts.join(""),
+    content: contentParts.join(""),
   };
 }
 

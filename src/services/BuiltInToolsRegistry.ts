@@ -9,17 +9,17 @@ import {
   ToolResult,
   ToolExecuteOptions,
   ToolError,
-  ToolErrorCode
-} from '../types/tool-system';
-import { BaseToolExecutor } from './executors/ToolExecutor';
-import { createFileReadTool } from '../core/tools/builtin/FileReadTool';
-import { createFileWriteTool } from '../core/tools/builtin/FileWriteTool';
-import { createVectorSearchTool } from '../core/tools/builtin/VectorSearchTool';
-import { createReadSkillTool } from '../core/tools/builtin/ReadSkillTool';
-import { createPlatformDetectorTool } from '../core/tools/builtin/PlatformDetectorTool';
-import { toolRegistry, ToolType } from '../core/tool/registry';
-import type { Tool } from '../core/tool/tool';
-import { logger } from '../utils/logger';
+  ToolErrorCode,
+} from "../types/tool-system";
+import { BaseToolExecutor } from "./executors/ToolExecutor";
+import { createFileReadTool } from "../core/tools/builtin/FileReadTool";
+import { createFileWriteTool } from "../core/tools/builtin/FileWriteTool";
+import { createVectorSearchTool } from "../core/tools/builtin/VectorSearchTool";
+import { createReadSkillTool } from "../core/tools/builtin/ReadSkillTool";
+import { createPlatformDetectorTool } from "../core/tools/builtin/PlatformDetectorTool";
+import { toolRegistry, ToolType } from "../core/tool/registry";
+import type { Tool } from "../core/tool/tool";
+import { logger } from "../utils/logger";
 
 /**
  * 内置工具注册表
@@ -32,8 +32,8 @@ export class BuiltInToolsRegistry extends BaseToolExecutor {
   constructor() {
     super();
     // 启动异步初始化
-    this.initializationPromise = this.initializeBuiltinTools().catch(error => {
-      logger.error('Failed to initialize built-in tools:', error);
+    this.initializationPromise = this.initializeBuiltinTools().catch((error) => {
+      logger.error("Failed to initialize built-in tools:", error);
     });
   }
 
@@ -50,7 +50,7 @@ export class BuiltInToolsRegistry extends BaseToolExecutor {
    * 初始化内置工具
    */
   private async initializeBuiltinTools(): Promise<void> {
-    logger.debug('Initializing built-in tools registry...');
+    logger.debug("Initializing built-in tools registry...");
 
     // 注册文件系统工具
     await this.registerTool(createFileReadTool());
@@ -86,9 +86,9 @@ export class BuiltInToolsRegistry extends BaseToolExecutor {
         execute: async (args, ctx) => {
           const result = await tool.execute(args);
           return {
-            title: '',
+            title: "",
             metadata: {},
-            output: result.output || '',
+            output: result.output || "",
           };
         },
       }),
@@ -102,7 +102,7 @@ export class BuiltInToolsRegistry extends BaseToolExecutor {
    */
   async registerTool(tool: BuiltInTool): Promise<void> {
     if (!tool.name || !tool.execute) {
-      throw new Error('Tool must have name and execute function');
+      throw new Error("Tool must have name and execute function");
     }
 
     this.tools.set(tool.name, tool);
@@ -165,7 +165,6 @@ export class BuiltInToolsRegistry extends BaseToolExecutor {
       logger.info(`Built-in tool ${options.name} completed in ${duration}ms`);
 
       return result;
-
     } catch (error) {
       const duration = this.calculateDuration(startTime);
 
@@ -189,7 +188,7 @@ export class BuiltInToolsRegistry extends BaseToolExecutor {
    */
   listTools(): BuiltInTool[] {
     return Array.from(this.tools.values())
-      .filter(tool => tool.enabled)
+      .filter((tool) => tool.enabled)
       .sort((a, b) => a.level - b.level);
   }
 
@@ -245,7 +244,7 @@ export class BuiltInToolsRegistry extends BaseToolExecutor {
    * @param names 工具名称列表
    */
   enableTools(names: string[]): void {
-    names.forEach(name => this.enableTool(name));
+    names.forEach((name) => this.enableTool(name));
   }
 
   /**
@@ -253,7 +252,7 @@ export class BuiltInToolsRegistry extends BaseToolExecutor {
    * @param names 工具名称列表
    */
   disableTools(names: string[]): void {
-    names.forEach(name => this.disableTool(name));
+    names.forEach((name) => this.disableTool(name));
   }
 
   /**
@@ -269,7 +268,7 @@ export class BuiltInToolsRegistry extends BaseToolExecutor {
       enabled: enabledTools.length,
       disabled: allTools.length - enabledTools.length,
       byCategory: this.groupByCategory(allTools),
-      byLevel: this.groupByLevel(allTools)
+      byLevel: this.groupByLevel(allTools),
     };
   }
 
@@ -278,7 +277,7 @@ export class BuiltInToolsRegistry extends BaseToolExecutor {
    */
   private groupByCategory(tools: BuiltInTool[]): Record<string, number> {
     const groups: Record<string, number> = {};
-    tools.forEach(tool => {
+    tools.forEach((tool) => {
       groups[tool.category] = (groups[tool.category] || 0) + 1;
     });
     return groups;
@@ -289,7 +288,7 @@ export class BuiltInToolsRegistry extends BaseToolExecutor {
    */
   private groupByLevel(tools: BuiltInTool[]): Record<string, number> {
     const groups: Record<string, number> = {};
-    tools.forEach(tool => {
+    tools.forEach((tool) => {
       const level = `level_${tool.level}`;
       groups[level] = (groups[level] || 0) + 1;
     });
@@ -324,10 +323,7 @@ export class BuiltInToolsRegistry extends BaseToolExecutor {
       const schema = properties[key];
       if (!schema) {
         if (tool.parameters.additionalProperties === false) {
-          throw new ToolError(
-            `Unknown parameter: ${key}`,
-            ToolErrorCode.TOOL_EXECUTION_FAILED
-          );
+          throw new ToolError(`Unknown parameter: ${key}`, ToolErrorCode.TOOL_EXECUTION_FAILED);
         }
         continue;
       }
@@ -351,13 +347,13 @@ export class BuiltInToolsRegistry extends BaseToolExecutor {
     // 枚举验证
     if (schema.enum && !schema.enum.includes(value)) {
       throw new ToolError(
-        `Invalid value for parameter '${name}': must be one of ${schema.enum.join(', ')}`,
+        `Invalid value for parameter '${name}': must be one of ${schema.enum.join(", ")}`,
         ToolErrorCode.TOOL_EXECUTION_FAILED
       );
     }
 
     // 数值约束
-    if (schema.type === 'number') {
+    if (schema.type === "number") {
       if (schema.minimum !== undefined && value < schema.minimum) {
         throw new ToolError(
           `Value for parameter '${name}' must be >= ${schema.minimum}`,
@@ -373,7 +369,7 @@ export class BuiltInToolsRegistry extends BaseToolExecutor {
     }
 
     // 字符串约束
-    if (schema.type === 'string') {
+    if (schema.type === "string") {
       if (schema.minLength !== undefined && value.length < schema.minLength) {
         throw new ToolError(
           `Length of parameter '${name}' must be >= ${schema.minLength}`,
@@ -400,16 +396,16 @@ export class BuiltInToolsRegistry extends BaseToolExecutor {
    */
   private validateType(value: any, expectedType: string): boolean {
     switch (expectedType) {
-      case 'string':
-        return typeof value === 'string';
-      case 'number':
-        return typeof value === 'number';
-      case 'boolean':
-        return typeof value === 'boolean';
-      case 'array':
+      case "string":
+        return typeof value === "string";
+      case "number":
+        return typeof value === "number";
+      case "boolean":
+        return typeof value === "boolean";
+      case "array":
         return Array.isArray(value);
-      case 'object':
-        return typeof value === 'object' && value !== null && !Array.isArray(value);
+      case "object":
+        return typeof value === "object" && value !== null && !Array.isArray(value);
       default:
         return true;
     }
@@ -443,13 +439,13 @@ export function resetBuiltInToolsRegistry(): void {
  * 内置工具名称常量
  */
 export const BUILTIN_TOOL_NAMES = {
-  FILE_READ: 'file-read',
-  FILE_WRITE: 'file-write',
-  VECTOR_SEARCH: 'vector-search',
-  READ_SKILL: 'read-skill',
-  PLATFORM_DETECTOR: 'platform-detector',
-  DATETIME: 'datetime',
-  CALCULATION: 'calculation'
+  FILE_READ: "file-read",
+  FILE_WRITE: "file-write",
+  VECTOR_SEARCH: "vector-search",
+  READ_SKILL: "read-skill",
+  PLATFORM_DETECTOR: "platform-detector",
+  DATETIME: "datetime",
+  CALCULATION: "calculation",
 } as const;
 
-export type BuiltinToolName = typeof BUILTIN_TOOL_NAMES[keyof typeof BUILTIN_TOOL_NAMES];
+export type BuiltinToolName = (typeof BUILTIN_TOOL_NAMES)[keyof typeof BUILTIN_TOOL_NAMES];

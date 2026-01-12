@@ -7,8 +7,8 @@
  * 工具类型枚举
  */
 export enum ToolType {
-  BUILTIN = 'builtin',
-  SKILL = 'skill'
+  BUILTIN = "builtin",
+  SKILL = "skill",
 }
 
 /**
@@ -100,7 +100,7 @@ export interface SkillTool {
  */
 export interface ToolParameterSchema {
   /** 参数类型 */
-  type: 'object';
+  type: "object";
   /** 参数属性 */
   properties: Record<string, ToolParameterProperty>;
   /** 必需参数 */
@@ -192,7 +192,7 @@ export interface SkillInstallOptions {
   /** 是否跳过向量化 */
   skipVectorization?: boolean;
   /** 验证级别 */
-  validationLevel?: 'strict' | 'basic' | 'none';
+  validationLevel?: "strict" | "basic" | "none";
 }
 
 /**
@@ -208,9 +208,9 @@ export interface SkillListOptions {
   /** 每页限制 */
   limit?: number;
   /** 排序字段 */
-  sortBy?: 'name' | 'installedAt' | 'updatedAt';
+  sortBy?: "name" | "installedAt" | "updatedAt";
   /** 排序方向 */
-  sortOrder?: 'asc' | 'desc';
+  sortOrder?: "asc" | "desc";
 }
 
 /**
@@ -323,16 +323,16 @@ export interface SkillsConfig {
  * 错误代码枚举
  */
 export enum ToolErrorCode {
-  TOOL_NOT_FOUND = 'TOOL_NOT_FOUND',
-  TOOL_EXECUTION_FAILED = 'TOOL_EXECUTION_FAILED',
-  TOOL_TIMEOUT = 'TOOL_TIMEOUT',
-  TOOL_OUTPUT_EXCEEDED = 'TOOL_OUTPUT_EXCEEDED',
-  TOOL_MEMORY_EXCEEDED = 'TOOL_MEMORY_EXCEEDED',
-  SKILL_NOT_FOUND = 'SKILL_NOT_FOUND',
-  SKILL_INVALID_STRUCTURE = 'INVALID_SKILL_STRUCTURE',
-  SKILL_ALREADY_EXISTS = 'SKILL_ALREADY_EXISTS',
-  VECTOR_DB_ERROR = 'VECTOR_DB_ERROR',
-  EMBEDDING_MODEL_ERROR = 'EMBEDDING_MODEL_ERROR'
+  TOOL_NOT_FOUND = "TOOL_NOT_FOUND",
+  TOOL_EXECUTION_FAILED = "TOOL_EXECUTION_FAILED",
+  TOOL_TIMEOUT = "TOOL_TIMEOUT",
+  TOOL_OUTPUT_EXCEEDED = "TOOL_OUTPUT_EXCEEDED",
+  TOOL_MEMORY_EXCEEDED = "TOOL_MEMORY_EXCEEDED",
+  SKILL_NOT_FOUND = "SKILL_NOT_FOUND",
+  SKILL_INVALID_STRUCTURE = "INVALID_SKILL_STRUCTURE",
+  SKILL_ALREADY_EXISTS = "SKILL_ALREADY_EXISTS",
+  VECTOR_DB_ERROR = "VECTOR_DB_ERROR",
+  EMBEDDING_MODEL_ERROR = "EMBEDDING_MODEL_ERROR",
 }
 
 /**
@@ -345,6 +345,41 @@ export class ToolError extends Error {
     public details?: any
   ) {
     super(message);
-    this.name = 'ToolError';
+    this.name = "ToolError";
   }
+}
+
+export interface ProcessPoolMetrics {
+  poolSize: number;
+  idleCount: number;
+  busyCount: number;
+  totalExecuted: number;
+  totalFailed: number;
+  averageWaitTime: number;
+  hitRate: number;
+}
+
+export interface ProcessPoolConfig {
+  minSize?: number;
+  maxSize?: number;
+  processTTL?: number;
+  idleTimeout?: number;
+  healthCheckInterval?: number;
+  maxConcurrent?: number;
+}
+
+/**
+ * 健康检查结果
+ */
+export interface HealthCheckResult {
+  status: "healthy" | "degraded" | "unhealthy";
+  details: {
+    isInitialized: boolean;
+    hasDatabaseConnection: boolean;
+    hasTable: boolean;
+    tableRowCount?: number;
+    lastError?: string;
+    uptime?: number;
+  };
+  timestamp: Date;
 }

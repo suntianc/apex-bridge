@@ -3,7 +3,7 @@
  * Stage 1: Reflector MVP - 规则引擎版
  */
 
-import { ErrorType } from './trajectory';
+import { ErrorType } from "./trajectory";
 
 /**
  * 错误模式规则

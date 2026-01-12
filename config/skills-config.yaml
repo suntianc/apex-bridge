@@ -6,8 +6,8 @@ skills:
     model: "nomic-embed-text"
     cacheSize: 1000
     dimensions: 768
-    similarityThreshold: 0.40  # 从0.20提升至0.40，过滤噪声，优化语义搜索
+    similarityThreshold: 0.40 # 从0.20提升至0.40，过滤噪声，优化语义搜索
   execution:
     timeout: 60000
-    maxOutputSize: 10485760  # 10MB
+    maxOutputSize: 10485760 # 10MB
     maxConcurrency: 3

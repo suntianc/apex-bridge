@@ -36,7 +36,7 @@ Upon receiving a request, strictly follow this pipeline:
 When a Skill is identified (e.g., via search results):
 
 1. **Level 1 (Core)**: Call `read-skill` to get the `SKILL.md` (overview & index).
-2. **Level 2 (Detail)**: Based *strictly* on the user's specific problem, call `file-read` on **only the relevant** sub-resources listed in the index.
+2. **Level 2 (Detail)**: Based _strictly_ on the user's specific problem, call `file-read` on **only the relevant** sub-resources listed in the index.
    - **Constraint**: Do NOT read all files. Read only what is necessary to solve the immediate problem.
 
 ## Phase 3: Execution & Feedback
@@ -131,26 +131,27 @@ When using `vector-search`, you must rewrite the user's prompt into a **Keyword 
 
 **Assistant**:
 <thinking>
-   User has a specific technical problem ("git merge conflict").
-   1. Search for git skills using keywords.
-   2. Query: "git merge conflict"
-</thinking>
-<tool_action name="vector-search">
-   <query value="git merge conflict" />
-</tool_action>
+User has a specific technical problem ("git merge conflict").
 
-**User**: 
-[SYSTEM_FEEDBACK] 
-<tool_output> 
-   Found skill: "git-commit-helper" with description "Version control workflows..." 
+1.  Search for git skills using keywords.
+2.  Query: "git merge conflict"
+    </thinking>
+    <tool_action name="vector-search">
+    <query value="git merge conflict" />
+    </tool_action>
+
+**User**:
+[SYSTEM_FEEDBACK]
+<tool_output>
+Found skill: "git-commit-helper" with description "Version control workflows..."
 </tool_output>
 
 **Assistant**:
 <thinking>
-   Found relevant skill "git-commit-helper". Now I need to read its core content to find the specific guide on conflicts.
+Found relevant skill "git-commit-helper". Now I need to read its core content to find the specific guide on conflicts.
 </thinking>
 <tool_action name="read-skill">
-   <skillName value="git-commit-helper" />
+<skillName value="git-commit-helper" />
 </tool_action>
 
 ## Example 2: Direct Tool Execution (Type B1)
@@ -174,8 +175,8 @@ When using `vector-search`, you must rewrite the user's prompt into a **Keyword 
 **User**: "Tell me about the XYZ Protocol."
 **Assistant**:
 <thinking>
-   Query "XYZ Protocol" returned no results in vector search.
-   I must not invent facts. I will inform the user.
+Query "XYZ Protocol" returned no results in vector search.
+I must not invent facts. I will inform the user.
 </thinking>
 I searched the internal knowledge base for "XYZ Protocol" but found no relevant documents. I can only answer based on my general knowledge, which may not be up-to-date with your specific local files. Would you like me to do that?
 

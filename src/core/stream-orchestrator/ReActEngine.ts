@@ -11,7 +11,6 @@
  * - 步骤边界事件
  */
 
-import { ToolExecutor } from "./ToolExecutor";
 import { StreamTagDetector } from "../tool-action/StreamTagDetector";
 import { ToolDispatcher } from "../tool-action/ToolDispatcher";
 import { ToolActionParser } from "../tool-action/ToolActionParser";
@@ -32,26 +31,69 @@ import { TIMEOUT, LIMITS, DOOM_LOOP } from "../../constants";
  * Doom Loop 检测器实现
  * 检测重复的工具调用模式，防止无限循环
  */
+export interface DoomLoopConfig {
+  maxIterations: number;
+  minUniqueTools: number;
+  minUniqueOperations: number;
+  timeWindow: number;
+  repetitionThreshold: number;
+}
+
+export interface DoomLoopDetection {
+  isDoomLoop: boolean;
+  reason?: string;
+  suggestedAction?: string;
+}
+
 export class DoomLoopDetectorImpl implements DoomLoopDetector {
   toolCallHistory: { name: string; args: unknown }[];
   doomLoopThreshold: number;
+  operationHistory: Array<{
+    timestamp: number;
+    toolName: string;
+    operation: string;
+  }>;
+  private readonly doomLoopConfig: DoomLoopConfig;
 
   constructor(threshold: number = DOOM_LOOP.THRESHOLD) {
     this.toolCallHistory = [];
     this.doomLoopThreshold = threshold;
+    this.operationHistory = [];
+    this.doomLoopConfig = {
+      maxIterations: 20,
+      minUniqueTools: 2,
+      minUniqueOperations: 3,
+      timeWindow: 30 * 1000,
+      repetitionThreshold: 3,
+    };
   }
 
   check(name: string, args: unknown): boolean {
-    // 添加到历史记录
     this.toolCallHistory.push({ name, args });
 
-    // 只保留最近 N 次调用
+    const now = Date.now();
+    this.operationHistory.push({
+      timestamp: now,
+      toolName: name,
+      operation: `${name}:${JSON.stringify(args)}`,
+    });
+
     const maxHistory = this.doomLoopThreshold * 2;
     if (this.toolCallHistory.length > maxHistory) {
       this.toolCallHistory = this.toolCallHistory.slice(-maxHistory);
     }
 
-    // 检查最近 N 次调用是否完全相同
+    while (
+      this.operationHistory.length > 0 &&
+      now - this.operationHistory[0].timestamp > this.doomLoopConfig.timeWindow
+    ) {
+      this.operationHistory.shift();
+    }
+
+    return this.checkForDoomLoop();
+  }
+
+  private checkForDoomLoop(): boolean {
     if (this.toolCallHistory.length < this.doomLoopThreshold) {
       return false;
     }
@@ -59,7 +101,6 @@ export class DoomLoopDetectorImpl implements DoomLoopDetector {
     const recentCalls = this.toolCallHistory.slice(-this.doomLoopThreshold);
     const lastCall = recentCalls[recentCalls.length - 1];
 
-    // 检查所有最近调用是否与最后一次相同
     const isDoomLoop = recentCalls.every(
       (call) =>
         call.name === lastCall.name && JSON.stringify(call.args) === JSON.stringify(lastCall.args)
@@ -67,29 +108,58 @@ export class DoomLoopDetectorImpl implements DoomLoopDetector {
 
     if (isDoomLoop) {
       logger.warn(
-        `[ReActEngine] Doom Loop detected: ${name} called ${this.doomLoopThreshold} times with same args`
+        `[ReActEngine] Doom Loop detected: ${lastCall.name} called ${this.doomLoopThreshold} times with same args`
       );
     }
 
     return isDoomLoop;
   }
 
+  checkAdvanced(): DoomLoopDetection {
+    const now = Date.now();
+    const recentOps = this.operationHistory.filter(
+      (op) => now - op.timestamp < this.doomLoopConfig.timeWindow
+    );
+
+    if (recentOps.length < 5) {
+      return { isDoomLoop: false };
+    }
+
+    const uniqueTools = new Set(recentOps.map((op) => op.toolName)).size;
+    if (uniqueTools >= this.doomLoopConfig.minUniqueTools) {
+      return { isDoomLoop: false };
+    }
+
+    const operationCounts = new Map<string, number>();
+    for (const op of recentOps) {
+      operationCounts.set(op.operation, (operationCounts.get(op.operation) || 0) + 1);
+    }
+
+    for (const [operation, count] of operationCounts) {
+      if (count >= this.doomLoopConfig.repetitionThreshold) {
+        return {
+          isDoomLoop: true,
+          reason: `Operation "${operation}" repeated ${count} times in ${this.doomLoopConfig.timeWindow / 1000}s`,
+          suggestedAction: "break",
+        };
+      }
+    }
+
+    return { isDoomLoop: false };
+  }
+
   reset(): void {
     this.toolCallHistory = [];
+    this.operationHistory = [];
   }
 }
 
 export class ReActEngine {
-  private toolExecutor: ToolExecutor;
   private defaultOptions: Required<ReActOptions>;
   private toolDispatcher: ToolDispatcher;
   public tools: any[] = [];
 
   constructor(options: Partial<ReActOptions> = {}) {
-    this.toolExecutor = new ToolExecutor({
-      maxConcurrency: options.maxConcurrentTools ?? LIMITS.MAX_CONCURRENT_TOOLS,
-    });
-
     this.toolDispatcher = new ToolDispatcher({
       timeout: options.toolActionTimeout ?? TIMEOUT.TOOL_EXECUTION,
       maxConcurrency: options.maxConcurrentTools ?? LIMITS.MAX_CONCURRENT_TOOLS,
@@ -197,7 +267,6 @@ export class ReActEngine {
 
       throw new Error("Max iterations reached");
     } finally {
-      this.toolExecutor.clear();
     }
   }
 
@@ -362,57 +431,47 @@ export class ReActEngine {
 
     // 优先处理原生 tool_calls
     if (toolCalls.length > 0) {
-      // 增加步骤计数器并发送 step-start 事件
       context.stepNumber++;
-      // yield {
-      //   type: "step-start",
-      //   data: { stepNumber: context.stepNumber, toolCount: toolCalls.length },
-      //   timestamp: stepStartTime,
-      //   iteration: context.iteration,
-      //   stepNumber: context.stepNumber,
-      // };
 
-      // yield {
-      //   type: "tool_start",
-      //   data: { toolCalls },
-      //   timestamp: Date.now(),
-      //   iteration: context.iteration,
-      //   stepNumber: context.stepNumber,
-      // };
+      const toolResults: any[] = [];
 
-      const results = await this.toolExecutor.executeAll(toolCalls, context.iteration, (result) => {
-        context.accumulatedContent += JSON.stringify(result);
+      for (const toolCall of toolCalls) {
+        if (context.doomLoopDetector.check(toolCall.function.name, toolCall.function.arguments)) {
+          logger.warn(`[ReActEngine] 🚫 Preventing doom loop: ${toolCall.function.name}`);
+          toolResults.push({
+            success: false,
+            error: "Doom loop detected: repeated tool call with same arguments",
+            result: null,
+          });
+          continue;
+        }
+
+        const toolActionCall: ToolActionCall = {
+          name: toolCall.function.name,
+          type: "builtin" as any,
+          parameters: JSON.parse(toolCall.function.arguments || "{}"),
+          rawText: "",
+          startIndex: 0,
+          endIndex: 0,
+        };
+
+        const result = await this.toolDispatcher.dispatch(toolActionCall);
+        toolResults.push(result);
+      }
+
+      const toolMessages = toolCalls.map((call, index) => {
+        const result = toolResults[index];
+        return {
+          role: "tool" as const,
+          tool_call_id: call.id,
+          name: call.function.name,
+          content: result.success
+            ? typeof result.result === "string"
+              ? result.result
+              : JSON.stringify(result.result)
+            : result.error,
+        };
       });
-
-      // yield {
-      //   type: "tool_end",
-      //   data: { results: Array.from(results.values()) },
-      //   timestamp: Date.now(),
-      //   iteration: context.iteration,
-      //   stepNumber: context.stepNumber,
-      // };
-
-      // 发送 step-finish 事件
-      const stepCost = Date.now() - stepStartTime;
-      // yield {
-      //   type: "step-finish",
-      //   data: {
-      //     stepNumber: context.stepNumber,
-      //     reason: "tool_completed",
-      //     cost: stepCost,
-      //     tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-      //   },
-      //   timestamp: Date.now(),
-      //   iteration: context.iteration,
-      //   stepNumber: context.stepNumber,
-      // };
-
-      const toolMessages = Array.from(results.entries()).map(([call, result]) => ({
-        role: "tool",
-        tool_call_id: call.id,
-        name: call.function.name,
-        content: typeof result.result === "string" ? result.result : JSON.stringify(result.result),
-      }));
 
       messages.push(assistantMessage, ...toolMessages);
 

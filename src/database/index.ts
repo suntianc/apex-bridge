@@ -3,5 +3,5 @@
  * Entry point for all database-related functionality
  */
 
-export { MigrationRunner, MigrationResult, Migration } from './MigrationRunner';
-export * from './migrations';
+export { MigrationRunner, MigrationResult, Migration } from "./MigrationRunner";
+export * from "./migrations";

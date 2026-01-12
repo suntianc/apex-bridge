@@ -22,12 +22,29 @@ import {
 import { logger } from "../../utils/logger";
 import { getSkillManager } from "../SkillManager";
 import { getPermissionValidator, PermissionValidationConfig } from "../compat/PermissionValidator";
+import { ProcessPool } from "./ProcessPool";
 
 // 最大参数大小限制 (1MB)
 const MAX_ARGS_SIZE = 1 * 1024 * 1024;
 
 // 进程最大生命周期 (5分钟)
 const MAX_PROCESS_LIFETIME = 5 * 60 * 1000;
+
+/**
+ * 沙箱隔离配置
+ */
+export interface SandboxIsolationConfig {
+  enableNetworkRestriction: boolean;
+  maxFileSize: number;
+  maxTotalFiles: number;
+  maxReadSize: number;
+  allowedPaths: string[];
+  denyPaths: string[];
+  enableCPUQuota: boolean;
+  maxCPUPercent: number;
+  enableMemoryQuota: boolean;
+  maxMemoryMB: number;
+}
 
 /**
  * 执行统计记录
@@ -55,20 +72,40 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
   private readonly maxArgsSize = MAX_ARGS_SIZE;
   private readonly maxProcessLifetime = MAX_PROCESS_LIFETIME;
   private permissionConfig: PermissionValidationConfig;
+  private processPool: ProcessPool | null = null;
+  private readonly timeoutConfig = {
+    warningThreshold: 0.7,
+    gracefulTimeout: 5000,
+  };
+  private timeoutStats = {
+    totalTimeouts: 0,
+    lastTimeoutAt: null as number | null,
+  };
+  private readonly isolationConfig: SandboxIsolationConfig = {
+    enableNetworkRestriction: true,
+    maxFileSize: 1 * 1024 * 1024,
+    maxTotalFiles: 100,
+    maxReadSize: 10 * 1024 * 1024,
+    allowedPaths: [],
+    denyPaths: ["/etc", "/usr", "/root", "/home/*/.ssh"],
+    enableCPUQuota: false,
+    maxCPUPercent: 100,
+    enableMemoryQuota: true,
+    maxMemoryMB: 512,
+  };
 
   constructor(options: SandboxExecutionOptions = {}) {
     super();
     this.executionOptions = {
       timeout: 60000,
-      maxOutputSize: 10 * 1024 * 1024, // 10MB
-      memoryLimit: 512, // 512MB
+      maxOutputSize: 10 * 1024 * 1024,
+      memoryLimit: 512,
       maxConcurrency: 3,
       allowedEnvVars: ["PATH"],
       workspacePath: path.join(os.tmpdir(), "skill-workspaces"),
       ...options,
     };
 
-    // 初始化权限验证配置
     this.permissionConfig = {
       enabled: true,
       mode: "strict",
@@ -76,8 +113,16 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
       caseSensitive: true,
     };
 
-    // 确保工作区目录存在
     this.ensureWorkspaceDirectory();
+
+    this.processPool = new ProcessPool({
+      minSize: 2,
+      maxSize: Math.min(10, this.executionOptions.maxConcurrency * 2),
+      processTTL: this.maxProcessLifetime,
+      idleTimeout: 30000,
+      healthCheckInterval: 30000,
+      maxConcurrent: this.executionOptions.maxConcurrency,
+    });
 
     logger.debug("SkillsSandboxExecutor initialized", {
       timeout: this.executionOptions.timeout,
@@ -85,6 +130,7 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
       memoryLimit: this.executionOptions.memoryLimit,
       maxConcurrency: this.executionOptions.maxConcurrency,
       permissionValidation: this.permissionConfig,
+      isolationConfig: this.isolationConfig,
     });
   }
 
@@ -222,8 +268,8 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
         skillPath,
       };
 
-      // 执行Skills
-      const result = await this.executeInSandbox(execArgs);
+      // 使用进程池执行Skills
+      const result = await this.executeWithPool(execArgs);
 
       // 记录统计
       this.recordStats(toolName, true, result.duration);
@@ -262,6 +308,38 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
     }
   }
 
+  private async executeWithPool(execArgs: {
+    toolName: string;
+    args: Record<string, any>;
+    workspace: string;
+    skillPath: string;
+  }): Promise<SandboxExecutionResult> {
+    const { toolName, args, workspace, skillPath } = execArgs;
+
+    if (!this.processPool) {
+      return this.executeInSandbox(execArgs);
+    }
+
+    const executeScript = path.join(skillPath, "scripts", "execute.js");
+    const env = this.prepareCleanEnvironment();
+
+    return new Promise((resolve, reject) => {
+      const task = {
+        taskId: crypto.randomUUID(),
+        skillPath,
+        executeScript,
+        args: { toolName, args, workspace, skillPath },
+        env,
+        timeout: this.executionOptions.timeout!,
+        maxOutputSize: this.executionOptions.maxOutputSize!,
+        resolve,
+        reject,
+      };
+
+      this.processPool!.execute(task).then(resolve).catch(reject);
+    });
+  }
+
   /**
    * 在沙箱中执行Skills
    */
@@ -274,6 +352,8 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
     const { toolName, args, workspace, skillPath } = execArgs;
 
     const startTime = Date.now();
+    const timeout = this.executionOptions.timeout!;
+    const warningTime = Math.floor(timeout * this.timeoutConfig.warningThreshold);
 
     return new Promise((resolve, reject) => {
       // 准备进程参数
@@ -299,6 +379,9 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
       let outputSize = 0;
       let truncated = false;
       const maxOutputSize = this.executionOptions.maxOutputSize!;
+
+      let gracefulTimer: ReturnType<typeof setTimeout> | null = null;
+      let forceTimer: ReturnType<typeof setTimeout> | null = null;
 
       process.stdout?.on("data", (data: Buffer) => {
         const chunk = data.toString();
@@ -329,33 +412,49 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
         }
       });
 
-      // 设置超时
-      const timeout = setTimeout(() => {
+      // 超时预警计时器 - 在70%超时时间时发送SIGTERM
+      gracefulTimer = setTimeout(() => {
         logger.warn(
-          `Skills ${toolName} execution timed out after ${this.executionOptions.timeout}ms`
+          `Skills ${toolName} approaching timeout (${warningTime}ms), sending SIGTERM for graceful shutdown...`
         );
+        this.terminateProcess(process, "SIGTERM");
+
+        // 5秒后强制终止
+        forceTimer = setTimeout(() => {
+          logger.warn(`Skills ${toolName} did not exit gracefully, sending SIGKILL...`);
+          this.terminateProcess(process, "SIGKILL");
+        }, this.timeoutConfig.gracefulTimeout);
+      }, warningTime);
+
+      // 总超时计时器
+      forceTimer = setTimeout(() => {
+        logger.warn(`Skills ${toolName} execution timed out after ${timeout}ms`);
         this.terminateProcess(process, "SIGKILL");
 
         // SIGKILL 不会触发 close 事件，需要手动清理
         this.activeProcesses.delete(processId);
 
         const duration = this.calculateDuration(startTime);
+        this.timeoutStats.totalTimeouts++;
+        this.timeoutStats.lastTimeoutAt = Date.now();
+
         resolve({
           success: false,
           stdout,
           stderr: stderr || "Execution timed out",
           exitCode: -1,
           duration,
-          error: `Execution timed out after ${this.executionOptions.timeout}ms`,
+          error: `Execution timed out after ${timeout}ms`,
           truncated,
         });
-      }, this.executionOptions.timeout);
+      }, timeout);
 
       // 处理进程退出
       process.on("close", (code: number | null, signal: string | null) => {
         // 清理活跃进程记录
         this.activeProcesses.delete(processId);
-        clearTimeout(timeout);
+        if (gracefulTimer) clearTimeout(gracefulTimer);
+        if (forceTimer) clearTimeout(forceTimer);
 
         const duration = this.calculateDuration(startTime);
 
@@ -384,7 +483,8 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
       process.on("error", (error: Error) => {
         // 清理活跃进程记录
         this.activeProcesses.delete(processId);
-        clearTimeout(timeout);
+        if (gracefulTimer) clearTimeout(gracefulTimer);
+        if (forceTimer) clearTimeout(forceTimer);
 
         logger.error(`Skills ${toolName} process error:`, error);
         reject(error);
@@ -459,8 +559,11 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
     try {
       await fs.mkdir(workspacePath, { recursive: true });
 
-      // 设置只有所有者可以访问（安全最佳实践）
       await fs.chmod(workspacePath, 0o700);
+
+      const restrictFile = path.join(workspacePath, ".restrict");
+      await fs.writeFile(restrictFile, JSON.stringify(this.isolationConfig, null, 2));
+      logger.debug(`Created isolation config file: ${restrictFile}`);
 
       return workspacePath;
     } catch (error) {
@@ -579,6 +682,20 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
   }
 
   /**
+   * 获取超时统计
+   */
+  getTimeoutStats() {
+    return {
+      ...this.timeoutStats,
+      averageTimeoutRate:
+        this.stats.size > 0
+          ? this.timeoutStats.totalTimeouts /
+            Array.from(this.stats.values()).reduce((sum, s) => sum + s.callCount, 0)
+          : 0,
+    };
+  }
+
+  /**
    * 获取所有活跃进程
    */
   getActiveProcesses(): Array<{ pid: number; toolName: string }> {
@@ -634,16 +751,18 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
   async cleanup(): Promise<void> {
     logger.info("Cleaning up SkillsSandboxExecutor...");
 
-    // 清除进程监控定时器
     if (this.processMonitor) {
       clearInterval(this.processMonitor);
       this.processMonitor = null;
     }
 
-    // 终止所有进程
+    if (this.processPool) {
+      await this.processPool.destroy();
+      this.processPool = null;
+    }
+
     await this.terminateAllProcesses();
 
-    // 清理工作区
     try {
       await fs.rm(this.executionOptions.workspacePath!, { recursive: true, force: true });
       logger.debug("Cleaned up workspace directory");

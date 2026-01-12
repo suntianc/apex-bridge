@@ -3,8 +3,8 @@
  * 负责配置的更新和合并
  */
 
-import type { AdminConfig } from '../types/config/index';
-import { ConfigLoader } from './config-loader';
+import type { AdminConfig } from "../types/config/index";
+import { ConfigLoader } from "./config-loader";
 
 export class ConfigWriter {
   private readonly loader: ConfigLoader;
@@ -55,11 +55,11 @@ export class ConfigWriter {
       if (
         updateValue !== undefined &&
         updateValue !== null &&
-        typeof updateValue === 'object' &&
+        typeof updateValue === "object" &&
         !Array.isArray(updateValue) &&
         baseValue !== undefined &&
         baseValue !== null &&
-        typeof baseValue === 'object' &&
+        typeof baseValue === "object" &&
         !Array.isArray(baseValue)
       ) {
         result[key as keyof AdminConfig] = this.mergeConfig(

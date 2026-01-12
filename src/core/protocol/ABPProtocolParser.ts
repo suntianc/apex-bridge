@@ -1,15 +1,13 @@
 /**
  * ABP Protocol Parser
- * 
+ *
  * ABP (ApexBridge Protocol) 是一个独立的协议（ABP-only）
- * 
+ *
  * @module core/protocol
  */
 
-import {
-  ABPProtocolConfig,
-} from '../../types/abp';
-import { logger } from '../../utils/logger';
+import { ABPProtocolConfig } from "../../types/abp";
+import { logger } from "../../utils/logger";
 
 /**
  * ABP协议解析器默认配置
@@ -49,4 +47,3 @@ export class ABPProtocolParser {
     this.config = { ...DEFAULT_CONFIG, ...config } as Required<ABPProtocolConfig>;
   }
 }
-

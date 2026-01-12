@@ -4,8 +4,8 @@
  * 记录API访问日志
  */
 
-import { Request, Response, NextFunction } from 'express';
-import { logger } from '../../utils/logger';
+import { Request, Response, NextFunction } from "express";
+import { logger } from "../../utils/logger";
 
 export interface AuditLogEvent {
   timestamp: number;
@@ -21,23 +21,30 @@ export interface AuditLogEvent {
 /**
  * 简化的审计日志中间件
  */
-export function createAuditLoggerMiddleware(): (req: Request, res: Response, next: NextFunction) => void {
+export function createAuditLoggerMiddleware(): (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => void {
   const startTime = Date.now();
 
   return (req: Request, res: Response, next: NextFunction) => {
     // 跳过静态资源和健康检查
-    const skipPaths = ['/health', '/metrics', '/favicon.ico', '/vite.svg'];
-    if (skipPaths.includes(req.path) || /\.(svg|ico|png|jpg|jpeg|gif|css|js|woff|woff2|ttf|eot)$/i.test(req.path)) {
+    const skipPaths = ["/health", "/metrics", "/favicon.ico", "/vite.svg"];
+    if (
+      skipPaths.includes(req.path) ||
+      /\.(svg|ico|png|jpg|jpeg|gif|css|js|woff|woff2|ttf|eot)$/i.test(req.path)
+    ) {
       return next();
     }
 
-    const ip = req.ip || req.socket.remoteAddress || 'unknown';
-    const userAgent = req.headers['user-agent'];
+    const ip = req.ip || req.socket.remoteAddress || "unknown";
+    const userAgent = req.headers["user-agent"];
     const auth = res.locals.auth as any;
     const apiKeyId = auth?.apiKeyId;
 
     // 监听响应完成
-    res.on('finish', () => {
+    res.on("finish", () => {
       const auditEvent: AuditLogEvent = {
         timestamp: Date.now(),
         path: req.path,
@@ -46,7 +53,7 @@ export function createAuditLoggerMiddleware(): (req: Request, res: Response, nex
         ip,
         userAgent,
         apiKeyId,
-        duration: Date.now() - startTime
+        duration: Date.now() - startTime,
       };
 
       // 记录访问日志

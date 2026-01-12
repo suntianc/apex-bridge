@@ -8,44 +8,44 @@
  */
 export enum ErrorCode {
   // 通用错误 (1000-1999)
-  INTERNAL_ERROR = 'INTERNAL_ERROR',
-  VALIDATION_ERROR = 'VALIDATION_ERROR',
-  NOT_FOUND = 'NOT_FOUND',
-  FORBIDDEN = 'FORBIDDEN',
-  
+  INTERNAL_ERROR = "INTERNAL_ERROR",
+  VALIDATION_ERROR = "VALIDATION_ERROR",
+  NOT_FOUND = "NOT_FOUND",
+  FORBIDDEN = "FORBIDDEN",
+
   // 认证错误 (2000-2999)
-  AUTHENTICATION_ERROR = 'AUTHENTICATION_ERROR',
-  UNAUTHORIZED = 'UNAUTHORIZED',
-  TOKEN_EXPIRED = 'TOKEN_EXPIRED',
-  INVALID_TOKEN = 'INVALID_TOKEN',
-  INVALID_CREDENTIALS = 'INVALID_CREDENTIALS',
-  MISSING_AUTHORIZATION = 'MISSING_AUTHORIZATION',
-  
+  AUTHENTICATION_ERROR = "AUTHENTICATION_ERROR",
+  UNAUTHORIZED = "UNAUTHORIZED",
+  TOKEN_EXPIRED = "TOKEN_EXPIRED",
+  INVALID_TOKEN = "INVALID_TOKEN",
+  INVALID_CREDENTIALS = "INVALID_CREDENTIALS",
+  MISSING_AUTHORIZATION = "MISSING_AUTHORIZATION",
+
   // 配置错误 (3000-3999)
-  CONFIG_ERROR = 'CONFIG_ERROR',
-  MISSING_CONFIG = 'MISSING_CONFIG',
-  INVALID_CONFIG = 'INVALID_CONFIG',
-  
+  CONFIG_ERROR = "CONFIG_ERROR",
+  MISSING_CONFIG = "MISSING_CONFIG",
+  INVALID_CONFIG = "INVALID_CONFIG",
+
   // 请求错误 (4000-4999)
-  BAD_REQUEST = 'BAD_REQUEST',
-  INVALID_PARAMETER = 'INVALID_PARAMETER',
-  MISSING_PARAMETER = 'MISSING_PARAMETER',
-  
+  BAD_REQUEST = "BAD_REQUEST",
+  INVALID_PARAMETER = "INVALID_PARAMETER",
+  MISSING_PARAMETER = "MISSING_PARAMETER",
+
   // 服务错误 (5000-5999)
-  SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE',
-  TIMEOUT = 'TIMEOUT',
-  RATE_LIMIT_EXCEEDED = 'RATE_LIMIT_EXCEEDED',
-  
+  SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE",
+  TIMEOUT = "TIMEOUT",
+  RATE_LIMIT_EXCEEDED = "RATE_LIMIT_EXCEEDED",
+
   // 插件错误 (6000-6999)
-  PLUGIN_ERROR = 'PLUGIN_ERROR',
-  PLUGIN_NOT_FOUND = 'PLUGIN_NOT_FOUND',
-  PLUGIN_EXECUTION_FAILED = 'PLUGIN_EXECUTION_FAILED',
-  
+  PLUGIN_ERROR = "PLUGIN_ERROR",
+  PLUGIN_NOT_FOUND = "PLUGIN_NOT_FOUND",
+  PLUGIN_EXECUTION_FAILED = "PLUGIN_EXECUTION_FAILED",
+
   // LLM错误 (7000-7999)
-  LLM_ERROR = 'LLM_ERROR',
-  LLM_TIMEOUT = 'LLM_TIMEOUT',
-  LLM_QUOTA_EXCEEDED = 'LLM_QUOTA_EXCEEDED',
-  LLM_INVALID_RESPONSE = 'LLM_INVALID_RESPONSE'
+  LLM_ERROR = "LLM_ERROR",
+  LLM_TIMEOUT = "LLM_TIMEOUT",
+  LLM_QUOTA_EXCEEDED = "LLM_QUOTA_EXCEEDED",
+  LLM_INVALID_RESPONSE = "LLM_INVALID_RESPONSE",
 }
 
 /**
@@ -65,7 +65,7 @@ export class AppError extends Error {
     details?: any
   ) {
     super(message);
-    this.name = 'AppError';
+    this.name = "AppError";
     this.statusCode = statusCode;
     this.code = code;
     this.type = this.getErrorType(statusCode);
@@ -81,11 +81,11 @@ export class AppError extends Error {
    */
   private getErrorType(statusCode: number): string {
     if (statusCode >= 400 && statusCode < 500) {
-      return 'client_error';
+      return "client_error";
     } else if (statusCode >= 500) {
-      return 'server_error';
+      return "server_error";
     }
-    return 'unknown_error';
+    return "unknown_error";
   }
 
   /**
@@ -97,8 +97,8 @@ export class AppError extends Error {
         message: this.message,
         code: this.code,
         type: this.type,
-        ...(this.details && { details: this.details })
-      }
+        ...(this.details && { details: this.details }),
+      },
     };
   }
 }
@@ -110,68 +110,68 @@ export const createError = {
   /**
    * 内部服务器错误
    */
-  internal: (message: string = 'Internal server error', details?: any) =>
+  internal: (message: string = "Internal server error", details?: any) =>
     new AppError(message, 500, ErrorCode.INTERNAL_ERROR, details),
 
   /**
    * 未授权错误
    */
-  unauthorized: (message: string = 'Unauthorized', details?: any) =>
+  unauthorized: (message: string = "Unauthorized", details?: any) =>
     new AppError(message, 401, ErrorCode.UNAUTHORIZED, details),
 
   /**
    * 禁止访问错误
    */
-  forbidden: (message: string = 'Forbidden', details?: any) =>
+  forbidden: (message: string = "Forbidden", details?: any) =>
     new AppError(message, 403, ErrorCode.FORBIDDEN, details),
 
   /**
    * 未找到错误
    */
-  notFound: (message: string = 'Resource not found', details?: any) =>
+  notFound: (message: string = "Resource not found", details?: any) =>
     new AppError(message, 404, ErrorCode.NOT_FOUND, details),
 
   /**
    * 请求错误
    */
-  badRequest: (message: string = 'Bad request', details?: any) =>
+  badRequest: (message: string = "Bad request", details?: any) =>
     new AppError(message, 400, ErrorCode.BAD_REQUEST, details),
 
   /**
    * 验证错误
    */
-  validation: (message: string = 'Validation error', details?: any) =>
+  validation: (message: string = "Validation error", details?: any) =>
     new AppError(message, 400, ErrorCode.VALIDATION_ERROR, details),
 
   /**
    * 认证错误
    */
-  authentication: (message: string = 'Authentication failed', details?: any) =>
+  authentication: (message: string = "Authentication failed", details?: any) =>
     new AppError(message, 401, ErrorCode.AUTHENTICATION_ERROR, details),
 
   /**
    * Token过期错误
    */
-  tokenExpired: (message: string = 'Token expired', details?: any) =>
+  tokenExpired: (message: string = "Token expired", details?: any) =>
     new AppError(message, 401, ErrorCode.TOKEN_EXPIRED, details),
 
   /**
    * 配置错误
    */
-  config: (message: string = 'Configuration error', details?: any) =>
+  config: (message: string = "Configuration error", details?: any) =>
     new AppError(message, 500, ErrorCode.CONFIG_ERROR, details),
 
   /**
    * 服务不可用错误
    */
-  serviceUnavailable: (message: string = 'Service unavailable', details?: any) =>
+  serviceUnavailable: (message: string = "Service unavailable", details?: any) =>
     new AppError(message, 503, ErrorCode.SERVICE_UNAVAILABLE, details),
 
   /**
    * 超时错误
    */
-  timeout: (message: string = 'Request timeout', details?: any) =>
-    new AppError(message, 408, ErrorCode.TIMEOUT, details)
+  timeout: (message: string = "Request timeout", details?: any) =>
+    new AppError(message, 408, ErrorCode.TIMEOUT, details),
 };
 
 /**
@@ -192,7 +192,7 @@ export function normalizeError(error: any): AppError {
   // 如果是已知的HTTP错误
   if (error.statusCode) {
     return new AppError(
-      error.message || 'Unknown error',
+      error.message || "Unknown error",
       error.statusCode,
       error.code || ErrorCode.INTERNAL_ERROR,
       error.details
@@ -200,6 +200,5 @@ export function normalizeError(error: any): AppError {
   }
 
   // 默认内部错误
-  return createError.internal(error.message || 'Unknown error', error);
+  return createError.internal(error.message || "Unknown error", error);
 }
-

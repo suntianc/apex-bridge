@@ -35,6 +35,7 @@ graph TD
 ## 📋 策略接口
 
 ### ChatStrategy接口 (`ChatStrategy.ts`)
+
 - **职责**: 定义所有聊天策略的统一契约
 - **关键方法**:
   - `execute()`: 执行聊天处理（同步/异步）
@@ -46,12 +47,14 @@ graph TD
 ## 🧠 ReAct策略 (`ReActStrategy.ts`)
 
 ### 核心特性
+
 - **多轮思考**: 支持自我思考循环，最多10轮迭代
 - **工具调用**: 集成工具执行框架，支持并发工具调用
 - **流式输出**: 支持思考和内容的分段流式输出
 - **ACE集成**: 自动记录思考轨迹到ACE引擎
 
 ### 执行流程
+
 1. **策略选择**: 检查`options.selfThinking.enabled`是否为true
 2. **工具注册**: 注册默认工具和自定义工具
 3. **变量解析**: 使用VariableResolver处理消息变量
@@ -60,6 +63,7 @@ graph TD
 6. **结果返回**: 返回最终内容和思考过程
 
 ### 配置选项
+
 ```typescript
 selfThinking: {
   enabled: boolean;           // 启用多轮思考
@@ -73,6 +77,7 @@ selfThinking: {
 ```
 
 ### 流式输出事件
+
 - `reasoning`: 思考过程输出
 - `content`: 内容生成输出
 - `tool_start`: 工具调用开始
@@ -81,12 +86,14 @@ selfThinking: {
 ## ⚡ 单轮策略 (`SingleRoundStrategy.ts`)
 
 ### 核心特性
+
 - **快速响应**: 单轮LLM调用，无思考循环
 - **简单高效**: 适合简单问答场景
 - **变量支持**: 集成变量解析功能
 - **历史保存**: 自动保存对话历史
 
 ### 执行流程
+
 1. **策略选择**: 默认策略或当ReAct未启用时
 2. **变量解析**: 处理消息中的动态变量
 3. **LLM调用**: 直接调用LLM生成响应
@@ -94,6 +101,7 @@ selfThinking: {
 5. **结果返回**: 返回生成的内容
 
 ### 适用场景
+
 - 简单问答
 - 快速响应需求
 - 低延迟要求
@@ -102,6 +110,7 @@ selfThinking: {
 ## 🔧 策略选择逻辑
 
 ### ChatService中的选择算法
+
 ```typescript
 private async selectStrategy(options: ChatOptions): Promise<ChatStrategy> {
   for (const strategy of this.strategies) {
@@ -116,21 +125,34 @@ private async selectStrategy(options: ChatOptions): Promise<ChatStrategy> {
 ```
 
 ### 选择优先级
+
 1. **ReAct策略**: `selfThinking.enabled === true`
 2. **单轮策略**: 默认回退策略
 
 ## 🚀 集成与使用
 
 ### 在ChatService中的集成
+
 ```typescript
 // 构造函数中初始化策略
 this.strategies = [
-  new ReActStrategy(this.llmManager, this.variableResolver, this.aceIntegrator, this.conversationHistoryService),
-  new SingleRoundStrategy(this.llmManager, this.variableResolver, this.aceIntegrator, this.conversationHistoryService)
+  new ReActStrategy(
+    this.llmManager,
+    this.variableResolver,
+    this.aceIntegrator,
+    this.conversationHistoryService
+  ),
+  new SingleRoundStrategy(
+    this.llmManager,
+    this.variableResolver,
+    this.aceIntegrator,
+    this.conversationHistoryService
+  ),
 ];
 ```
 
 ### 策略执行调用
+
 ```typescript
 // 选择策略
 const strategy = await this.selectStrategy(options);
@@ -146,22 +168,26 @@ if (options.stream) {
 ## 🔧 关键依赖
 
 ### 外部依赖
+
 - `../core/LLMManager`: LLM管理器
 - `../core/stream-orchestrator/ReActEngine`: ReAct引擎
 - `../core/skills/SkillExecutor`: 技能执行器
 
 ### 服务依赖
+
 - `../services/VariableResolver`: 变量解析服务
 - `../services/AceIntegrator`: ACE集成服务
 - `../services/ConversationHistoryService`: 对话历史服务
 
 ### 类型依赖
+
 - `../types/`: 聊天选项和消息类型
 - `../core/stream-orchestrator/types`: 流式处理类型
 
 ## 🧪 测试要点
 
 ### 单元测试重点
+
 - 策略选择逻辑的正确性
 - ReAct策略的多轮迭代逻辑
 - 单轮策略的快速响应路径
@@ -169,6 +195,7 @@ if (options.stream) {
 - 错误处理和降级机制
 
 ### 集成测试重点
+
 - 策略与服务的协调
 - 流式输出的实时性
 - 工具调用的并发处理
@@ -178,12 +205,14 @@ if (options.stream) {
 ## 📊 性能考虑
 
 ### ReAct策略优化
+
 - **并发工具执行**: 支持最多3个并发工具调用
 - **迭代限制**: 默认最多50轮迭代，防止无限循环
 - **超时控制**: 支持总超时和单轮超时设置
 - **内存管理**: 及时清理思考缓冲区和工具状态
 
 ### 单轮策略优化
+
 - **缓存利用**: 充分利用变量解析缓存
 - **快速路径**: 最小化处理开销
 - **错误降级**: 快速失败和错误传播
@@ -191,16 +220,19 @@ if (options.stream) {
 ## 🔗 相关文件
 
 ### 策略实现文件
+
 - `/src/strategies/ChatStrategy.ts` - 策略接口定义
 - `/src/strategies/ReActStrategy.ts` - ReAct策略实现
 - `/src/strategies/SingleRoundStrategy.ts` - 单轮策略实现
 
 ### 核心依赖文件
+
 - `/src/core/stream-orchestrator/ReActEngine.ts` - ReAct引擎
 - `/src/core/llm/adapters/LLMAdapterFactory.ts` - LLM适配器工厂
 - `/src/core/skills/SkillExecutor.ts` - 技能执行器
 
 ### 服务依赖文件
+
 - `/src/services/VariableResolver.ts` - 变量解析服务
 - `/src/services/AceIntegrator.ts` - ACE集成服务
 - `/src/services/ConversationHistoryService.ts` - 对话历史服务
@@ -208,12 +240,14 @@ if (options.stream) {
 ## 📈 最近更新
 
 ### 2025-11-30 - 策略模式重构
+
 - ✅ **新增策略层**: 从ChatService中独立出来
 - ✅ **ReAct策略**: 完整的多轮思考和工具调用支持
 - ✅ **单轮策略**: 快速响应路径优化
 - ✅ **接口统一**: 所有策略实现统一接口
 
 ### 关键改进
+
 - **职责分离**: 策略逻辑从业务服务中分离
 - **可扩展性**: 易于添加新的聊天策略
 - **测试友好**: 可以独立测试每个策略
@@ -222,6 +256,7 @@ if (options.stream) {
 ## 🎯 使用示例
 
 ### ReAct策略使用
+
 ```typescript
 // 启用多轮思考（默认50次）
 const options = {
@@ -229,12 +264,14 @@ const options = {
     enabled: true,
     // maxIterations未设置，使用默认值（50次）
     includeThoughtsInResponse: true,
-    tools: [{
-      name: "search",
-      description: "搜索知识库",
-      parameters: { query: { type: "string" } }
-    }]
-  }
+    tools: [
+      {
+        name: "search",
+        description: "搜索知识库",
+        parameters: { query: { type: "string" } },
+      },
+    ],
+  },
 };
 
 // 执行聊天
@@ -242,6 +279,7 @@ const result = await chatService.processMessage(messages, options);
 ```
 
 ### 单轮策略使用
+
 ```typescript
 // 默认使用单轮策略
 const options = {
@@ -266,6 +304,7 @@ const result = await chatService.processMessage(messages, options);
 **状态**: 策略模式重构完成，支持ReAct和单轮两种策略
 
 **核心成就**:
+
 - ✅ 完成策略模式架构设计
 - ✅ 实现ReAct多轮思考策略
 - ✅ 实现单轮快速响应策略

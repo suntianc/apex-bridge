@@ -1,13 +1,13 @@
 /**
  * ABP (ApexBridge Protocol) Type Definitions
- * 
+ *
  * ABP协议类型定义（ABP-only）
  */
 
 /**
  * ABP消息角色
  */
-export type ABPMessageRole = 'system' | 'user' | 'assistant';
+export type ABPMessageRole = "system" | "user" | "assistant";
 
 /**
  * ABP消息
@@ -57,4 +57,3 @@ export interface ABPProtocolConfig {
     cacheTTL?: number;
   };
 }
-

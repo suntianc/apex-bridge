@@ -1,12 +1,12 @@
 /**
  * ModelRegistry - 模型注册表服务
- * 
+ *
  * 提供快速的模型查询和缓存功能
  */
 
-import { logger } from '../utils/logger';
-import { LLMConfigService } from './LLMConfigService';
-import { LLMModelType, LLMModelFull } from '../types/llm-models';
+import { logger } from "../utils/logger";
+import { LLMConfigService } from "./LLMConfigService";
+import { LLMModelType, LLMModelFull } from "../types/llm-models";
 
 /**
  * 模型注册表
@@ -31,7 +31,7 @@ export class ModelRegistry {
     this.refreshInterval = 60000; // 60 秒刷新间隔
 
     this.refreshCache();
-    logger.debug('ModelRegistry initialized');
+    logger.debug("ModelRegistry initialized");
   }
 
   /**
@@ -59,7 +59,7 @@ export class ModelRegistry {
       const models = this.configService.listModels({ enabled: true });
 
       // 构建缓存
-      models.forEach(model => {
+      models.forEach((model) => {
         // 只缓存提供商也启用的模型
         if (!model.providerEnabled) {
           return;
@@ -87,7 +87,7 @@ export class ModelRegistry {
       this.lastRefreshTime = Date.now();
       logger.debug(`✅ ModelRegistry cache refreshed: ${models.length} models`);
     } catch (error: any) {
-      logger.error('❌ Failed to refresh ModelRegistry cache:', error);
+      logger.error("❌ Failed to refresh ModelRegistry cache:", error);
     }
   }
 
@@ -160,7 +160,7 @@ export class ModelRegistry {
    */
   public findModel(provider: string, modelKey: string): LLMModelFull | null {
     this.checkRefresh();
-    
+
     // 🆕 使用 Key 索引实现 O(1) 查找
     const uniqueKey = `${provider}:${modelKey}`;
     return this.keyIndexCache.get(uniqueKey) || null;
@@ -171,7 +171,7 @@ export class ModelRegistry {
    */
   public getStats() {
     this.checkRefresh();
-    
+
     return {
       totalModels: this.modelCache.size,
       modelsByType: {
@@ -179,11 +179,11 @@ export class ModelRegistry {
         embedding: this.getModelsByType(LLMModelType.EMBEDDING).length,
         rerank: this.getModelsByType(LLMModelType.RERANK).length,
         image: this.getModelsByType(LLMModelType.IMAGE).length,
-        audio: this.getModelsByType(LLMModelType.AUDIO).length
+        audio: this.getModelsByType(LLMModelType.AUDIO).length,
       },
       defaultModels: this.defaultModelCache.size,
       lastRefreshTime: this.lastRefreshTime,
-      cacheAge: Date.now() - this.lastRefreshTime
+      cacheAge: Date.now() - this.lastRefreshTime,
     };
   }
 
@@ -201,4 +201,3 @@ export class ModelRegistry {
     this.refreshInterval = intervalMs;
   }
 }
-

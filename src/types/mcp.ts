@@ -4,7 +4,7 @@
 
 export interface MCPServerConfig {
   id: string;
-  type: 'stdio' | 'sse' | 'websocket';
+  type: "stdio" | "sse" | "websocket";
   command: string;
   args: string[];
   env?: Record<string, string>;
@@ -13,7 +13,15 @@ export interface MCPServerConfig {
 }
 
 export interface MCPServerStatus {
-  phase: 'not-started' | 'initializing' | 'starting' | 'running' | 'stopping' | 'stopped' | 'error' | 'shutting-down';
+  phase:
+    | "not-started"
+    | "initializing"
+    | "starting"
+    | "running"
+    | "stopping"
+    | "stopped"
+    | "error"
+    | "shutting-down";
   message: string;
   uptime: number;
   startTime?: Date;
@@ -24,7 +32,7 @@ export interface MCPTool {
   name: string;
   description: string;
   inputSchema?: {
-    type: 'object';
+    type: "object";
     properties?: Record<string, any>;
     required?: string[];
   };
@@ -36,7 +44,7 @@ export interface MCPToolCall {
 }
 
 export interface MCPToolContent {
-  type: 'text' | 'image' | 'resource';
+  type: "text" | "image" | "resource";
   text?: string;
   mimeType?: string;
   data?: string | Uint8Array;
@@ -47,7 +55,7 @@ export interface MCPToolResult {
   content: MCPToolContent[];
   duration: number;
   metadata?: {
-    toolType: 'mcp';
+    toolType: "mcp";
     source?: string;
     toolName?: string;
   };
@@ -68,14 +76,14 @@ export interface MCPInitializeParams {
 }
 
 export interface MCPJSONRPCRequest {
-  jsonrpc: '2.0';
+  jsonrpc: "2.0";
   id: string | number;
   method: string;
   params?: any;
 }
 
 export interface MCPJSONRPCResponse {
-  jsonrpc: '2.0';
+  jsonrpc: "2.0";
   id: string | number;
   result?: any;
   error?: {

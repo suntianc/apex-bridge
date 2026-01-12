@@ -93,9 +93,7 @@ const PRECISION_THRESHOLD = 0.85;
 const F1_THRESHOLD = 0.88;
 
 // 自定义测试查询生成器，确保一致性
-function createConsistentTestQueries(
-  count: number
-): Array<{
+function createConsistentTestQueries(count: number): Array<{
   query: string;
   relevantIds: string[];
   retrieveFn: (query: string) => Promise<Array<{ id: string; score: number }>>;

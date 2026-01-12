@@ -52,7 +52,7 @@ export namespace Tool {
    * 文件附件类型
    */
   export interface FilePart {
-    type: 'file';
+    type: "file";
     file: {
       filename: string;
       fileData?: string;
@@ -65,10 +65,7 @@ export namespace Tool {
    * @typeParam Parameters - 参数类型
    * @typeParam M - 元数据类型
    */
-  export interface Info<
-    Parameters = Record<string, unknown>,
-    M extends Metadata = Metadata,
-  > {
+  export interface Info<Parameters = Record<string, unknown>, M extends Metadata = Metadata> {
     /** 工具唯一标识符 */
     id: string;
     /** 工具初始化函数 */
@@ -77,7 +74,7 @@ export namespace Tool {
       description: string;
       /** 参数模式 */
       parameters: {
-        type: 'object';
+        type: "object";
         properties?: Record<string, unknown>;
         required?: string[];
         additionalProperties?: boolean;
@@ -90,7 +87,7 @@ export namespace Tool {
        */
       execute(
         args: Parameters,
-        ctx: Context,
+        ctx: Context
       ): Promise<{
         /** 响应标题 */
         title: string;
@@ -109,16 +106,12 @@ export namespace Tool {
   /**
    * 从工具定义推断参数类型
    */
-  export type InferParameters<T extends Info> = T extends Info<infer P>
-    ? P
-    : never;
+  export type InferParameters<T extends Info> = T extends Info<infer P> ? P : never;
 
   /**
    * 从工具定义推断元数据类型
    */
-  export type InferMetadata<T extends Info> = T extends Info<any, infer M>
-    ? M
-    : never;
+  export type InferMetadata<T extends Info> = T extends Info<any, infer M> ? M : never;
 
   /**
    * 输出截断配置
@@ -126,7 +119,7 @@ export namespace Tool {
   export interface TruncateOptions {
     maxLines?: number;
     maxBytes?: number;
-    direction?: 'head' | 'tail';
+    direction?: "head" | "tail";
   }
 
   /**
@@ -135,7 +128,7 @@ export namespace Tool {
   const DEFAULT_TRUNCATE_OPTIONS: Required<TruncateOptions> = {
     maxLines: 2000,
     maxBytes: 50 * 1024,
-    direction: 'head',
+    direction: "head",
   };
 
   /**
@@ -146,11 +139,11 @@ export namespace Tool {
    */
   function truncateOutput(
     text: string,
-    options?: TruncateOptions,
+    options?: TruncateOptions
   ): { content: string; truncated: boolean } {
     const opts = { ...DEFAULT_TRUNCATE_OPTIONS, ...options };
-    const lines = text.split('\n');
-    const totalBytes = Buffer.byteLength(text, 'utf-8');
+    const lines = text.split("\n");
+    const totalBytes = Buffer.byteLength(text, "utf-8");
 
     if (lines.length <= opts.maxLines && totalBytes <= opts.maxBytes) {
       return { content: text, truncated: false };
@@ -161,9 +154,9 @@ export namespace Tool {
     let hitBytes = false;
     let i = 0;
 
-    if (opts.direction === 'head') {
+    if (opts.direction === "head") {
       for (i = 0; i < lines.length && i < opts.maxLines; i++) {
-        const lineSize = Buffer.byteLength(lines[i], 'utf-8') + (i > 0 ? 1 : 0);
+        const lineSize = Buffer.byteLength(lines[i], "utf-8") + (i > 0 ? 1 : 0);
         if (bytes + lineSize > opts.maxBytes) {
           hitBytes = true;
           break;
@@ -172,15 +165,15 @@ export namespace Tool {
         bytes += lineSize;
       }
       const removed = hitBytes ? totalBytes - bytes : lines.length - out.length;
-      const unit = hitBytes ? 'chars' : 'lines';
+      const unit = hitBytes ? "chars" : "lines";
       return {
-        content: `${out.join('\n')}\n\n...${removed} ${unit} truncated...`,
+        content: `${out.join("\n")}\n\n...${removed} ${unit} truncated...`,
         truncated: true,
       };
     }
 
     for (i = lines.length - 1; i >= 0 && out.length < opts.maxLines; i--) {
-      const lineSize = Buffer.byteLength(lines[i], 'utf-8') + (out.length > 0 ? 1 : 0);
+      const lineSize = Buffer.byteLength(lines[i], "utf-8") + (out.length > 0 ? 1 : 0);
       if (bytes + lineSize > opts.maxBytes) {
         hitBytes = true;
         break;
@@ -189,9 +182,9 @@ export namespace Tool {
       bytes += lineSize;
     }
     const removed = hitBytes ? totalBytes - bytes : lines.length - out.length;
-    const unit = hitBytes ? 'chars' : 'lines';
+    const unit = hitBytes ? "chars" : "lines";
     return {
-      content: `...${removed} ${unit} truncated...\n\n${out.join('\n')}`,
+      content: `...${removed} ${unit} truncated...\n\n${out.join("\n")}`,
       truncated: true,
     };
   }
@@ -204,20 +197,14 @@ export namespace Tool {
    * @param init - 工具初始化函数或已解析的工具信息
    * @returns 工具定义
    */
-  export function define<
-    Parameters extends Record<string, unknown>,
-    Result extends Metadata,
-  >(
+  export function define<Parameters extends Record<string, unknown>, Result extends Metadata>(
     id: string,
-    init:
-      | Info<Parameters, Result>['init']
-      | Awaited<ReturnType<Info<Parameters, Result>['init']>>,
+    init: Info<Parameters, Result>["init"] | Awaited<ReturnType<Info<Parameters, Result>["init"]>>
   ): Info<Parameters, Result> {
     return {
       id,
       init: async (ctx) => {
-        const toolInfo =
-          init instanceof Function ? await init(ctx) : init;
+        const toolInfo = init instanceof Function ? await init(ctx) : init;
 
         const originalExecute = toolInfo.execute;
 
@@ -234,7 +221,7 @@ export namespace Tool {
                 throw new Error(
                   toolInfo.formatValidationError({
                     errors: [{ path: param, message: errorMessage }],
-                  }),
+                  })
                 );
               }
               throw new Error(errorMessage);

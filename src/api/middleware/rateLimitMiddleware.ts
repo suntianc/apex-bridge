@@ -1,19 +1,19 @@
-import { NextFunction, Request, Response } from 'express';
+import { NextFunction, Request, Response } from "express";
 import {
   ConfigService,
   RateLimitRuleConfig,
   RateLimitSettings,
   RateLimitMatcherConfig,
   RateLimitStrategyConfig,
-  createDefaultRateLimitSettings
-} from '../../services/ConfigService';
-import { logger } from '../../utils/logger';
-import { InMemoryRateLimiter } from './rateLimit/inMemoryRateLimiter';
-import { RedisRateLimiter } from './rateLimit/redisRateLimiter';
-import { RateLimiter, RateLimiterMode } from './rateLimit/types';
-import { RedisService } from '../../services/RedisService';
+  createDefaultRateLimitSettings,
+} from "../../services/ConfigService";
+import { logger } from "../../utils/logger";
+import { InMemoryRateLimiter } from "./rateLimit/inMemoryRateLimiter";
+import { RedisRateLimiter } from "./rateLimit/redisRateLimiter";
+import { RateLimiter, RateLimiterMode } from "./rateLimit/types";
+import { RedisService } from "../../services/RedisService";
 
-type StrategyType = 'ip' | 'apiKey';
+type StrategyType = "ip" | "apiKey";
 
 interface SimpleRateLimitRule {
   id: string;
@@ -39,7 +39,7 @@ interface RateLimitHeaderNames {
 
 interface SimpleRateLimitRuntimeConfig {
   enabled: boolean;
-  provider: 'auto' | 'redis' | 'memory';
+  provider: "auto" | "redis" | "memory";
   trustProxy: boolean;
   keyPrefix: string;
   headers: RateLimitHeaderNames;
@@ -59,10 +59,10 @@ export interface RateLimitMiddlewareOptions {
 }
 
 const DEFAULT_HEADERS: RateLimitHeaderNames = {
-  limit: 'X-RateLimit-Limit',
-  remaining: 'X-RateLimit-Remaining',
-  reset: 'X-RateLimit-Reset',
-  retryAfter: 'Retry-After'
+  limit: "X-RateLimit-Limit",
+  remaining: "X-RateLimit-Remaining",
+  reset: "X-RateLimit-Reset",
+  retryAfter: "Retry-After",
 };
 
 function normalizeSettings(settings: RateLimitSettings): SimpleRateLimitRuntimeConfig {
@@ -70,11 +70,12 @@ function normalizeSettings(settings: RateLimitSettings): SimpleRateLimitRuntimeC
     limit: settings.headers?.limit || DEFAULT_HEADERS.limit,
     remaining: settings.headers?.remaining || DEFAULT_HEADERS.remaining,
     reset: settings.headers?.reset || DEFAULT_HEADERS.reset,
-    retryAfter: settings.headers?.retryAfter || DEFAULT_HEADERS.retryAfter
+    retryAfter: settings.headers?.retryAfter || DEFAULT_HEADERS.retryAfter,
   };
 
-  const defaultStrategies: StrategyType[] = (settings.defaultStrategyOrder ?? ['apiKey', 'ip'])
-    .filter((s): s is StrategyType => s === 'ip' || s === 'apiKey');
+  const defaultStrategies: StrategyType[] = (
+    settings.defaultStrategyOrder ?? ["apiKey", "ip"]
+  ).filter((s): s is StrategyType => s === "ip" || s === "apiKey");
 
   const normalizedRules = (settings.rules || [])
     .map((rule) => normalizeRule(rule, defaultStrategies))
@@ -83,17 +84,20 @@ function normalizeSettings(settings: RateLimitSettings): SimpleRateLimitRuntimeC
 
   return {
     enabled: settings.enabled ?? true,
-    provider: settings.provider ?? 'auto',
+    provider: settings.provider ?? "auto",
     trustProxy: settings.trustProxy ?? true,
-    keyPrefix: settings.keyPrefix ?? 'rate_limit',
+    keyPrefix: settings.keyPrefix ?? "rate_limit",
     headers,
-    rules: normalizedRules
+    rules: normalizedRules,
   };
 }
 
-function normalizeRule(rule: RateLimitRuleConfig, defaultStrategies: StrategyType[]): SimpleRateLimitRule | null {
+function normalizeRule(
+  rule: RateLimitRuleConfig,
+  defaultStrategies: StrategyType[]
+): SimpleRateLimitRule | null {
   if (!rule.id || !rule.name || !rule.windowMs || !rule.maxRequests) {
-    logger.warn(`[RateLimit] 规则 ${rule.id || '(unknown)'} 缺少必要字段，已跳过`);
+    logger.warn(`[RateLimit] 规则 ${rule.id || "(unknown)"} 缺少必要字段，已跳过`);
     return null;
   }
 
@@ -106,11 +110,12 @@ function normalizeRule(rule: RateLimitRuleConfig, defaultStrategies: StrategyTyp
     return null;
   }
 
-  const rawMode = rule.mode ?? 'sliding';
-  const mode: RateLimiterMode = rawMode === 'fixed' ? 'fixed' : 'sliding';
+  const rawMode = rule.mode ?? "sliding";
+  const mode: RateLimiterMode = rawMode === "fixed" ? "fixed" : "sliding";
 
-  const strategyOrder: StrategyType[] = (rule.strategyOrder || defaultStrategies)
-    .filter((s): s is StrategyType => s === 'ip' || s === 'apiKey');
+  const strategyOrder: StrategyType[] = (rule.strategyOrder || defaultStrategies).filter(
+    (s): s is StrategyType => s === "ip" || s === "apiKey"
+  );
 
   return {
     id: rule.id,
@@ -124,7 +129,7 @@ function normalizeRule(rule: RateLimitRuleConfig, defaultStrategies: StrategyTyp
     skipFailedRequests: rule.skipFailedRequests ?? false,
     responseHeaders: rule.responseHeaders ?? true,
     strategyOrder,
-    matchers
+    matchers,
   };
 }
 
@@ -132,12 +137,11 @@ function compileSimpleMatcher(config: RateLimitMatcherConfig): ((req: Request) =
   const methods = config.methods?.map((method) => method.toUpperCase());
 
   if (config.prefix) {
-    const prefix = config.prefix.endsWith('/') ? config.prefix : `${config.prefix}`;
-    return (req: Request) =>
-      matchMethod(req, methods) && req.path.startsWith(prefix);
+    const prefix = config.prefix.endsWith("/") ? config.prefix : `${config.prefix}`;
+    return (req: Request) => matchMethod(req, methods) && req.path.startsWith(prefix);
   }
 
-  logger.warn('[RateLimit] 匹配器配置缺少 prefix 信息');
+  logger.warn("[RateLimit] 匹配器配置缺少 prefix 信息");
   return null;
 }
 
@@ -145,7 +149,7 @@ function matchMethod(req: Request, allowedMethods?: string[]): boolean {
   if (!allowedMethods || allowedMethods.length === 0) {
     return true;
   }
-  return allowedMethods.includes(req.method?.toUpperCase() || 'GET');
+  return allowedMethods.includes(req.method?.toUpperCase() || "GET");
 }
 
 function resolveIdentity(
@@ -169,27 +173,27 @@ function resolveIdentityByStrategy(
   strategyType: StrategyType
 ): RateLimitIdentity | null {
   switch (strategyType) {
-    case 'ip': {
+    case "ip": {
       const value = extractClientIp(req, true); // 总是启用代理信任
       if (!value) return null;
       return {
-        strategy: 'ip',
+        strategy: "ip",
         value,
-        key: `ip:${value}`
+        key: `ip:${value}`,
       };
     }
-    case 'apiKey': {
+    case "apiKey": {
       const localsKey = res.locals.auth?.apiKeyId || res.locals.auth?.apiKeyToken;
       const headerKey =
-        (req.headers['x-api-key'] as string | undefined) ??
+        (req.headers["x-api-key"] as string | undefined) ??
         extractBearerToken(req.headers.authorization);
 
       const value = localsKey || headerKey;
       if (!value) return null;
       return {
-        strategy: 'apiKey',
+        strategy: "apiKey",
         value,
-        key: `apiKey:${value}`
+        key: `apiKey:${value}`,
       };
     }
     default:
@@ -211,8 +215,8 @@ function extractBearerToken(authHeader?: string): string | undefined {
   if (!authHeader) {
     return undefined;
   }
-  const parts = authHeader.split(' ');
-  if (parts.length !== 2 || parts[0].toLowerCase() !== 'bearer') {
+  const parts = authHeader.split(" ");
+  if (parts.length !== 2 || parts[0].toLowerCase() !== "bearer") {
     return undefined;
   }
   return parts[1];
@@ -232,7 +236,7 @@ function applyHeaders(
   res.setHeader(headers.remaining, Math.max(data.remaining, 0));
   res.setHeader(headers.reset, Math.floor(data.reset / 1000));
 
-  if (typeof data.retryAfterSeconds === 'number') {
+  if (typeof data.retryAfterSeconds === "number") {
     res.setHeader(headers.retryAfter, Math.max(data.retryAfterSeconds, 0));
   }
 }
@@ -247,12 +251,9 @@ function shouldCountRequest(statusCode: number, rule: SimpleRateLimitRule): bool
   return true;
 }
 
-export function createRateLimitMiddleware(
-  options?: RateLimitMiddlewareOptions
-) {
+export function createRateLimitMiddleware(options?: RateLimitMiddlewareOptions) {
   const configService = options?.configService ?? ConfigService.getInstance();
-  const fallbackLimiter =
-    options?.limiter ?? new InMemoryRateLimiter({ now: options?.clock });
+  const fallbackLimiter = options?.limiter ?? new InMemoryRateLimiter({ now: options?.clock });
   const redisService = RedisService.getInstance();
   let redisLimiter: RedisRateLimiter | null = null;
   let redisClientRef: any = null;
@@ -262,8 +263,7 @@ export function createRateLimitMiddleware(
 
   const getRuntimeConfig = (): SimpleRateLimitRuntimeConfig => {
     const adminConfig = configService.readConfig();
-    const settings =
-      adminConfig.security?.rateLimit ?? createDefaultRateLimitSettings();
+    const settings = adminConfig.security?.rateLimit ?? createDefaultRateLimitSettings();
 
     const serialized = JSON.stringify(settings);
     if (cachedRuntimeConfig && cachedSettingsHash === serialized) {
@@ -287,7 +287,9 @@ export function createRateLimitMiddleware(
         return next();
       }
 
-      const rule = runtimeConfig.rules.find((candidate) => candidate.matchers.some((matcher) => matcher(req)));
+      const rule = runtimeConfig.rules.find((candidate) =>
+        candidate.matchers.some((matcher) => matcher(req))
+      );
 
       if (!rule) {
         return next();
@@ -301,7 +303,7 @@ export function createRateLimitMiddleware(
       const key = `${runtimeConfig.keyPrefix}:${rule.id}:${identity.key}`;
       let limiter: RateLimiter = fallbackLimiter;
 
-      if (runtimeConfig.provider === 'redis') {
+      if (runtimeConfig.provider === "redis") {
         if (!redisLimiter) {
           try {
             const redisClient = await redisService.getClient();
@@ -310,7 +312,7 @@ export function createRateLimitMiddleware(
               redisLimiter = new RedisRateLimiter({ client: redisClient });
             }
           } catch (error: any) {
-            logger.warn('[RateLimit] Redis client unavailable, using memory limiter');
+            logger.warn("[RateLimit] Redis client unavailable, using memory limiter");
           }
         }
 
@@ -323,20 +325,20 @@ export function createRateLimitMiddleware(
         id: rule.id,
         windowMs: rule.windowMs,
         maxRequests: rule.maxRequests,
-        mode: rule.mode
+        mode: rule.mode,
       });
 
       if (result.allowed) {
         applyHeaders(res, rule, runtimeConfig.headers, {
           limit: rule.maxRequests,
           remaining: result.remaining,
-          reset: result.reset
+          reset: result.reset,
         });
 
-        res.on('finish', () => {
+        res.on("finish", () => {
           if (!shouldCountRequest(res.statusCode, rule) && identity && result.context) {
             limiter.undo?.(result.context).catch((error: any) => {
-              logger.warn('[RateLimit] Failed to undo rate limit hit', { error });
+              logger.warn("[RateLimit] Failed to undo rate limit hit", { error });
             });
           }
         });
@@ -348,19 +350,20 @@ export function createRateLimitMiddleware(
       applyHeaders(res, rule, runtimeConfig.headers, {
         limit: rule.maxRequests,
         remaining: 0,
-        reset: result.reset
+        reset: result.reset,
       });
 
-      const retryAfterSeconds = result.reset ? Math.ceil((result.reset - Date.now()) / 1000) : undefined;
+      const retryAfterSeconds = result.reset
+        ? Math.ceil((result.reset - Date.now()) / 1000)
+        : undefined;
 
       res.status(429).json({
-        error: 'Too Many Requests',
+        error: "Too Many Requests",
         message: `Rate limit exceeded for ${rule.name}`,
-        retryAfter: retryAfterSeconds
+        retryAfter: retryAfterSeconds,
       });
-
     } catch (error: any) {
-      logger.error('[RateLimit] Rate limit middleware error', { error });
+      logger.error("[RateLimit] Rate limit middleware error", { error });
       next();
     }
   };

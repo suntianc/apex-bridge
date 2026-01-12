@@ -3,7 +3,7 @@
  * 定义所有聊天处理策略的契约
  */
 
-import type { Message, ChatOptions } from '../types';
+import type { Message, ChatOptions } from "../types";
 
 /**
  * 策略执行结果接口
@@ -13,7 +13,7 @@ export interface ChatResult {
   usage?: any;
   iterations?: number;
   thinkingProcess?: string;
-  rawThinkingProcess?: string[];  // 原始思考过程（供ChatService统一存储）
+  rawThinkingProcess?: string[]; // 原始思考过程（供ChatService统一存储）
 }
 
 /**
@@ -54,7 +54,11 @@ export interface ChatStrategy {
    * @param abortSignal 中断信号
    * @returns 流式结果
    */
-  stream(messages: Message[], options: ChatOptions, abortSignal?: AbortSignal): AsyncIterableIterator<any>;
+  stream(
+    messages: Message[],
+    options: ChatOptions,
+    abortSignal?: AbortSignal
+  ): AsyncIterableIterator<any>;
 
   /**
    * 检查策略是否支持给定的选项

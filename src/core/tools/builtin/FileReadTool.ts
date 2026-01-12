@@ -3,9 +3,9 @@
  * 提供安全、高效的文件读取功能
  */
 
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import { ToolResult, BuiltInTool, ToolType } from '../../../types/tool-system';
+import * as fs from "fs/promises";
+import * as path from "path";
+import { ToolResult, BuiltInTool, ToolType } from "../../../types/tool-system";
 
 /**
  * FileReadTool参数接口
@@ -28,13 +28,36 @@ export interface FileReadArgs {
  * 安全读取文件内容，支持多种格式和大小限制
  */
 export class FileReadTool {
-  private static readonly DEFAULT_ENCODING: BufferEncoding = 'utf8';
+  private static readonly DEFAULT_ENCODING: BufferEncoding = "utf8";
   private static readonly DEFAULT_MAX_SIZE = 10 * 1024 * 1024; // 10MB
   private static readonly ALLOWED_EXTENSIONS = [
-    '.txt', '.md', '.json', '.yaml', '.yml', '.xml', '.csv',
-    '.js', '.ts', '.jsx', '.tsx', '.py', '.java', '.cpp', '.c',
-    '.html', '.css', '.scss', '.less', '.sql', '.sh', '.bat',
-    '.dockerfile', '.gitignore', '.env', '.conf', '.config'
+    ".txt",
+    ".md",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".xml",
+    ".csv",
+    ".js",
+    ".ts",
+    ".jsx",
+    ".tsx",
+    ".py",
+    ".java",
+    ".cpp",
+    ".c",
+    ".html",
+    ".css",
+    ".scss",
+    ".less",
+    ".sql",
+    ".sh",
+    ".bat",
+    ".dockerfile",
+    ".gitignore",
+    ".env",
+    ".conf",
+    ".config",
   ];
 
   /**
@@ -71,19 +94,18 @@ export class FileReadTool {
 
       return {
         success: true,
-        output: typeof output === 'string' ? output : JSON.stringify(output, null, 2),
+        output: typeof output === "string" ? output : JSON.stringify(output, null, 2),
         duration,
-        exitCode: 0
+        exitCode: 0,
       };
-
     } catch (error) {
       const duration = Date.now() - startTime;
       return {
         success: false,
         error: this.formatError(error),
         duration,
-        errorCode: 'FILE_READ_ERROR',
-        exitCode: 1
+        errorCode: "FILE_READ_ERROR",
+        exitCode: 1,
       };
     }
   }
@@ -92,16 +114,16 @@ export class FileReadTool {
    * 验证参数
    */
   private static validateArgs(args: FileReadArgs): void {
-    if (!args.path || typeof args.path !== 'string') {
-      throw new Error('File path is required and must be a string');
+    if (!args.path || typeof args.path !== "string") {
+      throw new Error("File path is required and must be a string");
     }
 
     if (args.encoding && !Buffer.isEncoding(args.encoding)) {
       throw new Error(`Invalid encoding: ${args.encoding}`);
     }
 
-    if (args.maxSize && (typeof args.maxSize !== 'number' || args.maxSize <= 0)) {
-      throw new Error('Max size must be a positive number');
+    if (args.maxSize && (typeof args.maxSize !== "number" || args.maxSize <= 0)) {
+      throw new Error("Max size must be a positive number");
     }
   }
 
@@ -129,14 +151,14 @@ export class FileReadTool {
     }
 
     // 检查是否包含路径遍历字符
-    if (normalizedPath.includes('..') || absolutePath.includes('..')) {
-      throw new Error('Path traversal detected');
+    if (normalizedPath.includes("..") || absolutePath.includes("..")) {
+      throw new Error("Path traversal detected");
     }
 
     // 确保路径在工作目录内（防止访问系统文件）
     const workDir = process.cwd();
     if (!absolutePath.startsWith(workDir)) {
-      throw new Error('File path must be within the working directory');
+      throw new Error("File path must be within the working directory");
     }
 
     return absolutePath;
@@ -149,9 +171,9 @@ export class FileReadTool {
     try {
       await fs.access(filePath, fs.constants.R_OK);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         throw new Error(`File not found: ${filePath}`);
-      } else if ((error as NodeJS.ErrnoException).code === 'EACCES') {
+      } else if ((error as NodeJS.ErrnoException).code === "EACCES") {
         throw new Error(`Permission denied: ${filePath}`);
       } else {
         throw new Error(`Cannot access file: ${filePath}`);
@@ -194,7 +216,10 @@ export class FileReadTool {
   /**
    * 读取文件内容
    */
-  private static async readFileContent(filePath: string, encoding: BufferEncoding): Promise<string> {
+  private static async readFileContent(
+    filePath: string,
+    encoding: BufferEncoding
+  ): Promise<string> {
     return await fs.readFile(filePath, encoding);
   }
 
@@ -216,10 +241,10 @@ export class FileReadTool {
     if (error instanceof Error) {
       return error.message;
     }
-    if (typeof error === 'string') {
+    if (typeof error === "string") {
       return error;
     }
-    return 'Unknown error occurred';
+    return "Unknown error occurred";
   }
 
   /**
@@ -227,42 +252,43 @@ export class FileReadTool {
    */
   static getMetadata() {
     return {
-      name: 'file-read',
-      description: '安全读取文件内容，支持文本、JSON等多种格式',
-      category: 'filesystem',
+      name: "file-read",
+      description: "安全读取文件内容，支持文本、JSON等多种格式",
+      category: "filesystem",
       level: 1,
       parameters: {
-        type: 'object',
+        type: "object",
         properties: {
           path: {
-            type: 'string',
-            description: '要读取的文件路径，支持相对路径和绝对路径'
+            type: "string",
+            description: "要读取的文件路径，支持相对路径和绝对路径",
           },
           encoding: {
-            type: 'string',
-            description: '文件编码，默认为utf8',
-            default: 'utf8',
-            enum: ['utf8', 'utf16le', 'latin1', 'base64', 'hex', 'ascii']
+            type: "string",
+            description: "文件编码，默认为utf8",
+            default: "utf8",
+            enum: ["utf8", "utf16le", "latin1", "base64", "hex", "ascii"],
           },
           maxSize: {
-            type: 'number',
-            description: '最大文件大小（字节），默认10MB',
+            type: "number",
+            description: "最大文件大小（字节），默认10MB",
             default: 10485760,
             minimum: 1024,
-            maximum: 104857600
+            maximum: 104857600,
           },
           parseJson: {
-            type: 'boolean',
-            description: '是否自动解析JSON内容',
-            default: false
+            type: "boolean",
+            description: "是否自动解析JSON内容",
+            default: false,
           },
           basePath: {
-            type: 'string',
-            description: '基础路径，用于解析相对路径。例如在Skill中可传入技能目录路径，使相对路径相对于Skill目录解析'
-          }
+            type: "string",
+            description:
+              "基础路径，用于解析相对路径。例如在Skill中可传入技能目录路径，使相对路径相对于Skill目录解析",
+          },
         },
-        required: ['path']
-      }
+        required: ["path"],
+      },
     };
   }
 }
@@ -277,6 +303,6 @@ export function createFileReadTool() {
     enabled: true,
     execute: async (args: Record<string, any>) => {
       return FileReadTool.execute(args as FileReadArgs);
-    }
+    },
   } as BuiltInTool;
 }

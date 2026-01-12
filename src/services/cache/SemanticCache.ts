@@ -5,7 +5,7 @@
  * Avoids redundant embedding API calls and database queries.
  */
 
-import LRUCache from "lru-cache";
+import { LRUCache } from "lru-cache";
 import { createHash } from "crypto";
 import { logger } from "../../utils/logger";
 import type { EmbeddingVector } from "../tool-retrieval/types";
@@ -227,14 +227,14 @@ export class SemanticCache {
   invalidate(query: string): boolean {
     const key = this._generateCacheKey(query);
     if (this.lruCache.has(key)) {
-      this.lruCache.del(key);
+      this.lruCache.delete(key);
       return true;
     }
     return false;
   }
 
   clear(): void {
-    this.lruCache.reset();
+    this.lruCache.clear();
     this.stats = {
       hits: 0,
       misses: 0,
@@ -251,7 +251,7 @@ export class SemanticCache {
     const avgSimilarity = this.stats.hits > 0 ? this.stats.totalSimilarity / this.stats.hits : 0;
 
     return {
-      size: this.lruCache.itemCount,
+      size: this.lruCache.size,
       hits: this.stats.hits,
       misses: this.stats.misses,
       hitRate,
@@ -340,7 +340,7 @@ export class SemanticCache {
     });
 
     return {
-      itemCount: this.lruCache.itemCount,
+      itemCount: this.lruCache.size,
       approximateBytes: totalBytes,
     };
   }

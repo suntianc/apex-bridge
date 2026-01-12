@@ -48,6 +48,7 @@ graph TD
 ## 📋 核心组件
 
 ### ChatController (`controllers/ChatController.ts`)
+
 - **职责**: OpenAI兼容的聊天API控制器
 - **关键端点**:
   - `POST /v1/chat/completions` - 标准聊天完成
@@ -62,6 +63,7 @@ graph TD
 - **特性**: 支持selfThinking配置、会话管理、流式输出
 
 ### ProviderController (`controllers/ProviderController.ts`)
+
 - **职责**: LLM提供商管理
 - **关键端点**:
   - `GET /api/llm/providers` - 列出提供商
@@ -71,6 +73,7 @@ graph TD
   - `DELETE /api/llm/providers/{id}` - 删除提供商
 
 ### ModelController (`controllers/ModelController.ts`)
+
 - **职责**: LLM模型管理
 - **关键端点**:
   - `GET /api/llm/providers/{providerId}/models` - 提供商的模型列表
@@ -82,6 +85,7 @@ graph TD
   - `GET /api/llm/models/default` - 获取默认模型
 
 ### WebSocketManager (`websocket/WebSocketManager.ts`)
+
 - **职责**: WebSocket连接管理和消息路由
 - **关键功能**:
   - 连接认证和授权
@@ -91,6 +95,7 @@ graph TD
 - **端点格式**: `/chat/api_key={apiKey}` 或 `/v1/chat/api_key={apiKey}`
 
 ### ChatChannel (`websocket/channels/ChatChannel.ts`)
+
 - **职责**: 聊天频道的具体实现
 - **关键功能**:
   - 聊天消息处理
@@ -101,40 +106,49 @@ graph TD
 ## 🛡️ 中间件体系
 
 ### 认证中间件 (`middleware/authMiddleware.ts`)
+
 - **职责**: API Key认证
 - **功能**: 提取和验证API Key，用户身份识别
 
 ### 限流中间件 (`middleware/rateLimitMiddleware.ts`)
+
 - **职责**: 请求速率限制
 - **功能**: IP和API Key双重限流策略，支持内存和Redis后端
 
 ### 验证中间件 (`middleware/validationMiddleware.ts`)
+
 - **职责**: 请求参数验证
 - **功能**: JSON Schema验证，自定义验证器支持
 
 ### 清理中间件 (`middleware/sanitizationMiddleware.ts`)
+
 - **职责**: 输入数据清理
 - **功能**: 危险字符过滤，防止XSS和注入攻击
 
 ### 安全中间件 (`middleware/securityHeadersMiddleware.ts`)
+
 - **职责**: 安全头部设置
 - **功能**: Helmet.js集成，CSP、HSTS等安全头部
 
 ### 安全日志中间件 (`middleware/securityLoggerMiddleware.ts`)
+
 - **职责**: 安全事件记录
 - **功能**: 安全相关事件的日志记录和监控
 
 ### 审计日志中间件 (`middleware/auditLoggerMiddleware.ts`)
+
 - **职责**: 关键操作审计
 - **功能**: 用户操作、配置变更等审计记录
 
 ### 错误处理中间件 (`middleware/errorHandler.ts`)
+
 - **职责**: 全局错误处理
 - **功能**: 错误统一处理、日志记录、客户端响应
 
 ## 🚀 服务器初始化
 
 ### ABPIntelliCore (`server.ts`)
+
 - **职责**: 主服务器类
 - **初始化流程**:
   1. 基础服务初始化（PathService、ConfigService）
@@ -148,6 +162,7 @@ graph TD
   9. 优雅关闭处理
 
 ### 中间件栈顺序
+
 ```
 1. 安全头部 (Helmet)
 2. CORS配置
@@ -164,6 +179,7 @@ graph TD
 ## 🔧 关键依赖
 
 ### 外部依赖
+
 - `express`: Web框架
 - `ws`: WebSocket库
 - `helmet`: 安全头部中间件
@@ -171,6 +187,7 @@ graph TD
 - `ajv`: JSON Schema验证
 
 ### 内部依赖
+
 - `../services/`: 业务服务层
 - `../core/`: 核心引擎
 - `../types/`: 类型定义
@@ -179,18 +196,21 @@ graph TD
 ## 🧪 测试要点
 
 ### API测试重点
+
 - OpenAI兼容端点的正确性
 - 会话管理API的完整性
 - 流式输出的稳定性
 - 中断功能的可靠性
 
 ### WebSocket测试重点
+
 - 连接建立和认证
 - 消息传输的实时性
 - 心跳检测和重连
 - 错误处理和通知
 
 ### 中间件测试重点
+
 - 认证和授权逻辑
 - 限流策略的准确性
 - 输入验证的完整性
@@ -199,16 +219,19 @@ graph TD
 ## 📊 安全考虑
 
 ### 认证安全
+
 - API Key的安全传输和存储
 - 连接认证的状态管理
 - 敏感信息的脱敏日志
 
 ### 数据安全
+
 - 输入数据的清理和验证
 - SQL注入防护
 - XSS攻击防护
 
 ### 访问控制
+
 - 基于API Key的权限控制
 - 限流和DDoS防护
 - CORS配置的安全性
@@ -216,15 +239,18 @@ graph TD
 ## 🔗 相关文件
 
 ### 控制器文件
+
 - `/src/api/controllers/ChatController.ts` - 聊天控制器
 - `/src/api/controllers/ProviderController.ts` - 提供商控制器
 - `/src/api/controllers/ModelController.ts` - 模型控制器
 
 ### WebSocket文件
+
 - `/src/api/websocket/WebSocketManager.ts` - WebSocket管理器
 - `/src/api/websocket/channels/ChatChannel.ts` - 聊天频道
 
 ### 中间件文件
+
 - `/src/api/middleware/authMiddleware.ts` - 认证中间件
 - `/src/api/middleware/rateLimitMiddleware.ts` - 限流中间件
 - `/src/api/middleware/validationMiddleware.ts` - 验证中间件
@@ -235,9 +261,11 @@ graph TD
 - `/src/api/middleware/errorHandler.ts` - 错误处理
 
 ### 服务器入口
+
 - `/src/server.ts` - 主服务器类
 
 ### 验证和配置
+
 - `/src/api/middleware/validationSchemas.ts` - 验证模式
 - `/src/api/middleware/customValidators.ts` - 自定义验证器
 - `/src/api/middleware/rateLimit/` - 限流实现
@@ -245,16 +273,19 @@ graph TD
 ## 📈 最近更新
 
 ### 2025-11-30
+
 - ✅ **会话管理增强**: 新增活动会话列表和历史记录API
 - ✅ **简化流式接口**: 专为前端优化的`/v1/chat/simple-stream`
 - ✅ **中断功能**: 完善请求中断API
 
 ### 2025-11-19
+
 - ✅ **中间件优化**: 简化验证和安全中间件，减少代码量
 - ✅ **错误处理**: 统一错误处理和响应格式
 - ✅ **性能优化**: 优化WebSocket连接管理
 
 ### 2025-11-16
+
 - ✅ **基础架构**: 建立完整的API层架构
 - ✅ **OpenAI兼容**: 实现标准聊天完成API
 - ✅ **WebSocket支持**: 添加实时通信能力
@@ -262,6 +293,7 @@ graph TD
 ## 🎯 API使用示例
 
 ### 标准聊天完成
+
 ```bash
 POST /v1/chat/completions
 Content-Type: application/json
@@ -277,6 +309,7 @@ Authorization: Bearer your-api-key
 ```
 
 ### 启用ReAct模式
+
 ```bash
 POST /v1/chat/completions
 Content-Type: application/json
@@ -292,18 +325,21 @@ Content-Type: application/json
 ```
 
 ### WebSocket连接
+
 ```javascript
-const ws = new WebSocket('ws://localhost:8088/chat/api_key=your-api-key');
+const ws = new WebSocket("ws://localhost:8088/chat/api_key=your-api-key");
 
 ws.onmessage = (event) => {
   const data = JSON.parse(event.data);
-  console.log('Received:', data);
+  console.log("Received:", data);
 };
 
-ws.send(JSON.stringify({
-  type: 'chat',
-  messages: [{role: 'user', content: 'Hello'}]
-}));
+ws.send(
+  JSON.stringify({
+    type: "chat",
+    messages: [{ role: "user", content: "Hello" }],
+  })
+);
 ```
 
 ## 🎯 下一步计划
@@ -321,6 +357,7 @@ ws.send(JSON.stringify({
 **状态**: 功能完整，支持RESTful API和WebSocket
 
 **核心成就**:
+
 - ✅ OpenAI兼容的聊天API
 - ✅ 完整的LLM配置管理API
 - ✅ 实时WebSocket通信
@@ -330,6 +367,7 @@ ws.send(JSON.stringify({
 - ✅ 流式输出支持
 
 **架构特点**:
+
 - RESTful设计原则
 - 多层安全中间件
 - WebSocket实时通信

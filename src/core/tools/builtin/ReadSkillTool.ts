@@ -3,11 +3,11 @@
  * 用于读取知识型 Skill 的完整文档内容
  */
 
-import { ToolResult, BuiltInTool, ToolType } from '../../../types/tool-system';
-import { getSkillManager } from '../../../services/SkillManager';
-import { logger } from '../../../utils/logger';
-import * as fs from 'fs/promises';
-import * as path from 'path';
+import { ToolResult, BuiltInTool, ToolType } from "../../../types/tool-system";
+import { getSkillManager } from "../../../services/SkillManager";
+import { logger } from "../../../utils/logger";
+import * as fs from "fs/promises";
+import * as path from "path";
 
 /**
  * ReadSkillTool 参数接口
@@ -49,8 +49,8 @@ export class ReadSkillTool {
       }
 
       // 读取 SKILL.md 文件
-      const skillMdPath = path.join(skill.path, 'SKILL.md');
-      const content = await fs.readFile(skillMdPath, 'utf8');
+      const skillMdPath = path.join(skill.path, "SKILL.md");
+      const content = await fs.readFile(skillMdPath, "utf8");
 
       const duration = Date.now() - startTime;
 
@@ -63,9 +63,8 @@ export class ReadSkillTool {
         success: true,
         output,
         duration,
-        exitCode: 0
+        exitCode: 0,
       };
-
     } catch (error) {
       const duration = Date.now() - startTime;
 
@@ -75,8 +74,8 @@ export class ReadSkillTool {
         success: false,
         error: this.formatError(error),
         duration,
-        errorCode: 'READ_SKILL_ERROR',
-        exitCode: 1
+        errorCode: "READ_SKILL_ERROR",
+        exitCode: 1,
       };
     }
   }
@@ -85,12 +84,12 @@ export class ReadSkillTool {
    * 验证参数
    */
   private static validateArgs(args: ReadSkillArgs): void {
-    if (!args.skillName || typeof args.skillName !== 'string') {
-      throw new Error('skillName is required and must be a non-empty string');
+    if (!args.skillName || typeof args.skillName !== "string") {
+      throw new Error("skillName is required and must be a non-empty string");
     }
 
     if (args.skillName.trim().length === 0) {
-      throw new Error('skillName cannot be empty or whitespace only');
+      throw new Error("skillName cannot be empty or whitespace only");
     }
   }
 
@@ -106,11 +105,11 @@ export class ReadSkillTool {
     let output = `# Skill Documentation: ${skillName}\n\n`;
 
     // 添加基本信息
-    output += `**Version:** ${skill.version || 'N/A'}\n`;
+    output += `**Version:** ${skill.version || "N/A"}\n`;
     output += `**Description:** ${skill.description}\n`;
 
     if (skill.tags && skill.tags.length > 0) {
-      output += `**Tags:** ${skill.tags.join(', ')}\n`;
+      output += `**Tags:** ${skill.tags.join(", ")}\n`;
     }
 
     if (skill.author) {
@@ -125,9 +124,9 @@ export class ReadSkillTool {
     // 可选：添加元数据
     if (includeMetadata && skill.parameters) {
       output += `\n\n---\n\n## Parameters Schema\n\n`;
-      output += '```json\n';
+      output += "```json\n";
       output += JSON.stringify(skill.parameters, null, 2);
-      output += '\n```\n';
+      output += "\n```\n";
     }
 
     return output;
@@ -140,10 +139,10 @@ export class ReadSkillTool {
     if (error instanceof Error) {
       return error.message;
     }
-    if (typeof error === 'string') {
+    if (typeof error === "string") {
       return error;
     }
-    return 'Unknown error occurred while reading Skill documentation';
+    return "Unknown error occurred while reading Skill documentation";
   }
 
   /**
@@ -151,25 +150,26 @@ export class ReadSkillTool {
    */
   static getMetadata() {
     return {
-      name: 'read-skill',
-      description: 'Read the complete documentation of a Skill. Use this to get detailed information about knowledge-based Skills or to understand how to use executable Skills.',
-      category: 'skill',
+      name: "read-skill",
+      description:
+        "Read the complete documentation of a Skill. Use this to get detailed information about knowledge-based Skills or to understand how to use executable Skills.",
+      category: "skill",
       level: 1,
       parameters: {
-        type: 'object',
+        type: "object",
         properties: {
           skillName: {
-            type: 'string',
-            description: 'The name of the Skill to read (e.g., "calculator")'
+            type: "string",
+            description: 'The name of the Skill to read (e.g., "calculator")',
           },
           includeMetadata: {
-            type: 'boolean',
-            description: 'Whether to include parameter schema metadata in the output',
-            default: false
-          }
+            type: "boolean",
+            description: "Whether to include parameter schema metadata in the output",
+            default: false,
+          },
         },
-        required: ['skillName']
-      }
+        required: ["skillName"],
+      },
     };
   }
 }
@@ -184,6 +184,6 @@ export function createReadSkillTool() {
     enabled: true,
     execute: async (args: Record<string, any>) => {
       return ReadSkillTool.execute(args as ReadSkillArgs);
-    }
+    },
   } as BuiltInTool;
 }

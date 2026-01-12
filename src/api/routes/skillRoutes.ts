@@ -3,7 +3,7 @@
  * 提供Skills管理的RESTful API路由
  */
 
-import { Router } from 'express';
+import { Router } from "express";
 import {
   installSkill,
   uninstallSkill,
@@ -13,8 +13,8 @@ import {
   checkSkillExists,
   getSkillStats,
   reindexAllSkills,
-  upload
-} from '../controllers/SkillsController';
+  upload,
+} from "../controllers/SkillsController";
 
 const router = Router();
 
@@ -24,18 +24,14 @@ const router = Router();
  * @access  Private (需要API Key)
  * @body    { file: ZIP, overwrite?: boolean, skipVectorization?: boolean }
  */
-router.post(
-  '/install',
-  upload.single('file'),
-  installSkill
-);
+router.post("/install", upload.single("file"), installSkill);
 
 /**
  * @route   DELETE /api/skills/:name
  * @desc    卸载Skills
  * @access  Private (需要API Key)
  */
-router.delete('/:name', uninstallSkill);
+router.delete("/:name", uninstallSkill);
 
 /**
  * @route   PUT /api/skills/:name/description
@@ -43,7 +39,7 @@ router.delete('/:name', uninstallSkill);
  * @access  Private (需要API Key)
  * @body    { description: string }
  */
-router.put('/:name/description', updateSkillDescription);
+router.put("/:name/description", updateSkillDescription);
 
 /**
  * @route   GET /api/skills/stats
@@ -51,7 +47,7 @@ router.put('/:name/description', updateSkillDescription);
  * @access  Private (需要API Key)
  * @note    必须在 /:name 之前定义，否则 :name 会捕获 "stats"
  */
-router.get('/stats', getSkillStats);
+router.get("/stats", getSkillStats);
 
 /**
  * @route   GET /api/skills
@@ -59,27 +55,27 @@ router.get('/stats', getSkillStats);
  * @access  Private (需要API Key)
  * @query   page, limit, name, tags, sortBy, sortOrder
  */
-router.get('/', listSkills);
+router.get("/", listSkills);
 
 /**
  * @route   GET /api/skills/:name
  * @desc    获取单个Skills详情
  * @access  Private (需要API Key)
  */
-router.get('/:name', getSkill);
+router.get("/:name", getSkill);
 
 /**
  * @route   GET /api/skills/:name/exists
  * @desc    检查Skills是否存在
  * @access  Private (需要API Key)
  */
-router.get('/:name/exists', checkSkillExists);
+router.get("/:name/exists", checkSkillExists);
 
 /**
  * @route   POST /api/skills/reindex
  * @desc    重新索引所有Skills（用于向量数据库重建）
  * @access  Private (需要API Key，建议仅限管理员）
  */
-router.post('/reindex', reindexAllSkills);
+router.post("/reindex", reindexAllSkills);
 
 export default router;

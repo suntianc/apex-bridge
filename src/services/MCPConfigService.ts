@@ -4,12 +4,12 @@
  * 负责MCP服务器配置的持久化存储和管理
  */
 
-import Database from 'better-sqlite3';
-import * as fs from 'fs';
-import * as path from 'path';
-import { logger } from '../utils/logger';
-import { PathService } from './PathService';
-import type { MCPServerConfig } from '../types/mcp';
+import Database from "better-sqlite3";
+import * as fs from "fs";
+import * as path from "path";
+import { logger } from "../utils/logger";
+import { PathService } from "./PathService";
+import type { MCPServerConfig } from "../types/mcp";
 
 export interface MCPServerRecord {
   id: string;
@@ -35,13 +35,13 @@ export class MCPConfigService {
       fs.mkdirSync(dataDir, { recursive: true });
     }
 
-    this.dbPath = path.join(dataDir, 'mcp_servers.db');
+    this.dbPath = path.join(dataDir, "mcp_servers.db");
     this.db = new Database(this.dbPath);
 
     // 启用 WAL 模式提升性能
-    this.db.pragma('journal_mode = WAL');
+    this.db.pragma("journal_mode = WAL");
     // 启用外键约束
-    this.db.pragma('foreign_keys = ON');
+    this.db.pragma("foreign_keys = ON");
 
     this.initializeDatabase();
     logger.debug(`MCPConfigService initialized (database: ${this.dbPath})`);
@@ -77,7 +77,7 @@ export class MCPConfigService {
       CREATE INDEX IF NOT EXISTS idx_mcp_servers_updated ON mcp_servers(updated_at);
     `);
 
-    logger.debug('[MCPConfigService] Database tables initialized');
+    logger.debug("[MCPConfigService] Database tables initialized");
   }
 
   /**
@@ -99,7 +99,7 @@ export class MCPConfigService {
       stmt.run({
         id: config.id,
         config: configJson,
-        now
+        now,
       });
 
       logger.debug(`[MCPConfigService] Server ${config.id} saved`);
@@ -114,7 +114,7 @@ export class MCPConfigService {
    */
   deleteServer(serverId: string): void {
     try {
-      const stmt = this.db.prepare('DELETE FROM mcp_servers WHERE id = ?');
+      const stmt = this.db.prepare("DELETE FROM mcp_servers WHERE id = ?");
       const result = stmt.run(serverId);
 
       if (result.changes > 0) {
@@ -147,14 +147,14 @@ export class MCPConfigService {
         updated_at: number;
       }>;
 
-      return rows.map(row => ({
+      return rows.map((row) => ({
         id: row.id,
         config: JSON.parse(row.config),
         created_at: row.created_at,
-        updated_at: row.updated_at
+        updated_at: row.updated_at,
       }));
     } catch (error: any) {
-      logger.error('[MCPConfigService] Failed to get all servers:', error);
+      logger.error("[MCPConfigService] Failed to get all servers:", error);
       throw error;
     }
   }
@@ -170,12 +170,14 @@ export class MCPConfigService {
         WHERE id = ? AND enabled = 1
       `);
 
-      const row = stmt.get(serverId) as {
-        id: string;
-        config: string;
-        created_at: number;
-        updated_at: number;
-      } | undefined;
+      const row = stmt.get(serverId) as
+        | {
+            id: string;
+            config: string;
+            created_at: number;
+            updated_at: number;
+          }
+        | undefined;
 
       if (!row) {
         return undefined;
@@ -185,7 +187,7 @@ export class MCPConfigService {
         id: row.id,
         config: JSON.parse(row.config),
         created_at: row.created_at,
-        updated_at: row.updated_at
+        updated_at: row.updated_at,
       };
     } catch (error: any) {
       logger.error(`[MCPConfigService] Failed to get server ${serverId}:`, error);
@@ -198,7 +200,7 @@ export class MCPConfigService {
    */
   exists(serverId: string): boolean {
     try {
-      const stmt = this.db.prepare('SELECT 1 FROM mcp_servers WHERE id = ? AND enabled = 1');
+      const stmt = this.db.prepare("SELECT 1 FROM mcp_servers WHERE id = ? AND enabled = 1");
       const row = stmt.get(serverId);
       return !!row;
     } catch (error: any) {
@@ -213,7 +215,7 @@ export class MCPConfigService {
   close(): void {
     if (this.db) {
       this.db.close();
-      logger.debug('[MCPConfigService] Database connection closed');
+      logger.debug("[MCPConfigService] Database connection closed");
     }
   }
 }

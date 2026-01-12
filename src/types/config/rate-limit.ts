@@ -1,7 +1,7 @@
 /**
  * 速率限制策略类型
  */
-export type RateLimitStrategyType = 'ip' | 'apiKey' | 'user' | 'header';
+export type RateLimitStrategyType = "ip" | "apiKey" | "user" | "header";
 
 /**
  * 速率限制策略配置
@@ -52,7 +52,7 @@ export interface RateLimitRuleConfig {
   /** 附加匹配器列表 */
   matchers?: RateLimitMatcherConfig[];
   /** 窗口模式 */
-  mode?: 'sliding' | 'fixed';
+  mode?: "sliding" | "fixed";
   /** 策略执行顺序 */
   strategyOrder?: RateLimitStrategyType[];
   /** 是否返回响应头 */
@@ -104,7 +104,7 @@ export interface RateLimitSettings {
   /** 默认策略顺序 */
   defaultStrategyOrder?: RateLimitStrategyType[];
   /** 提供商类型 */
-  provider?: 'auto' | 'redis' | 'memory';
+  provider?: "auto" | "redis" | "memory";
   /** 键前缀 */
   keyPrefix?: string;
 }

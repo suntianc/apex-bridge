@@ -4,20 +4,14 @@
  * Handles skill indexing operations: add, remove, update, and scan.
  */
 
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import { createHash } from 'crypto';
-import matter from 'gray-matter';
-import { logger } from '../../utils/logger';
-import {
-  SkillData,
-  ToolsTable,
-  VectorizedFileData,
-  ToolError,
-  ToolErrorCode
-} from './types';
-import { ILanceDBConnection } from './LanceDBConnection';
-import { IEmbeddingGenerator } from './EmbeddingGenerator';
+import * as fs from "fs/promises";
+import * as path from "path";
+import { createHash } from "crypto";
+import matter from "gray-matter";
+import { logger } from "../../utils/logger";
+import { SkillData, ToolsTable, VectorizedFileData, ToolError, ToolErrorCode } from "./types";
+import { ILanceDBConnection } from "./LanceDBConnection";
+import { IEmbeddingGenerator } from "./EmbeddingGenerator";
 
 /**
  * SkillIndexer interface
@@ -44,7 +38,7 @@ export class SkillIndexer implements ISkillIndexer {
   constructor(
     connection: ILanceDBConnection,
     embeddingGenerator: IEmbeddingGenerator,
-    defaultSkillsDir: string = './.data/skills'
+    defaultSkillsDir: string = "./.data/skills"
   ) {
     this.connection = connection;
     this.embeddingGenerator = embeddingGenerator;
@@ -74,9 +68,10 @@ export class SkillIndexer implements ISkillIndexer {
       const table = await this.connection.getTable();
       if (table) {
         await table.add([record as unknown as Record<string, unknown>]);
-        logger.info(`[SkillIndexer] Skill indexed: ${skill.name} (${vector.values.length} dimensions)`);
+        logger.info(
+          `[SkillIndexer] Skill indexed: ${skill.name} (${vector.values.length} dimensions)`
+        );
       }
-
     } catch (error) {
       logger.error(`[SkillIndexer] Failed to add skill ${skill.name}:`, error);
       throw error;
@@ -142,9 +137,7 @@ export class SkillIndexer implements ISkillIndexer {
 
       // Get all skill directories
       const entries = await fs.readdir(dirPath, { withFileTypes: true });
-      const skillDirs = entries
-        .filter(entry => entry.isDirectory())
-        .map(entry => entry.name);
+      const skillDirs = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
 
       logger.info(`[SkillIndexer] Found ${skillDirs.length} skill directories`);
 
@@ -155,7 +148,7 @@ export class SkillIndexer implements ISkillIndexer {
       for (const skillName of skillDirs) {
         try {
           const skillPath = path.join(dirPath, skillName);
-          const vectorizedFile = path.join(skillPath, '.vectorized');
+          const vectorizedFile = path.join(skillPath, ".vectorized");
 
           // Check if reindexing is needed
           let needReindex = true;
@@ -172,7 +165,7 @@ export class SkillIndexer implements ISkillIndexer {
               await this.addSkill({
                 ...skillData,
                 filePath: skillPath,
-                id: this.generateSkillId(skillData.name)
+                id: this.generateSkillId(skillData.name),
               });
 
               // Update .vectorized file
@@ -185,17 +178,17 @@ export class SkillIndexer implements ISkillIndexer {
             skippedCount++;
             logger.debug(`[SkillIndexer] Skipped unchanged skill: ${skillName}`);
           }
-
         } catch (error) {
           logger.warn(`[SkillIndexer] Failed to index skill ${skillName}:`, error);
         }
       }
 
-      logger.info(`[SkillIndexer] Scan completed: ${indexedCount} indexed, ${skippedCount} skipped`);
+      logger.info(
+        `[SkillIndexer] Scan completed: ${indexedCount} indexed, ${skippedCount} skipped`
+      );
       return indexedCount;
-
     } catch (error) {
-      logger.error('[SkillIndexer] Failed to scan and index skills:', error);
+      logger.error("[SkillIndexer] Failed to scan and index skills:", error);
       throw error;
     }
   }
@@ -206,18 +199,17 @@ export class SkillIndexer implements ISkillIndexer {
   async checkReindexRequired(skillPath: string, vectorizedFile: string): Promise<boolean> {
     try {
       // Read .vectorized file
-      const vectorizedContent = await fs.readFile(vectorizedFile, 'utf8');
+      const vectorizedContent = await fs.readFile(vectorizedFile, "utf8");
       const vectorizedData: VectorizedFileData = JSON.parse(vectorizedContent);
 
       // Calculate current SKILL.md hash
-      const skillMdPath = path.join(skillPath, 'SKILL.md');
-      const skillContent = await fs.readFile(skillMdPath, 'utf8');
-      const currentHash = createHash('md5').update(skillContent).digest('hex');
+      const skillMdPath = path.join(skillPath, "SKILL.md");
+      const skillContent = await fs.readFile(skillMdPath, "utf8");
+      const currentHash = createHash("md5").update(skillContent).digest("hex");
       const currentSize = Buffer.byteLength(skillContent);
 
       // Compare hash and size
       return currentHash !== vectorizedData.skillHash || currentSize !== vectorizedData.skillSize;
-
     } catch {
       // File doesn't exist or parse failed, need to index
       return true;
@@ -229,29 +221,28 @@ export class SkillIndexer implements ISkillIndexer {
    */
   async readSkillMetadata(filePath: string): Promise<SkillData | null> {
     try {
-      const skillMdPath = path.join(filePath, 'SKILL.md');
+      const skillMdPath = path.join(filePath, "SKILL.md");
 
       // Read file
-      const content = await fs.readFile(skillMdPath, 'utf8');
+      const content = await fs.readFile(skillMdPath, "utf8");
 
       // Parse YAML Frontmatter
       const parsed = matter(content);
 
       if (!parsed.data.name || !parsed.data.description) {
-        throw new Error('SKILL.md must contain name and description');
+        throw new Error("SKILL.md must contain name and description");
       }
 
       return {
-        id: '',
+        id: "",
         name: parsed.data.name,
         description: parsed.data.description,
         tags: Array.isArray(parsed.data.tags) ? parsed.data.tags : [],
-        version: parsed.data.version || '1.0.0',
+        version: parsed.data.version || "1.0.0",
         metadata: {
-          tools: parsed.data.tools || []
-        }
+          tools: parsed.data.tools || [],
+        },
       };
-
     } catch (error) {
       logger.error(`[SkillIndexer] Failed to read skill metadata from ${filePath}:`, error);
       return null;
@@ -262,40 +253,45 @@ export class SkillIndexer implements ISkillIndexer {
    * Generate skill ID
    */
   private generateSkillId(name: string): string {
-    return createHash('md5')
-      .update(name)
-      .digest('hex');
+    return createHash("md5").update(name).digest("hex");
   }
 
   /**
    * Prepare skill record for database
    */
-  private prepareSkillRecord(
-    skill: SkillData,
-    skillId: string,
-    vector: number[]
-  ): ToolsTable {
+  private prepareSkillRecord(skill: SkillData, skillId: string, vector: number[]): ToolsTable {
     // Convert tools to parameters format
     const tools = (skill.metadata?.tools as unknown[]) || [];
-    const parameters = tools.length > 0 ? {
-      type: 'object',
-      properties: tools.reduce((acc: Record<string, unknown>, tool: unknown) => {
-        const t = tool as { name?: string; description?: string; input_schema?: { properties?: Record<string, unknown>; required?: string[] } };
-        if (t.name) {
-          acc[t.name] = {
-            type: 'object',
-            description: t.description || '',
-            properties: t.input_schema?.properties || {},
-            required: t.input_schema?.required || []
-          };
-        }
-        return acc;
-      }, {}),
-      required: tools
-        .filter((t: unknown) => (t as { input_schema?: { required?: string[] } }).input_schema?.required?.length > 0)
-        .map((t: unknown) => (t as { name?: string }).name)
-        .filter((n: unknown): n is string => typeof n === 'string')
-    } : { type: 'object', properties: {}, required: [] };
+    const parameters =
+      tools.length > 0
+        ? {
+            type: "object",
+            properties: tools.reduce((acc: Record<string, unknown>, tool: unknown) => {
+              const t = tool as {
+                name?: string;
+                description?: string;
+                input_schema?: { properties?: Record<string, unknown>; required?: string[] };
+              };
+              if (t.name) {
+                acc[t.name] = {
+                  type: "object",
+                  description: t.description || "",
+                  properties: t.input_schema?.properties || {},
+                  required: t.input_schema?.required || [],
+                };
+              }
+              return acc;
+            }, {}),
+            required: tools
+              .filter(
+                (t: unknown) =>
+                  (t as { input_schema?: { required?: string[] } }).input_schema?.required?.length >
+                  0
+              )
+              .map((t: unknown) => (t as { name?: string }).name)
+              .filter((n: unknown): n is string => typeof n === "string"),
+          }
+        : { type: "object", properties: {}, required: [] };
 
     return {
       id: skillId,
@@ -303,16 +299,16 @@ export class SkillIndexer implements ISkillIndexer {
       description: skill.description,
       tags: skill.tags || [],
       path: skill.filePath,
-      version: skill.version || '1.0.0',
+      version: skill.version || "1.0.0",
       source: skill.name,
-      toolType: 'skill',
+      toolType: "skill",
       metadata: JSON.stringify({
         ...skill.metadata,
         tools: skill.metadata?.tools || [],
-        parameters
+        parameters,
       }),
       vector,
-      indexedAt: new Date()
+      indexedAt: new Date(),
     };
   }
 
@@ -321,20 +317,19 @@ export class SkillIndexer implements ISkillIndexer {
    */
   private async updateVectorizedFile(vectorizedFile: string, skillPath: string): Promise<void> {
     try {
-      const skillMdPath = path.join(skillPath, 'SKILL.md');
-      const skillContent = await fs.readFile(skillMdPath, 'utf8');
-      const skillHash = createHash('md5').update(skillContent).digest('hex');
+      const skillMdPath = path.join(skillPath, "SKILL.md");
+      const skillContent = await fs.readFile(skillMdPath, "utf8");
+      const skillHash = createHash("md5").update(skillContent).digest("hex");
       const skillSize = Buffer.byteLength(skillContent);
 
       const vectorizedData: VectorizedFileData = {
         indexedAt: Date.now(),
         skillSize,
-        skillHash
+        skillHash,
       };
 
       await fs.writeFile(vectorizedFile, JSON.stringify(vectorizedData, null, 2));
       logger.debug(`[SkillIndexer] Updated .vectorized file: ${vectorizedFile}`);
-
     } catch (error) {
       logger.warn(`[SkillIndexer] Failed to update .vectorized file:`, error);
     }
@@ -358,31 +353,31 @@ export class SkillIndexer implements ISkillIndexer {
   async forceReindexAll(skillsDir: string = this.defaultSkillsDir): Promise<void> {
     try {
       const entries = await fs.readdir(skillsDir, { withFileTypes: true });
-      const skillDirs = entries
-        .filter(entry => entry.isDirectory())
-        .map(entry => entry.name);
+      const skillDirs = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
 
       logger.info(`[SkillIndexer] Force reindexing ${skillDirs.length} skills...`);
 
       // Delete each skill's .vectorized file
       for (const skillName of skillDirs) {
         const skillPath = path.join(skillsDir, skillName);
-        const vectorizedFile = path.join(skillPath, '.vectorized');
+        const vectorizedFile = path.join(skillPath, ".vectorized");
 
         try {
           await fs.unlink(vectorizedFile);
           logger.debug(`[SkillIndexer] Deleted .vectorized file for skill: ${skillName}`);
         } catch (error: any) {
-          if (error.code !== 'ENOENT') {
-            logger.warn(`[SkillIndexer] Failed to delete .vectorized file for ${skillName}:`, error);
+          if (error.code !== "ENOENT") {
+            logger.warn(
+              `[SkillIndexer] Failed to delete .vectorized file for ${skillName}:`,
+              error
+            );
           }
         }
       }
 
-      logger.info('[SkillIndexer] Force reindex preparation completed');
-
+      logger.info("[SkillIndexer] Force reindex preparation completed");
     } catch (error) {
-      logger.warn('[SkillIndexer] Failed to force reindex skills:', error);
+      logger.warn("[SkillIndexer] Failed to force reindex skills:", error);
     }
   }
 }

@@ -1,4 +1,4 @@
-export type RateLimiterMode = 'sliding' | 'fixed';
+export type RateLimiterMode = "sliding" | "fixed";
 
 export interface RateLimiterRuleState {
   id: string;
@@ -29,5 +29,3 @@ export interface RateLimiter {
   hit(key: string, rule: RateLimiterRuleState): Promise<RateLimiterHitResult>;
   undo(context: RateLimiterContext): Promise<void>;
 }
-
-

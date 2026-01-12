@@ -4,16 +4,11 @@
  * Handles MCP tool indexing, embedding generation, and search.
  */
 
-import { createHash } from 'crypto';
-import { logger } from '../../utils/logger';
-import {
-  MCPTool,
-  MCPToolRetrievalResult,
-  EmbeddingVector,
-  ToolsTable
-} from './types';
-import { IEmbeddingGenerator } from './EmbeddingGenerator';
-import { ILanceDBConnection } from './LanceDBConnection';
+import { createHash } from "crypto";
+import { logger } from "../../utils/logger";
+import { MCPTool, MCPToolRetrievalResult, EmbeddingVector, ToolsTable } from "./types";
+import { IEmbeddingGenerator } from "./EmbeddingGenerator";
+import { ILanceDBConnection } from "./LanceDBConnection";
 
 /**
  * MCPToolSupport interface
@@ -68,11 +63,11 @@ export class MCPToolSupport implements IMCPToolSupport {
             tags: this.extractToolTags(tool),
             path: null,
             version: null,
-            source: tool.metadata?.source as string || tool.name,
-            toolType: 'mcp',
+            source: (tool.metadata?.source as string) || tool.name,
+            toolType: "mcp",
             metadata: JSON.stringify(tool.metadata || {}),
             vector: vector.values,
-            indexedAt: new Date()
+            indexedAt: new Date(),
           };
 
           records.push(record);
@@ -91,11 +86,10 @@ export class MCPToolSupport implements IMCPToolSupport {
         await this.connection.addRecords(records);
         logger.info(`[MCPToolSupport] Successfully indexed ${records.length} MCP tools`);
       } else {
-        logger.warn('[MCPToolSupport] No tools were indexed');
+        logger.warn("[MCPToolSupport] No tools were indexed");
       }
-
     } catch (error) {
-      logger.error('[MCPToolSupport] Failed to index tools:', error);
+      logger.error("[MCPToolSupport] Failed to index tools:", error);
       throw error;
     }
   }
@@ -111,7 +105,11 @@ export class MCPToolSupport implements IMCPToolSupport {
    * Remove a tool from the index
    */
   async removeTool(toolName: string): Promise<void> {
-    const toolId = this.generateToolId({ name: toolName, description: '', inputSchema: { schema: {} } });
+    const toolId = this.generateToolId({
+      name: toolName,
+      description: "",
+      inputSchema: { schema: {} },
+    });
     await this.removeToolById(toolId);
   }
 
@@ -142,14 +140,15 @@ export class MCPToolSupport implements IMCPToolSupport {
       // Get table and search
       const table = await this.connection.getTable();
       if (!table) {
-        logger.warn('[MCPToolSupport] Table not initialized');
+        logger.warn("[MCPToolSupport] Table not initialized");
         return [];
       }
 
       // Execute search
-      const queryBuilder = table.query()
+      const queryBuilder = table
+        .query()
         .nearestTo(vector.values)
-        .distanceType('cosine')
+        .distanceType("cosine")
         .limit(effectiveLimit * 2);
 
       // Filter by MCP tools
@@ -164,22 +163,21 @@ export class MCPToolSupport implements IMCPToolSupport {
           const score = this.calculateScore(result);
 
           // Only include MCP tools
-          if (data.toolType === 'mcp') {
+          if (data.toolType === "mcp") {
             formatted.push({
               name: data.name,
               score,
               description: data.description,
-              parameters: this.extractParameters(data.metadata)
+              parameters: this.extractParameters(data.metadata),
             });
           }
         } catch (error) {
-          logger.warn('[MCPToolSupport] Failed to format search result:', error);
+          logger.warn("[MCPToolSupport] Failed to format search result:", error);
         }
       }
 
       logger.info(`[MCPToolSupport] Found ${formatted.length} MCP tool(s)`);
       return formatted;
-
     } catch (error) {
       logger.error(`[MCPToolSupport] Search failed for query "${query}":`, error);
       throw error;
@@ -190,17 +188,15 @@ export class MCPToolSupport implements IMCPToolSupport {
    * Generate unique tool ID
    */
   private generateToolId(tool: MCPTool): string {
-    const source = tool.metadata?.source as string || tool.name;
-    return createHash('md5')
-      .update(`mcp:${source}:${tool.name}`)
-      .digest('hex');
+    const source = (tool.metadata?.source as string) || tool.name;
+    return createHash("md5").update(`mcp:${source}:${tool.name}`).digest("hex");
   }
 
   /**
    * Extract tags from tool
    */
   private extractTags(tool: MCPTool): string[] {
-    return tool.metadata?.tags as string[] || [];
+    return (tool.metadata?.tags as string[]) || [];
   }
 
   /**
@@ -226,7 +222,7 @@ export class MCPToolSupport implements IMCPToolSupport {
    */
   private extractParameters(metadata: string): Record<string, unknown> {
     try {
-      if (typeof metadata === 'string') {
+      if (typeof metadata === "string") {
         const parsed = JSON.parse(metadata);
         return parsed.inputSchema?.properties || {};
       }
@@ -240,9 +236,9 @@ export class MCPToolSupport implements IMCPToolSupport {
    * Extract result data
    */
   private extractResultData(result: unknown): ToolsTable {
-    if (result && typeof result === 'object') {
+    if (result && typeof result === "object") {
       const r = result as Record<string, unknown>;
-      if ('item' in r) {
+      if ("item" in r) {
         return r.item as ToolsTable;
       }
     }
@@ -253,7 +249,7 @@ export class MCPToolSupport implements IMCPToolSupport {
    * Calculate similarity score
    */
   private calculateScore(result: unknown): number {
-    if (result && typeof result === 'object') {
+    if (result && typeof result === "object") {
       const r = result as Record<string, number>;
       if (r._distance !== undefined) {
         return Math.max(0, 1 - r._distance);

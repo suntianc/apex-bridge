@@ -1,11 +1,11 @@
-import type { RedisClientType } from 'redis';
+import type { RedisClientType } from "redis";
 import {
   RateLimiter,
   RateLimiterContext,
   RateLimiterHitResult,
   RateLimiterMode,
-  RateLimiterRuleState
-} from './types';
+  RateLimiterRuleState,
+} from "./types";
 
 export interface RedisRateLimiterOptions {
   client: RedisClientType<any, any, any>;
@@ -51,7 +51,7 @@ export class RedisRateLimiter implements RateLimiter {
 
   constructor(options: RedisRateLimiterOptions) {
     this.client = options.client;
-    this.keyPrefix = options.keyPrefix ?? 'rate_limit';
+    this.keyPrefix = options.keyPrefix ?? "rate_limit";
     this.now = options.now ?? (() => Date.now());
   }
 
@@ -60,7 +60,7 @@ export class RedisRateLimiter implements RateLimiter {
   }
 
   public async hit(key: string, rule: RateLimiterRuleState): Promise<RateLimiterHitResult> {
-    const mode: RateLimiterMode = rule.mode === 'fixed' ? 'fixed' : 'sliding';
+    const mode: RateLimiterMode = rule.mode === "fixed" ? "fixed" : "sliding";
     const burstMultiplier = Math.max(rule.burstMultiplier ?? 1, 1);
     const limit = Math.max(Math.floor(rule.maxRequests * burstMultiplier), rule.maxRequests);
     const now = this.now();
@@ -77,24 +77,24 @@ export class RedisRateLimiter implements RateLimiter {
         windowStart.toString(10),
         limit.toString(10),
         ttlMs.toString(10),
-        member
-      ]
+        member,
+      ],
     })) as [number, number, number?] | null;
 
     if (!response) {
-      throw new Error('Redis rate limiter returned null response');
+      throw new Error("Redis rate limiter returned null response");
     }
 
     const allowed = response[0] === 1;
-    const count = typeof response[1] === 'number' ? response[1] : 0;
-    const resetTimestamp = typeof response[2] === 'number' ? response[2] : now + rule.windowMs;
+    const count = typeof response[1] === "number" ? response[1] : 0;
+    const resetTimestamp = typeof response[2] === "number" ? response[2] : now + rule.windowMs;
 
     if (!allowed) {
       return {
         allowed: false,
         limit,
         remaining: Math.max(limit - count, 0),
-        reset: resetTimestamp
+        reset: resetTimestamp,
       };
     }
 
@@ -110,8 +110,8 @@ export class RedisRateLimiter implements RateLimiter {
         key,
         mode,
         timestamp: now,
-        value: member
-      }
+        value: member,
+      },
     };
   }
 
@@ -132,5 +132,3 @@ export class RedisRateLimiter implements RateLimiter {
     return `${this.keyPrefix}:${ruleId}:${identifier}`;
   }
 }
-
-

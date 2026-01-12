@@ -22,6 +22,7 @@ import type {
 } from "../types/mcp";
 import { ErrorClassifier } from "../utils/error-classifier";
 import { ErrorType } from "../types/trajectory";
+import { defaultShouldRetry, retry } from "../utils/retry";
 
 export interface MCPServerInfo {
   id: string;
@@ -513,25 +514,42 @@ export class MCPIntegrationService extends EventEmitter {
    * 向量化服务器工具
    */
   public async vectorizeServerTools(serverId: string, tools: MCPTool[]): Promise<void> {
+    const unifiedTools = tools.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      type: "mcp" as const,
+      source: serverId,
+      tags: [],
+      metadata: {
+        inputSchema: tool.inputSchema,
+      },
+    }));
+
     try {
       const retrievalService = getToolRetrievalService();
-      await retrievalService.initialize();
 
-      const unifiedTools = tools.map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        type: "mcp" as const,
-        source: serverId,
-        tags: [],
-        metadata: {
-          inputSchema: tool.inputSchema,
-        },
-      }));
+      await retry(() => retrievalService.initialize(), {
+        maxRetries: 3,
+        initialDelay: 1000,
+        maxDelay: 10000,
+        shouldRetry: (error) => defaultShouldRetry(error),
+      });
 
-      await retrievalService.indexTools(unifiedTools);
+      await retry(() => retrievalService.indexTools(unifiedTools), {
+        maxRetries: 2,
+        initialDelay: 500,
+        maxDelay: 5000,
+        shouldRetry: (error) => defaultShouldRetry(error),
+      });
+
       logger.info(`[MCP] Vectorized ${tools.length} tools for server ${serverId}`);
     } catch (error: any) {
-      logger.error(`[MCP] Failed to vectorize tools for server ${serverId}:`, error);
+      const errorType = ErrorClassifier.classifyError(error);
+      logger.error(`[MCP] Failed to vectorize tools for server ${serverId}:`, {
+        message: error.message,
+        type: errorType,
+        suggestion: ErrorClassifier.getErrorTypeSuggestion(errorType),
+      });
       throw error;
     }
   }

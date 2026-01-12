@@ -5,3 +5,5 @@
 export * from "./TokenEstimator";
 export * from "./ContextCompressionService";
 export * from "./strategies";
+export * from "./AdaptiveTriggerConfig";
+export * from "./CompressionMetrics";

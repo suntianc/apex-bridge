@@ -666,24 +666,8 @@ export class ToolDispatcher {
    * 获取可用工具列表
    * @returns 工具描述列表
    */
-  getAvailableTools(): ToolDescription[] {
-    const tools: ToolDescription[] = [];
-
-    // Built-in tools
-    const builtInTools = this.builtInRegistry.listTools();
-    for (const tool of builtInTools) {
-      tools.push(this.convertToDescription(tool));
-    }
-
-    // MCP tools
-    const mcpTools = mcpIntegration.getAllTools();
-    for (const { serverId, tools: serverTools } of mcpTools) {
-      for (const tool of serverTools) {
-        tools.push(this.convertMcpToolToDescription(tool, serverId));
-      }
-    }
-
-    return tools;
+  async getAvailableTools(): Promise<ToolDescription[]> {
+    return toolRegistry.listDescriptions();
   }
 
   /**

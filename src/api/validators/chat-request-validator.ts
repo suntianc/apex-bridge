@@ -3,15 +3,24 @@
  * 纯函数式验证，无状态，易于测试
  */
 
-import type { Message, ChatOptions, ToolDefinition } from '../../types';
+import type { Message, ChatOptions, ToolDefinition } from "../../types";
 
 /**
  * OpenAI标准聊天参数白名单
  */
 const STANDARD_CHAT_PARAMS = new Set([
-  'model', 'temperature', 'max_tokens', 'top_p',
-  'frequency_penalty', 'presence_penalty',
-  'stop', 'n', 'stream', 'user', 'top_k', 'user_prompt'
+  "model",
+  "temperature",
+  "max_tokens",
+  "top_p",
+  "frequency_penalty",
+  "presence_penalty",
+  "stop",
+  "n",
+  "stream",
+  "user",
+  "top_k",
+  "user_prompt",
 ]);
 
 /**
@@ -46,60 +55,60 @@ export function parseChatRequest(body: any): ValidationResult<ChatRequestOptions
     // 验证messages格式
     const messages = body.messages;
     if (!messages || !Array.isArray(messages)) {
-      return { success: false, error: 'messages must be a non-empty array' };
+      return { success: false, error: "messages must be a non-empty array" };
     }
 
     if (messages.length === 0) {
-      return { success: false, error: 'messages array cannot be empty' };
+      return { success: false, error: "messages array cannot be empty" };
     }
 
     // 验证每条消息的格式
     for (const msg of messages) {
-      if (!msg.role || !['system', 'user', 'assistant'].includes(msg.role)) {
+      if (!msg.role || !["system", "user", "assistant"].includes(msg.role)) {
         return { success: false, error: `Invalid message role: ${msg.role}` };
       }
 
       // 验证content格式：支持string或ContentPart[]
-      if (typeof msg.content === 'string') {
+      if (typeof msg.content === "string") {
         // 文本内容
         if (msg.content.length === 0) {
-          return { success: false, error: 'message content cannot be empty' };
+          return { success: false, error: "message content cannot be empty" };
         }
       } else if (Array.isArray(msg.content)) {
         // 多模态内容
         if (msg.content.length === 0) {
-          return { success: false, error: 'message content array cannot be empty' };
+          return { success: false, error: "message content array cannot be empty" };
         }
 
         // 验证每个ContentPart
         for (const part of msg.content) {
-          if (!part.type || !['text', 'image_url'].includes(part.type)) {
+          if (!part.type || !["text", "image_url"].includes(part.type)) {
             return { success: false, error: `Invalid content part type: ${part.type}` };
           }
 
-          if (part.type === 'text') {
-            if (typeof part.text !== 'string' || part.text.length === 0) {
-              return { success: false, error: 'text part must have non-empty text' };
+          if (part.type === "text") {
+            if (typeof part.text !== "string" || part.text.length === 0) {
+              return { success: false, error: "text part must have non-empty text" };
             }
-          } else if (part.type === 'image_url') {
+          } else if (part.type === "image_url") {
             if (!part.image_url) {
-              return { success: false, error: 'image_url part must have image_url' };
+              return { success: false, error: "image_url part must have image_url" };
             }
           }
         }
       } else {
-        return { success: false, error: 'message content must be a string or array' };
+        return { success: false, error: "message content must be a string or array" };
       }
     }
 
     // 提取白名单参数
     const options: ChatRequestOptions = {
       provider: body.provider,
-      model: body.model
+      model: body.model,
     };
 
     for (const key of STANDARD_CHAT_PARAMS) {
-      if (key in body && key !== 'provider' && key !== 'model') {
+      if (key in body && key !== "provider" && key !== "model") {
         (options as any)[key] = body[key];
       }
     }
@@ -111,12 +120,16 @@ export function parseChatRequest(body: any): ValidationResult<ChatRequestOptions
     options.userId = body.user_id || body.user;
 
     // 提取agentId
-    options.agentId = body.agent_id || body.agentId ||
-                      (typeof body.apexMeta === 'object' ? body.apexMeta?.agentId : undefined);
+    options.agentId =
+      body.agent_id ||
+      body.agentId ||
+      (typeof body.apexMeta === "object" ? body.apexMeta?.agentId : undefined);
 
     // 提取或生成conversationId
-    options.conversationId = body.conversation_id || body.conversationId ||
-                            (typeof body.apexMeta === 'object' ? body.apexMeta?.conversationId : undefined);
+    options.conversationId =
+      body.conversation_id ||
+      body.conversationId ||
+      (typeof body.apexMeta === "object" ? body.apexMeta?.conversationId : undefined);
 
     if (!options.conversationId) {
       options.conversationId = generateConversationId();
@@ -132,9 +145,8 @@ export function parseChatRequest(body: any): ValidationResult<ChatRequestOptions
     }
 
     return { success: true, data: options };
-
   } catch (error: any) {
-    return { success: false, error: error.message || 'Failed to parse chat request' };
+    return { success: false, error: error.message || "Failed to parse chat request" };
   }
 }
 
@@ -146,51 +158,59 @@ export function parseChatRequest(body: any): ValidationResult<ChatRequestOptions
 export function validateSelfThinking(selfThinking: any): ValidationResult<SelfThinkingConfig> {
   try {
     // enabled必须是boolean
-    if (typeof selfThinking.enabled !== 'boolean') {
-      return { success: false, error: 'selfThinking.enabled must be a boolean' };
+    if (typeof selfThinking.enabled !== "boolean") {
+      return { success: false, error: "selfThinking.enabled must be a boolean" };
     }
 
     const config: SelfThinkingConfig = {
-      enabled: selfThinking.enabled
+      enabled: selfThinking.enabled,
     };
 
     // maxIterations必须是正整数（如果提供）
     if (selfThinking.maxIterations !== undefined) {
-      if (typeof selfThinking.maxIterations !== 'number' || selfThinking.maxIterations < 1) {
-        return { success: false, error: 'selfThinking.maxIterations must be a positive integer' };
+      if (typeof selfThinking.maxIterations !== "number" || selfThinking.maxIterations < 1) {
+        return { success: false, error: "selfThinking.maxIterations must be a positive integer" };
       }
       config.maxIterations = selfThinking.maxIterations;
     }
 
     // includeThoughtsInResponse必须是boolean（如果提供）
     if (selfThinking.includeThoughtsInResponse !== undefined) {
-      if (typeof selfThinking.includeThoughtsInResponse !== 'boolean') {
-        return { success: false, error: 'selfThinking.includeThoughtsInResponse must be a boolean' };
+      if (typeof selfThinking.includeThoughtsInResponse !== "boolean") {
+        return {
+          success: false,
+          error: "selfThinking.includeThoughtsInResponse must be a boolean",
+        };
       }
       config.includeThoughtsInResponse = selfThinking.includeThoughtsInResponse;
     }
 
     // enableStreamThoughts必须是boolean（如果提供）
     if (selfThinking.enableStreamThoughts !== undefined) {
-      if (typeof selfThinking.enableStreamThoughts !== 'boolean') {
-        return { success: false, error: 'selfThinking.enableStreamThoughts must be a boolean' };
+      if (typeof selfThinking.enableStreamThoughts !== "boolean") {
+        return { success: false, error: "selfThinking.enableStreamThoughts must be a boolean" };
       }
       config.enableStreamThoughts = selfThinking.enableStreamThoughts;
     }
 
     // systemPrompt必须是string（如果提供）
     if (selfThinking.systemPrompt !== undefined) {
-      if (typeof selfThinking.systemPrompt !== 'string') {
-        return { success: false, error: 'selfThinking.systemPrompt must be a string' };
+      if (typeof selfThinking.systemPrompt !== "string") {
+        return { success: false, error: "selfThinking.systemPrompt must be a string" };
       }
       config.systemPrompt = selfThinking.systemPrompt;
     }
 
     // additionalPrompts必须是string数组（如果提供）
     if (selfThinking.additionalPrompts !== undefined) {
-      if (!Array.isArray(selfThinking.additionalPrompts) ||
-          !selfThinking.additionalPrompts.every(p => typeof p === 'string')) {
-        return { success: false, error: 'selfThinking.additionalPrompts must be an array of strings' };
+      if (
+        !Array.isArray(selfThinking.additionalPrompts) ||
+        !selfThinking.additionalPrompts.every((p) => typeof p === "string")
+      ) {
+        return {
+          success: false,
+          error: "selfThinking.additionalPrompts must be an array of strings",
+        };
       }
       config.additionalPrompts = selfThinking.additionalPrompts;
     }
@@ -198,14 +218,14 @@ export function validateSelfThinking(selfThinking: any): ValidationResult<SelfTh
     // tools验证
     if (selfThinking.tools !== undefined) {
       if (!Array.isArray(selfThinking.tools)) {
-        return { success: false, error: 'selfThinking.tools must be an array' };
+        return { success: false, error: "selfThinking.tools must be an array" };
       }
 
       for (const tool of selfThinking.tools) {
-        if (!tool.name || typeof tool.name !== 'string') {
-          return { success: false, error: 'Each tool must have a name (string)' };
+        if (!tool.name || typeof tool.name !== "string") {
+          return { success: false, error: "Each tool must have a name (string)" };
         }
-        if (!tool.description || typeof tool.description !== 'string') {
+        if (!tool.description || typeof tool.description !== "string") {
           return { success: false, error: `Tool ${tool.name} must have a description (string)` };
         }
       }
@@ -214,9 +234,8 @@ export function validateSelfThinking(selfThinking: any): ValidationResult<SelfTh
     }
 
     return { success: true, data: config };
-
   } catch (error: any) {
-    return { success: false, error: error.message || 'Failed to validate selfThinking config' };
+    return { success: false, error: error.message || "Failed to validate selfThinking config" };
   }
 }
 

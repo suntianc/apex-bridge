@@ -250,6 +250,7 @@ apex-bridge/
 | [API 参考](docs/api-reference.md)         | 完整的 API 文档      |
 | [上下文压缩](docs/context-compression.md) | 4 层压缩策略详解     |
 | [MCP 集成指南](docs/mcp-integration.md)   | MCP 服务器配置和使用 |
+
 ---
 
 ## 📄 许可证

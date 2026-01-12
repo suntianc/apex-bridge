@@ -13,7 +13,7 @@ export interface PartBase {
 // ==================== Part 类型定义 ====================
 
 export interface TextPart extends PartBase {
-  type: 'text';
+  type: "text";
   text: string;
   synthetic?: boolean;
   ignored?: boolean;
@@ -22,14 +22,14 @@ export interface TextPart extends PartBase {
 }
 
 export interface ReasoningPart extends PartBase {
-  type: 'reasoning';
+  type: "reasoning";
   text: string;
   metadata?: Record<string, unknown>;
   time: { start: number; end?: number };
 }
 
 export interface ToolPart extends PartBase {
-  type: 'tool';
+  type: "tool";
   callID: string;
   tool: string;
   state: ToolState;
@@ -37,12 +37,12 @@ export interface ToolPart extends PartBase {
 }
 
 export interface StepStartPart extends PartBase {
-  type: 'step-start';
+  type: "step-start";
   snapshot?: string;
 }
 
 export interface StepFinishPart extends PartBase {
-  type: 'step-finish';
+  type: "step-finish";
   reason: string;
   snapshot?: string;
   cost: number;
@@ -50,7 +50,7 @@ export interface StepFinishPart extends PartBase {
 }
 
 export interface FilePart extends PartBase {
-  type: 'file';
+  type: "file";
   mime: string;
   filename?: string;
   url: string;
@@ -58,7 +58,7 @@ export interface FilePart extends PartBase {
 }
 
 export interface SubtaskPart extends PartBase {
-  type: 'subtask';
+  type: "subtask";
   prompt: string;
   description: string;
   agent: string;
@@ -66,30 +66,30 @@ export interface SubtaskPart extends PartBase {
 }
 
 export interface AgentPart extends PartBase {
-  type: 'agent';
+  type: "agent";
   name: string;
   source?: { value: string; start: number; end: number };
 }
 
 export interface CompactionPart extends PartBase {
-  type: 'compaction';
+  type: "compaction";
   auto: boolean;
 }
 
 export interface RetryPart extends PartBase {
-  type: 'retry';
+  type: "retry";
   attempt: number;
   error: APIError;
   time: { created: number };
 }
 
 export interface SnapshotPart extends PartBase {
-  type: 'snapshot';
+  type: "snapshot";
   snapshot: string;
 }
 
 export interface PatchPart extends PartBase {
-  type: 'patch';
+  type: "patch";
   hash: string;
   files: string[];
 }
@@ -113,13 +113,13 @@ export type Part =
 // ==================== File Part Source ====================
 
 export interface FileSource {
-  type: 'file';
+  type: "file";
   path: string;
   text: { value: string; start: number; end: number };
 }
 
 export interface SymbolSource {
-  type: 'symbol';
+  type: "symbol";
   path: string;
   range: { start: { line: number; character: number }; end: { line: number; character: number } };
   name: string;
@@ -128,7 +128,7 @@ export interface SymbolSource {
 }
 
 export interface ResourceSource {
-  type: 'resource';
+  type: "resource";
   clientName: string;
   uri: string;
   text: { value: string; start: number; end: number };
@@ -139,7 +139,7 @@ export interface ResourceSource {
 export interface UserMessage {
   id: string;
   sessionID: string;
-  role: 'user';
+  role: "user";
   time: { created: number };
   summary?: { title?: string; body?: string; diffs?: unknown[] };
   agent: string;
@@ -152,7 +152,7 @@ export interface UserMessage {
 export interface AssistantMessage {
   id: string;
   sessionID: string;
-  role: 'assistant';
+  role: "assistant";
   time: { created: number; completed?: number };
   parentID: string;
   modelID: string;
@@ -200,13 +200,13 @@ export interface APIError {
 export type ToolState = ToolStatePending | ToolStateRunning | ToolStateCompleted | ToolStateError;
 
 export type ToolStatePending = {
-  status: 'pending';
+  status: "pending";
   input: Record<string, unknown>;
   raw: string;
 };
 
 export type ToolStateRunning = {
-  status: 'running';
+  status: "running";
   input: Record<string, unknown>;
   title?: string;
   metadata?: Record<string, unknown>;
@@ -214,7 +214,7 @@ export type ToolStateRunning = {
 };
 
 export type ToolStateCompleted = {
-  status: 'completed';
+  status: "completed";
   input: Record<string, unknown>;
   output: string;
   title: string;
@@ -224,7 +224,7 @@ export type ToolStateCompleted = {
 };
 
 export type ToolStateError = {
-  status: 'error';
+  status: "error";
   input: Record<string, unknown>;
   error: string;
   metadata?: Record<string, unknown>;
@@ -237,7 +237,7 @@ export type {
   ToolStatePending as IToolStatePending,
   ToolStateRunning as IToolStateRunning,
   ToolStateCompleted as IToolStateCompleted,
-  ToolStateError as IToolStateError
+  ToolStateError as IToolStateError,
 };
 
 // ==================== ID 生成器 ====================
@@ -303,7 +303,7 @@ export function createTextPart(options: CreateTextPartOptions): TextPart {
     id: options.id || generatePartId(),
     sessionID: options.sessionID,
     messageID: options.messageID,
-    type: 'text',
+    type: "text",
     text: options.text,
     synthetic: options.synthetic,
     ignored: options.ignored,
@@ -320,7 +320,7 @@ export function createReasoningPart(options: CreateReasoningPartOptions): Reason
     id: options.id || generatePartId(),
     sessionID: options.sessionID,
     messageID: options.messageID,
-    type: 'reasoning',
+    type: "reasoning",
     text: options.text,
     time: options.time,
     metadata: options.metadata,
@@ -335,7 +335,7 @@ export function createStepStartPart(options: CreateStepStartPartOptions): StepSt
     id: options.id || generatePartId(),
     sessionID: options.sessionID,
     messageID: options.messageID,
-    type: 'step-start',
+    type: "step-start",
     snapshot: options.snapshot,
   };
 }
@@ -348,7 +348,7 @@ export function createStepFinishPart(options: CreateStepFinishPartOptions): Step
     id: options.id || generatePartId(),
     sessionID: options.sessionID,
     messageID: options.messageID,
-    type: 'step-finish',
+    type: "step-finish",
     reason: options.reason,
     snapshot: options.snapshot,
     cost: options.cost,
@@ -374,7 +374,7 @@ export function createToolPart(options: CreateToolPartOptions): ToolPart {
     id: options.id || generatePartId(),
     sessionID: options.sessionID,
     messageID: options.messageID,
-    type: 'tool',
+    type: "tool",
     callID: options.callID,
     tool: options.tool,
     state: options.state,
@@ -400,7 +400,7 @@ export function createFilePart(options: CreateFilePartOptions): FilePart {
     id: options.id || generatePartId(),
     sessionID: options.sessionID,
     messageID: options.messageID,
-    type: 'file',
+    type: "file",
     mime: options.mime,
     filename: options.filename,
     url: options.url,
@@ -426,7 +426,7 @@ export function createSubtaskPart(options: CreateSubtaskPartOptions): SubtaskPar
     id: options.id || generatePartId(),
     sessionID: options.sessionID,
     messageID: options.messageID,
-    type: 'subtask',
+    type: "subtask",
     prompt: options.prompt,
     description: options.description,
     agent: options.agent,
@@ -450,7 +450,7 @@ export function createAgentPart(options: CreateAgentPartOptions): AgentPart {
     id: options.id || generatePartId(),
     sessionID: options.sessionID,
     messageID: options.messageID,
-    type: 'agent',
+    type: "agent",
     name: options.name,
     source: options.source,
   };
@@ -471,7 +471,7 @@ export function createCompactionPart(options: CreateCompactionPartOptions): Comp
     id: options.id || generatePartId(),
     sessionID: options.sessionID,
     messageID: options.messageID,
-    type: 'compaction',
+    type: "compaction",
     auto: options.auto,
   };
 }
@@ -493,7 +493,7 @@ export function createRetryPart(options: CreateRetryPartOptions): RetryPart {
     id: options.id || generatePartId(),
     sessionID: options.sessionID,
     messageID: options.messageID,
-    type: 'retry',
+    type: "retry",
     attempt: options.attempt,
     error: options.error,
     time: { created: options.created || Date.now() },
@@ -518,7 +518,7 @@ export function createUserMessage(options: CreateUserMessageOptions): UserMessag
   return {
     id: options.id || generateMessageId(),
     sessionID: options.sessionID,
-    role: 'user',
+    role: "user",
     time: { created: Date.now() },
     agent: options.agent,
     model: { providerID: options.providerID, modelID: options.modelID },
@@ -545,7 +545,7 @@ export function createAssistantMessage(options: CreateAssistantMessageOptions): 
   return {
     id: options.id || generateMessageId(),
     sessionID: options.sessionID,
-    role: 'assistant',
+    role: "assistant",
     time: { created: Date.now() },
     parentID: options.parentID,
     modelID: options.modelID,
@@ -569,18 +569,32 @@ export function createAssistantMessage(options: CreateAssistantMessageOptions): 
  * UI 消息部分类型
  */
 export type UIPart =
-  | { type: 'text'; text: string; providerMetadata?: Record<string, unknown> }
-  | { type: 'reasoning'; text: string; providerMetadata?: Record<string, unknown> }
-  | ({ type: `tool-${string}`; state: 'output-available'; toolCallId: string; input: Record<string, unknown>; output: string; callProviderMetadata?: Record<string, unknown> })
-  | ({ type: `tool-${string}`; state: 'output-error'; toolCallId: string; input: Record<string, unknown>; errorText: string; callProviderMetadata?: Record<string, unknown> })
-  | { type: 'file'; url: string; mediaType: string; filename?: string };
+  | { type: "text"; text: string; providerMetadata?: Record<string, unknown> }
+  | { type: "reasoning"; text: string; providerMetadata?: Record<string, unknown> }
+  | {
+      type: `tool-${string}`;
+      state: "output-available";
+      toolCallId: string;
+      input: Record<string, unknown>;
+      output: string;
+      callProviderMetadata?: Record<string, unknown>;
+    }
+  | {
+      type: `tool-${string}`;
+      state: "output-error";
+      toolCallId: string;
+      input: Record<string, unknown>;
+      errorText: string;
+      callProviderMetadata?: Record<string, unknown>;
+    }
+  | { type: "file"; url: string; mediaType: string; filename?: string };
 
 /**
  * UI 消息接口
  */
 export interface UIMessage {
   id: string;
-  role: 'user' | 'assistant';
+  role: "user" | "assistant";
   parts: UIPart[];
 }
 
@@ -598,83 +612,91 @@ export function toModelMessage(input: WithParts[]): UIMessage[] {
     if (msg.parts.length === 0) continue;
 
     // 处理 User 消息
-    if (msg.info.role === 'user') {
+    if (msg.info.role === "user") {
       const userMessage: UIMessage = {
         id: msg.info.id,
-        role: 'user',
+        role: "user",
         parts: [],
       };
       result.push(userMessage);
 
       for (const part of msg.parts) {
-        if (part.type === 'text' && !part.ignored) {
+        if (part.type === "text" && !part.ignored) {
           userMessage.parts.push({
-            type: 'text',
+            type: "text",
             text: part.text,
           });
         }
-        if (part.type === 'file' && part.mime !== 'text/plain' && part.mime !== 'application/x-directory') {
+        if (
+          part.type === "file" &&
+          part.mime !== "text/plain" &&
+          part.mime !== "application/x-directory"
+        ) {
           userMessage.parts.push({
-            type: 'file',
+            type: "file",
             url: part.url,
             mediaType: part.mime,
             filename: part.filename,
           });
         }
-        if (part.type === 'compaction') {
+        if (part.type === "compaction") {
           userMessage.parts.push({
-            type: 'text',
-            text: 'What did we do so far?',
+            type: "text",
+            text: "What did we do so far?",
           });
         }
-        if (part.type === 'subtask') {
+        if (part.type === "subtask") {
           userMessage.parts.push({
-            type: 'text',
-            text: 'The following tool was executed by the user',
+            type: "text",
+            text: "The following tool was executed by the user",
           });
         }
       }
     }
 
     // 处理 Assistant 消息
-    if (msg.info.role === 'assistant') {
+    if (msg.info.role === "assistant") {
       // 过滤掉错误消息（除非有非 step-start/reasoning 的 parts）
       if (
-        'error' in msg.info &&
+        "error" in msg.info &&
         msg.info.error &&
-        !msg.parts.some((part) => part.type !== 'step-start' && part.type !== 'reasoning')
+        !msg.parts.some((part) => part.type !== "step-start" && part.type !== "reasoning")
       ) {
         continue;
       }
 
       const assistantMessage: UIMessage = {
         id: msg.info.id,
-        role: 'assistant',
+        role: "assistant",
         parts: [],
       };
 
       for (const part of msg.parts) {
-        if (part.type === 'text') {
+        if (part.type === "text") {
           assistantMessage.parts.push({
-            type: 'text',
+            type: "text",
             text: part.text,
             providerMetadata: part.metadata,
           });
         }
-        if (part.type === 'tool') {
-          if (part.state.status === 'completed') {
+        if (part.type === "tool") {
+          if (part.state.status === "completed") {
             // 如果有附件，添加到结果中
-            if ('attachments' in part.state && part.state.attachments && part.state.attachments.length > 0) {
+            if (
+              "attachments" in part.state &&
+              part.state.attachments &&
+              part.state.attachments.length > 0
+            ) {
               result.push({
                 id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-                role: 'user',
+                role: "user",
                 parts: [
                   {
-                    type: 'text',
+                    type: "text",
                     text: `Tool ${part.tool} returned an attachment:`,
                   },
                   ...part.state.attachments.map((attachment) => ({
-                    type: 'file' as const,
+                    type: "file" as const,
                     url: attachment.url,
                     mediaType: attachment.mime,
                     filename: attachment.filename,
@@ -684,17 +706,20 @@ export function toModelMessage(input: WithParts[]): UIMessage[] {
             }
             assistantMessage.parts.push({
               type: `tool-${part.tool}` as const,
-              state: 'output-available' as const,
+              state: "output-available" as const,
               toolCallId: part.callID,
               input: part.state.input,
-              output: 'time' in part.state && part.state.time && 'compacted' in part.state.time ? '[Old tool result content cleared]' : part.state.output,
+              output:
+                "time" in part.state && part.state.time && "compacted" in part.state.time
+                  ? "[Old tool result content cleared]"
+                  : part.state.output,
               callProviderMetadata: part.metadata,
             });
           }
-          if (part.state.status === 'error') {
+          if (part.state.status === "error") {
             assistantMessage.parts.push({
               type: `tool-${part.tool}` as const,
-              state: 'output-error' as const,
+              state: "output-error" as const,
               toolCallId: part.callID,
               input: part.state.input,
               errorText: part.state.error,
@@ -702,9 +727,9 @@ export function toModelMessage(input: WithParts[]): UIMessage[] {
             });
           }
         }
-        if (part.type === 'reasoning') {
+        if (part.type === "reasoning") {
           assistantMessage.parts.push({
-            type: 'reasoning',
+            type: "reasoning",
             text: part.text,
             providerMetadata: part.metadata,
           });

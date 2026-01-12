@@ -10,16 +10,16 @@ export type {
   DetectionResult,
   DispatcherConfig,
   ToolExecutionResult,
-  ToolDescription
-} from './types';
+  ToolDescription,
+} from "./types";
 
-export { DetectorState } from './types';
+export { DetectorState } from "./types";
 
 // 解析器导出
-export { ToolActionParser, toolActionParser } from './ToolActionParser';
+export { ToolActionParser, toolActionParser } from "./ToolActionParser";
 
 // 流式检测器导出
-export { StreamTagDetector } from './StreamTagDetector';
+export { StreamTagDetector } from "./StreamTagDetector";
 
 // 工具调度器导出
-export { ToolDispatcher, generateToolPrompt } from './ToolDispatcher';
+export { ToolDispatcher, generateToolPrompt } from "./ToolDispatcher";

@@ -32,7 +32,7 @@ export interface ReActOptions {
  * 流式事件类型
  */
 export interface StreamEvent {
-  type: 'reasoning' | 'content' | 'tool_start' | 'tool_end' | 'error' | 'done';
+  type: "reasoning" | "content" | "tool_start" | "tool_end" | "error" | "done";
   data: any;
   timestamp: number;
 }

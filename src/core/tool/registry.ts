@@ -4,6 +4,8 @@
  */
 
 import { Tool } from "./tool";
+import type { ToolDescription } from "../tool-action/types";
+import { logger } from "../../utils/logger";
 
 /**
  * 工具类型枚举
@@ -217,6 +219,48 @@ export class ToolRegistry {
    */
   async size(): Promise<number> {
     return this.tools.size;
+  }
+
+  /**
+   * 获取所有工具描述（用于生成工具提示词）
+   * @returns 工具描述列表
+   */
+  async listDescriptions(): Promise<ToolDescription[]> {
+    const descriptions: ToolDescription[] = [];
+
+    for (const tool of this.tools.values()) {
+      if (tool.status === ToolStatus.UNHEALTHY) {
+        continue;
+      }
+
+      try {
+        const toolInfo = await tool.init();
+
+        const parameters: ToolDescription["parameters"] = [];
+
+        if (toolInfo.parameters.properties) {
+          for (const [name, prop] of Object.entries(toolInfo.parameters.properties)) {
+            const propObj = prop as { type?: string; description?: string };
+            parameters.push({
+              name,
+              type: propObj.type || "string",
+              description: propObj.description || "",
+              required: toolInfo.parameters.required?.includes(name) ?? false,
+            });
+          }
+        }
+
+        descriptions.push({
+          name: tool.id,
+          description: toolInfo.description,
+          parameters,
+        });
+      } catch (error) {
+        logger.warn(`[ToolRegistry] Failed to get description for tool ${tool.id}:`, error);
+      }
+    }
+
+    return descriptions;
   }
 
   /**

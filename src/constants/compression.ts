@@ -37,4 +37,10 @@ export const COMPACTION = {
 
   /** 默认模型上下文限制 */
   DEFAULT_CONTEXT_LIMIT: 8000,
+
+  /** 百分比-based thresholds (P1 模型感知阈值) */
+  OVERFLOW_RATIO: 0.3,
+  OUTPUT_RESERVE_RATIO: 0.2,
+  WARN_RATIO: 0.5,
+  SEVERE_RATIO: 0.8,
 } as const;

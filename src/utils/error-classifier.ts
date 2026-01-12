@@ -7,6 +7,24 @@
 
 import { ErrorType } from "../types/trajectory";
 
+export const ERROR_CODES = {
+  TOOL_NOT_FOUND: "TOOL_NOT_FOUND",
+  TOOL_EXECUTION_FAILED: "TOOL_EXECUTION_FAILED",
+  TOOL_CALL_FAILED: "TOOL_CALL_FAILED",
+  PERMISSION_DENIED: "PERMISSION_DENIED",
+  VALIDATION_ERROR: "VALIDATION_ERROR",
+  VECTOR_DB_ERROR: "VECTOR_DB_ERROR",
+  SKILL_NOT_FOUND: "SKILL_NOT_FOUND",
+  SKILL_INSTALL_FAILED: "SKILL_INSTALL_FAILED",
+  SKILL_INVALID_STRUCTURE: "SKILL_INVALID_STRUCTURE",
+  SKILL_ALREADY_EXISTS: "SKILL_ALREADY_EXISTS",
+  MCP_SERVER_ERROR: "MCP_SERVER_ERROR",
+  MCP_TOOL_NOT_FOUND: "MCP_TOOL_NOT_FOUND",
+  INTERNAL_ERROR: "INTERNAL_ERROR",
+} as const;
+
+export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
+
 /**
  * 错误分类器
  */
@@ -215,5 +233,37 @@ export class ErrorClassifier {
       default:
         return "未知错误类型，建议检查日志";
     }
+  }
+
+  /**
+   * 统一错误处理函数
+   * @param error 原始错误对象
+   * @param context 错误上下文信息
+   * @param defaultCode 默认错误码
+   * @returns 统一格式的错误信息对象
+   */
+  static handleError(
+    error: any,
+    context: string,
+    defaultCode: ErrorCode = ERROR_CODES.INTERNAL_ERROR
+  ): {
+    code: ErrorCode;
+    type: ErrorType;
+    message: string;
+    suggestion: string;
+    context: string;
+    timestamp: number;
+  } {
+    const errorType = this.classifyError(error);
+    const message = error?.message || String(error);
+
+    return {
+      code: defaultCode,
+      type: errorType,
+      message,
+      suggestion: this.getErrorTypeSuggestion(errorType),
+      context,
+      timestamp: Date.now(),
+    };
   }
 }

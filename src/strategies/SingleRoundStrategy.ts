@@ -3,11 +3,11 @@
  * 处理单次LLM调用，不启用ReAct思考循环
  */
 
-import type { Message, ChatOptions } from '../types';
-import type { ChatStrategy, ChatResult } from './ChatStrategy';
-import type { LLMManager } from '../core/LLMManager';
-import type { ConversationHistoryService } from '../services/ConversationHistoryService';
-import { logger } from '../utils/logger';
+import type { Message, ChatOptions } from "../types";
+import type { ChatStrategy, ChatResult } from "./ChatStrategy";
+import type { LLMManager } from "../core/LLMManager";
+import type { ConversationHistoryService } from "../services/ConversationHistoryService";
+import { logger } from "../utils/logger";
 
 export class SingleRoundStrategy implements ChatStrategy {
   constructor(
@@ -16,7 +16,7 @@ export class SingleRoundStrategy implements ChatStrategy {
   ) {}
 
   getName(): string {
-    return 'SingleRoundStrategy';
+    return "SingleRoundStrategy";
   }
 
   /**
@@ -35,14 +35,14 @@ export class SingleRoundStrategy implements ChatStrategy {
 
     // 调用LLM
     const llmResponse = await this.llmManager.chat(messages, options);
-    const aiContent = (llmResponse.choices[0]?.message?.content as string) || '';
+    const aiContent = (llmResponse.choices[0]?.message?.content as string) || "";
 
     logger.debug(`[${this.getName()}] LLM Response: ${aiContent.substring(0, 200)}...`);
 
     // ChatService会统一保存历史，策略层只返回数据
     return {
       content: aiContent,
-      usage: llmResponse.usage
+      usage: llmResponse.usage,
     };
   }
 

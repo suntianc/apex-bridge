@@ -3,9 +3,9 @@
  * 统一管理项目中的所有路径，支持环境变量覆盖
  */
 
-import * as path from 'path';
-import * as fs from 'fs';
-import { logger } from '../utils/logger';
+import * as path from "path";
+import * as fs from "fs";
+import { logger } from "../utils/logger";
 
 export interface PathConfig {
   /** 项目根目录（默认为 process.cwd()） */
@@ -30,26 +30,20 @@ export class PathService {
   private constructor() {
     // 从环境变量或默认值初始化配置
     const rootDir = process.env.APEX_BRIDGE_ROOT_DIR || process.cwd();
-    
+
     this.config = {
       rootDir: path.resolve(rootDir),
-      configDir: path.resolve(
-        process.env.APEX_BRIDGE_CONFIG_DIR || path.join(rootDir, 'config')
-      ),
-      dataDir: path.resolve(
-        process.env.APEX_BRIDGE_DATA_DIR || path.join(rootDir, '.data')
-      ),
-      logDir: path.resolve(
-        process.env.APEX_BRIDGE_LOG_DIR || path.join(rootDir, 'logs')
-      ),
+      configDir: path.resolve(process.env.APEX_BRIDGE_CONFIG_DIR || path.join(rootDir, "config")),
+      dataDir: path.resolve(process.env.APEX_BRIDGE_DATA_DIR || path.join(rootDir, ".data")),
+      logDir: path.resolve(process.env.APEX_BRIDGE_LOG_DIR || path.join(rootDir, "logs")),
       vectorStoreDir: path.resolve(
-        process.env.APEX_BRIDGE_VECTOR_STORE_DIR || path.join(rootDir, 'vector_store')
-      )
+        process.env.APEX_BRIDGE_VECTOR_STORE_DIR || path.join(rootDir, "vector_store")
+      ),
     };
 
-    logger.debug('✅ PathService initialized:', {
+    logger.debug("✅ PathService initialized:", {
       rootDir: this.config.rootDir,
-      configDir: this.config.configDir
+      configDir: this.config.configDir,
     });
   }
 
@@ -106,19 +100,19 @@ export class PathService {
    * 获取配置文件路径
    */
   public getConfigFilePath(): string {
-    return path.join(this.config.configDir, 'admin-config.json');
+    return path.join(this.config.configDir, "admin-config.json");
   }
 
   /**
    * 获取配置文件备份路径
    */
   public getConfigBackupPath(): string {
-    return path.join(this.config.configDir, 'admin-config.json.backup');
+    return path.join(this.config.configDir, "admin-config.json.backup");
   }
 
   /**
    * 确保目录存在（如果不存在则创建）
-   * 
+   *
    * @param dirPath - 目录路径
    * @throws 如果创建目录失败（非 EEXIST 错误）
    */
@@ -130,7 +124,7 @@ export class PathService {
       } catch (error: any) {
         // 如果并发创建导致 EEXIST，通常可以忽略
         // 但如果是 EACCES 等权限错误，需要记录并抛出
-        if (error.code !== 'EEXIST') {
+        if (error.code !== "EEXIST") {
           logger.error(`❌ Failed to create directory ${dirPath}:`, error);
           throw error;
         }
@@ -142,7 +136,7 @@ export class PathService {
 
   /**
    * 确保所有必要的目录都存在
-   * 
+   *
    * @throws 如果关键目录创建失败，应阻断启动
    */
   public ensureAllDirs(): void {
@@ -152,7 +146,7 @@ export class PathService {
       this.ensureDir(this.config.logDir);
       // vectorStoreDir 可能从配置读取，在需要时确保
     } catch (error) {
-      logger.error('❌ Failed to initialize project directories', error);
+      logger.error("❌ Failed to initialize project directories", error);
       throw error; // 关键目录创建失败应阻断启动
     }
   }

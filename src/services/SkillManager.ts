@@ -37,6 +37,16 @@ import {
   ParseError,
 } from "./compat";
 
+type InitializationState = "INITIALIZING" | "READY" | "ERROR";
+
+interface PersistedSkill {
+  name: string;
+  path: string;
+  metadata: SkillMetadata;
+  addedAt: Date;
+  type: "dynamic" | "static";
+}
+
 /**
  * 安装结果
  */
@@ -78,12 +88,31 @@ export interface UpdateResult {
  */
 export class SkillManager {
   private static instance: SkillManager | null = null;
+  private static initializationMutex: Promise<void> | null = null;
   private readonly skillsBasePath: string;
   private readonly retrievalService: ToolRetrievalService;
   private readonly skillsExecutor: SkillsSandboxExecutor;
   private readonly skillParser: ClaudeCodeSkillParser;
   private readonly lifecycleManager: LifecycleManager;
   private initializationPromise: Promise<void> | null = null;
+  private _state: InitializationState = "INITIALIZING";
+  private initError: Error | null = null;
+  private readonly dynamicSkills: Map<string, PersistedSkill> = new Map();
+  private readonly DYNAMIC_SKILLS_DB_KEY = "dynamic_skills";
+
+  /**
+   * 获取当前初始化状态
+   */
+  get state(): InitializationState {
+    return this._state;
+  }
+
+  /**
+   * 获取初始化错误
+   */
+  get error(): Error | null {
+    return this.initError;
+  }
 
   /**
    * 创建SkillManager实例
@@ -122,12 +151,16 @@ export class SkillManager {
       skillsBasePath,
     });
 
-    // 启动异步初始化，但不阻塞构造函数
-    this.initializationPromise = this.initializeSkillsIndex().catch((error) => {
-      logger.error("Failed to initialize skills index during startup:", error);
-      // 即使失败也标记为完成，避免永久阻塞
-      throw error;
-    });
+    // 启动异步初始化
+    this.initializationPromise = this.initializeSkillsIndex()
+      .then(() => {
+        this._state = "READY";
+      })
+      .catch((error) => {
+        this._state = "ERROR";
+        this.initError = error instanceof Error ? error : new Error(String(error));
+        logger.error("Failed to initialize skills index during startup:", error);
+      });
   }
 
   /**
@@ -949,8 +982,96 @@ export class SkillManager {
     return parsed.content;
   }
 
+  async persistDynamicSkills(): Promise<void> {
+    try {
+      const pathService = PathService.getInstance();
+      const dataDir = pathService.getDataDir();
+      const persistFile = path.join(dataDir, "dynamic_skills.json");
+
+      const dynamicSkillsArray = Array.from(this.dynamicSkills.values());
+      const persistData = dynamicSkillsArray.map((skill) => ({
+        name: skill.name,
+        path: skill.path,
+        metadata: skill.metadata,
+        addedAt: skill.addedAt.toISOString(),
+        type: skill.type,
+      }));
+
+      await fs.writeFile(persistFile, JSON.stringify(persistData, null, 2));
+      logger.info(`[SkillManager] Persisted ${persistData.length} dynamic skills`);
+    } catch (error) {
+      logger.error("[SkillManager] Failed to persist dynamic skills:", error);
+    }
+  }
+
+  async loadDynamicSkills(): Promise<void> {
+    try {
+      const pathService = PathService.getInstance();
+      const dataDir = pathService.getDataDir();
+      const persistFile = path.join(dataDir, "dynamic_skills.json");
+
+      try {
+        const content = await fs.readFile(persistFile, "utf8");
+        const persistData: Array<{
+          name: string;
+          path: string;
+          metadata: SkillMetadata;
+          addedAt: string;
+          type: "dynamic" | "static";
+        }> = JSON.parse(content);
+
+        for (const skill of persistData) {
+          if (await this.fileExists(path.join(skill.path, "SKILL.md"))) {
+            this.dynamicSkills.set(skill.name, {
+              ...skill,
+              addedAt: new Date(skill.addedAt),
+            });
+            logger.debug(`[SkillManager] Loaded dynamic skill: ${skill.name}`);
+          }
+        }
+
+        logger.info(`[SkillManager] Loaded ${this.dynamicSkills.size} dynamic skills`);
+      } catch (fileError: any) {
+        if (fileError.code === "ENOENT") {
+          logger.debug("[SkillManager] No dynamic skills file found, starting fresh");
+        } else {
+          throw fileError;
+        }
+      }
+    } catch (error) {
+      logger.error("[SkillManager] Failed to load dynamic skills:", error);
+    }
+  }
+
+  addDynamicSkill(name: string, skillPath: string, metadata: SkillMetadata): void {
+    this.dynamicSkills.set(name, {
+      name,
+      path: skillPath,
+      metadata,
+      addedAt: new Date(),
+      type: "dynamic",
+    });
+    logger.info(`[SkillManager] Added dynamic skill: ${name}`);
+  }
+
+  removeDynamicSkill(name: string): void {
+    if (this.dynamicSkills.has(name)) {
+      this.dynamicSkills.delete(name);
+      logger.info(`[SkillManager] Removed dynamic skill: ${name}`);
+    }
+  }
+
+  isDynamicSkill(name: string): boolean {
+    return this.dynamicSkills.has(name);
+  }
+
+  async cleanup(): Promise<void> {
+    await this.persistDynamicSkills();
+    logger.info("[SkillManager] Cleanup completed");
+  }
+
   /**
-   * 获取单例实例
+   * 获取单例实例（使用双检锁模式）
    */
   static getInstance(
     skillsBasePath?: string,
@@ -963,10 +1084,24 @@ export class SkillManager {
   }
 
   /**
+   * 异步获取单例实例（等待初始化完成）
+   */
+  static async getInstanceAsync(
+    skillsBasePath?: string,
+    retrievalService?: ToolRetrievalService
+  ): Promise<SkillManager> {
+    const instance = SkillManager.getInstance(skillsBasePath, retrievalService);
+    await instance.waitForInitialization();
+    await instance.loadDynamicSkills();
+    return instance;
+  }
+
+  /**
    * 重置实例（用于测试）
    */
   static resetInstance(): void {
     SkillManager.instance = null;
+    SkillManager.initializationMutex = null;
   }
 }
 

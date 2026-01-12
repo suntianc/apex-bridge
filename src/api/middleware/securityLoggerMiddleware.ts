@@ -4,8 +4,8 @@
  * 记录安全相关事件和错误
  */
 
-import { Request, Response, NextFunction } from 'express';
-import { logger } from '../../utils/logger';
+import { Request, Response, NextFunction } from "express";
+import { logger } from "../../utils/logger";
 
 export interface SecurityLogEvent {
   timestamp: number;
@@ -23,22 +23,29 @@ export interface SecurityLogEvent {
 /**
  * 创建简化安全日志中间件
  */
-export function createSecurityLoggerMiddleware(): (req: Request, res: Response, next: NextFunction) => void {
+export function createSecurityLoggerMiddleware(): (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => void {
   return (req: Request, res: Response, next: NextFunction) => {
     const startTime = Date.now();
 
     // 跳过静态资源和健康检查
-    const skipPaths = ['/health', '/metrics', '/favicon.ico', '/vite.svg'];
-    if (skipPaths.includes(req.path) || /\.(svg|ico|png|jpg|jpeg|gif|css|js|woff|woff2|ttf|eot)$/i.test(req.path)) {
+    const skipPaths = ["/health", "/metrics", "/favicon.ico", "/vite.svg"];
+    if (
+      skipPaths.includes(req.path) ||
+      /\.(svg|ico|png|jpg|jpeg|gif|css|js|woff|woff2|ttf|eot)$/i.test(req.path)
+    ) {
       return next();
     }
 
-    const ip = req.ip || req.socket.remoteAddress || 'unknown';
-    const userAgent = req.headers['user-agent'];
-    const apiKey = req.headers['x-api-key'];
+    const ip = req.ip || req.socket.remoteAddress || "unknown";
+    const userAgent = req.headers["user-agent"];
+    const apiKey = req.headers["x-api-key"];
 
     // 监听响应完成
-    res.on('finish', () => {
+    res.on("finish", () => {
       const duration = Date.now() - startTime;
       const suspiciousReason = detectSuspiciousActivity(req);
 
@@ -50,20 +57,20 @@ export function createSecurityLoggerMiddleware(): (req: Request, res: Response, 
         duration,
         ip,
         userAgent,
-        apiKey: apiKey ? 'present' : 'absent',
+        apiKey: apiKey ? "present" : "absent",
         suspicious: !!suspiciousReason,
-        suspiciousReason
+        suspiciousReason,
       };
 
       // 记录安全事件
       if (res.statusCode === 429) {
-        logger.warn('🚫 Rate limit exceeded', securityEvent);
+        logger.warn("🚫 Rate limit exceeded", securityEvent);
       } else if (securityEvent.suspicious) {
-        logger.warn('⚠️ Suspicious request detected', securityEvent);
+        logger.warn("⚠️ Suspicious request detected", securityEvent);
       } else if (res.statusCode >= 500) {
-        logger.error('❌ Server error', securityEvent);
+        logger.error("❌ Server error", securityEvent);
       } else if (res.statusCode >= 400) {
-        logger.warn('⚠️ Client error', securityEvent);
+        logger.warn("⚠️ Client error", securityEvent);
       }
     });
 
@@ -76,18 +83,18 @@ export function createSecurityLoggerMiddleware(): (req: Request, res: Response, 
  */
 function detectSuspiciousActivity(req: Request): string | undefined {
   const suspiciousPatterns = [
-    { pattern: /<script/i, reason: 'Possible XSS attempt' },
-    { pattern: /union.*select/i, reason: 'Possible SQL injection' },
-    { pattern: /\.\.[\\/]/i, reason: 'Possible path traversal' },
-    { pattern: /eval\s*\(/i, reason: 'Possible code injection' },
-    { pattern: /javascript:/i, reason: 'Possible script injection' }
+    { pattern: /<script/i, reason: "Possible XSS attempt" },
+    { pattern: /union.*select/i, reason: "Possible SQL injection" },
+    { pattern: /\.\.[\\/]/i, reason: "Possible path traversal" },
+    { pattern: /eval\s*\(/i, reason: "Possible code injection" },
+    { pattern: /javascript:/i, reason: "Possible script injection" },
   ];
 
   const requestString = JSON.stringify({
     path: req.path,
     method: req.method,
     headers: req.headers,
-    query: req.query
+    query: req.query,
   });
 
   for (const { pattern, reason } of suspiciousPatterns) {

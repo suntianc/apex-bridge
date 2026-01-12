@@ -4,16 +4,16 @@
  * 整合 Skills 和 MCP 工具，提供统一的工具发现和调用接口
  */
 
-import { EventEmitter } from 'events';
-import { logger } from '../utils/logger';
-import type { SkillTool } from '../types/tool-system';
-import type { MCPTool } from '../types/mcp';
-import type { VectorToolResult, VectorSearchResult } from '../types/vector';
+import { EventEmitter } from "events";
+import { logger } from "../utils/logger";
+import type { SkillTool } from "../types/tool-system";
+import type { MCPTool } from "../types/mcp";
+import type { VectorToolResult, VectorSearchResult } from "../types/vector";
 
 export interface UnifiedTool {
   id: string;
   name: string;
-  type: 'skill' | 'mcp';
+  type: "skill" | "mcp";
   source: string; // skill name or mcp server id
   description: string;
   category?: string;
@@ -30,7 +30,7 @@ export interface UnifiedTool {
 export interface UnifiedToolResult {
   success: boolean;
   content: Array<{
-    type: 'text' | 'image' | 'resource' | 'image_data';
+    type: "text" | "image" | "resource" | "image_data";
     text?: string;
     mimeType?: string;
     data?: string | number[];
@@ -42,7 +42,7 @@ export interface UnifiedToolResult {
     message: string;
   };
   metadata?: {
-    toolType: 'skill' | 'mcp';
+    toolType: "skill" | "mcp";
     source: string;
     toolName: string;
   };
@@ -50,7 +50,7 @@ export interface UnifiedToolResult {
 
 export interface ToolSearchOptions {
   query?: string;
-  type?: 'skill' | 'mcp' | 'all';
+  type?: "skill" | "mcp" | "all";
   category?: string;
   tags?: string[];
   limit?: number;
@@ -71,11 +71,7 @@ export class UnifiedToolManager extends EventEmitter {
   private cacheTimestamp: Map<string, number> = new Map();
   private readonly CACHE_TTL = 5 * 60 * 1000; // 5分钟缓存
 
-  constructor(
-    skillManager: any,
-    mcpIntegration: any,
-    vectorDBService: any
-  ) {
+  constructor(skillManager: any, mcpIntegration: any, vectorDBService: any) {
     super();
     this.skillManager = skillManager;
     this.mcpIntegration = mcpIntegration;
@@ -87,25 +83,25 @@ export class UnifiedToolManager extends EventEmitter {
 
   private setupEventListeners(): void {
     // 监听 Skill 变化
-    this.skillManager?.on('skill-installed', (skill: SkillTool) => {
+    this.skillManager?.on("skill-installed", (skill: SkillTool) => {
       this.addSkillToCache(skill);
       this.refreshToolIndex();
     });
 
-    this.skillManager?.on('skill-uninstalled', (skillName: string) => {
+    this.skillManager?.on("skill-uninstalled", (skillName: string) => {
       this.removeSkillFromCache(skillName);
       this.refreshToolIndex();
     });
 
     // 监听 MCP 工具变化
-    this.mcpIntegration?.on('tools-changed', (data: { serverId: string; tools: MCPTool[] }) => {
+    this.mcpIntegration?.on("tools-changed", (data: { serverId: string; tools: MCPTool[] }) => {
       this.addMCPToolsToCache(data.serverId, data.tools);
       this.refreshToolIndex();
     });
 
     // 监听 MCP 服务器状态变化
-    this.mcpIntegration?.on('server-status-changed', (data: { serverId: string; status: any }) => {
-      if (data.status.phase !== 'running') {
+    this.mcpIntegration?.on("server-status-changed", (data: { serverId: string; status: any }) => {
+      if (data.status.phase !== "running") {
         this.removeMCPServerFromCache(data.serverId);
         this.refreshToolIndex();
       }
@@ -117,7 +113,7 @@ export class UnifiedToolManager extends EventEmitter {
    */
   async initialize(): Promise<void> {
     try {
-      logger.info('[UnifiedTool] Initializing...');
+      logger.info("[UnifiedTool] Initializing...");
 
       // 加载所有工具到缓存
       await this.loadAllTools();
@@ -127,7 +123,7 @@ export class UnifiedToolManager extends EventEmitter {
 
       logger.info(`[UnifiedTool] Initialized with ${this.toolCache.size} tools`);
     } catch (error: any) {
-      logger.error('[UnifiedTool] Failed to initialize:', error);
+      logger.error("[UnifiedTool] Failed to initialize:", error);
       throw error;
     }
   }
@@ -145,7 +141,7 @@ export class UnifiedToolManager extends EventEmitter {
         this.addSkillToCache(skill);
       }
     } catch (error) {
-      logger.error('[UnifiedTool] Failed to load skills:', error);
+      logger.error("[UnifiedTool] Failed to load skills:", error);
     }
 
     // 加载 MCP 工具
@@ -157,7 +153,7 @@ export class UnifiedToolManager extends EventEmitter {
         this.addMCPToolsToCache(serverId, tools);
       }
     } catch (error) {
-      logger.error('[UnifiedTool] Failed to load MCP tools:', error);
+      logger.error("[UnifiedTool] Failed to load MCP tools:", error);
     }
   }
 
@@ -168,17 +164,17 @@ export class UnifiedToolManager extends EventEmitter {
     const tool: UnifiedTool = {
       id: `skill:${skill.name}`,
       name: skill.name,
-      type: 'skill',
+      type: "skill",
       source: skill.name,
       description: skill.description,
-      category: skill.tags?.[0] || 'uncategorized',
+      category: skill.tags?.[0] || "uncategorized",
       tags: skill.tags || [],
       parameters: skill.parameters,
       metadata: {
         version: skill.version,
         author: skill.author,
-        level: skill.level
-      }
+        level: skill.level,
+      },
     };
 
     this.toolCache.set(tool.id, tool);
@@ -206,15 +202,15 @@ export class UnifiedToolManager extends EventEmitter {
       const unifiedTool: UnifiedTool = {
         id: `mcp:${serverId}:${tool.name}`,
         name: tool.name,
-        type: 'mcp',
+        type: "mcp",
         source: serverId,
         description: tool.description,
         tags: [`mcp`, `server:${serverId}`],
         parameters: tool.inputSchema,
         metadata: {
           mcpServerId: serverId,
-          mcpToolName: tool.name
-        }
+          mcpToolName: tool.name,
+        },
       };
 
       this.toolCache.set(unifiedTool.id, unifiedTool);
@@ -231,12 +227,12 @@ export class UnifiedToolManager extends EventEmitter {
     const toRemove: string[] = [];
 
     for (const [id, tool] of this.toolCache.entries()) {
-      if (tool.type === 'mcp' && tool.source === serverId) {
+      if (tool.type === "mcp" && tool.source === serverId) {
         toRemove.push(id);
       }
     }
 
-    toRemove.forEach(id => {
+    toRemove.forEach((id) => {
       this.toolCache.delete(id);
       this.cacheTimestamp.delete(id);
     });
@@ -249,14 +245,7 @@ export class UnifiedToolManager extends EventEmitter {
    */
   async searchTools(options: ToolSearchOptions): Promise<ToolSearchResult[]> {
     try {
-      const {
-        query,
-        type = 'all',
-        category,
-        tags,
-        limit = 10,
-        minScore = 0.3
-      } = options;
+      const { query, type = "all", category, tags, limit = 10, minScore = 0.3 } = options;
 
       let results: ToolSearchResult[] = [];
 
@@ -273,7 +262,7 @@ export class UnifiedToolManager extends EventEmitter {
 
       return results.slice(0, limit);
     } catch (error: any) {
-      logger.error('[UnifiedTool] Tool search failed:', error);
+      logger.error("[UnifiedTool] Tool search failed:", error);
       return [];
     }
   }
@@ -288,17 +277,17 @@ export class UnifiedToolManager extends EventEmitter {
     try {
       const searchResult = await this.vectorDBService.searchTools(query, {
         limit: options.limit || 10,
-        minScore: options.minScore || 0.3
+        minScore: options.minScore || 0.3,
       });
 
       return searchResult.map((result: VectorToolResult) => ({
         id: result.id,
         tool: result.tool as UnifiedTool,
         score: result.score,
-        metadata: result.metadata
+        metadata: result.metadata,
       }));
     } catch (error: any) {
-      logger.error('[UnifiedTool] Vector search failed:', error);
+      logger.error("[UnifiedTool] Vector search failed:", error);
       return [];
     }
   }
@@ -317,39 +306,37 @@ export class UnifiedToolManager extends EventEmitter {
     let tools = Array.from(this.toolCache.values());
 
     // 类型过滤
-    if (type !== 'all') {
-      tools = tools.filter(t => t.type === type);
+    if (type !== "all") {
+      tools = tools.filter((t) => t.type === type);
     }
 
     // 分类过滤
     if (category) {
-      tools = tools.filter(t => t.category === category);
+      tools = tools.filter((t) => t.category === category);
     }
 
     // 标签过滤
     if (tags && tags.length > 0) {
-      tools = tools.filter(t =>
-        tags.every(tag => t.tags?.includes(tag))
-      );
+      tools = tools.filter((t) => tags.every((tag) => t.tags?.includes(tag)));
     }
 
     // 转换为搜索结果
-    return tools.slice(0, limit).map(tool => ({
+    return tools.slice(0, limit).map((tool) => ({
       id: tool.id,
       tool,
       score: 1.0,
-      reason: 'Direct match'
+      reason: "Direct match",
     }));
   }
 
   /**
    * 获取所有工具
    */
-  getAllTools(type?: 'skill' | 'mcp'): UnifiedTool[] {
+  getAllTools(type?: "skill" | "mcp"): UnifiedTool[] {
     let tools = Array.from(this.toolCache.values());
 
     if (type) {
-      tools = tools.filter(t => t.type === type);
+      tools = tools.filter((t) => t.type === type);
     }
 
     return tools;
@@ -405,7 +392,7 @@ export class UnifiedToolManager extends EventEmitter {
 
       let result: UnifiedToolResult;
 
-      if (tool.type === 'skill') {
+      if (tool.type === "skill") {
         // 调用 Skill
         result = await this.callSkill(tool, arguments_);
       } else {
@@ -422,8 +409,8 @@ export class UnifiedToolManager extends EventEmitter {
           ...result.metadata,
           toolType: tool.type,
           source: tool.source,
-          toolName: tool.name
-        }
+          toolName: tool.name,
+        },
       };
     } catch (error: any) {
       const duration = Date.now() - startTime;
@@ -435,14 +422,14 @@ export class UnifiedToolManager extends EventEmitter {
         content: [],
         duration,
         error: {
-          code: 'TOOL_CALL_ERROR',
-          message: error.message || 'Unknown error'
+          code: "TOOL_CALL_ERROR",
+          message: error.message || "Unknown error",
         },
         metadata: {
-          toolType: 'skill' as const,
-          source: 'unknown',
-          toolName: toolNameOrId
-        }
+          toolType: "skill" as const,
+          source: "unknown",
+          toolName: toolNameOrId,
+        },
       };
     }
   }
@@ -450,7 +437,10 @@ export class UnifiedToolManager extends EventEmitter {
   /**
    * 调用 Skill
    */
-  private async callSkill(tool: UnifiedTool, args: Record<string, any>): Promise<UnifiedToolResult> {
+  private async callSkill(
+    tool: UnifiedTool,
+    args: Record<string, any>
+  ): Promise<UnifiedToolResult> {
     try {
       const skillResult = await this.skillManager.executeSkill(tool.name, args);
 
@@ -458,16 +448,16 @@ export class UnifiedToolManager extends EventEmitter {
         success: skillResult.success,
         content: [
           {
-            type: 'text',
-            text: skillResult.output || skillResult.error || ''
-          }
+            type: "text",
+            text: skillResult.output || skillResult.error || "",
+          },
         ],
         duration: skillResult.duration,
         metadata: {
-          toolType: 'skill',
+          toolType: "skill",
           source: tool.source,
-          toolName: tool.name
-        }
+          toolName: tool.name,
+        },
       };
     } catch (error: any) {
       return {
@@ -475,9 +465,9 @@ export class UnifiedToolManager extends EventEmitter {
         content: [],
         duration: 0,
         error: {
-          code: 'SKILL_EXECUTION_ERROR',
-          message: error.message || 'Unknown error'
-        }
+          code: "SKILL_EXECUTION_ERROR",
+          message: error.message || "Unknown error",
+        },
       };
     }
   }
@@ -485,12 +475,15 @@ export class UnifiedToolManager extends EventEmitter {
   /**
    * 调用 MCP 工具
    */
-  private async callMCPTool(tool: UnifiedTool, args: Record<string, any>): Promise<UnifiedToolResult> {
+  private async callMCPTool(
+    tool: UnifiedTool,
+    args: Record<string, any>
+  ): Promise<UnifiedToolResult> {
     try {
       const mcpResult = await this.mcpIntegration.callTool({
         toolName: tool.metadata?.mcpToolName || tool.name,
         arguments: args,
-        serverId: tool.source
+        serverId: tool.source,
       });
 
       return {
@@ -498,10 +491,10 @@ export class UnifiedToolManager extends EventEmitter {
         content: mcpResult.content || [],
         duration: mcpResult.duration,
         metadata: {
-          toolType: 'mcp',
+          toolType: "mcp",
           source: tool.source,
-          toolName: tool.name
-        }
+          toolName: tool.name,
+        },
       };
     } catch (error: any) {
       return {
@@ -509,9 +502,9 @@ export class UnifiedToolManager extends EventEmitter {
         content: [],
         duration: 0,
         error: {
-          code: 'MCP_EXECUTION_ERROR',
-          message: error.message || 'Unknown error'
-        }
+          code: "MCP_EXECUTION_ERROR",
+          message: error.message || "Unknown error",
+        },
       };
     }
   }
@@ -521,7 +514,7 @@ export class UnifiedToolManager extends EventEmitter {
    */
   async refreshToolIndex(): Promise<void> {
     try {
-      logger.debug('[UnifiedTool] Refreshing tool index...');
+      logger.debug("[UnifiedTool] Refreshing tool index...");
 
       const tools = Array.from(this.toolCache.values());
 
@@ -529,7 +522,7 @@ export class UnifiedToolManager extends EventEmitter {
 
       logger.info(`[UnifiedTool] Tool index refreshed: ${tools.length} tools indexed`);
     } catch (error: any) {
-      logger.error('[UnifiedTool] Failed to refresh tool index:', error);
+      logger.error("[UnifiedTool] Failed to refresh tool index:", error);
     }
   }
 
@@ -541,12 +534,12 @@ export class UnifiedToolManager extends EventEmitter {
 
     const stats = {
       totalTools: tools.length,
-      skillsCount: tools.filter(t => t.type === 'skill').length,
-      mcpToolsCount: tools.filter(t => t.type === 'mcp').length,
+      skillsCount: tools.filter((t) => t.type === "skill").length,
+      mcpToolsCount: tools.filter((t) => t.type === "mcp").length,
       byCategory: {} as Record<string, number>,
       byTags: {} as Record<string, number>,
       cacheSize: this.toolCache.size,
-      cacheTTL: this.CACHE_TTL
+      cacheTTL: this.CACHE_TTL,
     };
 
     for (const tool of tools) {
@@ -569,17 +562,17 @@ export class UnifiedToolManager extends EventEmitter {
     this.toolCache.clear();
     this.cacheTimestamp.clear();
 
-    logger.info('[UnifiedTool] Cache cleared');
+    logger.info("[UnifiedTool] Cache cleared");
   }
 
   /**
    * 优雅关闭
    */
   async shutdown(): Promise<void> {
-    logger.info('[UnifiedTool] Shutting down...');
+    logger.info("[UnifiedTool] Shutting down...");
 
     this.clearCache();
 
-    logger.info('[UnifiedTool] Shut down complete');
+    logger.info("[UnifiedTool] Shut down complete");
   }
 }
