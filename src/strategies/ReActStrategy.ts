@@ -21,6 +21,7 @@ import type { SkillTool, BuiltInTool } from "../types/tool-system";
 import { logger } from "../utils/logger";
 import { extractTextFromMessage } from "../utils/message-utils";
 import { TIMEOUT, LIMITS, THRESHOLDS } from "../constants";
+import { SKILL_TIMEOUT_MS } from "../constants/retention";
 
 export class ReActStrategy implements ChatStrategy {
   private builtInRegistry: BuiltInToolsRegistry;
@@ -33,7 +34,7 @@ export class ReActStrategy implements ChatStrategy {
   // 自动注销机制：追踪动态注册Skills的最后访问时间
   private dynamicSkillsLastAccess: Map<string, number> = new Map();
   private cleanupTimer: NodeJS.Timeout | null = null;
-  private readonly SKILL_TIMEOUT_MS = 5 * 60 * 1000; // 5分钟
+  private readonly SKILL_TIMEOUT_MS = SKILL_TIMEOUT_MS;
 
   constructor(
     private llmManager: LLMManager,

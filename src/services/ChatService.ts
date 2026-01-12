@@ -17,7 +17,7 @@ import { IWebSocketManager } from "../api/websocket/WebSocketManager";
 import { ConversationHistoryService, type ConversationMessage } from "./ConversationHistoryService";
 import { SessionManager } from "./SessionManager";
 import { RequestTracker } from "./RequestTracker";
-import type { ChatStrategy } from "../strategies/ChatStrategy";
+import type { ChatStrategy, ChatResult } from "../strategies/ChatStrategy";
 import { MessagePreprocessor } from "./chat/MessagePreprocessor";
 import { ConversationSaver } from "./chat/ConversationSaver";
 import { StrategySelector } from "./chat/StrategySelector";
@@ -130,9 +130,11 @@ export class ChatService {
       );
       const processedMessages = preprocessResult.messages;
 
-      // 5. 应用上下文压缩（如果启用）
+      // 5. 应用上下文压缩
+      // 默认启用（遵循 ContextCompressionService.defaultConfig.enabled = true）
       let messagesForLLM = processedMessages;
-      if (options.contextCompression?.enabled) {
+      const compressionEnabled = options.contextCompression?.enabled ?? true;
+      if (compressionEnabled) {
         // 获取模型上下文限制
         const model = ModelRegistry.getInstance().findModel(
           options.provider || "default",
@@ -160,11 +162,11 @@ export class ChatService {
 
       // 6. 检查是否为流式模式
       if (options.stream) {
-        // 流式模式，返回AsyncGenerator
+        // 流式模式，返回 AsyncGenerator
         return strategy.execute(messagesForLLM, options) as AsyncIterableIterator<any>;
       } else {
-        // 普通模式，返回ChatResult
-        const result = (await strategy.execute(messagesForLLM, options)) as any;
+        // 普通模式，返回 ChatResult
+        const result = (await strategy.execute(messagesForLLM, options)) as ChatResult;
 
         // 7. 更新会话元数据
         if (options.sessionId && result?.usage) {
@@ -349,9 +351,11 @@ export class ChatService {
       );
       const processedMessages = preprocessResult.messages;
 
-      // 4. 应用上下文压缩（如果启用）
+      // 4. 应用上下文压缩
+      // 默认启用（遵循 ContextCompressionService.defaultConfig.enabled = true）
       let messagesForLLM = processedMessages;
-      if (options.contextCompression?.enabled) {
+      const compressionEnabled = options.contextCompression?.enabled ?? true;
+      if (compressionEnabled) {
         // 获取模型上下文限制
         const model = ModelRegistry.getInstance().findModel(
           options.provider || "default",
@@ -473,8 +477,12 @@ export class ChatService {
     limit: number = 100,
     offset: number = 0
   ): Promise<Message[]> {
-    const historyService = this.conversationHistoryService || null;
-    return historyService?.getMessages(conversationId, limit, offset) || [];
+    const historyService = this.conversationHistoryService;
+    if (!historyService) {
+      return [];
+    }
+    const messages = await historyService.getMessages(conversationId, limit, offset);
+    return messages as Message[];
   }
 
   /**

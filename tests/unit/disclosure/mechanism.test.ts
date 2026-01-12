@@ -1195,7 +1195,7 @@ describe("Configuration Tests", () => {
       expect(decision.level).toBe(DisclosureLevel.CONTENT);
     });
 
-    it("should accept custom token limits", () => {
+    it("should accept custom token limits", async () => {
       const manager = new DisclosureManager({
         enabled: true,
         thresholds: { l2: 0.7, l3: 0.85 },
@@ -1210,7 +1210,7 @@ describe("Configuration Tests", () => {
         },
       });
 
-      const result = manager.getDisclosure("tool1", {
+      const result = await manager.getDisclosure("tool1", {
         score: 0.95,
         maxTokens: 200,
       });

@@ -236,3 +236,13 @@ export function getLimitValue(key: keyof typeof LIMITS): number {
 export function getThresholdValue(key: keyof typeof THRESHOLDS): number {
   return THRESHOLDS[key];
 }
+
+// ==================== 检索常量 ====================
+// 从专门的 retrieval 常量文件导入，保持关注点分离
+export * from "./retrieval";
+
+// ==================== 压缩常量 ====================
+export * from "./compression";
+
+// ==================== 保留常量 ====================
+export * from "./retention";

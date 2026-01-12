@@ -272,7 +272,8 @@ export class ConversationHistoryService {
   /**
    * 获取对话的最后一条消息
    * @param conversationId 对话ID
-   * @returns 最后一条消息或null
+   * @returns 最后一条消息或null（如果不存在）
+   * @throws {Error} 数据库错误时抛出错误
    */
   async getLastMessage(conversationId: string): Promise<ConversationMessage | null> {
     try {
@@ -288,14 +289,17 @@ export class ConversationHistoryService {
       return row || null;
     } catch (error: any) {
       logger.error(`[ConversationHistory] Failed to get last message: ${error.message}`);
-      return null;
+      throw new Error(
+        `Failed to get last message for conversation ${conversationId}: ${error.message}`
+      );
     }
   }
 
   /**
    * 获取对话的第一条消息
    * @param conversationId 对话ID
-   * @returns 第一条消息或null
+   * @returns 第一条消息或null（如果不存在）
+   * @throws {Error} 数据库错误时抛出错误
    */
   async getFirstMessage(conversationId: string): Promise<ConversationMessage | null> {
     try {
@@ -311,7 +315,9 @@ export class ConversationHistoryService {
       return row || null;
     } catch (error: any) {
       logger.error(`[ConversationHistory] Failed to get first message: ${error.message}`);
-      return null;
+      throw new Error(
+        `Failed to get first message for conversation ${conversationId}: ${error.message}`
+      );
     }
   }
 

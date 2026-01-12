@@ -16,6 +16,7 @@ import { PruneStrategy } from "./strategies/PruneStrategy";
 import { SummaryStrategy } from "./strategies/SummaryStrategy";
 import { HybridStrategy } from "./strategies/HybridStrategy";
 import { logger } from "../../utils/logger";
+import { COMPRESSION, COMPACTION } from "../../constants/compression";
 
 /**
  * 压缩策略类型
@@ -124,20 +125,21 @@ export class ContextCompressionService {
   private readonly openCodeDefaultConfig: Required<OpenCodeCompactionConfig> = {
     auto: true,
     prune: true,
-    overflowThreshold: 4000,
+    overflowThreshold: COMPACTION.OVERFLOW_THRESHOLD,
     protectTools: true,
     summaryOnSevere: true,
-    severeThreshold: 0.8,
+    severeThreshold: COMPACTION.SEVERE_THRESHOLD,
   };
 
   /**
    * 默认配置
+   * 注意：enabled 默认为 true，表示默认启用上下文压缩
    */
   private readonly defaultConfig: Required<ContextCompressionConfig> = {
     enabled: true,
     strategy: "truncate",
-    contextLimit: 8000,
-    outputReserve: 4000,
+    contextLimit: COMPACTION.DEFAULT_CONTEXT_LIMIT,
+    outputReserve: COMPACTION.DEFAULT_OUTPUT_RESERVE,
     preserveSystemMessage: true,
     minMessageCount: 1,
     openCodeConfig: this.openCodeDefaultConfig,
@@ -147,7 +149,7 @@ export class ContextCompressionService {
    * 绝对最小 Token 限制
    * 即使压缩失败也不能超过此限制
    */
-  private readonly ABSOLUTE_MIN_TOKENS = 1000;
+  private readonly ABSOLUTE_MIN_TOKENS = COMPACTION.ABSOLUTE_MIN_TOKENS;
 
   constructor() {
     logger.debug("[ContextCompressionService] Initialized");
@@ -535,7 +537,7 @@ export class ContextCompressionService {
     }
 
     // 分离新消息和旧消息
-    const keepRecentCount = 5; // 保留最近5条消息
+    const keepRecentCount = COMPRESSION.KEEP_RECENT_MESSAGES;
     let recentCount = 0;
 
     for (let i = messages.length - 1; i >= 0; i--) {

@@ -177,6 +177,8 @@ export class HybridRetrievalEngine implements IHybridRetrievalEngine {
       fusionTime: 0,
       resultCount: 0,
       cacheHit: false,
+      cacheHits: 0,
+      cacheMisses: 0,
     };
 
     this._logger.info("[HybridRetrievalEngine] Initialized", {
@@ -564,14 +566,24 @@ export class HybridRetrievalEngine implements IHybridRetrievalEngine {
   /**
    * Extract examples from result metadata
    */
-  private extractExamples(result: UnifiedRetrievalResult): string[] {
+  private extractExamples(
+    result: UnifiedRetrievalResult
+  ): Array<{ input: string; output: string }> {
     if (result.metadata && typeof result.metadata === "object") {
       const metadata = result.metadata as Record<string, unknown>;
       if (Array.isArray(metadata.examples)) {
-        return metadata.examples as string[];
+        const examples = metadata.examples as string[];
+        return examples.map((ex, idx) => ({
+          input: `Example ${idx + 1} input`,
+          output: ex,
+        }));
       }
       if (Array.isArray(metadata.example)) {
-        return metadata.example as string[];
+        const examples = metadata.example as string[];
+        return examples.map((ex, idx) => ({
+          input: `Example ${idx + 1} input`,
+          output: ex,
+        }));
       }
     }
     return [];
@@ -580,20 +592,37 @@ export class HybridRetrievalEngine implements IHybridRetrievalEngine {
   /**
    * Extract resources from result metadata
    */
-  private extractResources(result: UnifiedRetrievalResult): string[] {
+  private extractResources(
+    result: UnifiedRetrievalResult
+  ): Array<{ type: string; path: string; description: string }> {
     if (result.metadata && typeof result.metadata === "object") {
       const metadata = result.metadata as Record<string, unknown>;
       if (Array.isArray(metadata.resources)) {
-        return metadata.resources as string[];
+        const resources = metadata.resources as string[];
+        return resources.map((res, idx) => ({
+          type: "file",
+          path: res,
+          description: `Resource ${idx + 1}`,
+        }));
       }
       if (Array.isArray(metadata.relatedFiles)) {
-        return metadata.relatedFiles as string[];
+        const files = metadata.relatedFiles as string[];
+        return files.map((file, idx) => ({
+          type: "file",
+          path: file,
+          description: `Related file ${idx + 1}`,
+        }));
       }
       if (Array.isArray(metadata.dependencies)) {
-        return metadata.dependencies as string[];
+        const deps = metadata.dependencies as string[];
+        return deps.map((dep, idx) => ({
+          type: "dependency",
+          path: dep,
+          description: `Dependency ${idx + 1}`,
+        }));
       }
     }
-    return result.path ? [result.path] : [];
+    return result.path ? [{ type: "file", path: result.path, description: "Main resource" }] : [];
   }
 
   /**

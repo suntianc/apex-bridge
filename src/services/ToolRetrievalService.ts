@@ -608,8 +608,27 @@ export class ToolRetrievalService {
       // 调用 LLMManager.embed() - 会自动使用数据库配置的默认 embedding 模型
       const embeddings = await llmManagerInstance.embed([text]);
 
-      if (!embeddings || embeddings.length === 0 || !embeddings[0]) {
-        throw new Error("Empty embedding result");
+      // 验证嵌入结果完整性
+      if (!embeddings) {
+        logger.error("[ToolRetrievalService] Embedding result is null or undefined");
+        throw new Error("Embedding generation returned null or undefined");
+      }
+
+      if (!Array.isArray(embeddings)) {
+        logger.error("[ToolRetrievalService] Embedding result is not an array", {
+          type: typeof embeddings,
+        });
+        throw new Error("Embedding result is not an array");
+      }
+
+      if (embeddings.length === 0) {
+        logger.error("[ToolRetrievalService] Embedding result array is empty");
+        throw new Error("Empty embedding result array");
+      }
+
+      if (!embeddings[0] || !Array.isArray(embeddings[0])) {
+        logger.error("[ToolRetrievalService] First embedding is null or not an array");
+        throw new Error("First embedding is null or not an array");
       }
 
       logger.debug(`Generated remote embedding: ${embeddings[0].length} dimensions`);
@@ -989,6 +1008,7 @@ export class ToolRetrievalService {
       // 索引每个Skills
       let indexedCount = 0;
       let skippedCount = 0;
+      const failedSkills: { name: string; error: string }[] = [];
 
       for (const skillName of skillDirs) {
         try {
@@ -1023,11 +1043,23 @@ export class ToolRetrievalService {
             logger.debug(`Skipping unchanged skill: ${skillName}`);
           }
         } catch (error) {
-          logger.warn(`Failed to index skill ${skillName}:`, error);
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          failedSkills.push({ name: skillName, error: errorMessage });
+          logger.error(`Failed to index skill ${skillName}:`, error);
         }
       }
 
-      logger.info(`Skills scanning completed: ${indexedCount} indexed, ${skippedCount} skipped`);
+      // 报告失败的技能
+      if (failedSkills.length > 0) {
+        logger.error(
+          `[ToolRetrievalService] ${failedSkills.length} skill(s) failed to index: ` +
+            failedSkills.map((s) => `${s.name}`).join(", ")
+        );
+      }
+
+      logger.info(
+        `Skills scanning completed: ${indexedCount} indexed, ${skippedCount} skipped, ${failedSkills.length} failed`
+      );
     } catch (error) {
       logger.error("Failed to scan and index skills:", error);
       throw error;

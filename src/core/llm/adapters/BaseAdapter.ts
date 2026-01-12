@@ -7,6 +7,7 @@ import axios, { AxiosInstance } from "axios";
 import { Message, ChatOptions, LLMResponse, LLMProviderConfig } from "../../../types";
 import { logger } from "../../../utils/logger";
 import { retry, RetryConfig } from "../../../utils/retry";
+import { logErrorResponse, createErrorMessage } from "../../../utils/error-serializer";
 
 /**
  * Axios 请求配置接口
@@ -365,23 +366,8 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
           throw error;
         }
 
-        logger.error(`❌ ${this.providerName} chat error:`, error.message);
-        if (error.response) {
-          logger.error(`   HTTP状态: ${error.response.status}`);
-          // 🐛 修复：安全序列化，避免循环引用
-          try {
-            if (error.response.data && typeof error.response.data === "object") {
-              // 只序列化 data 字段，避免序列化整个 response 对象
-              logger.error(`   错误详情: ${JSON.stringify(error.response.data, null, 2)}`);
-            } else {
-              logger.error(`   错误详情: ${error.response.data || "无详细信息"}`);
-            }
-          } catch (e) {
-            // 如果序列化失败，只记录错误消息
-            logger.error(`   错误详情: [无法序列化响应数据]`);
-          }
-        }
-        throw new Error(`${this.providerName} request failed: ${error.message}`);
+        logErrorResponse(this.providerName, error, "chat");
+        throw new Error(createErrorMessage(this.providerName, error));
       }
     }, retryConfig);
   }
@@ -582,17 +568,7 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
 
       throw new Error("Unexpected embedding response format");
     } catch (error: any) {
-      logger.error(`❌ ${this.providerName} embed error:`, error.message);
-      if (error.response) {
-        logger.error(`   HTTP状态: ${error.response.status}`);
-        try {
-          if (error.response.data && typeof error.response.data === "object") {
-            logger.error(`   错误详情: ${JSON.stringify(error.response.data, null, 2)}`);
-          }
-        } catch (e) {
-          // 序列化失败
-        }
-      }
+      logErrorResponse(this.providerName, error, "embed");
       throw new Error(`${this.providerName} embedding failed: ${error.message}`);
     }
   }

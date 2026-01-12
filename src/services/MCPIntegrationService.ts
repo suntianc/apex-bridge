@@ -33,6 +33,13 @@ export class MCPIntegrationService extends EventEmitter {
   private serverManagers: Map<string, MCPServerManager> = new Map();
   private toolIndex: Map<string, { serverId: string; toolName: string }> = new Map();
   private configService: MCPConfigService;
+  private managerListeners: Map<
+    string,
+    {
+      statusChanged?: (status: MCPServerStatus) => void;
+      toolsChanged?: (tools: MCPTool[]) => void;
+    }
+  > = new Map();
 
   constructor() {
     super();
@@ -55,12 +62,16 @@ export class MCPIntegrationService extends EventEmitter {
       logger.info(`[MCP] Server ${data.serverId} tools updated: ${data.tools.length} tools`);
       this.updateToolIndex(data.serverId, data.tools);
       // Re-vectorize tools to update vector search index
-      // 注意：向量索引失败不应该影响服务器运行，只记录错误
+      // 向量化失败不影响服务器运行，但需要记录详细错误信息
       try {
         await this.vectorizeServerTools(data.serverId, data.tools);
       } catch (vectorError: any) {
-        logger.warn(`[MCP] Vectorization failed for server ${data.serverId}:`, vectorError.message);
-        // 不抛出异常，让服务器继续运行
+        logger.error(
+          `[MCP] Vectorization failed for server ${data.serverId}: ${vectorError.message}`,
+          vectorError.stack
+        );
+        // 工具已注册但无法通过语义搜索检索
+        // 服务器继续运行，但工具索引可能不完整
       }
     });
   }
@@ -82,14 +93,23 @@ export class MCPIntegrationService extends EventEmitter {
 
       const manager = new MCPServerManager(config);
 
-      // 设置事件监听
-      manager.on("status-changed", (status: MCPServerStatus) => {
-        this.emit("server-status-changed", { serverId, status });
-      });
+      // 设置事件监听并跟踪引用以便后续清理
+      const listeners: {
+        statusChanged?: (status: MCPServerStatus) => void;
+        toolsChanged?: (tools: MCPTool[]) => void;
+      } = {};
 
-      manager.on("tools-changed", (tools: MCPTool[]) => {
+      listeners.statusChanged = (status: MCPServerStatus) => {
+        this.emit("server-status-changed", { serverId, status });
+      };
+      listeners.toolsChanged = (tools: MCPTool[]) => {
         this.emit("tools-changed", { serverId, tools });
-      });
+      };
+
+      manager.on("status-changed", listeners.statusChanged);
+      manager.on("tools-changed", listeners.toolsChanged);
+
+      this.managerListeners.set(serverId, listeners);
 
       // 初始化服务器
       await manager.initialize();
@@ -100,12 +120,15 @@ export class MCPIntegrationService extends EventEmitter {
       this.configService.saveServer(config);
       logger.info(`[MCP] Server ${serverId} configuration saved to database`);
 
-      // 向量化工具（容错处理：向量索引失败不影响服务器注册）
+      // 向量化工具（容错处理：向量索引失败不影响服务器注册，但记录详细错误）
       try {
         await this.vectorizeServerTools(serverId, manager.getTools());
       } catch (vectorError: any) {
-        logger.warn(`[MCP] Vectorization failed for server ${serverId}:`, vectorError.message);
-        // 继续执行，不影响服务器注册
+        logger.error(
+          `[MCP] Vectorization failed for server ${serverId}: ${vectorError.message}`,
+          vectorError.stack
+        );
+        // 向量化失败不影响服务器注册，但工具将无法通过语义搜索检索
       }
 
       // 注册工具到 ToolRegistry（使用 {clientName}_{toolName} 格式）
@@ -140,6 +163,18 @@ export class MCPIntegrationService extends EventEmitter {
       if (!manager) {
         logger.warn(`[MCP] Server ${serverId} not found`);
         return false;
+      }
+
+      // 移除事件监听器
+      const listeners = this.managerListeners.get(serverId);
+      if (listeners) {
+        if (listeners.statusChanged) {
+          manager.removeListener("status-changed", listeners.statusChanged);
+        }
+        if (listeners.toolsChanged) {
+          manager.removeListener("tools-changed", listeners.toolsChanged);
+        }
+        this.managerListeners.delete(serverId);
       }
 
       // 删除向量化的工具
@@ -550,14 +585,36 @@ export class MCPIntegrationService extends EventEmitter {
   async shutdown(): Promise<void> {
     logger.info("[MCP] Shutting down integration service...");
 
-    // 关闭所有服务器
-    const shutdownPromises = Array.from(this.serverManagers.values()).map((manager) =>
-      manager.shutdown()
-    );
+    // 移除所有事件监听器
+    this.removeAllListeners();
+
+    // 关闭所有服务器并移除监听器
+    const shutdownPromises = Array.from(this.serverManagers.values()).map(async (manager) => {
+      // 获取服务器 ID 以便从 managerListeners 中移除
+      const serverId = Array.from(this.serverManagers.entries()).find(
+        ([, m]) => m === manager
+      )?.[0];
+
+      if (serverId) {
+        const listeners = this.managerListeners.get(serverId);
+        if (listeners) {
+          if (listeners.statusChanged) {
+            manager.removeListener("status-changed", listeners.statusChanged);
+          }
+          if (listeners.toolsChanged) {
+            manager.removeListener("tools-changed", listeners.toolsChanged);
+          }
+          this.managerListeners.delete(serverId);
+        }
+      }
+
+      await manager.shutdown();
+    });
 
     await Promise.all(shutdownPromises);
 
     this.serverManagers.clear();
+    this.managerListeners.clear();
     this.toolIndex.clear();
 
     logger.info("[MCP] Integration service shut down");

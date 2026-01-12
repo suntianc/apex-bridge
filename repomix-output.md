@@ -38,12 +38,15 @@ config/
   disclosure.yaml
   hybrid-retrieval.yaml
   skills-config.yaml
-  system-prompt-template-en.md
-  system-prompt-template-zh.md
-  system-prompt.md
 src/
   api/
     controllers/
+      chat/
+        ChatCompletionsHandler.ts
+        ChatController.ts
+        index.ts
+        MessageValidation.ts
+        StreamResponseHandler.ts
       ChatController.ts
       ModelController.ts
       ProviderController.ts
@@ -53,7 +56,6 @@ src/
         inMemoryRateLimiter.ts
         redisRateLimiter.ts
         types.ts
-      AGENTS.md
       auditLoggerMiddleware.ts
       authMiddleware.ts
       customValidators.ts
@@ -76,13 +78,14 @@ src/
       channels/
         ChatChannel.ts
       WebSocketManager.ts
-    AGENTS.md
-    CLAUDE.md
   config/
     endpoint-mappings.ts
     index.ts
   constants/
+    compression.ts
     index.ts
+    retention.ts
+    retrieval.ts
   core/
     llm/
       adapters/
@@ -110,7 +113,6 @@ src/
       registry.ts
       tool.ts
     tool-action/
-      CLAUDE.md
       ErrorHandler.ts
       index.ts
       ParameterConverter.ts
@@ -128,8 +130,6 @@ src/
     variable/
       index.ts
       VariableEngine.ts
-    AGENTS.md
-    CLAUDE.md
     EventBus.ts
     LLMManager.ts
     ProtocolEngine.ts
@@ -142,7 +142,6 @@ src/
       index.ts
     index.ts
     MigrationRunner.ts
-    README.md
     run-migrations.ts
   services/
     agent/
@@ -183,8 +182,14 @@ src/
       ToolExecutor.ts
     mcp/
       convert.ts
+    skill/
+      BuiltInSkillLoader.ts
+      DynamicSkillManager.ts
+      index.ts
+      SkillManager.ts
+      SkillValidator.ts
+      UserSkillLoader.ts
     tool-retrieval/
-      AGENTS.md
       BatchEmbeddingService.ts
       DisclosureManager.ts
       EmbeddingGenerator.ts
@@ -192,23 +197,24 @@ src/
       index.ts
       IndexConfigOptimizer.ts
       LanceDBConnection.ts
+      LanceDBConnectionManager.ts
       LanceDBConnectionPool.ts
       MCPToolSupport.ts
       SearchEngine.ts
       SkillIndexer.ts
       TagMatchingEngine.ts
+      ToolRetrievalConfig.ts
       ToolRetrievalService.ts
       types.ts
       UnifiedScoringEngine.ts
+      VectorIndexManager.ts
     warmup/
       ApplicationWarmupService.ts
       CacheWarmupManager.ts
       index.ts
       IndexPrewarmService.ts
-    AGENTS.md
     BuiltInToolsRegistry.ts
     ChatService.ts
-    CLAUDE.md
     ConfigService.ts
     ConversationHistoryService.ts
     DatabaseManager.ts
@@ -228,9 +234,7 @@ src/
     TrajectoryStore.ts
     UnifiedToolManager.ts
   strategies/
-    AGENTS.md
     ChatStrategy.ts
-    CLAUDE.md
     ReActStrategy.ts
     SingleRoundStrategy.ts
   types/
@@ -244,7 +248,6 @@ src/
     config.ts
     enhanced-skill.ts
     errors.ts
-    express.d.ts
     index.ts
     llm-models.ts
     mcp.ts
@@ -262,40 +265,4330 @@ src/
     config/
       disclosure-config.ts
       index.ts
-    AGENTS.md
     cache.ts
     config-constants.ts
     config-loader.ts
     config-validator.ts
     config-writer.ts
     error-classifier.ts
+    error-serializer.ts
     errors.ts
     jwt.ts
     logger.ts
     message-utils.ts
+    metrics.ts
     request-id.ts
     retry.ts
   server.ts
 .eslintignore
-.eslintrc.js
 .gitignore
-.prettierrc.js
 .repomixignore
 .versionrc
-AGENTS.md
-CHANGELOG.md
-CHANGES_BATCH_EMBEDDING.md
-CLAUDE_CODE_AGENT_SKILLS_ANALYSIS.md
-CLAUDE.md
-ClaudeCodeSkill 兼容实施原计划.md
-eslint.config.js
-jest.config.js
 LICENSE
-README.md
-RETRIEVAL_TESTS_SUMMARY.md
 ```
 
 # Files
+
+## File: src/api/controllers/chat/ChatCompletionsHandler.ts
+````typescript
+/**
+ * ChatCompletionsHandler - Chat Completions Handling
+ *
+ * Handles the main chat completions API endpoint.
+ */
+
+import { Request, Response } from "express";
+import { logger } from "../../../utils/logger";
+import { ChatService } from "../../../services/ChatService";
+import { parseChatRequest } from "../../validators/chat-request-validator";
+import type { ChatRequestOptions } from "../../validators/chat-request-validator";
+
+export interface CompletionsResult {
+  success: boolean;
+  response?: any;
+  error?: string;
+}
+
+/**
+ * ChatCompletionsHandler - Chat Completions Handling
+ *
+ * Responsible for processing chat completion requests.
+ */
+export class ChatCompletionsHandler {
+  private chatService: ChatService;
+
+  constructor(chatService: ChatService) {
+    this.chatService = chatService;
+    logger.info("ChatCompletionsHandler initialized");
+  }
+
+  /**
+   * Handle chat completions request
+   */
+  async handleCompletions(req: Request, res: Response): Promise<CompletionsResult> {
+    try {
+      const body = req.body;
+
+      // DEBUG: Check multimodal messages in original request
+      if (body.messages && Array.isArray(body.messages)) {
+        const multimodalCount = body.messages.filter(
+          (m: any) => Array.isArray(m.content) && m.content.some((p: any) => p.type === "image_url")
+        ).length;
+        if (multimodalCount > 0) {
+          logger.debug(`[ChatCompletionsHandler] Received ${multimodalCount} multimodal messages`);
+        }
+      }
+
+      // Validate request
+      const validation = parseChatRequest(body);
+      if (!validation.success) {
+        logger.warn("[ChatCompletionsHandler] Invalid request:", validation.error);
+        res.status(400).json({
+          error: {
+            message: validation.error || "Invalid request parameters",
+            type: "invalid_request",
+          },
+        });
+        return { success: false, error: validation.error };
+      }
+
+      const options = validation.data;
+      const messages = body.messages;
+
+      // Check if stream is enabled
+      if (options.stream) {
+        // Stream handling will be done by StreamResponseHandler
+        return { success: true, response: { stream: true, options, messages } };
+      }
+
+      // Non-streaming response
+      const result = await this.chatService.processMessage(messages, options);
+
+      return {
+        success: true,
+        response: result,
+      };
+    } catch (error) {
+      logger.error("Error in chat completions:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  }
+
+  /**
+   * Validate request
+   */
+  validateRequest(body: any): { valid: boolean; error?: string; data?: ChatRequestOptions } {
+    const validation = parseChatRequest(body);
+
+    if (!validation.success) {
+      return { valid: false, error: validation.error };
+    }
+
+    return { valid: true, data: validation.data };
+  }
+
+  /**
+   * Extract messages from request
+   */
+  extractMessages(body: any): any[] {
+    return body.messages || [];
+  }
+
+  /**
+   * Get actual model to use
+   */
+  async getActualModel(options: ChatRequestOptions): Promise<string> {
+    if (options.model) {
+      return options.model;
+    }
+
+    // Default to gpt-4 if no model specified
+    return "gpt-4";
+  }
+}
+
+/**
+ * Create ChatCompletionsHandler instance
+ */
+export function createChatCompletionsHandler(chatService: ChatService): ChatCompletionsHandler {
+  return new ChatCompletionsHandler(chatService);
+}
+````
+
+## File: src/api/controllers/chat/ChatController.ts
+````typescript
+/**
+ * ChatController - Chat Controller Coordinator
+ *
+ * Main controller coordinating all chat-related operations.
+ */
+
+import { Request, Response } from "express";
+import { ChatService } from "../../../services/ChatService";
+import { LLMManager } from "../../../core/LLMManager";
+import { logger } from "../../../utils/logger";
+import { ChatCompletionsHandler, createChatCompletionsHandler } from "./ChatCompletionsHandler";
+import { StreamResponseHandler, createStreamResponseHandler } from "./StreamResponseHandler";
+import { MessageValidation, createMessageValidation } from "./MessageValidation";
+import { normalizeUsage, buildChatResponse } from "../../utils/response-formatter";
+import type { Message } from "../../../types";
+import type { ChatRequestOptions } from "../../validators/chat-request-validator";
+import { LLMModelType } from "../../../types/llm-models";
+import { InterruptRequest, InterruptResponse } from "../../../types/request-abort";
+
+export interface SessionInfo {
+  sessionId: string;
+  conversationId: string;
+  status: string;
+  messageCount: number;
+  lastActivityAt: number;
+}
+
+export interface SessionListResult {
+  sessions: SessionInfo[];
+  total: number;
+}
+
+/**
+ * ChatController - Main Chat Controller Coordinator
+ *
+ * Orchestrates all chat-related operations including completions,
+ * streaming, session management, and message handling.
+ */
+export class ChatController {
+  private chatService: ChatService;
+  private completionsHandler: ChatCompletionsHandler;
+  private streamHandler: StreamResponseHandler;
+  private messageValidation: MessageValidation;
+  private llmClient: LLMManager | null;
+
+  constructor(chatService: ChatService) {
+    this.chatService = chatService;
+    this.completionsHandler = createChatCompletionsHandler(chatService);
+    this.streamHandler = createStreamResponseHandler(chatService);
+    this.messageValidation = createMessageValidation();
+    this.llmClient = null;
+
+    logger.info("ChatController initialized");
+  }
+
+  /**
+   * Handle chat completions (POST /v1/chat/completions)
+   */
+  async chatCompletions(req: Request, res: Response): Promise<void> {
+    try {
+      const result = await this.completionsHandler.handleCompletions(req, res);
+
+      if (!result.success) {
+        res.status(400).json({
+          error: {
+            message: result.error || "Invalid request",
+            type: "invalid_request",
+          },
+        });
+        return;
+      }
+
+      if (result.response?.stream) {
+        // Handle streaming
+        const messages = this.completionsHandler.extractMessages(req.body);
+        const options = result.response.options;
+        await this.streamHandler.handleStream(res, messages, options);
+      } else {
+        // Handle non-streaming
+        const actualModel = await this.getActualModel(req.body);
+        const usage = normalizeUsage(result.response.usage);
+        const response = buildChatResponse(result.response.content, actualModel, usage);
+        res.json(response);
+      }
+    } catch (error: any) {
+      logger.error("Error in chatCompletions:", error);
+      res.status(500).json({
+        error: {
+          message: error.message || "Internal server error",
+          type: "server_error",
+        },
+      });
+    }
+  }
+
+  /**
+   * Get available models (GET /v1/models)
+   */
+  async getModels(req: Request, res: Response): Promise<void> {
+    try {
+      const llmClient = await this.getLLMClient();
+      const models = await llmClient.getAllModels();
+
+      res.json({
+        object: "list",
+        data: models.map((m) => ({
+          id: m.id,
+          object: "model",
+          owned_by: m.provider,
+          created: Math.floor(Date.now() / 1000),
+        })),
+      });
+
+      logger.info(`Returned ${models.length} models`);
+    } catch (error: any) {
+      logger.error("Error in getModels:", error);
+
+      const statusCode =
+        error.message?.includes("not available") || error.message?.includes("Failed to initialize")
+          ? 503
+          : 500;
+
+      res.status(statusCode).json({
+        error: {
+          message: error.message || "Failed to fetch models",
+          type: statusCode === 503 ? "service_unavailable" : "server_error",
+        },
+      });
+    }
+  }
+
+  /**
+   * Interrupt a request (POST /v1/interrupt)
+   */
+  async interruptRequest(req: Request, res: Response): Promise<void> {
+    try {
+      const body: InterruptRequest = req.body;
+      const { requestId } = body;
+
+      if (!requestId || typeof requestId !== "string") {
+        res.status(400).json({
+          success: false,
+          error: "Bad Request",
+          message: "Missing or invalid requestId",
+        });
+        return;
+      }
+
+      logger.info(`[ChatController] Interrupt request for: ${requestId}`);
+
+      const interrupted = await this.chatService.interruptRequest(requestId);
+
+      if (interrupted) {
+        const response: InterruptResponse = {
+          success: true,
+          message: "Request interrupted successfully",
+          requestId: requestId,
+          interrupted: true,
+        };
+
+        logger.info(`Request interrupted: ${requestId}`);
+        res.json(response);
+      } else {
+        const response: InterruptResponse = {
+          success: false,
+          message: "Request not found or already completed",
+          requestId: requestId,
+          reason: "not_found",
+        };
+
+        logger.warn(`Request not found for interrupt: ${requestId}`);
+        res.status(404).json(response);
+      }
+    } catch (error: any) {
+      logger.error("Error in interruptRequest:", error);
+
+      const response: InterruptResponse = {
+        success: false,
+        message: error.message || "Failed to interrupt request",
+        error: error.toString(),
+      };
+
+      res.status(500).json(response);
+    }
+  }
+
+  /**
+   * Delete session (DELETE /v1/chat/sessions/:conversationId)
+   */
+  async deleteSession(req: Request, res: Response): Promise<void> {
+    try {
+      const conversationId = req.params.conversationId;
+
+      if (!conversationId) {
+        res.status(400).json({
+          error: {
+            message: "conversationId is required",
+            type: "invalid_request",
+          },
+        });
+        return;
+      }
+
+      await this.chatService.endSession(conversationId);
+
+      res.json({
+        success: true,
+        message: "Session deleted successfully",
+      });
+    } catch (error: any) {
+      logger.error("Error in deleteSession:", error);
+      res.status(500).json({
+        error: {
+          message: error.message || "Internal server error",
+          type: "server_error",
+        },
+      });
+    }
+  }
+
+  /**
+   * Get session (GET /v1/chat/sessions/:conversationId)
+   */
+  async getSession(req: Request, res: Response): Promise<void> {
+    try {
+      const conversationId = req.params.conversationId;
+
+      if (!conversationId) {
+        res.status(400).json({
+          error: {
+            message: "conversationId is required",
+            type: "invalid_request",
+          },
+        });
+        return;
+      }
+
+      const sessionId = this.chatService.getSessionIdByConversationId(conversationId);
+
+      if (!sessionId) {
+        res.status(404).json({
+          error: {
+            message: "Session not found",
+            type: "not_found",
+          },
+        });
+        return;
+      }
+
+      const messageCount = await this.chatService.getConversationMessageCount(conversationId);
+      const lastMessage = await this.chatService.getConversationLastMessage(conversationId);
+
+      const sessionState = {
+        sessionId,
+        conversationId,
+        status: "active",
+        messageCount,
+        lastActivityAt: lastMessage?.created_at || Date.now(),
+        metadata: {
+          hasHistory: messageCount > 0,
+        },
+      };
+
+      res.json({
+        success: true,
+        data: sessionState,
+      });
+    } catch (error: any) {
+      logger.error("Error in getSession:", error);
+      res.status(500).json({
+        error: {
+          message: error.message || "Internal server error",
+          type: "server_error",
+        },
+      });
+    }
+  }
+
+  /**
+   * Get active sessions (GET /v1/chat/sessions/active)
+   */
+  async getActiveSessions(req: Request, res: Response): Promise<void> {
+    try {
+      const conversationIds = await this.chatService.getAllConversationsWithHistory();
+
+      const sessions = await Promise.all(
+        conversationIds.map(async (sessionId) => {
+          try {
+            const messageCount = await this.chatService.getConversationMessageCount(sessionId);
+            const lastMessage = await this.chatService.getConversationLastMessage(sessionId);
+            const firstMessage = await this.chatService.getConversationFirstMessage(sessionId);
+
+            return {
+              sessionId,
+              conversationId: sessionId,
+              status: "active",
+              messageCount,
+              lastActivityAt: lastMessage?.created_at || 0,
+              lastMessage: lastMessage?.content?.substring(0, 100) || "",
+              firstMessage: firstMessage?.content?.substring(0, 100) || "",
+            };
+          } catch (error: any) {
+            logger.warn(
+              `[ChatController] Failed to get session info for ${sessionId}: ${error.message}`
+            );
+            return null;
+          }
+        })
+      );
+
+      const activeSessions = sessions.filter((s) => s !== null);
+
+      res.json({
+        success: true,
+        data: {
+          sessions: activeSessions,
+          total: activeSessions.length,
+        },
+      });
+    } catch (error: any) {
+      logger.error("Error in getActiveSessions:", error);
+      res.status(500).json({
+        error: {
+          message: error.message || "Internal server error",
+          type: "server_error",
+        },
+      });
+    }
+  }
+
+  /**
+   * Get session history (GET /v1/chat/sessions/:conversationId/history)
+   */
+  async getSessionHistory(req: Request, res: Response): Promise<void> {
+    try {
+      const { conversationId } = req.params;
+      const { type = "all", limit = "100" } = req.query;
+
+      if (!conversationId) {
+        res.status(400).json({
+          error: {
+            message: "conversationId is required",
+            type: "invalid_request",
+          },
+        });
+        return;
+      }
+
+      const sessionId = this.chatService.getSessionIdByConversationId(conversationId);
+      if (!sessionId) {
+        res.status(404).json({
+          error: {
+            message: "Session not found",
+            type: "not_found",
+          },
+        });
+        return;
+      }
+
+      const history: any = {};
+      const limitNum = parseInt(limit as string) || 100;
+
+      if (type === "all" || type === "state") {
+        const messageCount = await this.chatService.getConversationMessageCount(conversationId);
+        const lastMessage = await this.chatService.getConversationLastMessage(conversationId);
+
+        history.sessionState = {
+          sessionId,
+          conversationId,
+          status: "active",
+          messageCount,
+          lastActivityAt: lastMessage?.created_at || Date.now(),
+        };
+      }
+
+      res.json({
+        success: true,
+        data: history,
+      });
+    } catch (error: any) {
+      logger.error("Error in getSessionHistory:", error);
+      res.status(500).json({
+        error: {
+          message: error.message || "Internal server error",
+          type: "server_error",
+        },
+      });
+    }
+  }
+
+  /**
+   * Get conversation messages (GET /v1/chat/sessions/:conversationId/messages)
+   */
+  async getConversationMessages(req: Request, res: Response): Promise<void> {
+    try {
+      const { conversationId } = req.params;
+      const { limit = "100", offset = "0" } = req.query;
+
+      if (!conversationId) {
+        res.status(400).json({
+          error: {
+            message: "conversationId is required",
+            type: "invalid_request",
+          },
+        });
+        return;
+      }
+
+      const messages = await this.chatService.getConversationHistory(
+        conversationId,
+        parseInt(limit as string) || 100,
+        parseInt(offset as string) || 0
+      );
+
+      const total = await this.chatService.getConversationMessageCount(conversationId);
+
+      res.json({
+        success: true,
+        data: {
+          messages,
+          total,
+          limit: parseInt(limit as string) || 100,
+          offset: parseInt(offset as string) || 0,
+        },
+      });
+    } catch (error: any) {
+      logger.error("Error in getConversationMessages:", error);
+      res.status(500).json({
+        error: {
+          message: error.message || "Internal server error",
+          type: "server_error",
+        },
+      });
+    }
+  }
+
+  /**
+   * Simple chat stream (POST /v1/chat/simple-stream)
+   */
+  async simpleChatStream(req: Request, res: Response): Promise<void> {
+    try {
+      const { messages } = req.body;
+      const body = req.body;
+
+      if (!messages || !Array.isArray(messages)) {
+        res.status(400).json({
+          error: {
+            message: "messages is required and must be an array",
+            type: "validation_error",
+          },
+        });
+        return;
+      }
+
+      const options: ChatRequestOptions = {
+        provider: body.provider,
+        model: body.model,
+        temperature: body.temperature,
+        max_tokens: body.max_tokens,
+        stream: true,
+        user: body.user,
+      };
+
+      if (!options.model) {
+        res.status(400).json({
+          error: {
+            message: "model is required",
+            type: "validation_error",
+          },
+        });
+        return;
+      }
+
+      await this.streamHandler.handleStream(res, messages, options);
+    } catch (error: any) {
+      logger.error("Error in simpleChatStream:", error);
+
+      if (!res.headersSent) {
+        res.status(500).json({
+          error: {
+            message: error.message || "Internal server error",
+            type: "server_error",
+          },
+        });
+      }
+    }
+  }
+
+  /**
+   * Get actual model
+   */
+  private async getActualModel(body: any): Promise<string> {
+    if (body.model) {
+      return body.model;
+    }
+
+    try {
+      const llmClient = await this.getLLMClient();
+      const models = llmClient.getAllModels();
+      const defaultModel = models.find((m) => m.type === LLMModelType.NLP);
+      if (defaultModel) {
+        return defaultModel.id;
+      }
+    } catch (error) {
+      logger.warn("[ChatController] Failed to get default model, using fallback");
+    }
+
+    return "gpt-4";
+  }
+
+  /**
+   * Get LLM client
+   */
+  private async getLLMClient(): Promise<LLMManager> {
+    if (this.llmClient) {
+      return this.llmClient;
+    }
+
+    try {
+      const { LLMManager } = await import("../../../core/LLMManager");
+      const client = new LLMManager() as LLMManager;
+      if (!client) {
+        throw new Error("LLMClient not available");
+      }
+      this.llmClient = client;
+      return client;
+    } catch (error: any) {
+      throw new Error(`Failed to initialize LLMClient: ${error.message || error}`);
+    }
+  }
+}
+
+/**
+ * Create ChatController instance
+ */
+export function createChatController(chatService: ChatService): ChatController {
+  return new ChatController(chatService);
+}
+````
+
+## File: src/api/controllers/chat/index.ts
+````typescript
+/**
+ * chat controller module - Unified Exports
+ *
+ * Main entry point for the chat controller module.
+ */
+
+// Main controller
+export { ChatController, createChatController } from "./ChatController";
+
+// Sub-modules
+export { ChatCompletionsHandler, createChatCompletionsHandler } from "./ChatCompletionsHandler";
+export type { CompletionsResult } from "./ChatCompletionsHandler";
+
+export { StreamResponseHandler, createStreamResponseHandler } from "./StreamResponseHandler";
+
+export { MessageValidation, createMessageValidation } from "./MessageValidation";
+export type { ValidationResult, ValidatedMessage, MessagePart } from "./MessageValidation";
+````
+
+## File: src/api/controllers/chat/MessageValidation.ts
+````typescript
+/**
+ * MessageValidation - Message Validation
+ *
+ * Handles message validation, format checking, and content verification.
+ */
+
+import { logger } from "../../../utils/logger";
+
+export interface ValidationResult<T = any> {
+  valid: boolean;
+  data?: T;
+  error?: string;
+  warnings?: string[];
+}
+
+export interface MessagePart {
+  type: "text" | "image_url";
+  text?: string;
+  image_url?: {
+    url: string;
+  };
+}
+
+export interface ValidatedMessage {
+  role: "system" | "user" | "assistant" | "tool" | "function";
+  content: string | MessagePart[];
+  name?: string;
+}
+
+/**
+ * MessageValidation - Message Validation
+ *
+ * Responsible for validating chat messages and their content.
+ */
+export class MessageValidation {
+  private allowedRoles: Set<string>;
+  private maxMessageLength: number;
+  private maxContentArrayLength: number;
+
+  constructor(
+    options: {
+      allowedRoles?: string[];
+      maxMessageLength?: number;
+      maxContentArrayLength?: number;
+    } = {}
+  ) {
+    this.allowedRoles = new Set(options.allowedRoles || ["system", "user", "assistant"]);
+    this.maxMessageLength = options.maxMessageLength || 100000;
+    this.maxContentArrayLength = options.maxContentArrayLength || 100;
+    logger.info("MessageValidation initialized", {
+      allowedRoles: Array.from(this.allowedRoles),
+      maxMessageLength: this.maxMessageLength,
+    });
+  }
+
+  /**
+   * Validate a single message
+   */
+  validateMessage(message: any): ValidationResult<ValidatedMessage> {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    // Check role
+    if (!message.role) {
+      errors.push("Message role is required");
+    } else if (!this.allowedRoles.has(message.role)) {
+      errors.push(`Invalid message role: ${message.role}`);
+    }
+
+    // Check content
+    if (message.content === undefined || message.content === null) {
+      errors.push("Message content is required");
+    } else if (typeof message.content === "string") {
+      if (message.content.length > this.maxMessageLength) {
+        errors.push(`Message content exceeds maximum length of ${this.maxMessageLength}`);
+      }
+    } else if (Array.isArray(message.content)) {
+      if (message.content.length > this.maxContentArrayLength) {
+        errors.push(`Content array exceeds maximum length of ${this.maxContentArrayLength}`);
+      }
+
+      // Validate content parts
+      for (let i = 0; i < message.content.length; i++) {
+        const part = message.content[i];
+        const partValidation = this.validateContentPart(part);
+
+        if (!partValidation.valid) {
+          errors.push(`Content part ${i}: ${partValidation.error}`);
+        }
+
+        warnings.push(...(partValidation.warnings || []));
+      }
+    } else {
+      errors.push("Message content must be a string or array");
+    }
+
+    if (errors.length > 0) {
+      return {
+        valid: false,
+        error: errors.join("; "),
+        warnings,
+      };
+    }
+
+    return {
+      valid: true,
+      data: {
+        role: message.role,
+        content: message.content,
+        name: message.name,
+      },
+      warnings,
+    };
+  }
+
+  /**
+   * Validate content part
+   */
+  validateContentPart(part: any): ValidationResult<MessagePart> {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    if (!part.type) {
+      errors.push("Content part type is required");
+      return { valid: false, error: errors.join("; "), warnings };
+    }
+
+    if (!["text", "image_url"].includes(part.type)) {
+      errors.push(`Invalid content part type: ${part.type}`);
+    }
+
+    if (part.type === "text") {
+      if (typeof part.text !== "string" || part.text.length === 0) {
+        errors.push("Text part must have non-empty text");
+      }
+    } else if (part.type === "image_url") {
+      if (!part.image_url) {
+        errors.push("Image URL part must have image_url");
+      } else if (
+        typeof part.image_url !== "string" &&
+        (!part.image_url.url || typeof part.image_url.url !== "string")
+      ) {
+        errors.push("Image URL must be a valid URL string");
+      } else if (typeof part.image_url === "string" && part.image_url.length > 2000) {
+        warnings.push("Image URL is very long, may affect performance");
+      }
+    }
+
+    return {
+      valid: errors.length === 0,
+      data: part,
+      error: errors.length > 0 ? errors.join("; ") : undefined,
+      warnings,
+    };
+  }
+
+  /**
+   * Validate message array
+   */
+  validateMessageArray(messages: any[]): ValidationResult<ValidatedMessage[]> {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+    const validatedMessages: ValidatedMessage[] = [];
+
+    if (!Array.isArray(messages)) {
+      return { valid: false, error: "Messages must be an array" };
+    }
+
+    if (messages.length === 0) {
+      return { valid: false, error: "Messages array cannot be empty" };
+    }
+
+    for (let i = 0; i < messages.length; i++) {
+      const messageValidation = this.validateMessage(messages[i]);
+
+      if (!messageValidation.valid) {
+        errors.push(`Message ${i}: ${messageValidation.error}`);
+      } else if (messageValidation.data) {
+        validatedMessages.push(messageValidation.data);
+      }
+
+      warnings.push(...(messageValidation.warnings || []));
+    }
+
+    if (errors.length > 0) {
+      return {
+        valid: false,
+        error: errors.join("; "),
+        warnings,
+      };
+    }
+
+    return {
+      valid: true,
+      data: validatedMessages,
+      warnings,
+    };
+  }
+
+  /**
+   * Check if message has multimodal content
+   */
+  hasMultimodalContent(message: any): boolean {
+    if (Array.isArray(message.content)) {
+      return message.content.some((part: any) => part.type === "image_url");
+    }
+    return false;
+  }
+
+  /**
+   * Count multimodal messages
+   */
+  countMultimodalMessages(messages: any[]): number {
+    return messages.filter((m) => this.hasMultimodalContent(m)).length;
+  }
+
+  /**
+   * Extract image URLs from messages
+   */
+  extractImageUrls(messages: any[]): string[] {
+    const urls: string[] = [];
+
+    for (const message of messages) {
+      if (Array.isArray(message.content)) {
+        for (const part of message.content) {
+          if (part.type === "image_url") {
+            const url = typeof part.image_url === "string" ? part.image_url : part.image_url?.url;
+            if (url) {
+              urls.push(url);
+            }
+          }
+        }
+      }
+    }
+
+    return urls;
+  }
+
+  /**
+   * Add allowed role
+   */
+  addAllowedRole(role: string): void {
+    this.allowedRoles.add(role);
+  }
+
+  /**
+   * Remove allowed role
+   */
+  removeAllowedRole(role: string): void {
+    this.allowedRoles.delete(role);
+  }
+
+  /**
+   * Get allowed roles
+   */
+  getAllowedRoles(): string[] {
+    return Array.from(this.allowedRoles);
+  }
+}
+
+/**
+ * Create MessageValidation instance
+ */
+export function createMessageValidation(options?: {
+  allowedRoles?: string[];
+  maxMessageLength?: number;
+  maxContentArrayLength?: number;
+}): MessageValidation {
+  return new MessageValidation(options);
+}
+````
+
+## File: src/api/controllers/chat/StreamResponseHandler.ts
+````typescript
+/**
+ * StreamResponseHandler - Streaming Response Handling
+ *
+ * Handles SSE (Server-Sent Events) streaming responses for chat.
+ */
+
+import { Response } from "express";
+import { ChatService } from "../../../services/ChatService";
+import { parseLLMChunk } from "../../utils/stream-parser";
+import { logger } from "../../../utils/logger";
+import type { Message } from "../../../types";
+import type { ChatRequestOptions } from "../../validators/chat-request-validator";
+
+export interface StreamConfig {
+  enableStreamThoughts?: boolean;
+  conversationId?: string;
+}
+
+/**
+ * StreamResponseHandler - Streaming Response Handling
+ *
+ * Responsible for handling SSE streaming responses.
+ */
+export class StreamResponseHandler {
+  private chatService: ChatService;
+
+  constructor(chatService: ChatService) {
+    this.chatService = chatService;
+    logger.info("StreamResponseHandler initialized");
+  }
+
+  /**
+   * Handle streaming response
+   */
+  async handleStream(
+    res: Response,
+    messages: Message[],
+    options: ChatRequestOptions
+  ): Promise<void> {
+    const actualModel = options.model || "gpt-4";
+
+    // Set SSE headers
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+
+    const responseId = `chatcmpl-${Date.now()}`;
+    let chunkIndex = 0;
+
+    // Check if thinking process streaming is enabled
+    const enableStreamThoughts = options.selfThinking?.enableStreamThoughts ?? false;
+
+    try {
+      for await (const chunk of this.chatService.streamMessage(messages, options)) {
+        // Handle metadata markers
+        if (chunk.startsWith("__META__:")) {
+          const metaJson = chunk.substring(9);
+          try {
+            const metaData = JSON.parse(metaJson);
+
+            if (metaData.type === "requestId") {
+              res.write(`data: ${JSON.stringify({ requestId: metaData.value })}\n\n`);
+            } else if (metaData.type === "interrupted") {
+              const interruptedChunk = {
+                id: responseId,
+                object: "chat.completion.chunk",
+                created: Math.floor(Date.now() / 1000),
+                model: actualModel,
+                choices: [
+                  {
+                    index: 0,
+                    delta: { content: "" },
+                    finish_reason: "stop",
+                  },
+                ],
+              };
+              res.write(`data: ${JSON.stringify(interruptedChunk)}\n\n`);
+              res.write("data: [DONE]\n\n");
+              res.end();
+              logger.info(`Stream interrupted for request ${responseId}`);
+              return;
+            }
+          } catch (parseError) {
+            logger.warn("[StreamResponseHandler] Failed to parse meta chunk:", metaJson);
+          }
+          continue;
+        }
+
+        // Skip thought markers if not enabled
+        if (
+          !enableStreamThoughts &&
+          (chunk.startsWith("__THOUGHT") ||
+            chunk.startsWith("__ACTION") ||
+            chunk.startsWith("__OBSERVATION") ||
+            chunk.startsWith("__ANSWER"))
+        ) {
+          continue;
+        }
+
+        // Handle thought process metadata
+        if (chunk.startsWith("__THOUGHT_START__:")) {
+          try {
+            const data = JSON.parse(chunk.substring(18).trim());
+            res.write(`event: thought_start\n`);
+            res.write(
+              `data: ${JSON.stringify({
+                iteration: data.iteration,
+                timestamp: data.timestamp,
+              })}\n\n`
+            );
+            chunkIndex++;
+          } catch (e) {
+            logger.warn("[StreamResponseHandler] Failed to parse thought_start:", e);
+          }
+          continue;
+        }
+
+        if (chunk.startsWith("__THOUGHT__:")) {
+          try {
+            const data = JSON.parse(chunk.substring(12).trim());
+            const sseData = {
+              id: responseId,
+              object: "chat.completion.chunk",
+              created: Math.floor(Date.now() / 1000),
+              model: actualModel,
+              choices: [
+                {
+                  index: 0,
+                  delta: {
+                    content: data.content,
+                    role: "assistant",
+                  },
+                  finish_reason: null,
+                },
+              ],
+              _type: "thought",
+              _iteration: data.iteration,
+            };
+            res.write(`data: ${JSON.stringify(sseData)}\n\n`);
+            chunkIndex++;
+          } catch (e) {
+            logger.warn("[StreamResponseHandler] Failed to parse thought:", e);
+          }
+          continue;
+        }
+
+        if (chunk.startsWith("__THOUGHT_END__:")) {
+          try {
+            const data = JSON.parse(chunk.substring(16).trim());
+            res.write(`event: thought_end\n`);
+            res.write(`data: ${JSON.stringify({ iteration: data.iteration })}\n\n`);
+            chunkIndex++;
+          } catch (e) {
+            logger.warn("[StreamResponseHandler] Failed to parse thought_end:", e);
+          }
+          continue;
+        }
+
+        if (chunk.startsWith("__ACTION_START__:")) {
+          try {
+            const data = JSON.parse(chunk.substring(17).trim());
+            res.write(`event: action_start\n`);
+            res.write(
+              `data: ${JSON.stringify({
+                iteration: data.iteration,
+                tool: data.tool,
+                params: data.params,
+              })}\n\n`
+            );
+            chunkIndex++;
+          } catch (e) {
+            logger.warn("[StreamResponseHandler] Failed to parse action_start:", e);
+          }
+          continue;
+        }
+
+        if (chunk.startsWith("__OBSERVATION__:")) {
+          try {
+            const data = JSON.parse(chunk.substring(16).trim());
+            res.write(`event: observation\n`);
+            res.write(
+              `data: ${JSON.stringify({
+                iteration: data.iteration,
+                tool: data.tool,
+                result: data.result,
+                error: data.error,
+              })}\n\n`
+            );
+            chunkIndex++;
+          } catch (e) {
+            logger.warn("[StreamResponseHandler] Failed to parse observation:", e);
+          }
+          continue;
+        }
+
+        if (chunk.startsWith("__ANSWER__:")) {
+          try {
+            const data = JSON.parse(chunk.substring(11).trim());
+            const sseData = {
+              id: responseId,
+              object: "chat.completion.chunk",
+              created: Math.floor(Date.now() / 1000),
+              model: actualModel,
+              choices: [
+                {
+                  index: 0,
+                  delta: { content: data.content },
+                  finish_reason: null,
+                },
+              ],
+              _type: "answer",
+            };
+            res.write(`data: ${JSON.stringify(sseData)}\n\n`);
+            chunkIndex++;
+          } catch (e) {
+            logger.warn("[StreamResponseHandler] Failed to parse answer:", e);
+          }
+          continue;
+        }
+
+        // Parse LLM chunk
+        const parsedChunk = parseLLMChunk(chunk);
+
+        const sseData = {
+          id: responseId,
+          object: "chat.completion.chunk",
+          created: Math.floor(Date.now() / 1000),
+          model: actualModel,
+          choices: [
+            {
+              index: 0,
+              delta: {
+                reasoning_content: parsedChunk.isReasoning ? parsedChunk.content : null,
+                content: parsedChunk.isReasoning ? null : parsedChunk.content,
+              },
+              finish_reason: null,
+            },
+          ],
+        };
+
+        res.write(`data: ${JSON.stringify(sseData)}\n\n`);
+        chunkIndex++;
+      }
+
+      // Send done signal
+      res.write("data: [DONE]\n\n");
+
+      // Send conversationId event if available
+      if (options.conversationId) {
+        res.write(`event: conversation_id\n`);
+        res.write(`data: ${JSON.stringify({ conversationId: options.conversationId })}\n\n`);
+      }
+
+      res.end();
+      logger.info(`Streamed ${chunkIndex} chunks for request ${responseId}`);
+    } catch (streamError: any) {
+      logger.error("Error during streaming:", streamError);
+
+      res.write(
+        `data: ${JSON.stringify({
+          error: {
+            message: streamError.message,
+            type: "server_error",
+          },
+        })}\n\n`
+      );
+      res.end();
+    }
+  }
+
+  /**
+   * Create SSE data for chunk
+   */
+  createChunkData(
+    responseId: string,
+    model: string,
+    content: string,
+    isReasoning: boolean = false
+  ): object {
+    return {
+      id: responseId,
+      object: "chat.completion.chunk",
+      created: Math.floor(Date.now() / 1000),
+      model,
+      choices: [
+        {
+          index: 0,
+          delta: {
+            reasoning_content: isReasoning ? content : null,
+            content: isReasoning ? null : content,
+          },
+          finish_reason: null,
+        },
+      ],
+    };
+  }
+
+  /**
+   * Create SSE event
+   */
+  createEvent(eventType: string, data: object): string {
+    return `event: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`;
+  }
+}
+
+/**
+ * Create StreamResponseHandler instance
+ */
+export function createStreamResponseHandler(chatService: ChatService): StreamResponseHandler {
+  return new StreamResponseHandler(chatService);
+}
+````
+
+## File: src/constants/compression.ts
+````typescript
+/**
+ * 上下文压缩常量
+ *
+ * 集中管理上下文压缩相关的魔法数字
+ */
+
+/**
+ * 摘要保留消息数
+ * 生成摘要时保留最近的消息数量
+ */
+export const COMPRESSION = {
+  /** 保留最近消息数（用于摘要生成） */
+  KEEP_RECENT_MESSAGES: 10,
+
+  /** 摘要最大字符长度（用于截断） */
+  SUMMARY_MAX_CHARS: 200,
+
+  /** 消息摘要最大 token 数 */
+  SUMMARY_MAX_TOKENS: 500,
+} as const;
+
+/**
+ * 压缩阈值配置
+ */
+export const COMPACTION = {
+  /** 默认溢出检测阈值（Tokens） */
+  OVERFLOW_THRESHOLD: 4000,
+
+  /** 严重溢出阈值（上下文比例） */
+  SEVERE_THRESHOLD: 0.8,
+
+  /** 绝对最小 Token 限制 */
+  ABSOLUTE_MIN_TOKENS: 1000,
+
+  /** 默认输出保留空间（Tokens） */
+  DEFAULT_OUTPUT_RESERVE: 4000,
+
+  /** 默认模型上下文限制 */
+  DEFAULT_CONTEXT_LIMIT: 8000,
+} as const;
+````
+
+## File: src/constants/retention.ts
+````typescript
+/**
+ * 保留和超时常量
+ *
+ * 集中管理技能保留、超时等时间相关配置
+ */
+
+/**
+ * 技能自动注销配置
+ */
+export const SKILL_TIMEOUT_MS = 5 * 60 * 1000; // 5分钟
+
+/**
+ * 技能自动注销配置
+ */
+export const SKILL_RETENTION = {
+  /** 技能超时时间（毫秒，5分钟） */
+  TIMEOUT_MS: 5 * 60 * 1000,
+
+  /** 清理定时器间隔（毫秒，1分钟） */
+  CLEANUP_INTERVAL_MS: 60 * 1000,
+
+  /** 缓存 TTL（毫秒，5分钟） */
+  CACHE_TTL_MS: 5 * 60 * 1000,
+} as const;
+
+/**
+ * 自动注销检查配置
+ */
+export const AUTO_UNREGISTER = {
+  /** 检查间隔（毫秒） */
+  CHECK_INTERVAL_MS: 60 * 1000,
+
+  /** 超时时间（毫秒） */
+  TIMEOUT_MS: 5 * 60 * 1000,
+} as const;
+````
+
+## File: src/constants/retrieval.ts
+````typescript
+/**
+ * 检索相关常量定义
+ *
+ * 集中管理向量检索相关的魔法数字，提高代码可维护性
+ */
+
+// ==================== 向量检索常量 ====================
+
+export const VECTOR_RETRIEVAL = {
+  /** 默认向量维度 */
+  DEFAULT_DIMENSIONS: 384,
+
+  /** 向量搜索相似度阈值 (过滤噪声) */
+  SIMILARITY_THRESHOLD: 0.4,
+
+  /** 相关 Skills 检索阈值 (降低以提高召回率) */
+  RELEVANT_SKILLS_THRESHOLD: 0.4,
+
+  /** 向量搜索返回数量限制 */
+  SEARCH_LIMIT: 10,
+
+  /** 单次向量搜索的最大结果数 */
+  MAX_RESULTS: 10,
+
+  /** 向量索引分区数 */
+  INDEX_PARTITIONS: 64,
+
+  /** 向量子向量数 */
+  INDEX_SUB_VECTORS: 8,
+} as const;
+
+// ==================== 缓存常量 ====================
+
+export const CACHE = {
+  /** 默认缓存大小 */
+  DEFAULT_SIZE: 1000,
+
+  /** Skills 缓存 TTL (毫秒, 5分钟) */
+  SKILL_TTL_MS: 5 * 60 * 1000,
+
+  /** 适配器缓存 TTL (毫秒, 5分钟) */
+  ADAPTER_TTL_MS: 5 * 60 * 1000,
+} as const;
+
+// ==================== 超时常量 (毫秒) ====================
+
+export const RETRIEVAL_TIMEOUT = {
+  /** 默认超时 */
+  DEFAULT: 30000,
+
+  /** 工具执行超时 */
+  TOOL_EXECUTION: 30000,
+
+  /** LLM 请求超时 */
+  LLM_REQUEST: 60000,
+
+  /** Skills 超时 */
+  SKILL: 30000,
+
+  /** MCP 工具超时 */
+  MCP: 60000,
+
+  /** 内置工具超时 */
+  BUILTIN: 10000,
+
+  /** 文件读取超时 */
+  FILE_READ: 15000,
+
+  /** 文件写入超时 */
+  FILE_WRITE: 15000,
+
+  /** 向量搜索超时 */
+  VECTOR_SEARCH: 20000,
+
+  /** 网络搜索超时 */
+  WEB_SEARCH: 30000,
+
+  /** 清理定时器间隔 */
+  CLEANUP_INTERVAL: 60000,
+
+  /** 技能自动注销时间 (毫秒, 5分钟) */
+  SKILL_AUTO_UNREGISTER: 5 * 60 * 1000,
+} as const;
+
+// ==================== 导出辅助函数 ====================
+
+/**
+ * 获取超时时间
+ */
+export function getRetrievalTimeout(key: keyof typeof RETRIEVAL_TIMEOUT): number {
+  return RETRIEVAL_TIMEOUT[key];
+}
+
+/**
+ * 获取向量检索配置
+ */
+export function getVectorRetrievalConfig() {
+  return {
+    dimensions: VECTOR_RETRIEVAL.DEFAULT_DIMENSIONS,
+    similarityThreshold: VECTOR_RETRIEVAL.SIMILARITY_THRESHOLD,
+    searchLimit: VECTOR_RETRIEVAL.SEARCH_LIMIT,
+  };
+}
+````
+
+## File: src/services/skill/BuiltInSkillLoader.ts
+````typescript
+/**
+ * BuiltInSkillLoader - Built-in Skill Loading
+ *
+ * Handles loading and registration of built-in skills during startup.
+ */
+
+import * as fs from "fs/promises";
+import * as path from "path";
+import { logger } from "../../utils/logger";
+import { ToolRetrievalService } from "../ToolRetrievalService";
+import { SkillMetadata, SkillTool, ToolType } from "../../types/tool-system";
+
+export interface BuiltInSkillInfo {
+  name: string;
+  description: string;
+  category?: string;
+  version: string;
+  tags: string[];
+  author?: string;
+  path: string;
+}
+
+/**
+ * BuiltInSkillLoader - Built-in Skill Loading
+ *
+ * Responsible for loading built-in skills during system startup.
+ */
+export class BuiltInSkillLoader {
+  private retrievalService: ToolRetrievalService;
+  private builtInSkillsDir: string;
+
+  constructor(retrievalService: ToolRetrievalService, builtInSkillsDir: string = "./skills") {
+    this.retrievalService = retrievalService;
+    this.builtInSkillsDir = builtInSkillsDir;
+    logger.info("BuiltInSkillLoader initialized", {
+      builtInSkillsDir,
+    });
+  }
+
+  /**
+   * Load all built-in skills
+   */
+  async loadAllBuiltInSkills(): Promise<BuiltInSkillInfo[]> {
+    logger.info("Loading built-in skills from:", this.builtInSkillsDir);
+
+    try {
+      const entries = await fs.readdir(this.builtInSkillsDir, { withFileTypes: true });
+      const skillDirs = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+
+      const loadedSkills: BuiltInSkillInfo[] = [];
+
+      for (const skillName of skillDirs) {
+        try {
+          const skillPath = path.join(this.builtInSkillsDir, skillName);
+          const metadata = await this.loadBuiltInSkill(skillPath);
+
+          if (metadata) {
+            loadedSkills.push({
+              ...metadata,
+              path: skillPath,
+            });
+          }
+        } catch (error) {
+          logger.warn(`Failed to load built-in skill: ${skillName}`, error);
+        }
+      }
+
+      logger.info(`Loaded ${loadedSkills.length} built-in skills`);
+      return loadedSkills;
+    } catch (error) {
+      logger.warn("Failed to load built-in skills directory:", error);
+      return [];
+    }
+  }
+
+  /**
+   * Load a single built-in skill
+   */
+  async loadBuiltInSkill(skillPath: string): Promise<SkillMetadata | null> {
+    try {
+      const skillMdPath = path.join(skillPath, "SKILL.md");
+
+      if (!(await this.fileExists(skillMdPath))) {
+        logger.warn(`SKILL.md not found for built-in skill: ${skillPath}`);
+        return null;
+      }
+
+      const content = await fs.readFile(skillMdPath, "utf8");
+      const metadata = await this.parseSkillMetadata(content);
+
+      // Index the built-in skill
+      await this.retrievalService.indexSkill({
+        name: metadata.name,
+        description: metadata.description,
+        tags: metadata.tags || [],
+        path: skillPath,
+        version: metadata.version,
+        metadata: metadata,
+      });
+
+      logger.debug(`Loaded built-in skill: ${metadata.name}`);
+      return metadata;
+    } catch (error) {
+      logger.warn(`Failed to load built-in skill: ${skillPath}`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Parse skill metadata from content
+   */
+  private async parseSkillMetadata(content: string): Promise<SkillMetadata> {
+    const matter = await import("gray-matter");
+    const parsed = matter.default(content);
+
+    return {
+      name: parsed.data.name || "Unnamed Skill",
+      description: parsed.data.description || "",
+      category: parsed.data.category || "uncategorized",
+      tools: parsed.data.tools || [],
+      version: parsed.data.version || "1.0.0",
+      tags: parsed.data.tags || [],
+      author: parsed.data.author || "System",
+      dependencies: parsed.data.dependencies || [],
+      parameters: parsed.data.parameters,
+    };
+  }
+
+  /**
+   * Convert to SkillTool format
+   */
+  convertToSkillTool(metadata: SkillMetadata, skillPath: string): SkillTool {
+    return {
+      name: metadata.name,
+      type: ToolType.SKILL,
+      description: metadata.description,
+      parameters: metadata.parameters || {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+      version: metadata.version,
+      tags: metadata.tags,
+      author: metadata.author,
+      enabled: true,
+      path: skillPath,
+      level: 1,
+    };
+  }
+
+  /**
+   * Check if file exists
+   */
+  private async fileExists(filePath: string): Promise<boolean> {
+    try {
+      await fs.access(filePath);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Get built-in skills directory
+   */
+  getBuiltInSkillsDir(): string {
+    return this.builtInSkillsDir;
+  }
+}
+
+/**
+ * Create BuiltInSkillLoader instance
+ */
+export function createBuiltInSkillLoader(
+  retrievalService: ToolRetrievalService,
+  builtInSkillsDir?: string
+): BuiltInSkillLoader {
+  return new BuiltInSkillLoader(retrievalService, builtInSkillsDir);
+}
+````
+
+## File: src/services/skill/DynamicSkillManager.ts
+````typescript
+/**
+ * DynamicSkillManager - Dynamic Skill Management
+ *
+ * Handles dynamically adding, removing, and updating skills at runtime.
+ */
+
+import { logger } from "../../utils/logger";
+import { ToolRetrievalService } from "../ToolRetrievalService";
+import {
+  SkillMetadata,
+  SkillTool,
+  ToolType,
+  ToolError,
+  ToolErrorCode,
+} from "../../types/tool-system";
+import { SkillValidator } from "./SkillValidator";
+import { UserSkillLoader } from "./UserSkillLoader";
+import { BuiltInSkillLoader } from "./BuiltInSkillLoader";
+
+export interface DynamicSkillUpdate {
+  skillName: string;
+  type: "add" | "remove" | "update" | "enable" | "disable";
+  timestamp: Date;
+  metadata?: SkillMetadata;
+  error?: string;
+}
+
+export interface DynamicSkillStats {
+  totalSkills: number;
+  enabledSkills: number;
+  disabledSkills: number;
+  recentlyAdded: string[];
+  recentlyRemoved: string[];
+}
+
+/**
+ * DynamicSkillManager - Dynamic Skill Management
+ *
+ * Responsible for managing skills dynamically at runtime.
+ */
+export class DynamicSkillManager {
+  private retrievalService: ToolRetrievalService;
+  private validator: SkillValidator;
+  private userLoader: UserSkillLoader;
+  private builtInLoader: BuiltInSkillLoader;
+
+  // Track dynamic changes
+  private updateHistory: DynamicSkillUpdate[] = [];
+  private disabledSkills: Set<string> = new Set();
+
+  constructor(
+    retrievalService: ToolRetrievalService,
+    userLoader: UserSkillLoader,
+    builtInLoader: BuiltInSkillLoader
+  ) {
+    this.retrievalService = retrievalService;
+    this.validator = new SkillValidator();
+    this.userLoader = userLoader;
+    this.builtInLoader = builtInLoader;
+
+    logger.info("DynamicSkillManager initialized");
+  }
+
+  /**
+   * Add a new skill dynamically
+   */
+  async addSkill(skillData: {
+    name: string;
+    description: string;
+    tags?: string[];
+    version?: string;
+    metadata?: Record<string, any>;
+  }): Promise<{ success: boolean; skillName?: string; error?: string }> {
+    try {
+      logger.info(`Adding dynamic skill: ${skillData.name}`);
+
+      // Validate skill data
+      const validation = this.validator.validateMetadata(skillData);
+      if (!validation.valid) {
+        return {
+          success: false,
+          error: validation.errors.join(", "),
+        };
+      }
+
+      // Create metadata
+      const metadata: SkillMetadata = {
+        name: skillData.name,
+        description: skillData.description,
+        category: "dynamic",
+        tools: [],
+        version: skillData.version || "1.0.0",
+        tags: skillData.tags || [],
+        author: "Dynamic",
+        dependencies: [],
+        parameters: undefined,
+        ...skillData.metadata,
+      };
+
+      // Index the skill
+      await this.retrievalService.indexSkill({
+        name: metadata.name,
+        description: metadata.description,
+        tags: metadata.tags || [],
+        path: "", // Dynamic skills may not have a path
+        version: metadata.version,
+        metadata: metadata,
+      });
+
+      // Track the update
+      this.recordUpdate({
+        skillName: metadata.name,
+        type: "add",
+        timestamp: new Date(),
+        metadata,
+      });
+
+      logger.info(`Successfully added dynamic skill: ${metadata.name}`);
+      return {
+        success: true,
+        skillName: metadata.name,
+      };
+    } catch (error) {
+      logger.error(`Failed to add dynamic skill: ${skillData.name}`, error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Remove a skill dynamically
+   */
+  async removeSkill(skillName: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      logger.info(`Removing dynamic skill: ${skillName}`);
+
+      // Check if skill is disabled
+      if (this.disabledSkills.has(skillName)) {
+        this.disabledSkills.delete(skillName);
+      }
+
+      // Remove from index
+      await this.retrievalService.removeSkill(skillName);
+
+      // Track the update
+      this.recordUpdate({
+        skillName,
+        type: "remove",
+        timestamp: new Date(),
+      });
+
+      logger.info(`Successfully removed dynamic skill: ${skillName}`);
+      return { success: true };
+    } catch (error) {
+      logger.error(`Failed to remove dynamic skill: ${skillName}`, error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Update a skill dynamically
+   */
+  async updateSkill(
+    skillName: string,
+    updates: Partial<SkillMetadata>
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      logger.info(`Updating dynamic skill: ${skillName}`);
+
+      // Validate updates
+      const validation = this.validator.validateMetadata({
+        name: updates.name,
+        description: updates.description,
+        version: updates.version,
+        tags: updates.tags,
+      });
+
+      if (!validation.valid) {
+        return {
+          success: false,
+          error: validation.errors.join(", "),
+        };
+      }
+
+      // Remove old version
+      await this.retrievalService.removeSkill(skillName);
+
+      // Add updated version
+      await this.retrievalService.indexSkill({
+        name: updates.name || skillName,
+        description: updates.description || "",
+        tags: updates.tags || [],
+        version: updates.version || "1.0.0",
+        path: "",
+        metadata: updates,
+      });
+
+      // Track the update
+      this.recordUpdate({
+        skillName: updates.name || skillName,
+        type: "update",
+        timestamp: new Date(),
+      });
+
+      logger.info(`Successfully updated dynamic skill: ${skillName}`);
+      return { success: true };
+    } catch (error) {
+      logger.error(`Failed to update dynamic skill: ${skillName}`, error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Enable a skill
+   */
+  async enableSkill(skillName: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      logger.info(`Enabling skill: ${skillName}`);
+
+      if (this.disabledSkills.has(skillName)) {
+        this.disabledSkills.delete(skillName);
+
+        this.recordUpdate({
+          skillName,
+          type: "enable",
+          timestamp: new Date(),
+        });
+
+        logger.info(`Successfully enabled skill: ${skillName}`);
+        return { success: true };
+      }
+
+      return {
+        success: false,
+        error: `Skill ${skillName} is not disabled`,
+      };
+    } catch (error) {
+      logger.error(`Failed to enable skill: ${skillName}`, error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Disable a skill
+   */
+  async disableSkill(skillName: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      logger.info(`Disabling skill: ${skillName}`);
+
+      if (!this.disabledSkills.has(skillName)) {
+        this.disabledSkills.add(skillName);
+
+        this.recordUpdate({
+          skillName,
+          type: "disable",
+          timestamp: new Date(),
+        });
+
+        logger.info(`Successfully disabled skill: ${skillName}`);
+        return { success: true };
+      }
+
+      return {
+        success: false,
+        error: `Skill ${skillName} is already disabled`,
+      };
+    } catch (error) {
+      logger.error(`Failed to disable skill: ${skillName}`, error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Get all dynamic skills
+   */
+  async getAllDynamicSkills(): Promise<SkillTool[]> {
+    // This would query the retrieval service for all indexed skills
+    // that are marked as dynamic
+    const allSkills = await this.listSkills(1000);
+    return allSkills.filter((skill) => !skill.path || skill.path === "");
+  }
+
+  /**
+   * List skills with filtering
+   */
+  async listSkills(limit: number = 50): Promise<SkillTool[]> {
+    try {
+      // This is a simplified implementation
+      // In practice, this would query the retrieval service
+      const stats = await this.retrievalService.getStatistics();
+      logger.debug("Listing skills, current stats:", stats);
+
+      return [];
+    } catch (error) {
+      logger.error("Failed to list skills:", error);
+      return [];
+    }
+  }
+
+  /**
+   * Get dynamic skill statistics
+   */
+  async getStats(): Promise<DynamicSkillStats> {
+    const allSkills = await this.getAllDynamicSkills();
+
+    return {
+      totalSkills: allSkills.length,
+      enabledSkills: allSkills.filter((s) => !this.disabledSkills.has(s.name)).length,
+      disabledSkills: this.disabledSkills.size,
+      recentlyAdded: this.updateHistory
+        .filter((u) => u.type === "add")
+        .slice(-5)
+        .map((u) => u.skillName),
+      recentlyRemoved: this.updateHistory
+        .filter((u) => u.type === "remove")
+        .slice(-5)
+        .map((u) => u.skillName),
+    };
+  }
+
+  /**
+   * Get update history
+   */
+  getUpdateHistory(limit: number = 50): DynamicSkillUpdate[] {
+    return this.updateHistory.slice(-limit);
+  }
+
+  /**
+   * Get disabled skills
+   */
+  getDisabledSkills(): string[] {
+    return Array.from(this.disabledSkills);
+  }
+
+  /**
+   * Check if skill is enabled
+   */
+  isSkillEnabled(skillName: string): boolean {
+    return !this.disabledSkills.has(skillName);
+  }
+
+  /**
+   * Record an update
+   */
+  private recordUpdate(update: DynamicSkillUpdate): void {
+    this.updateHistory.push(update);
+
+    // Keep history limited
+    if (this.updateHistory.length > 1000) {
+      this.updateHistory = this.updateHistory.slice(-500);
+    }
+  }
+
+  /**
+   * Clear update history
+   */
+  clearHistory(): void {
+    this.updateHistory = [];
+  }
+}
+
+/**
+ * Create DynamicSkillManager instance
+ */
+export function createDynamicSkillManager(
+  retrievalService: ToolRetrievalService,
+  userLoader: UserSkillLoader,
+  builtInLoader: BuiltInSkillLoader
+): DynamicSkillManager {
+  return new DynamicSkillManager(retrievalService, userLoader, builtInLoader);
+}
+````
+
+## File: src/services/skill/index.ts
+````typescript
+/**
+ * skill module - Unified Exports
+ *
+ * Main entry point for the skill management service module.
+ */
+
+// Types
+export * from "../../types/tool-system";
+
+// Main service
+export { SkillManager, getSkillManager } from "./SkillManager";
+export type { InstallResult, UninstallResult, UpdateResult } from "./SkillManager";
+
+// Sub-modules
+export { BuiltInSkillLoader, createBuiltInSkillLoader } from "./BuiltInSkillLoader";
+export type { BuiltInSkillInfo } from "./BuiltInSkillLoader";
+
+export { UserSkillLoader, createUserSkillLoader } from "./UserSkillLoader";
+export type { UserSkillLoadResult } from "./UserSkillLoader";
+
+export { DynamicSkillManager, createDynamicSkillManager } from "./DynamicSkillManager";
+export type { DynamicSkillUpdate, DynamicSkillStats } from "./DynamicSkillManager";
+
+export { SkillValidator, createSkillValidator } from "./SkillValidator";
+export type { ValidationResult, SkillValidationConfig } from "./SkillValidator";
+````
+
+## File: src/services/skill/SkillManager.ts
+````typescript
+/**
+ * SkillManager - Skill Management Coordinator
+ *
+ * Main coordinator for skill management, orchestrating all skill-related operations.
+ */
+
+import * as fs from "fs/promises";
+import * as path from "path";
+import { logger } from "../../utils/logger";
+import { ToolRetrievalService } from "../ToolRetrievalService";
+import {
+  SkillTool,
+  SkillInstallOptions,
+  SkillListOptions,
+  SkillListResult,
+  ToolType,
+} from "../../types/tool-system";
+import { BuiltInSkillLoader, createBuiltInSkillLoader } from "./BuiltInSkillLoader";
+import { UserSkillLoader, createUserSkillLoader } from "./UserSkillLoader";
+import { DynamicSkillManager, createDynamicSkillManager } from "./DynamicSkillManager";
+import { SkillValidator, createSkillValidator } from "./SkillValidator";
+
+export interface InstallResult {
+  success: boolean;
+  message: string;
+  skillName?: string;
+  installedAt?: Date;
+  duration?: number;
+  vectorized?: boolean;
+}
+
+export interface UninstallResult {
+  success: boolean;
+  message: string;
+  skillName?: string;
+  uninstalledAt?: Date;
+  duration?: number;
+}
+
+export interface UpdateResult {
+  success: boolean;
+  message: string;
+  skillName?: string;
+  updatedAt?: Date;
+  duration?: number;
+  reindexed?: boolean;
+}
+
+/**
+ * SkillManager - Main Skill Management Coordinator
+ *
+ * Orchestrates all skill-related operations including loading,
+ * installation, uninstallation, updates, and dynamic management.
+ */
+export class SkillManager {
+  private static instance: SkillManager | null = null;
+
+  private retrievalService: ToolRetrievalService;
+  private builtInLoader: BuiltInSkillLoader;
+  private userLoader: UserSkillLoader;
+  private dynamicManager: DynamicSkillManager;
+  private validator: SkillValidator;
+  private skillsBasePath: string;
+  private initializationPromise: Promise<void> | null = null;
+
+  protected constructor(skillsBasePath?: string) {
+    // Initialize services
+    const pathService = require("../PathService").PathService.getInstance();
+    const dataDir = pathService.getDataDir();
+    this.skillsBasePath = skillsBasePath || path.join(dataDir, "skills");
+
+    const vectorDbPath = path.join(dataDir, "skills.lance");
+    this.retrievalService = new ToolRetrievalService({
+      vectorDbPath,
+      model: "all-MiniLM-L6-v2",
+      dimensions: 384,
+      similarityThreshold: 0.4,
+      cacheSize: 1000,
+    });
+
+    // Initialize loaders and managers
+    this.builtInLoader = createBuiltInSkillLoader(this.retrievalService);
+    this.userLoader = createUserSkillLoader(this.retrievalService, this.skillsBasePath);
+    this.dynamicManager = createDynamicSkillManager(
+      this.retrievalService,
+      this.userLoader,
+      this.builtInLoader
+    );
+    this.validator = createSkillValidator();
+
+    logger.debug("SkillManager initialized", {
+      skillsBasePath: this.skillsBasePath,
+    });
+
+    // Start async initialization
+    this.initializationPromise = this.initializeSkillsIndex().catch((error) => {
+      logger.error("Failed to initialize skills index during startup:", error);
+    });
+  }
+
+  /**
+   * Get singleton instance
+   */
+  static getInstance(skillsBasePath?: string): SkillManager {
+    if (!SkillManager.instance) {
+      SkillManager.instance = new SkillManager(skillsBasePath);
+    }
+    return SkillManager.instance;
+  }
+
+  /**
+   * Reset instance (for testing)
+   */
+  static resetInstance(): void {
+    SkillManager.instance = null;
+  }
+
+  /**
+   * Install a skill from ZIP buffer
+   */
+  async installSkill(zipBuffer: Buffer, options: SkillInstallOptions = {}): Promise<InstallResult> {
+    const startTime = Date.now();
+
+    try {
+      const result = await this.userLoader.installSkillFromZip(zipBuffer, options);
+
+      if (result.success && result.metadata) {
+        return {
+          success: true,
+          message: `Skill '${result.skillName}' installed successfully`,
+          skillName: result.skillName,
+          installedAt: new Date(),
+          duration: Date.now() - startTime,
+          vectorized: true,
+        };
+      } else {
+        return {
+          success: false,
+          message: result.error || "Installation failed",
+          duration: Date.now() - startTime,
+        };
+      }
+    } catch (error) {
+      logger.error("Skill installation failed:", error);
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : "Installation failed",
+        duration: Date.now() - startTime,
+      };
+    }
+  }
+
+  /**
+   * Uninstall a skill
+   */
+  async uninstallSkill(skillName: string): Promise<UninstallResult> {
+    const startTime = Date.now();
+
+    try {
+      const result = await this.userLoader.uninstallSkill(skillName);
+
+      if (result.success) {
+        return {
+          success: true,
+          message: `Skill '${skillName}' uninstalled successfully`,
+          skillName,
+          uninstalledAt: new Date(),
+          duration: Date.now() - startTime,
+        };
+      } else {
+        return {
+          success: false,
+          message: result.error || "Uninstallation failed",
+          skillName,
+          duration: Date.now() - startTime,
+        };
+      }
+    } catch (error) {
+      logger.error("Skill uninstallation failed:", error);
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : "Uninstallation failed",
+        skillName,
+        duration: Date.now() - startTime,
+      };
+    }
+  }
+
+  /**
+   * Update a skill
+   */
+  async updateSkill(skillName: string, newDescription: string): Promise<UpdateResult> {
+    const startTime = Date.now();
+
+    try {
+      const result = await this.userLoader.updateSkillDescription(skillName, newDescription);
+
+      if (result.success) {
+        return {
+          success: true,
+          message: `Skill '${skillName}' updated successfully`,
+          skillName,
+          updatedAt: new Date(),
+          duration: Date.now() - startTime,
+          reindexed: true,
+        };
+      } else {
+        return {
+          success: false,
+          message: result.error || "Update failed",
+          skillName,
+          duration: Date.now() - startTime,
+        };
+      }
+    } catch (error) {
+      logger.error("Skill update failed:", error);
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : "Update failed",
+        skillName,
+        duration: Date.now() - startTime,
+      };
+    }
+  }
+
+  /**
+   * List all skills
+   */
+  async listSkills(options: SkillListOptions = {}): Promise<SkillListResult> {
+    try {
+      const skills = await this.dynamicManager.listSkills(options.limit || 50);
+
+      // Apply filtering
+      let filtered = skills;
+
+      if (options.name) {
+        const nameFilter = options.name.toLowerCase();
+        filtered = filtered.filter(
+          (skill) =>
+            skill.name.toLowerCase().includes(nameFilter) ||
+            skill.description.toLowerCase().includes(nameFilter)
+        );
+      }
+
+      if (options.tags && options.tags.length > 0) {
+        filtered = filtered.filter((skill) =>
+          skill.tags.some((tag) => options.tags!.includes(tag))
+        );
+      }
+
+      // Sort
+      const sortBy = options.sortBy || "name";
+      const sortOrder = options.sortOrder || "asc";
+      filtered.sort((a, b) => {
+        let aVal: any, bVal: any;
+        switch (sortBy) {
+          case "name":
+            aVal = a.name;
+            bVal = b.name;
+            break;
+          default:
+            aVal = a.name;
+            bVal = b.name;
+        }
+        const compare = String(aVal).localeCompare(String(bVal));
+        return sortOrder === "desc" ? -compare : compare;
+      });
+
+      // Paginate
+      const page = options.page || 1;
+      const limit = options.limit || 50;
+      const startIndex = (page - 1) * limit;
+      const endIndex = startIndex + limit;
+      const paginated = filtered.slice(startIndex, endIndex);
+
+      return {
+        skills: paginated,
+        total: filtered.length,
+        page,
+        limit,
+        totalPages: Math.ceil(filtered.length / limit),
+      };
+    } catch (error) {
+      logger.error("Failed to list skills:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get a specific skill by name
+   */
+  async getSkillByName(skillName: string): Promise<SkillTool | null> {
+    try {
+      const skills = await this.dynamicManager.listSkills(1000);
+      return skills.find((s) => s.name === skillName) || null;
+    } catch (error) {
+      logger.error(`Failed to get skill: ${skillName}`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Check if a skill exists
+   */
+  async isSkillExist(skillName: string): Promise<boolean> {
+    const skill = await this.getSkillByName(skillName);
+    return skill !== null;
+  }
+
+  /**
+   * Add a dynamic skill
+   */
+  async addDynamicSkill(skillData: {
+    name: string;
+    description: string;
+    tags?: string[];
+    version?: string;
+    metadata?: Record<string, any>;
+  }): Promise<{ success: boolean; skillName?: string; error?: string }> {
+    return this.dynamicManager.addSkill(skillData);
+  }
+
+  /**
+   * Remove a dynamic skill
+   */
+  async removeDynamicSkill(skillName: string): Promise<{ success: boolean; error?: string }> {
+    return this.dynamicManager.removeSkill(skillName);
+  }
+
+  /**
+   * Enable a skill
+   */
+  async enableSkill(skillName: string): Promise<{ success: boolean; error?: string }> {
+    return this.dynamicManager.enableSkill(skillName);
+  }
+
+  /**
+   * Disable a skill
+   */
+  async disableSkill(skillName: string): Promise<{ success: boolean; error?: string }> {
+    return this.dynamicManager.disableSkill(skillName);
+  }
+
+  /**
+   * Get skill statistics
+   */
+  async getStatistics(): Promise<{
+    total: number;
+    enabled: number;
+    disabled: number;
+    byTag: Record<string, number>;
+  }> {
+    const stats = await this.dynamicManager.getStats();
+    const skills = await this.dynamicManager.getAllDynamicSkills();
+
+    const byTag: Record<string, number> = {};
+    for (const skill of skills) {
+      for (const tag of skill.tags) {
+        byTag[tag] = (byTag[tag] || 0) + 1;
+      }
+    }
+
+    return {
+      total: stats.totalSkills,
+      enabled: stats.enabledSkills,
+      disabled: stats.disabledSkills,
+      byTag,
+    };
+  }
+
+  /**
+   * Get retrieval service
+   */
+  getRetrievalService(): ToolRetrievalService {
+    return this.retrievalService;
+  }
+
+  /**
+   * Wait for initialization
+   */
+  async waitForInitialization(): Promise<void> {
+    if (this.initializationPromise) {
+      try {
+        await this.initializationPromise;
+      } catch (error) {
+        logger.warn("Skills initialization failed, but system will continue", error);
+      }
+    }
+  }
+
+  /**
+   * Initialize skills index
+   */
+  private async initializeSkillsIndex(): Promise<void> {
+    logger.debug("Initializing skills index during startup");
+
+    try {
+      await this.retrievalService.initialize();
+      await this.retrievalService.scanAndIndexAllSkills(this.skillsBasePath);
+
+      logger.debug("Skills index initialization completed");
+    } catch (error) {
+      logger.error("Failed to initialize skills index:", error);
+      throw error;
+    }
+  }
+}
+
+/**
+ * Get default SkillManager
+ */
+export function getSkillManager(skillsBasePath?: string): SkillManager {
+  return SkillManager.getInstance(skillsBasePath);
+}
+````
+
+## File: src/services/skill/SkillValidator.ts
+````typescript
+/**
+ * SkillValidator - Skill Validation Logic
+ *
+ * Handles skill definition validation, structure checks, and metadata verification.
+ */
+
+import * as fs from "fs/promises";
+import * as path from "path";
+import matter from "gray-matter";
+import { logger } from "../../utils/logger";
+import { SkillMetadata, SkillTool, ToolError, ToolErrorCode } from "../../types/tool-system";
+
+export interface ValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+  metadata?: SkillMetadata;
+}
+
+export interface SkillValidationConfig {
+  requireName?: boolean;
+  requireDescription?: boolean;
+  requireVersion?: boolean;
+  requireScripts?: boolean;
+  maxDescriptionLength?: number;
+  maxTagsCount?: number;
+  maxNameLength?: number;
+}
+
+const DEFAULT_CONFIG: SkillValidationConfig = {
+  requireName: true,
+  requireDescription: true,
+  requireVersion: true,
+  requireScripts: false,
+  maxDescriptionLength: 1024,
+  maxTagsCount: 10,
+  maxNameLength: 100,
+};
+
+/**
+ * SkillValidator - Skill Validation Logic
+ *
+ * Responsible for validating skill definitions and structure.
+ */
+export class SkillValidator {
+  private config: SkillValidationConfig;
+
+  constructor(config: Partial<SkillValidationConfig> = {}) {
+    this.config = { ...DEFAULT_CONFIG, ...config };
+  }
+
+  /**
+   * Validate skill metadata
+   */
+  validateMetadata(metadata: Partial<SkillMetadata>): ValidationResult {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    // Required fields
+    if (this.config.requireName && !metadata.name) {
+      errors.push("Skill name is required");
+    }
+
+    if (this.config.requireDescription && !metadata.description) {
+      errors.push("Skill description is required");
+    }
+
+    if (this.config.requireVersion && !metadata.version) {
+      errors.push("Skill version is required");
+    }
+
+    // Length validations
+    if (metadata.name && metadata.name.length > this.config.maxNameLength) {
+      errors.push(`Skill name exceeds maximum length of ${this.config.maxNameLength}`);
+    }
+
+    if (metadata.description && metadata.description.length > this.config.maxDescriptionLength) {
+      errors.push(
+        `Skill description exceeds maximum length of ${this.config.maxDescriptionLength}`
+      );
+    }
+
+    if (metadata.tags && metadata.tags.length > this.config.maxTagsCount) {
+      warnings.push(`Skill has more than ${this.config.maxTagsCount} tags`);
+    }
+
+    // Version format validation
+    if (metadata.version && !this.isValidVersion(metadata.version)) {
+      errors.push("Invalid version format. Expected semantic versioning (e.g., 1.0.0)");
+    }
+
+    // Tags validation
+    if (metadata.tags) {
+      for (let i = 0; i < metadata.tags.length; i++) {
+        const tag = metadata.tags[i];
+        if (typeof tag !== "string") {
+          errors.push(`Tag at index ${i} is not a string`);
+        } else if (tag.length === 0) {
+          errors.push(`Tag at index ${i} is empty`);
+        }
+      }
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+      warnings,
+      metadata: errors.length === 0 ? (metadata as SkillMetadata) : undefined,
+    };
+  }
+
+  /**
+   * Validate skill directory structure
+   */
+  async validateSkillDirectory(skillPath: string): Promise<ValidationResult> {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    try {
+      // Check if directory exists
+      const exists = await this.directoryExists(skillPath);
+      if (!exists) {
+        return {
+          valid: false,
+          errors: [`Skill directory does not exist: ${skillPath}`],
+          warnings: [],
+        };
+      }
+
+      // Check for SKILL.md
+      const skillMdPath = path.join(skillPath, "SKILL.md");
+      if (!(await this.fileExists(skillMdPath))) {
+        errors.push("SKILL.md is required");
+        return {
+          valid: false,
+          errors,
+          warnings,
+        };
+      }
+
+      // Read and parse SKILL.md
+      const content = await fs.readFile(skillMdPath, "utf8");
+      const parsed = matter(content);
+
+      // Validate metadata
+      const metadataValidation = this.validateMetadata(parsed.data);
+      errors.push(...metadataValidation.errors);
+      warnings.push(...metadataValidation.warnings);
+
+      // Check scripts directory if required
+      if (this.config.requireScripts) {
+        const scriptsDir = path.join(skillPath, "scripts");
+        if (!(await this.directoryExists(scriptsDir))) {
+          errors.push("Scripts directory is required in strict validation mode");
+        } else {
+          const executeScript = path.join(scriptsDir, "execute.js");
+          if (!(await this.fileExists(executeScript))) {
+            errors.push("execute.js is required in scripts directory");
+          }
+        }
+      }
+
+      return {
+        valid: errors.length === 0,
+        errors,
+        warnings,
+        metadata: metadataValidation.valid ? (parsed.data as SkillMetadata) : undefined,
+      };
+    } catch (error) {
+      logger.error(`Failed to validate skill directory: ${skillPath}`, error);
+      return {
+        valid: false,
+        errors: [`Validation failed: ${error instanceof Error ? error.message : String(error)}`],
+        warnings: [],
+      };
+    }
+  }
+
+  /**
+   * Validate skill tool definition
+   */
+  validateSkillTool(tool: Partial<SkillTool>): ValidationResult {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    if (!tool.name) {
+      errors.push("Tool name is required");
+    }
+
+    if (!tool.description) {
+      errors.push("Tool description is required");
+    }
+
+    if (tool.parameters) {
+      if (tool.parameters.type !== "object") {
+        errors.push("Parameters must be of type object");
+      }
+
+      if (tool.parameters.properties) {
+        for (const [key, prop] of Object.entries(tool.parameters.properties)) {
+          const property = prop as any;
+          if (!property.type) {
+            warnings.push(`Property '${key}' has no type defined`);
+          }
+        }
+      }
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+      warnings,
+    };
+  }
+
+  /**
+   * Validate skill installation options
+   */
+  validateInstallOptions(options: {
+    overwrite?: boolean;
+    skipVectorization?: boolean;
+    validationLevel?: "basic" | "strict";
+  }): { valid: boolean; errors: string[] } {
+    const errors: string[] = [];
+
+    if (options.validationLevel && !["basic", "strict"].includes(options.validationLevel)) {
+      errors.push(`Invalid validation level: ${options.validationLevel}`);
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+    };
+  }
+
+  /**
+   * Check if directory exists
+   */
+  private async directoryExists(dirPath: string): Promise<boolean> {
+    try {
+      const stat = await fs.stat(dirPath);
+      return stat.isDirectory();
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Check if file exists
+   */
+  private async fileExists(filePath: string): Promise<boolean> {
+    try {
+      await fs.access(filePath);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Validate semantic version format
+   */
+  private isValidVersion(version: string): boolean {
+    // Basic semantic versioning regex
+    const semverRegex = /^\d+\.\d+\.\d+(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$/;
+    return semverRegex.test(version);
+  }
+
+  /**
+   * Update validation config
+   */
+  updateConfig(config: Partial<SkillValidationConfig>): void {
+    this.config = { ...this.config, ...config };
+  }
+
+  /**
+   * Get current config
+   */
+  getConfig(): SkillValidationConfig {
+    return { ...this.config };
+  }
+}
+
+/**
+ * Create SkillValidator instance
+ */
+export function createSkillValidator(config?: Partial<SkillValidationConfig>): SkillValidator {
+  return new SkillValidator(config);
+}
+````
+
+## File: src/services/skill/UserSkillLoader.ts
+````typescript
+/**
+ * UserSkillLoader - User Skill Loading
+ *
+ * Handles loading user-defined skills from the skills directory.
+ */
+
+import * as fs from "fs/promises";
+import * as path from "path";
+import * as os from "os";
+import * as crypto from "crypto";
+import * as AdmZip from "adm-zip";
+import matter from "gray-matter";
+import { logger } from "../../utils/logger";
+import { SkillMetadata, SkillTool, ToolType, SkillInstallOptions } from "../../types/tool-system";
+import { ToolRetrievalService } from "../ToolRetrievalService";
+
+export interface UserSkillLoadResult {
+  success: boolean;
+  skillName?: string;
+  metadata?: SkillMetadata;
+  error?: string;
+}
+
+/**
+ * UserSkillLoader - User Skill Loading
+ *
+ * Responsible for loading and managing user-defined skills.
+ */
+export class UserSkillLoader {
+  private retrievalService: ToolRetrievalService;
+  private skillsBasePath: string;
+
+  constructor(retrievalService: ToolRetrievalService, skillsBasePath: string) {
+    this.retrievalService = retrievalService;
+    this.skillsBasePath = skillsBasePath;
+    logger.info("UserSkillLoader initialized", {
+      skillsBasePath,
+    });
+  }
+
+  /**
+   * Load all user skills
+   */
+  async loadAllUserSkills(): Promise<UserSkillLoadResult[]> {
+    logger.info("Loading user skills from:", this.skillsBasePath);
+
+    try {
+      await this.ensureSkillsDirectory();
+
+      const entries = await fs.readdir(this.skillsBasePath, { withFileTypes: true });
+      const skillDirs = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+
+      const results: UserSkillLoadResult[] = [];
+
+      for (const skillName of skillDirs) {
+        try {
+          const skillPath = path.join(this.skillsBasePath, skillName);
+          const result = await this.loadUserSkill(skillPath);
+          results.push(result);
+        } catch (error) {
+          results.push({
+            success: false,
+            skillName,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      logger.info(`Loaded ${results.filter((r) => r.success).length} user skills`);
+      return results;
+    } catch (error) {
+      logger.warn("Failed to load user skills directory:", error);
+      return [];
+    }
+  }
+
+  /**
+   * Load a single user skill
+   */
+  async loadUserSkill(skillPath: string): Promise<UserSkillLoadResult> {
+    try {
+      const skillName = path.basename(skillPath);
+      const metadata = await this.readSkillMetadata(skillPath);
+
+      // Index the user skill
+      await this.retrievalService.indexSkill({
+        name: metadata.name,
+        description: metadata.description,
+        tags: metadata.tags || [],
+        path: skillPath,
+        version: metadata.version,
+        metadata: metadata,
+      });
+
+      logger.debug(`Loaded user skill: ${metadata.name}`);
+      return {
+        success: true,
+        skillName: metadata.name,
+        metadata,
+      };
+    } catch (error) {
+      logger.warn(`Failed to load user skill: ${skillPath}`, error);
+      return {
+        success: false,
+        skillName: path.basename(skillPath),
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Install a skill from ZIP buffer
+   */
+  async installSkillFromZip(
+    zipBuffer: Buffer,
+    options: SkillInstallOptions = {}
+  ): Promise<UserSkillLoadResult> {
+    try {
+      // Extract to temp directory
+      const tempDir = await this.extractZipToTemp(zipBuffer);
+      logger.debug(`Extracted ZIP to temp directory: ${tempDir}`);
+
+      // Validate skill structure
+      const metadata = await this.validateSkillStructure(tempDir, options.validationLevel);
+
+      // Check for name conflicts
+      const targetDir = path.join(this.skillsBasePath, metadata.name);
+      const exists = await this.directoryExists(targetDir);
+
+      if (exists && !options.overwrite) {
+        return {
+          success: false,
+          skillName: metadata.name,
+          error: `Skill '${metadata.name}' already exists. Use overwrite: true to replace.`,
+        };
+      }
+
+      // If exists and overwrite, remove first
+      if (exists) {
+        await this.removeSkillDirectory(targetDir);
+      }
+
+      // Move to target directory
+      await fs.mkdir(path.dirname(targetDir), { recursive: true });
+      await fs.rename(tempDir, targetDir);
+
+      // Create .vectorized file
+      const vectorizedFile = path.join(targetDir, ".vectorized");
+      await fs.writeFile(vectorizedFile, "");
+
+      // Index the skill
+      await this.retrievalService.indexSkill({
+        name: metadata.name,
+        description: metadata.description,
+        tags: metadata.tags || [],
+        path: targetDir,
+        version: metadata.version,
+        metadata: metadata,
+      });
+
+      logger.info(`Successfully installed user skill: ${metadata.name}`);
+      return {
+        success: true,
+        skillName: metadata.name,
+        metadata,
+      };
+    } catch (error) {
+      logger.error("Failed to install skill from ZIP:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Uninstall a user skill
+   */
+  async uninstallSkill(skillName: string): Promise<UserSkillLoadResult> {
+    try {
+      const skillPath = path.join(this.skillsBasePath, skillName);
+
+      if (!(await this.directoryExists(skillPath))) {
+        return {
+          success: false,
+          skillName,
+          error: `Skill '${skillName}' not found`,
+        };
+      }
+
+      // Remove from index
+      await this.retrievalService.removeSkill(skillName);
+
+      // Remove directory
+      await this.removeSkillDirectory(skillPath);
+
+      logger.info(`Successfully uninstalled user skill: ${skillName}`);
+      return {
+        success: true,
+        skillName,
+      };
+    } catch (error) {
+      logger.error(`Failed to uninstall skill: ${skillName}`, error);
+      return {
+        success: false,
+        skillName,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Update skill description
+   */
+  async updateSkillDescription(
+    skillName: string,
+    newDescription: string
+  ): Promise<UserSkillLoadResult> {
+    try {
+      const skillPath = path.join(this.skillsBasePath, skillName);
+
+      if (!(await this.directoryExists(skillPath))) {
+        return {
+          success: false,
+          skillName,
+          error: `Skill '${skillName}' not found`,
+        };
+      }
+
+      const skillMdPath = path.join(skillPath, "SKILL.md");
+
+      if (!(await this.fileExists(skillMdPath))) {
+        return {
+          success: false,
+          skillName,
+          error: `SKILL.md not found in skill '${skillName}'`,
+        };
+      }
+
+      // Read and parse SKILL.md
+      const content = await fs.readFile(skillMdPath, "utf8");
+      const parsed = matter(content);
+
+      // Update description
+      parsed.data.description = newDescription;
+      parsed.data.updatedAt = new Date().toISOString();
+
+      // Write back
+      const yaml = await import("js-yaml");
+      const yamlStr = yaml.dump(parsed.data, { indent: 2 });
+      const newContent = `---\n${yamlStr}---\n${parsed.content}`;
+      await fs.writeFile(skillMdPath, newContent);
+
+      // Reindex
+      const metadata = await this.readSkillMetadata(skillPath);
+      await this.retrievalService.removeSkill(metadata.name);
+      await this.retrievalService.indexSkill({
+        name: metadata.name,
+        description: metadata.description,
+        tags: metadata.tags || [],
+        path: skillPath,
+        version: metadata.version,
+        metadata: metadata,
+      });
+
+      logger.info(`Successfully updated skill description: ${skillName}`);
+      return {
+        success: true,
+        skillName,
+        metadata,
+      };
+    } catch (error) {
+      logger.error(`Failed to update skill description: ${skillName}`, error);
+      return {
+        success: false,
+        skillName,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Read skill metadata
+   */
+  private async readSkillMetadata(skillPath: string): Promise<SkillMetadata> {
+    const skillMdPath = path.join(skillPath, "SKILL.md");
+
+    if (!(await this.fileExists(skillMdPath))) {
+      throw new Error(`SKILL.md not found in ${skillPath}`);
+    }
+
+    const content = await fs.readFile(skillMdPath, "utf8");
+    const parsed = matter(content);
+
+    return {
+      name: parsed.data.name,
+      description: parsed.data.description,
+      category: parsed.data.category || "uncategorized",
+      tools: parsed.data.tools || [],
+      version: parsed.data.version,
+      tags: parsed.data.tags || [],
+      author: parsed.data.author,
+      dependencies: parsed.data.dependencies || [],
+      parameters: parsed.data.parameters,
+    };
+  }
+
+  /**
+   * Validate skill structure
+   */
+  private async validateSkillStructure(
+    skillPath: string,
+    validationLevel: SkillInstallOptions["validationLevel"] = "basic"
+  ): Promise<SkillMetadata> {
+    const requiredFiles = ["SKILL.md"];
+
+    for (const file of requiredFiles) {
+      const filePath = path.join(skillPath, file);
+      if (!(await this.fileExists(filePath))) {
+        throw new Error(`Required file missing: ${file}`);
+      }
+    }
+
+    const metadata = await this.readSkillMetadata(skillPath);
+
+    if (!metadata.name || !metadata.description) {
+      throw new Error("SKILL.md must contain name and description");
+    }
+
+    if (validationLevel === "strict") {
+      const scriptsDir = path.join(skillPath, "scripts");
+      if (!(await this.directoryExists(scriptsDir))) {
+        throw new Error("Scripts directory not found in strict validation mode");
+      }
+
+      const executeScript = path.join(scriptsDir, "execute.js");
+      if (!(await this.fileExists(executeScript))) {
+        throw new Error("execute.js not found in scripts directory");
+      }
+    }
+
+    return metadata;
+  }
+
+  /**
+   * Extract ZIP to temp directory
+   */
+  private async extractZipToTemp(zipBuffer: Buffer): Promise<string> {
+    const tempId = `${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
+    const tempDir = path.join(os.tmpdir(), "skill-install", tempId);
+
+    await fs.mkdir(tempDir, { recursive: true });
+
+    const zip = new AdmZip(zipBuffer);
+    zip.extractAllTo(tempDir, true);
+
+    return tempDir;
+  }
+
+  /**
+   * Check if directory exists
+   */
+  private async directoryExists(dirPath: string): Promise<boolean> {
+    try {
+      const stat = await fs.stat(dirPath);
+      return stat.isDirectory();
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Check if file exists
+   */
+  private async fileExists(filePath: string): Promise<boolean> {
+    try {
+      await fs.access(filePath);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Remove skill directory
+   */
+  private async removeSkillDirectory(skillPath: string): Promise<void> {
+    await fs.rm(skillPath, { recursive: true, force: true });
+  }
+
+  /**
+   * Ensure skills directory exists
+   */
+  private async ensureSkillsDirectory(): Promise<void> {
+    try {
+      const exists = await this.directoryExists(this.skillsBasePath);
+      if (!exists) {
+        await fs.mkdir(this.skillsBasePath, { recursive: true });
+      }
+    } catch (error) {
+      logger.warn(`Failed to create skills directory: ${this.skillsBasePath}`, error);
+    }
+  }
+
+  /**
+   * Get skills base path
+   */
+  getSkillsBasePath(): string {
+    return this.skillsBasePath;
+  }
+}
+
+/**
+ * Create UserSkillLoader instance
+ */
+export function createUserSkillLoader(
+  retrievalService: ToolRetrievalService,
+  skillsBasePath?: string
+): UserSkillLoader {
+  // Use environment variable or default path
+  const dataDir = process.env.APEX_BRIDGE_DATA_DIR || path.join(process.cwd(), ".data");
+  const defaultPath = skillsBasePath || path.join(dataDir, "skills");
+
+  return new UserSkillLoader(retrievalService, defaultPath);
+}
+````
+
+## File: src/services/tool-retrieval/LanceDBConnectionManager.ts
+````typescript
+/**
+ * LanceDBConnectionManager - LanceDB连接池和连接状态管理
+ * 负责管理数据库连接池、健康检查、连接状态
+ */
+
+import * as lancedb from "@lancedb/lancedb";
+import * as fs from "fs/promises";
+import * as path from "path";
+import { ToolError, ToolErrorCode } from "../../types/tool-system";
+import { logger } from "../../utils/logger";
+
+export class LanceDBConnectionManager {
+  private db: lancedb.Connection | null = null;
+  private config: {
+    vectorDbPath: string;
+  };
+  private isConnected = false;
+
+  constructor(config: { vectorDbPath: string }) {
+    this.config = config;
+    logger.info("LanceDBConnectionManager created with config:", {
+      vectorDbPath: config.vectorDbPath,
+    });
+  }
+
+  /**
+   * 连接到LanceDB
+   */
+  async connect(): Promise<void> {
+    try {
+      // 确保数据库目录存在
+      await fs.mkdir(this.config.vectorDbPath, { recursive: true });
+
+      // 连接到LanceDB
+      this.db = await lancedb.connect(this.config.vectorDbPath);
+
+      this.isConnected = true;
+      logger.info(`Connected to LanceDB at: ${this.config.vectorDbPath}`);
+    } catch (error) {
+      logger.error("Failed to connect to LanceDB:", error);
+      this.isConnected = false;
+      throw new ToolError(
+        `Failed to connect to LanceDB: ${this.formatError(error)}`,
+        ToolErrorCode.VECTOR_DB_ERROR
+      );
+    }
+  }
+
+  /**
+   * 检查连接状态
+   */
+  getConnectionStatus(): { connected: boolean; path: string } {
+    return {
+      connected: this.isConnected,
+      path: this.config.vectorDbPath,
+    };
+  }
+
+  /**
+   * 获取数据库实例
+   */
+  getDatabase(): lancedb.Connection | null {
+    return this.db;
+  }
+
+  /**
+   * 获取数据库实例（如果未连接则抛出错误）
+   */
+  requireDatabase(): lancedb.Connection {
+    if (!this.db) {
+      throw new ToolError(
+        "Database not connected. Call connect() first.",
+        ToolErrorCode.VECTOR_DB_ERROR
+      );
+    }
+    return this.db;
+  }
+
+  /**
+   * 健康检查
+   */
+  async healthCheck(): Promise<boolean> {
+    try {
+      if (!this.db || !this.isConnected) {
+        return false;
+      }
+      // 尝试执行简单查询验证连接
+      const tableNames = await this.getTableNames();
+      return true;
+    } catch (error) {
+      logger.warn("LanceDB health check failed:", error);
+      return false;
+    }
+  }
+
+  /**
+   * 获取表名列表
+   */
+  async getTableNames(): Promise<string[]> {
+    try {
+      // LanceDB的连接对象可能有不同的API
+      // 这里假设可以直接访问表列表
+      return [];
+    } catch (error) {
+      logger.warn("Failed to get table names:", error);
+      return [];
+    }
+  }
+
+  /**
+   * 完全删除表和物理文件
+   * 确保残留的 .lance 文件不会导致后续查询错误
+   */
+  async dropTableCompletely(tableName: string): Promise<void> {
+    try {
+      // 首先从 LanceDB 删除表
+      await this.db!.dropTable(tableName);
+      logger.info(`Dropped table from LanceDB: ${tableName}`);
+
+      // 然后手动删除物理文件确保完全清理
+      const tablePath = path.join(this.config.vectorDbPath, tableName);
+      try {
+        await fs.rm(tablePath, { recursive: true, force: true });
+        logger.info(`Completely removed physical files: ${tablePath}`);
+      } catch (rmError: any) {
+        if (rmError.code !== "ENOENT") {
+          logger.warn(`Failed to remove physical files (may not exist): ${rmError.message}`);
+        }
+      }
+    } catch (error) {
+      logger.error("Failed to drop table completely:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * 关闭数据库连接
+   */
+  async close(): Promise<void> {
+    logger.info("Closing LanceDB connection...");
+
+    try {
+      if (this.db) {
+        try {
+          await this.db.close();
+          logger.info("LanceDB connection closed successfully");
+        } catch (error) {
+          logger.warn("Error closing LanceDB connection:", error);
+        }
+        this.db = null;
+      }
+
+      this.isConnected = false;
+      logger.info("LanceDB connection cleanup completed");
+    } catch (error) {
+      logger.error("LanceDB connection cleanup failed:", error);
+      throw new ToolError(
+        `LanceDB cleanup failed: ${this.formatError(error)}`,
+        ToolErrorCode.VECTOR_DB_ERROR
+      );
+    }
+  }
+
+  /**
+   * 格式化错误信息
+   */
+  private formatError(error: any): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    if (typeof error === "string") {
+      return error;
+    }
+    return "Unknown error occurred in LanceDBConnectionManager";
+  }
+}
+
+/**
+ * 创建LanceDBConnectionManager实例
+ */
+export function createLanceDBConnectionManager(vectorDbPath: string): LanceDBConnectionManager {
+  return new LanceDBConnectionManager({ vectorDbPath });
+}
+````
+
+## File: src/services/tool-retrieval/ToolRetrievalConfig.ts
+````typescript
+/**
+ * ToolRetrievalConfig - 工具检索服务配置类型定义
+ */
+
+import { LLMModelType } from "../../types/llm-models";
+
+/**
+ * 工具检索配置
+ */
+export interface ToolRetrievalConfig {
+  /** 向量数据库路径 */
+  vectorDbPath: string;
+  /** 嵌入模型名称 */
+  model: string;
+  /** 向量维度 */
+  dimensions: number;
+  /** 缓存大小 */
+  cacheSize: number;
+  /** 相似度阈值 */
+  similarityThreshold: number;
+  /** 最大结果数 */
+  maxResults: number;
+}
+
+/**
+ * 技能工具定义
+ */
+export interface SkillTool {
+  /** 工具名称 */
+  name: string;
+  /** 工具描述 */
+  description: string;
+  /** 工具类型 */
+  type: "skill" | "mcp" | "builtin";
+  /** 标签 */
+  tags: string[];
+  /** 版本 */
+  version?: string;
+  /** 路径 */
+  path?: string;
+  /** 来源 */
+  source?: string;
+  /** 元数据 */
+  metadata?: Record<string, any>;
+  /** 参数定义 */
+  parameters?: {
+    type: "object";
+    properties: Record<string, any>;
+    required?: string[];
+  };
+  /** 是否启用 */
+  enabled?: boolean;
+  /** 级别 */
+  level?: number;
+}
+
+/**
+ * 工具检索结果
+ */
+export interface ToolRetrievalResult {
+  /** 工具信息 */
+  tool: SkillTool;
+  /** 相似度分数 (0-1) */
+  score: number;
+  /** 匹配原因 */
+  reason: string;
+}
+
+/**
+ * 工具错误代码
+ */
+export enum ToolErrorCode {
+  VECTOR_DB_ERROR = "VECTOR_DB_ERROR",
+  EMBEDDING_MODEL_ERROR = "EMBEDDING_MODEL_ERROR",
+  TOOL_EXECUTION_FAILED = "TOOL_EXECUTION_FAILED",
+  SKILL_NOT_FOUND = "SKILL_NOT_FOUND",
+  SKILL_ALREADY_EXISTS = "SKILL_ALREADY_EXISTS",
+  SKILL_INVALID_STRUCTURE = "SKILL_INVALID_STRUCTURE",
+}
+
+/**
+ * 工具错误
+ */
+export class ToolError extends Error {
+  code: ToolErrorCode;
+  details?: Record<string, any>;
+
+  constructor(message: string, code: ToolErrorCode, details?: Record<string, any>) {
+    super(message);
+    this.name = "ToolError";
+    this.code = code;
+    this.details = details;
+  }
+}
+
+/**
+ * 工具类型
+ */
+export enum ToolType {
+  SKILL = "skill",
+  MCP = "mcp",
+  BUILTIN = "builtin",
+}
+
+/**
+ * 默认配置
+ */
+export const DEFAULT_TOOL_RETRIEVAL_CONFIG: ToolRetrievalConfig = {
+  vectorDbPath: "./.data",
+  model: "nomic-embed-text:latest",
+  cacheSize: 1000,
+  dimensions: 768,
+  similarityThreshold: 0.4,
+  maxResults: 10,
+};
+````
+
+## File: src/services/tool-retrieval/VectorIndexManager.ts
+````typescript
+/**
+ * VectorIndexManager - 向量索引操作管理
+ * 负责索引创建、查询、更新、删除操作
+ */
+
+import * as arrow from "apache-arrow";
+import * as lancedb from "@lancedb/lancedb";
+import { Index } from "@lancedb/lancedb";
+import { ToolError, ToolErrorCode } from "../../types/tool-system";
+import { logger } from "../../utils/logger";
+import { IndexConfigOptimizer } from "./IndexConfigOptimizer";
+import { LanceDBConnectionManager } from "./LanceDBConnectionManager";
+
+export interface VectorIndexConfig {
+  numPartitions: number;
+  numSubVectors: number;
+}
+
+export interface VectorSearchOptions {
+  queryVector: number[];
+  limit?: number;
+  distanceType?: "cosine" | "l2" | "dot";
+}
+
+export interface VectorSearchResult {
+  data: any[];
+  rowCount: number;
+}
+
+export class VectorIndexManager {
+  private connectionManager: LanceDBConnectionManager;
+  private table: lancedb.Table | null = null;
+  private dimensions: number;
+  private optimizer: IndexConfigOptimizer;
+
+  constructor(connectionManager: LanceDBConnectionManager, dimensions: number) {
+    this.connectionManager = connectionManager;
+    this.dimensions = dimensions;
+    this.optimizer = new IndexConfigOptimizer();
+    logger.info("VectorIndexManager created", {
+      dimensions,
+    });
+  }
+
+  /**
+   * 初始化向量表
+   */
+  async initializeTable(tableName: string): Promise<lancedb.Table> {
+    const db = this.connectionManager.requireDatabase();
+
+    try {
+      // 尝试直接打开表，如果失败则说明表不存在
+      try {
+        this.table = await db.openTable(tableName);
+        logger.info(`Table '${tableName}' exists, checking dimensions...`);
+
+        // 表已存在，检查维度是否匹配
+        const dimensionsMatch = await this.checkTableDimensions(tableName);
+        logger.info(`Dimension check result: ${dimensionsMatch ? "MATCH" : "MISMATCH"}`);
+
+        if (!dimensionsMatch) {
+          // 维度不匹配，需要重新创建表
+          logger.warn(`Table dimensions mismatch. Dropping and recreating table: ${tableName}`);
+
+          // 完全删除旧表（包括物理文件）
+          await this.connectionManager.dropTableCompletely(tableName);
+
+          // 继续创建新表
+        } else {
+          // 维度匹配，使用现有表
+          logger.info(`Using existing table: ${tableName}`);
+
+          // 获取表中的记录数
+          const count = await this.getTableCount();
+          logger.info(`Table contains ${count} vector records`);
+
+          // 检查是否需要添加新字段（MCP支持）
+          await this.checkAndAddMissingFields(tableName);
+
+          // 创建向量索引
+          await this.createVectorIndex();
+          return this.table;
+        }
+      } catch (openError: any) {
+        // 表不存在，继续创建新表
+        logger.info(
+          `Table '${tableName}' does not exist (${openError.message}), will create new table`
+        );
+      }
+
+      // 创建新表 - 使用 Apache Arrow Schema（支持 Skills 和 MCP 工具）
+      const schema = new arrow.Schema([
+        new arrow.Field("id", new arrow.Utf8(), false),
+        new arrow.Field("name", new arrow.Utf8(), false),
+        new arrow.Field("description", new arrow.Utf8(), false),
+        new arrow.Field(
+          "tags",
+          new arrow.List(new arrow.Field("item", new arrow.Utf8(), true)),
+          false
+        ),
+        new arrow.Field("path", new arrow.Utf8(), true), // 可选，Skill 才有
+        new arrow.Field("version", new arrow.Utf8(), true), // 可选，Skill 才有
+        new arrow.Field("source", new arrow.Utf8(), true), // MCP 服务器 ID 或 skill 名称
+        new arrow.Field("toolType", new arrow.Utf8(), false), // 'skill' | 'mcp'
+        new arrow.Field("metadata", new arrow.Utf8(), false), // 对象存储为JSON字符串
+        new arrow.Field(
+          "vector",
+          new arrow.FixedSizeList(
+            this.dimensions,
+            new arrow.Field("item", new arrow.Float32(), true)
+          ),
+          false
+        ),
+        new arrow.Field("indexedAt", new arrow.Timestamp(arrow.TimeUnit.MICROSECOND), false),
+      ]);
+
+      // 创建空表
+      this.table = await db.createTable(tableName, [], { schema });
+
+      logger.info(`Created new table: ${tableName} with ${this.dimensions} dimensions`);
+
+      // 创建向量索引
+      await this.createVectorIndex();
+
+      return this.table;
+    } catch (error) {
+      logger.error("Failed to initialize vector table:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * 检查表的向量维度是否匹配
+   */
+  async checkTableDimensions(tableName: string): Promise<boolean> {
+    try {
+      logger.debug(`Checking table dimensions for: ${tableName}`);
+
+      // 打开表
+      const tempTable = await this.connectionManager.requireDatabase().openTable(tableName);
+
+      // 从表的 schema 中获取实际的向量维度
+      const actualDimension = await this.getTableVectorDimension(tempTable);
+
+      if (actualDimension === null) {
+        logger.warn(`Could not determine vector dimension from table schema`);
+        return false;
+      }
+
+      const configDimension = this.dimensions;
+      const matches = actualDimension === configDimension;
+
+      if (matches) {
+        logger.info(`Table dimensions match: config=${configDimension}, actual=${actualDimension}`);
+      } else {
+        logger.info(
+          `Table dimensions mismatch: config=${configDimension}, actual=${actualDimension}`
+        );
+      }
+
+      return matches;
+    } catch (error) {
+      logger.error("Failed to check table dimensions:", error);
+      return false;
+    }
+  }
+
+  /**
+   * 从表的 schema 中获取向量字段的维度
+   */
+  private async getTableVectorDimension(table: lancedb.Table): Promise<number | null> {
+    try {
+      // 获取表的 Arrow schema
+      const schema = await table.schema();
+
+      // 查找 vector 字段
+      const vectorField = schema.fields.find((f: { name: string }) => f.name === "vector");
+
+      if (!vectorField) {
+        logger.warn("No vector field found in table schema");
+        return null;
+      }
+
+      // FixedSizeList 类型在 Arrow 中表示向量
+      const type = vectorField.type;
+
+      // 检查是否是 FixedSizeList 类型
+      if (type && typeof type === "object" && "children" in type) {
+        if (Array.isArray((type as { children: unknown }).children)) {
+          const dimensionValue = (
+            type as { children: [unknown, { value?: number; length?: number }] }
+          ).children;
+          if (dimensionValue[1] && typeof dimensionValue[1] === "object") {
+            return dimensionValue[1].value || dimensionValue[1].length || null;
+          }
+        }
+      }
+
+      // 备选方案：直接从 type 对象获取维度
+      if ("numChildren" in type) {
+        return (type as { numChildren: number }).numChildren;
+      }
+
+      logger.warn(`Unknown vector field type: ${JSON.stringify(type)}`);
+      return null;
+    } catch (error) {
+      logger.error("Failed to get table vector dimension:", error);
+      return null;
+    }
+  }
+
+  /**
+   * 检查并添加缺失的字段（为MCP支持）
+   */
+  private async checkAndAddMissingFields(tableName: string): Promise<void> {
+    try {
+      if (!this.table) {
+        return;
+      }
+
+      // 尝试插入一个包含所有字段的测试记录
+      const testVector = new Array(this.dimensions).fill(0.0);
+
+      const testRecord = {
+        id: `field-check-${Date.now()}`,
+        name: "Field Check",
+        description: "Checking for missing fields",
+        tags: [],
+        path: null,
+        version: null,
+        source: null, // MCP 字段
+        toolType: "mcp", // MCP 字段
+        metadata: "{}",
+        vector: testVector,
+        indexedAt: new Date(),
+      };
+
+      await this.table.add([testRecord]);
+      logger.info("All fields (including MCP fields) are present");
+
+      // 删除测试记录
+      await this.table.delete(`id == "${testRecord.id}"`);
+    } catch (error: any) {
+      // 检查是否是字段缺失错误
+      if (error.message && error.message.includes("Found field not in schema")) {
+        logger.warn("Table is missing MCP-related fields. Recreating table...");
+
+        // 删除旧表并重新创建
+        await this.connectionManager.requireDatabase().dropTable(tableName);
+        logger.info(`Dropped existing table for recreation: ${tableName}`);
+
+        // 重新创建表
+        const schema = new arrow.Schema([
+          new arrow.Field("id", new arrow.Utf8(), false),
+          new arrow.Field("name", new arrow.Utf8(), false),
+          new arrow.Field("description", new arrow.Utf8(), false),
+          new arrow.Field(
+            "tags",
+            new arrow.List(new arrow.Field("item", new arrow.Utf8(), true)),
+            false
+          ),
+          new arrow.Field("path", new arrow.Utf8(), true),
+          new arrow.Field("version", new arrow.Utf8(), true),
+          new arrow.Field("source", new arrow.Utf8(), true), // MCP 服务器 ID 或 skill 名称
+          new arrow.Field("toolType", new arrow.Utf8(), false), // 'skill' | 'mcp'
+          new arrow.Field("metadata", new arrow.Utf8(), false),
+          new arrow.Field(
+            "vector",
+            new arrow.FixedSizeList(
+              this.dimensions,
+              new arrow.Field("item", new arrow.Float32(), true)
+            ),
+            false
+          ),
+          new arrow.Field("indexedAt", new arrow.Timestamp(arrow.TimeUnit.MICROSECOND), false),
+        ]);
+
+        this.table = await this.connectionManager.requireDatabase().createTable(tableName, [], {
+          schema,
+        });
+        logger.info(`Recreated table: ${tableName} with MCP support`);
+
+        // 重新创建索引
+        await this.createVectorIndex();
+      } else {
+        // 其他错误，重新抛出
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * 创建向量索引
+   */
+  async createVectorIndex(): Promise<void> {
+    if (!this.table) {
+      return;
+    }
+
+    try {
+      const rowCount = await this.table.countRows();
+      const dimension = this.dimensions;
+
+      const optimizationResult = this.optimizer.calculateOptimalConfig(
+        rowCount,
+        dimension,
+        0.95,
+        false
+      );
+
+      logger.info(`[VectorIndexManager] ${optimizationResult.reasoning}`);
+
+      await this.table.createIndex("vector", {
+        config: Index.ivfPq({
+          numPartitions: optimizationResult.config.numPartitions,
+          numSubVectors: optimizationResult.config.numSubVectors,
+        }),
+        replace: true,
+      });
+
+      logger.info(
+        `[VectorIndexManager] Created optimized vector index: ${optimizationResult.config.numPartitions} partitions, ` +
+          `${optimizationResult.config.numSubVectors} sub-vectors, ` +
+          `est. recall: ${(optimizationResult.estimatedRecall * 100).toFixed(1)}%`
+      );
+    } catch (error) {
+      logger.debug("Vector index may already exist:", error);
+    }
+  }
+
+  /**
+   * 获取表的记录数
+   */
+  async getTableCount(): Promise<number> {
+    try {
+      if (!this.table) {
+        return 0;
+      }
+
+      // 使用count查询
+      const count = await this.table.countRows();
+      return count;
+    } catch (error) {
+      logger.warn("Failed to get table count:", error);
+      return 0;
+    }
+  }
+
+  /**
+   * 执行向量搜索
+   */
+  async search(options: VectorSearchOptions): Promise<VectorSearchResult> {
+    if (!this.table) {
+      throw new ToolError(
+        "Vector table is not initialized. Call initializeTable() first.",
+        ToolErrorCode.VECTOR_DB_ERROR
+      );
+    }
+
+    const limit = options.limit || 10;
+    const distanceType = options.distanceType || "cosine";
+
+    // 执行向量搜索
+    const vectorQuery = this.table
+      .query()
+      .nearestTo(options.queryVector) // 使用nearestTo进行向量搜索
+      .distanceType(distanceType) // 设置距离类型
+      .limit(limit * 2); // 获取多一些结果以应用阈值过滤
+
+    const results = await vectorQuery.toArray();
+
+    return {
+      data: results,
+      rowCount: results.length,
+    };
+  }
+
+  /**
+   * 添加记录到向量表
+   */
+  async addRecords(records: Record<string, unknown>[]): Promise<void> {
+    if (!this.table) {
+      throw new ToolError(
+        "Vector table is not initialized. Call initializeTable() first.",
+        ToolErrorCode.VECTOR_DB_ERROR
+      );
+    }
+
+    await this.table.add(records);
+  }
+
+  /**
+   * 从向量表删除记录
+   */
+  async deleteRecords(filter: string): Promise<void> {
+    if (!this.table) {
+      return;
+    }
+
+    await this.table.delete(filter);
+  }
+
+  /**
+   * 获取当前表
+   */
+  getTable(): lancedb.Table | null {
+    return this.table;
+  }
+
+  /**
+   * 更新维度配置
+   */
+  updateDimensions(dimensions: number): void {
+    this.dimensions = dimensions;
+    logger.info(`Updated VectorIndexManager dimensions to: ${dimensions}`);
+  }
+}
+````
+
+## File: src/utils/error-serializer.ts
+````typescript
+/**
+ * 错误响应序列化工具
+ *
+ * 提供安全的错误响应序列化逻辑，避免重复代码
+ */
+
+import { logger } from "./logger";
+
+/**
+ * 序列化错误响应数据
+ *
+ * @param error - 错误对象，包含 response 属性
+ * @returns 格式化的错误详情字符串
+ */
+export function serializeErrorResponse(error: unknown): string {
+  try {
+    const err = error as Record<string, unknown>;
+    if (
+      err.response &&
+      typeof err.response === "object" &&
+      (err.response as Record<string, unknown>).data &&
+      typeof (err.response as Record<string, unknown>).data === "object"
+    ) {
+      return JSON.stringify((err.response as { data: unknown }).data, null, 2);
+    }
+    const responseData = (err.response as { data: unknown })?.data;
+    return responseData !== undefined ? String(responseData) : "无详细信息";
+  } catch {
+    return "[无法序列化响应数据]";
+  }
+}
+
+/**
+ * 记录错误响应的详细信息
+ *
+ * @param providerName - 提供商名称
+ * @param error - 错误对象
+ * @param context - 额外的上下文信息
+ */
+export function logErrorResponse(
+  providerName: string,
+  error: unknown,
+  context: "chat" | "stream" | "embed" = "chat"
+): void {
+  const err = error as Record<string, unknown>;
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  logger.error(`❌ ${providerName} ${context} error:`, errorMessage);
+
+  if (err.response) {
+    const status = (err.response as { status?: number }).status;
+    if (status !== undefined) {
+      logger.error(`   HTTP状态: ${status}`);
+    }
+    const serialized = serializeErrorResponse(error);
+    logger.error(`   错误详情: ${serialized}`);
+  }
+}
+
+/**
+ * 创建错误响应对象
+ *
+ * @param providerName - 提供商名称
+ * @param error - 原始错误
+ * @returns 标准化的错误消息
+ */
+export function createErrorMessage(providerName: string, error: unknown): string {
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  return `${providerName} request failed: ${errorMessage}`;
+}
+````
+
+## File: src/utils/metrics.ts
+````typescript
+/**
+ * 性能指标收集工具
+ *
+ * 提供关键性能指标的收集和记录功能
+ */
+
+import { logger } from "./logger";
+
+/**
+ * 指标类型
+ */
+export type MetricType = "counter" | "gauge" | "histogram" | "timer";
+
+/**
+ * 指标接口
+ */
+export interface Metric {
+  name: string;
+  type: MetricType;
+  value: number;
+  labels?: Record<string, string>;
+  timestamp: number;
+}
+
+/**
+ * 性能指标收集器
+ */
+export class MetricsCollector {
+  private static instance: MetricsCollector | null = null;
+  private metrics: Map<string, Metric[]> = new Map();
+  private enabled: boolean;
+
+  constructor() {
+    this.enabled = process.env.NODE_ENV === "production";
+  }
+
+  /**
+   * 获取单例实例
+   */
+  static getInstance(): MetricsCollector {
+    if (!MetricsCollector.instance) {
+      MetricsCollector.instance = new MetricsCollector();
+    }
+    return MetricsCollector.instance;
+  }
+
+  /**
+   * 记录指标
+   */
+  record(name: string, value: number, type: MetricType, labels?: Record<string, string>): void {
+    if (!this.enabled) {
+      return;
+    }
+
+    const metric: Metric = {
+      name,
+      type,
+      value,
+      labels,
+      timestamp: Date.now(),
+    };
+
+    const key = this.getKey(name, labels);
+    if (!this.metrics.has(key)) {
+      this.metrics.set(key, []);
+    }
+    this.metrics.get(key)!.push(metric);
+
+    logger.debug(`[Metrics] Recorded ${name}: ${value}`);
+  }
+
+  /**
+   * 增加计数器
+   */
+  increment(name: string, labels?: Record<string, string>): void {
+    this.record(name, 1, "counter", labels);
+  }
+
+  /**
+   * 设置仪表值
+   */
+  gauge(name: string, value: number, labels?: Record<string, string>): void {
+    this.record(name, value, "gauge", labels);
+  }
+
+  /**
+   * 记录直方图值
+   */
+  histogram(name: string, value: number, labels?: Record<string, string>): void {
+    this.record(name, value, "histogram", labels);
+  }
+
+  /**
+   * 记录计时器值（毫秒）
+   */
+  timer(name: string, duration: number, labels?: Record<string, string>): void {
+    this.record(name, duration, "timer", labels);
+  }
+
+  /**
+   * 获取指标
+   */
+  getMetrics(name?: string, labels?: Record<string, string>): Metric[] {
+    if (name) {
+      const key = this.getKey(name, labels);
+      return this.metrics.get(key) || [];
+    }
+    const allMetrics: Metric[] = [];
+    for (const metrics of this.metrics.values()) {
+      allMetrics.push(...metrics);
+    }
+    return allMetrics;
+  }
+
+  /**
+   * 清除所有指标
+   */
+  clear(): void {
+    this.metrics.clear();
+  }
+
+  /**
+   * 获取指标键
+   */
+  private getKey(name: string, labels?: Record<string, string>): string {
+    if (!labels) {
+      return name;
+    }
+    const labelStr = Object.entries(labels)
+      .map(([k, v]) => `${k}=${v}`)
+      .join(",");
+    return `${name}{${labelStr}}`;
+  }
+}
+
+/**
+ * 上下文压缩指标收集器
+ */
+export class ContextCompressionMetrics {
+  private static instance: ContextCompressionMetrics | null = null;
+  private compressionCount = 0;
+  private successCount = 0;
+  private failureCount = 0;
+  private totalOriginalTokens = 0;
+  private totalCompressedTokens = 0;
+  private totalSavings = 0;
+
+  constructor() {
+    // 私有构造函数
+  }
+
+  static getInstance(): ContextCompressionMetrics {
+    if (!ContextCompressionMetrics.instance) {
+      ContextCompressionMetrics.instance = new ContextCompressionMetrics();
+    }
+    return ContextCompressionMetrics.instance;
+  }
+
+  /**
+   * 记录压缩结果
+   */
+  recordCompression(success: boolean, originalTokens: number, compressedTokens: number): void {
+    this.compressionCount++;
+    if (success) {
+      this.successCount++;
+    } else {
+      this.failureCount++;
+    }
+
+    this.totalOriginalTokens += originalTokens;
+    this.totalCompressedTokens += compressedTokens;
+    this.totalSavings += originalTokens - compressedTokens;
+  }
+
+  /**
+   * 获取压缩统计
+   */
+  getStats(): {
+    total: number;
+    success: number;
+    failure: number;
+    successRate: number;
+    avgSavingsRatio: number;
+  } {
+    const successRate = this.compressionCount > 0 ? this.successCount / this.compressionCount : 0;
+    const avgSavingsRatio =
+      this.totalOriginalTokens > 0 ? this.totalSavings / this.totalOriginalTokens : 0;
+
+    return {
+      total: this.compressionCount,
+      success: this.successCount,
+      failure: this.failureCount,
+      successRate,
+      avgSavingsRatio,
+    };
+  }
+
+  /**
+   * 重置统计
+   */
+  reset(): void {
+    this.compressionCount = 0;
+    this.successCount = 0;
+    this.failureCount = 0;
+    this.totalOriginalTokens = 0;
+    this.totalCompressedTokens = 0;
+    this.totalSavings = 0;
+  }
+}
+
+/**
+ * 工具检索指标收集器
+ */
+export class ToolRetrievalMetrics {
+  private static instance: ToolRetrievalMetrics | null = null;
+  private retrievalCount = 0;
+  private totalLatency = 0;
+  private cacheHits = 0;
+  private cacheMisses = 0;
+
+  constructor() {
+    // 私有构造函数
+  }
+
+  static getInstance(): ToolRetrievalMetrics {
+    if (!ToolRetrievalMetrics.instance) {
+      ToolRetrievalMetrics.instance = new ToolRetrievalMetrics();
+    }
+    return ToolRetrievalMetrics.instance;
+  }
+
+  /**
+   * 记录检索
+   */
+  recordRetrieval(latencyMs: number, cacheHit: boolean): void {
+    this.retrievalCount++;
+    this.totalLatency += latencyMs;
+
+    if (cacheHit) {
+      this.cacheHits++;
+    } else {
+      this.cacheMisses++;
+    }
+  }
+
+  /**
+   * 获取检索统计
+   */
+  getStats(): {
+    total: number;
+    avgLatency: number;
+    cacheHits: number;
+    cacheMisses: number;
+    cacheHitRate: number;
+  } {
+    const cacheHitRate = this.retrievalCount > 0 ? this.cacheHits / this.retrievalCount : 0;
+    const avgLatency = this.retrievalCount > 0 ? this.totalLatency / this.retrievalCount : 0;
+
+    return {
+      total: this.retrievalCount,
+      avgLatency,
+      cacheHits: this.cacheHits,
+      cacheMisses: this.cacheMisses,
+      cacheHitRate,
+    };
+  }
+
+  /**
+   * 重置统计
+   */
+  reset(): void {
+    this.retrievalCount = 0;
+    this.totalLatency = 0;
+    this.cacheHits = 0;
+    this.cacheMisses = 0;
+  }
+}
+
+/**
+ * 导出便捷函数
+ */
+export const metrics = MetricsCollector.getInstance();
+export const compressionMetrics = ContextCompressionMetrics.getInstance();
+export const retrievalMetrics = ToolRetrievalMetrics.getInstance();
+````
 
 ## File: config/disclosure.yaml
 ````yaml
@@ -410,6 +4703,1431 @@ tagHierarchy:
     t: tag
     c: category
     s: subcategory
+````
+
+## File: src/api/controllers/SkillsController.ts
+````typescript
+/**
+ * SkillsController - Skills管理 API 控制器
+ * 提供Skills的安装、卸载、查询等RESTful接口
+ */
+
+import { Request, Response } from 'express';
+import multer from 'multer';
+import { SkillManager } from '../../services/SkillManager';
+import { logger } from '../../utils/logger';
+import { ToolError, ToolErrorCode } from '../../types/tool-system';
+
+const skillManager = SkillManager.getInstance();
+
+/**
+ * 统一处理服务层错误
+ * 将ToolError转换为合适的HTTP状态码
+ */
+function handleServiceError(res: Response, error: any, action: string): boolean {
+  logger.error(`❌ Failed to ${action}:`, error);
+
+  if (error instanceof ToolError) {
+    switch (error.code) {
+      case ToolErrorCode.SKILL_NOT_FOUND:
+        res.status(404).json({
+          error: 'Skill not found',
+          message: error.message,
+          code: error.code
+        });
+        return true;
+
+      case ToolErrorCode.SKILL_ALREADY_EXISTS:
+        res.status(409).json({
+          error: 'Skill already exists',
+          message: error.message,
+          code: error.code
+        });
+        return true;
+
+      case ToolErrorCode.SKILL_INVALID_STRUCTURE:
+        res.status(400).json({
+          error: 'Invalid skill structure',
+          message: error.message,
+          code: error.code
+        });
+        return true;
+
+      case ToolErrorCode.VECTOR_DB_ERROR:
+        res.status(503).json({
+          error: 'Vector database error',
+          message: error.message,
+          code: error.code
+        });
+        return true;
+
+      default:
+        res.status(500).json({
+          error: `Failed to ${action}`,
+          message: error.message,
+          code: error.code
+        });
+        return true;
+    }
+  }
+
+  // 默认返回 500
+  res.status(500).json({
+    error: `Failed to ${action}`,
+    message: error.message || 'Unknown error'
+  });
+  return true;
+}
+
+/**
+ * 转换为 Skill DTO
+ * 统一响应结构，确保所有接口返回格式一致
+ */
+function toSkillDTO(skill: any) {
+  return {
+    name: skill.name,
+    description: skill.description,
+    type: skill.type,
+    tags: skill.tags || [],
+    version: skill.version,
+    author: skill.author,
+    enabled: skill.enabled,
+    level: skill.level,
+    path: skill.path,
+    parameters: skill.parameters || {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  };
+}
+
+/**
+ * 安装Skills
+ * POST /api/skills/install
+ * Content-Type: multipart/form-data
+ * Body: { file: ZIP文件, overwrite?: boolean, skipVectorization?: boolean }
+ */
+export async function installSkill(req: Request, res: Response): Promise<void> {
+  try {
+    const startTime = Date.now();
+
+    // 检查文件是否存在
+    if (!req.file) {
+      res.status(400).json({
+        error: 'No file uploaded',
+        message: 'Please upload a ZIP file containing the skill'
+      });
+      return;
+    }
+
+    // 验证文件类型
+    if (!req.file.originalname.endsWith('.zip')) {
+      res.status(400).json({
+        error: 'Invalid file type',
+        message: 'Only ZIP files are supported'
+      });
+      return;
+    }
+
+    // 检查文件大小（限制100MB）
+    if (req.file.size > 100 * 1024 * 1024) {
+      res.status(400).json({
+        error: 'File too large',
+        message: 'Maximum file size is 100MB'
+      });
+      return;
+    }
+
+    logger.info(`📦 Installing skill from file: ${req.file.originalname} (${req.file.size} bytes)`);
+
+    // 解析选项
+    const options = {
+      overwrite: req.body.overwrite === 'true' || req.body.overwrite === true,
+      skipVectorization: req.body.skipVectorization === 'true' || req.body.skipVectorization === true,
+      validationLevel: req.body.validationLevel || 'basic'
+    };
+
+    // 安装Skills
+    const result = await skillManager.installSkill(req.file.buffer, options);
+
+    logger.info(`✅ Skill installed successfully: ${result.skillName} (${Date.now() - startTime}ms)`);
+
+    // 返回成功响应
+    res.status(201).json({
+      success: true,
+      message: result.message,
+      skillName: result.skillName,
+      installedAt: result.installedAt,
+      duration: result.duration,
+      vectorized: result.vectorized
+    });
+
+  } catch (error) {
+    handleServiceError(res, error, 'install skill');
+  }
+}
+
+/**
+ * 卸载Skills
+ * DELETE /api/skills/:name
+ */
+export async function uninstallSkill(req: Request, res: Response): Promise<void> {
+  try {
+    const { name } = req.params;
+    const startTime = Date.now();
+
+    logger.info(`🗑️ Uninstalling skill: ${name}`);
+
+    const result = await skillManager.uninstallSkill(name);
+
+    logger.info(`✅ Skill uninstalled successfully: ${name} (${Date.now() - startTime}ms)`);
+
+    res.json({
+      success: true,
+      message: result.message,
+      skillName: result.skillName,
+      uninstalledAt: result.uninstalledAt,
+      duration: result.duration
+    });
+
+  } catch (error) {
+    handleServiceError(res, error, 'uninstall skill');
+  }
+}
+
+/**
+ * 更新Skills描述
+ * PUT /api/skills/:name/description
+ * Body: { description: string }
+ */
+export async function updateSkillDescription(req: Request, res: Response): Promise<void> {
+  try {
+    const { name } = req.params;
+    const { description } = req.body;
+    const startTime = Date.now();
+
+    // 验证描述不能为空
+    if (!description || typeof description !== 'string') {
+      res.status(400).json({
+        error: 'Invalid description',
+        message: 'Description is required and must be a string'
+      });
+      return;
+    }
+
+    logger.info(`✏️ Updating skill description: ${name}`);
+
+    const result = await skillManager.updateSkill(name, description);
+
+    logger.info(`✅ Skill description updated: ${name} (${Date.now() - startTime}ms)`);
+
+    res.json({
+      success: true,
+      message: result.message,
+      skillName: result.skillName,
+      updatedAt: result.updatedAt,
+      duration: result.duration,
+      reindexed: result.reindexed
+    });
+
+  } catch (error) {
+    handleServiceError(res, error, 'update skill description');
+  }
+}
+
+/**
+ * 列出Skills
+ * GET /api/skills?page=1&limit=50&name=&tags=&sortBy=name&sortOrder=asc
+ */
+export async function listSkills(req: Request, res: Response): Promise<void> {
+  try {
+    const startTime = Date.now();
+
+    // 解析查询参数
+    const sortBy = (req.query.sortBy as string) || 'name';
+    const validSortFields = ['updatedAt', 'name', 'installedAt'];
+    if (!validSortFields.includes(sortBy)) {
+      res.status(400).json({
+        error: 'Invalid sortBy parameter',
+        message: 'sortBy must be one of: updatedAt, name, installedAt'
+      });
+      return;
+    }
+
+    const options = {
+      page: parseInt(req.query.page as string) || 1,
+      limit: parseInt(req.query.limit as string) || 50,
+      name: req.query.name as string || undefined,
+      tags: req.query.tags ? (req.query.tags as string).split(',') : undefined,
+      sortBy: sortBy as 'updatedAt' | 'name' | 'installedAt',
+      sortOrder: ((req.query.sortOrder as string) === 'desc' ? 'desc' : 'asc') as 'asc' | 'desc'
+    };
+
+    logger.debug(`📋 Listing skills: page=${options.page}, limit=${options.limit}`);
+
+    const result = await skillManager.listSkills(options);
+
+    logger.info(`✅ Listed ${result.skills.length} skills (${Date.now() - startTime}ms)`);
+
+    res.json({
+      success: true,
+      data: {
+        skills: result.skills.map(toSkillDTO),
+        pagination: {
+          total: result.total,
+          page: result.page,
+          limit: result.limit,
+          totalPages: result.totalPages
+        }
+      }
+    });
+
+  } catch (error) {
+    handleServiceError(res, error, 'list skills');
+  }
+}
+
+/**
+ * 获取单个Skills详情
+ * GET /api/skills/:name
+ */
+export async function getSkill(req: Request, res: Response): Promise<void> {
+  try {
+    const { name } = req.params;
+    const startTime = Date.now();
+
+    logger.debug(`🔍 Getting skill details: ${name}`);
+
+    const skill = await skillManager.getSkillByName(name);
+
+    if (!skill) {
+      res.status(404).json({
+        error: 'Skill not found',
+        message: `Skill '${name}' not found`
+      });
+      return;
+    }
+
+    logger.info(`✅ Got skill details: ${name} (${Date.now() - startTime}ms)`);
+
+    res.json({
+      success: true,
+      data: toSkillDTO(skill)
+    });
+
+  } catch (error) {
+    handleServiceError(res, error, 'get skill');
+  }
+}
+
+/**
+ * 检查Skills是否存在
+ * GET /api/skills/:name/exists
+ */
+export async function checkSkillExists(req: Request, res: Response): Promise<void> {
+  try {
+    const { name } = req.params;
+
+    logger.debug(`🔍 Checking if skill exists: ${name}`);
+
+    const exists = await skillManager.isSkillExist(name);
+
+    res.json({
+      success: true,
+      data: {
+        name,
+        exists
+      }
+    });
+
+  } catch (error) {
+    handleServiceError(res, error, 'check skill existence');
+  }
+}
+
+/**
+ * 获取Skills统计信息
+ * GET /api/skills/stats
+ */
+export async function getSkillStats(req: Request, res: Response): Promise<void> {
+  try {
+    const startTime = Date.now();
+
+    logger.debug('📊 Getting skill statistics');
+
+    const stats = await skillManager.getStatistics();
+
+    logger.info(`✅ Got skill statistics (${Date.now() - startTime}ms)`);
+
+    res.json({
+      success: true,
+      data: stats
+    });
+
+  } catch (error) {
+    handleServiceError(res, error, 'get skill statistics');
+  }
+}
+
+/**
+ * 重新索引所有Skills
+ * POST /api/skills/reindex
+ * 用于向量数据库重建或同步
+ */
+export async function reindexAllSkills(req: Request, res: Response): Promise<void> {
+  try {
+    const startTime = Date.now();
+
+    logger.info('🔄 Reindexing all skills');
+
+    // TODO: 实现重新索引逻辑
+    // 1. 扫描所有Skills目录
+    // 2. 逐一调用 retrievalService.indexSkill()
+    // 3. 更新.vectorized标识
+
+    logger.info(`✅ All skills reindexed (${Date.now() - startTime}ms)`);
+
+    res.json({
+      success: true,
+      message: 'All skills reindexed successfully'
+    });
+
+  } catch (error) {
+    handleServiceError(res, error, 'reindex skills');
+  }
+}
+
+// 配置Multer中间件
+export const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 100 * 1024 * 1024 // 100MB
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.originalname.endsWith('.zip')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only ZIP files are allowed'));
+    }
+  }
+});
+````
+
+## File: src/api/middleware/rateLimit/inMemoryRateLimiter.ts
+````typescript
+import {
+  RateLimiter,
+  RateLimiterContext,
+  RateLimiterHitResult,
+  RateLimiterMode,
+  RateLimiterRuleState
+} from './types';
+
+export interface InMemoryRateLimiterOptions {
+  defaultMode?: RateLimiterMode;
+  defaultBurstMultiplier?: number;
+  now?: () => number;
+}
+
+interface SlidingStateEntry {
+  timestamps: number[];
+}
+
+interface FixedWindowStateEntry {
+  windowStart: number;
+  count: number;
+}
+
+const DEFAULT_MODE: RateLimiterMode = 'sliding';
+
+/**
+ * 内存版限流器，实现滑动窗口与固定窗口两种算法，并支持突发流量放宽。
+ * 设计目标：
+ * - 滑动窗口：记录窗口内每次命中时间戳，保证限流的平滑性与准确性
+ * - 固定窗口：对 windowMs 对齐分片计数，满足简单场景
+ * - Burst：通过 burstMultiplier 扩大有效上限，允许短时突发流量
+ */
+export class InMemoryRateLimiter implements RateLimiter {
+  private readonly now: () => number;
+  private readonly defaultMode: RateLimiterMode;
+  private readonly defaultBurstMultiplier: number;
+
+  private readonly slidingState = new Map<string, Map<string, SlidingStateEntry>>();
+  private readonly fixedState = new Map<string, Map<string, FixedWindowStateEntry>>();
+
+  constructor(options?: InMemoryRateLimiterOptions) {
+    this.now = options?.now ?? (() => Date.now());
+    this.defaultMode = options?.defaultMode ?? DEFAULT_MODE;
+    this.defaultBurstMultiplier = Math.max(options?.defaultBurstMultiplier ?? 1, 1);
+  }
+
+  async hit(key: string, rule: RateLimiterRuleState): Promise<RateLimiterHitResult> {
+    const mode = rule.mode ?? this.defaultMode;
+    if (mode === 'fixed') {
+      return this.hitFixedWindow(key, rule);
+    }
+    return this.hitSlidingWindow(key, rule);
+  }
+
+  async undo(context: RateLimiterContext): Promise<void> {
+    if (context.mode === 'fixed') {
+      this.undoFixedWindow(context);
+    } else {
+      this.undoSlidingWindow(context);
+    }
+  }
+
+  private hitSlidingWindow(key: string, rule: RateLimiterRuleState): RateLimiterHitResult {
+    const burstMultiplier = Math.max(rule.burstMultiplier ?? this.defaultBurstMultiplier, 1);
+    const limit = Math.max(Math.floor(rule.maxRequests * burstMultiplier), rule.maxRequests);
+    const now = this.now();
+    const windowStartThreshold = now - rule.windowMs;
+
+    const ruleBuckets = this.ensureSlidingRule(rule.id);
+    const entry = this.ensureSlidingEntry(ruleBuckets, key);
+    const timestamps = entry.timestamps;
+
+    // 清理过期时间戳（按顺序存储，O(n) 最坏，但 n 一般 <= limit）
+    while (timestamps.length > 0 && timestamps[0] <= windowStartThreshold) {
+      timestamps.shift();
+    }
+
+    if (timestamps.length >= limit) {
+      const earliest = timestamps[0];
+      const resetAt = earliest + rule.windowMs;
+      return {
+        allowed: false,
+        limit,
+        remaining: 0,
+        reset: resetAt
+      };
+    }
+
+    timestamps.push(now);
+    const remaining = Math.max(limit - timestamps.length, 0);
+    const firstTimestamp = timestamps[0] ?? now;
+    const resetAt = firstTimestamp + rule.windowMs;
+
+    return {
+      allowed: true,
+      limit,
+      remaining,
+      reset: resetAt,
+      context: {
+        ruleId: rule.id,
+        key,
+        mode: 'sliding',
+        timestamp: now
+      }
+    };
+  }
+
+  private hitFixedWindow(key: string, rule: RateLimiterRuleState): RateLimiterHitResult {
+    const burstMultiplier = Math.max(rule.burstMultiplier ?? this.defaultBurstMultiplier, 1);
+    const limit = Math.max(Math.floor(rule.maxRequests * burstMultiplier), rule.maxRequests);
+    const now = this.now();
+    const windowStart = Math.floor(now / rule.windowMs) * rule.windowMs;
+
+    const ruleBuckets = this.ensureFixedRule(rule.id);
+    const entry = this.ensureFixedEntry(ruleBuckets, key);
+
+    if (entry.windowStart !== windowStart) {
+      entry.windowStart = windowStart;
+      entry.count = 0;
+    }
+
+    if (entry.count >= limit) {
+      return {
+        allowed: false,
+        limit,
+        remaining: 0,
+        reset: entry.windowStart + rule.windowMs
+      };
+    }
+
+    entry.count += 1;
+    const remaining = Math.max(limit - entry.count, 0);
+
+    return {
+      allowed: true,
+      limit,
+      remaining,
+      reset: entry.windowStart + rule.windowMs,
+      context: {
+        ruleId: rule.id,
+        key,
+        mode: 'fixed',
+        timestamp: now,
+        windowStart: entry.windowStart
+      }
+    };
+  }
+
+  private undoSlidingWindow(context: RateLimiterContext): void {
+    const ruleBuckets = this.slidingState.get(context.ruleId);
+    if (!ruleBuckets) {
+      return;
+    }
+    const entry = ruleBuckets.get(context.key);
+    if (!entry) {
+      return;
+    }
+
+    const index = entry.timestamps.lastIndexOf(context.timestamp);
+    if (index >= 0) {
+      entry.timestamps.splice(index, 1);
+    }
+
+    if (entry.timestamps.length === 0) {
+      ruleBuckets.delete(context.key);
+    }
+    if (ruleBuckets.size === 0) {
+      this.slidingState.delete(context.ruleId);
+    }
+  }
+
+  private undoFixedWindow(context: RateLimiterContext): void {
+    const ruleBuckets = this.fixedState.get(context.ruleId);
+    if (!ruleBuckets) {
+      return;
+    }
+    const entry = ruleBuckets.get(context.key);
+    if (!entry) {
+      return;
+    }
+    if (entry.windowStart !== context.windowStart || entry.count === 0) {
+      return;
+    }
+
+    entry.count = Math.max(entry.count - 1, 0);
+    if (entry.count === 0) {
+      ruleBuckets.delete(context.key);
+    }
+    if (ruleBuckets.size === 0) {
+      this.fixedState.delete(context.ruleId);
+    }
+  }
+
+  private ensureSlidingRule(ruleId: string): Map<string, SlidingStateEntry> {
+    let ruleBuckets = this.slidingState.get(ruleId);
+    if (!ruleBuckets) {
+      ruleBuckets = new Map<string, SlidingStateEntry>();
+      this.slidingState.set(ruleId, ruleBuckets);
+    }
+    return ruleBuckets;
+  }
+
+  private ensureSlidingEntry(
+    buckets: Map<string, SlidingStateEntry>,
+    key: string
+  ): SlidingStateEntry {
+    let entry = buckets.get(key);
+    if (!entry) {
+      entry = { timestamps: [] };
+      buckets.set(key, entry);
+    }
+    return entry;
+  }
+
+  private ensureFixedRule(ruleId: string): Map<string, FixedWindowStateEntry> {
+    let ruleBuckets = this.fixedState.get(ruleId);
+    if (!ruleBuckets) {
+      ruleBuckets = new Map<string, FixedWindowStateEntry>();
+      this.fixedState.set(ruleId, ruleBuckets);
+    }
+    return ruleBuckets;
+  }
+
+  private ensureFixedEntry(
+    buckets: Map<string, FixedWindowStateEntry>,
+    key: string
+  ): FixedWindowStateEntry {
+    let entry = buckets.get(key);
+    if (!entry) {
+      entry = { windowStart: 0, count: 0 };
+      buckets.set(key, entry);
+    }
+    return entry;
+  }
+}
+````
+
+## File: src/api/middleware/rateLimit/redisRateLimiter.ts
+````typescript
+import type { RedisClientType } from 'redis';
+import {
+  RateLimiter,
+  RateLimiterContext,
+  RateLimiterHitResult,
+  RateLimiterMode,
+  RateLimiterRuleState
+} from './types';
+
+export interface RedisRateLimiterOptions {
+  client: RedisClientType<any, any, any>;
+  keyPrefix?: string;
+  now?: () => number;
+}
+
+export class RedisRateLimiter implements RateLimiter {
+  private readonly client: RedisClientType<any, any, any>;
+  private readonly now: () => number;
+  private readonly keyPrefix: string;
+
+  private static readonly HIT_SCRIPT = `
+    local key = KEYS[1]
+    local now = tonumber(ARGV[1])
+    local windowStart = tonumber(ARGV[2])
+    local limit = tonumber(ARGV[3])
+    local ttl = tonumber(ARGV[4])
+    local member = ARGV[5]
+
+    redis.call('ZREMRANGEBYSCORE', key, '-inf', windowStart)
+    local currentCount = redis.call('ZCARD', key)
+
+    if currentCount >= limit then
+      local earliest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
+      local resetAt = 0
+      if earliest[2] then
+        resetAt = tonumber(earliest[2]) + ttl
+      end
+      return {0, currentCount, resetAt}
+    end
+
+    redis.call('ZADD', key, now, member)
+    redis.call('PEXPIRE', key, ttl)
+    local newCount = currentCount + 1
+    local earliest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
+    local resetAt = 0
+    if earliest[2] then
+      resetAt = tonumber(earliest[2]) + ttl
+    end
+    return {1, newCount, resetAt}
+  `;
+
+  constructor(options: RedisRateLimiterOptions) {
+    this.client = options.client;
+    this.keyPrefix = options.keyPrefix ?? 'rate_limit';
+    this.now = options.now ?? (() => Date.now());
+  }
+
+  public getClient(): RedisClientType<any, any, any> {
+    return this.client;
+  }
+
+  public async hit(key: string, rule: RateLimiterRuleState): Promise<RateLimiterHitResult> {
+    const mode: RateLimiterMode = rule.mode === 'fixed' ? 'fixed' : 'sliding';
+    const burstMultiplier = Math.max(rule.burstMultiplier ?? 1, 1);
+    const limit = Math.max(Math.floor(rule.maxRequests * burstMultiplier), rule.maxRequests);
+    const now = this.now();
+    const windowStart = now - rule.windowMs;
+    const ttlMs = Math.max(rule.windowMs, 1000);
+    const member = `${now}-${Math.random().toString(36).slice(2, 10)}`;
+
+    const redisKey = this.composeKey(rule.id, key);
+
+    const response = (await this.client.eval(RedisRateLimiter.HIT_SCRIPT, {
+      keys: [redisKey],
+      arguments: [
+        now.toString(10),
+        windowStart.toString(10),
+        limit.toString(10),
+        ttlMs.toString(10),
+        member
+      ]
+    })) as [number, number, number?] | null;
+
+    if (!response) {
+      throw new Error('Redis rate limiter returned null response');
+    }
+
+    const allowed = response[0] === 1;
+    const count = typeof response[1] === 'number' ? response[1] : 0;
+    const resetTimestamp = typeof response[2] === 'number' ? response[2] : now + rule.windowMs;
+
+    if (!allowed) {
+      return {
+        allowed: false,
+        limit,
+        remaining: Math.max(limit - count, 0),
+        reset: resetTimestamp
+      };
+    }
+
+    const remaining = Math.max(limit - count, 0);
+
+    return {
+      allowed: true,
+      limit,
+      remaining,
+      reset: resetTimestamp,
+      context: {
+        ruleId: rule.id,
+        key,
+        mode,
+        timestamp: now,
+        value: member
+      }
+    };
+  }
+
+  public async undo(context: RateLimiterContext): Promise<void> {
+    if (!context.value) {
+      return;
+    }
+
+    const redisKey = this.composeKey(context.ruleId, context.key);
+    try {
+      await this.client.zRem(redisKey, context.value);
+    } catch {
+      // Silent failure; fallback limiter will handle eventual consistency.
+    }
+  }
+
+  private composeKey(ruleId: string, identifier: string): string {
+    return `${this.keyPrefix}:${ruleId}:${identifier}`;
+  }
+}
+````
+
+## File: src/api/middleware/rateLimit/types.ts
+````typescript
+export type RateLimiterMode = 'sliding' | 'fixed';
+
+export interface RateLimiterRuleState {
+  id: string;
+  windowMs: number;
+  maxRequests: number;
+  mode?: RateLimiterMode;
+  burstMultiplier?: number;
+}
+
+export interface RateLimiterContext {
+  ruleId: string;
+  key: string;
+  timestamp: number;
+  windowStart?: number;
+  mode: RateLimiterMode;
+  value?: string;
+}
+
+export interface RateLimiterHitResult {
+  allowed: boolean;
+  limit: number;
+  remaining: number;
+  reset: number;
+  context?: RateLimiterContext;
+}
+
+export interface RateLimiter {
+  hit(key: string, rule: RateLimiterRuleState): Promise<RateLimiterHitResult>;
+  undo(context: RateLimiterContext): Promise<void>;
+}
+````
+
+## File: src/api/routes/mcpRoutes.ts
+````typescript
+/**
+ * MCP API Routes
+ * MCP服务器管理的REST API端点
+ */
+
+import { Router, Request, Response } from "express";
+import { mcpIntegration } from "../../services/MCPIntegrationService";
+import { logger } from "../../utils/logger";
+
+const router = Router();
+
+/**
+ * @route   GET /api/mcp/servers
+ * @desc    获取所有注册的MCP服务器列表
+ * @access  Public
+ */
+router.get("/servers", async (req: Request, res: Response) => {
+  try {
+    const servers = mcpIntegration.getServers();
+
+    res.json({
+      success: true,
+      data: servers,
+      meta: {
+        total: servers.length,
+        timestamp: new Date().toISOString(),
+      },
+    });
+  } catch (error: any) {
+    logger.error("[MCP API] Failed to get servers:", error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "GET_SERVERS_FAILED",
+        message: error.message || "Failed to get servers",
+      },
+    });
+  }
+});
+
+/**
+ * @route   POST /api/mcp/servers
+ * @desc    注册新的MCP服务器
+ * @access  Public
+ */
+router.post("/servers", async (req: Request, res: Response) => {
+  try {
+    const config = req.body;
+
+    // 验证必要字段
+    if (!config.id || !config.type || !config.command) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: "INVALID_CONFIG",
+          message: "Missing required fields: id, type, command",
+        },
+      });
+    }
+
+    const result = await mcpIntegration.registerServer(config);
+
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: "REGISTRATION_FAILED",
+          message: result.error || "Registration failed",
+        },
+      });
+    }
+
+    res.status(201).json({
+      success: true,
+      data: {
+        serverId: result.serverId,
+        message: "Server registered successfully",
+      },
+    });
+  } catch (error: any) {
+    logger.error("[MCP API] Failed to register server:", error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "REGISTRATION_ERROR",
+        message: error.message || "Registration error",
+      },
+    });
+  }
+});
+
+/**
+ * @route   GET /api/mcp/servers/:serverId
+ * @desc    获取特定MCP服务器的详细信息
+ * @access  Public
+ */
+router.get("/servers/:serverId", async (req: Request, res: Response) => {
+  try {
+    const { serverId } = req.params;
+    const server = mcpIntegration.getServer(serverId);
+
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: "SERVER_NOT_FOUND",
+          message: `Server ${serverId} not found`,
+        },
+      });
+    }
+
+    res.json({
+      success: true,
+      data: server,
+      meta: {
+        timestamp: new Date().toISOString(),
+      },
+    });
+  } catch (error: any) {
+    logger.error("[MCP API] Failed to get server:", error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "GET_SERVER_FAILED",
+        message: error.message || "Failed to get server",
+      },
+    });
+  }
+});
+
+/**
+ * @route   DELETE /api/mcp/servers/:serverId
+ * @desc    注销MCP服务器
+ * @access  Public
+ */
+router.delete("/servers/:serverId", async (req: Request, res: Response) => {
+  try {
+    const { serverId } = req.params;
+    const success = await mcpIntegration.unregisterServer(serverId);
+
+    if (!success) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: "SERVER_NOT_FOUND",
+          message: `Server ${serverId} not found`,
+        },
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        serverId,
+        message: "Server unregistered successfully",
+      },
+    });
+  } catch (error: any) {
+    logger.error("[MCP API] Failed to unregister server:", error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "UNREGISTRATION_ERROR",
+        message: error.message || "Unregistration error",
+      },
+    });
+  }
+});
+
+/**
+ * @route   POST /api/mcp/servers/:serverId/restart
+ * @desc    重启MCP服务器
+ * @access  Public
+ */
+router.post("/servers/:serverId/restart", async (req: Request, res: Response) => {
+  try {
+    const { serverId } = req.params;
+    const success = await mcpIntegration.restartServer(serverId);
+
+    if (!success) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: "SERVER_NOT_FOUND",
+          message: `Server ${serverId} not found`,
+        },
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        serverId,
+        message: "Server restarted successfully",
+      },
+    });
+  } catch (error: any) {
+    logger.error("[MCP API] Failed to restart server:", error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "RESTART_ERROR",
+        message: error.message || "Restart error",
+      },
+    });
+  }
+});
+
+/**
+ * @route   GET /api/mcp/servers/:serverId/status
+ * @desc    获取MCP服务器状态
+ * @access  Public
+ */
+router.get("/servers/:serverId/status", async (req: Request, res: Response) => {
+  try {
+    const { serverId } = req.params;
+    const status = mcpIntegration.getServerStatus(serverId);
+
+    if (!status) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: "SERVER_NOT_FOUND",
+          message: `Server ${serverId} not found`,
+        },
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        serverId,
+        status,
+      },
+    });
+  } catch (error: any) {
+    logger.error("[MCP API] Failed to get server status:", error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "GET_STATUS_FAILED",
+        message: error.message || "Failed to get server status",
+      },
+    });
+  }
+});
+
+/**
+ * @route   GET /api/mcp/servers/:serverId/tools
+ * @desc    获取MCP服务器的工具列表
+ * @access  Public
+ */
+router.get("/servers/:serverId/tools", async (req: Request, res: Response) => {
+  try {
+    const { serverId } = req.params;
+    const server = mcpIntegration.getServer(serverId);
+
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: "SERVER_NOT_FOUND",
+          message: `Server ${serverId} not found`,
+        },
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        serverId,
+        tools: server.tools,
+        count: server.tools.length,
+      },
+    });
+  } catch (error: any) {
+    logger.error("[MCP API] Failed to get server tools:", error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "GET_TOOLS_FAILED",
+        message: error.message || "Failed to get server tools",
+      },
+    });
+  }
+});
+
+/**
+ * Validate tool call request parameters
+ * @param serverId Server ID from params
+ * @param toolName Tool name from params
+ * @param arguments_ Request body arguments
+ * @returns Validation result with error details if invalid
+ */
+interface ToolCallValidationResult {
+  valid: boolean;
+  error?: {
+    code: string;
+    message: string;
+    statusCode: number;
+  };
+}
+
+function validateToolCallRequest(
+  serverId: string | undefined,
+  toolName: string | undefined,
+  arguments_: any
+): ToolCallValidationResult {
+  // Validate serverId
+  if (!serverId || typeof serverId !== "string" || serverId.trim() === "") {
+    return {
+      valid: false,
+      error: {
+        code: "INVALID_SERVER_ID",
+        message: "Missing or invalid serverId parameter",
+        statusCode: 400,
+      },
+    };
+  }
+
+  // Validate toolName
+  if (!toolName || typeof toolName !== "string" || toolName.trim() === "") {
+    return {
+      valid: false,
+      error: {
+        code: "INVALID_TOOL_NAME",
+        message: "Missing or invalid toolName parameter",
+        statusCode: 400,
+      },
+    };
+  }
+
+  // Validate arguments type
+  if (arguments_ !== undefined && arguments_ !== null && typeof arguments_ !== "object") {
+    return {
+      valid: false,
+      error: {
+        code: "INVALID_ARGUMENTS",
+        message: "Arguments must be an object, null, or undefined",
+        statusCode: 400,
+      },
+    };
+  }
+
+  // Validate arguments structure if provided
+  if (arguments_ && typeof arguments_ === "object") {
+    // Check for circular references in arguments
+    try {
+      JSON.stringify(arguments_);
+    } catch {
+      return {
+        valid: false,
+        error: {
+          code: "INVALID_ARGUMENTS",
+          message: "Arguments contain circular references or are not serializable",
+          statusCode: 400,
+        },
+      };
+    }
+  }
+
+  return { valid: true };
+}
+
+/**
+ * @route   POST /api/mcp/servers/:serverId/tools/:toolName/call
+ * @desc    调用MCP工具
+ * @access  Public
+ */
+router.post("/servers/:serverId/tools/:toolName/call", async (req: Request, res: Response) => {
+  try {
+    const { serverId, toolName } = req.params;
+    const arguments_ = req.body;
+
+    // Validate request parameters
+    const validation = validateToolCallRequest(serverId, toolName, arguments_);
+    if (!validation.valid) {
+      return res.status(validation.error!.statusCode).json({
+        success: false,
+        error: {
+          code: validation.error!.code,
+          message: validation.error!.message,
+        },
+      });
+    }
+
+    const result = await mcpIntegration.callTool({
+      toolName,
+      arguments: arguments_ || {},
+      serverId,
+    });
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error: any) {
+    logger.error("[MCP API] Failed to call tool:", error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "TOOL_CALL_ERROR",
+        message: error.message || "Tool call error",
+      },
+    });
+  }
+});
+
+/**
+ * @route   POST /api/mcp/tools/call
+ * @desc    调用MCP工具（自动发现）
+ * @access  Public
+ */
+router.post("/tools/call", async (req: Request, res: Response) => {
+  try {
+    const { toolName, arguments: args } = req.body;
+
+    if (!toolName) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: "MISSING_TOOL_NAME",
+          message: "Missing toolName",
+        },
+      });
+    }
+
+    const result = await mcpIntegration.callTool({
+      toolName,
+      arguments: args || {},
+    });
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error: any) {
+    logger.error("[MCP API] Failed to call tool:", error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "TOOL_CALL_ERROR",
+        message: error.message || "Tool call error",
+      },
+    });
+  }
+});
+
+/**
+ * @route   GET /api/mcp/statistics
+ * @desc    获取MCP统计信息
+ * @access  Public
+ */
+router.get("/statistics", async (req: Request, res: Response) => {
+  try {
+    const stats = mcpIntegration.getStatistics();
+
+    res.json({
+      success: true,
+      data: stats,
+    });
+  } catch (error: any) {
+    logger.error("[MCP API] Failed to get statistics:", error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "GET_STATISTICS_FAILED",
+        message: error.message || "Failed to get statistics",
+      },
+    });
+  }
+});
+
+/**
+ * @route   GET /api/mcp/health
+ * @desc    MCP健康检查
+ * @access  Public
+ */
+router.get("/health", async (req: Request, res: Response) => {
+  try {
+    const health = await mcpIntegration.healthCheck();
+
+    const statusCode = health.healthy ? 200 : 503;
+
+    res.status(statusCode).json({
+      success: health.healthy,
+      data: health,
+    });
+  } catch (error: any) {
+    logger.error("[MCP API] Health check failed:", error);
+    res.status(503).json({
+      success: false,
+      error: {
+        code: "HEALTH_CHECK_FAILED",
+        message: error.message || "Health check failed",
+      },
+    });
+  }
+});
+
+export default router;
+````
+
+## File: src/core/llm/adapters/CustomAdapter.ts
+````typescript
+/**
+ * 自定义适配器
+ */
+
+import { BaseOpenAICompatibleAdapter } from './BaseAdapter';
+import { LLMProviderConfig } from '../../../types';
+
+export class CustomAdapter extends BaseOpenAICompatibleAdapter {
+  constructor(config: LLMProviderConfig) {
+    super('Custom', config);
+  }
+}
+````
+
+## File: src/core/llm/adapters/DeepSeekAdapter.ts
+````typescript
+/**
+ * DeepSeek适配器
+ * 特殊处理：不支持top_k，max_tokens最大8192
+ */
+
+import { BaseOpenAICompatibleAdapter } from './BaseAdapter';
+import { LLMProviderConfig } from '../../../types';
+import { ChatOptions } from '../../../types';
+
+export class DeepSeekAdapter extends BaseOpenAICompatibleAdapter {
+  constructor(config: LLMProviderConfig) {
+    super('DeepSeek', config);
+  }
+
+  protected filterOptions(options: ChatOptions): ChatOptions {
+    const filtered = { ...options };
+
+    // DeepSeek不支持top_k
+    if ('top_k' in filtered) {
+      delete (filtered as any).top_k;
+    }
+
+    // DeepSeek限制：max_tokens最大8192
+    if (filtered.max_tokens && filtered.max_tokens > 8192) {
+      filtered.max_tokens = 8192;
+    }
+
+    return filtered;
+  }
+}
+````
+
+## File: src/core/llm/adapters/index.ts
+````typescript
+/**
+ * LLM适配器模块导出
+ */
+
+export * from './BaseAdapter';
+export * from './OpenAIAdapter';
+export * from './DeepSeekAdapter';
+export * from './ZhipuAdapter';
+export * from './ClaudeAdapter';
+export * from './OllamaAdapter';
+export * from './CustomAdapter';
+export * from './LLMAdapterFactory';
+````
+
+## File: src/core/llm/adapters/OpenAIAdapter.ts
+````typescript
+/**
+ * OpenAI适配器
+ */
+
+import { BaseOpenAICompatibleAdapter } from './BaseAdapter';
+import { LLMProviderConfig } from '../../../types';
+import { ChatOptions } from '../../../types';
+
+export class OpenAIAdapter extends BaseOpenAICompatibleAdapter {
+  constructor(config: LLMProviderConfig) {
+    super('OpenAI', config);
+  }
+}
+````
+
+## File: src/core/llm/adapters/ZhipuAdapter.ts
+````typescript
+/**
+ * 智谱AI适配器
+ */
+
+import { BaseOpenAICompatibleAdapter } from './BaseAdapter';
+import { LLMProviderConfig } from '../../../types';
+
+export class ZhipuAdapter extends BaseOpenAICompatibleAdapter {
+  constructor(config: LLMProviderConfig) {
+    super('ZhipuAI', config);
+  }
+}
 ````
 
 ## File: src/core/security/PromptInjectionGuard.ts
@@ -1006,6 +6724,1900 @@ export class PromptInjectionGuard {
 }
 
 export default PromptInjectionGuard.getInstance();
+````
+
+## File: src/core/stream-orchestrator/ReActEnginePool.ts
+````typescript
+import PQueue from 'p-queue';
+import { ReActEngine } from './ReActEngine';
+import type { LLMAdapter, BatchTask, BatchResult } from './types';
+
+export interface PoolOptions {
+  maxConcurrent?: number;
+}
+
+export class ReActEnginePool {
+  private engine: ReActEngine;
+  private queue: PQueue;
+
+  constructor(engine?: ReActEngine, options: PoolOptions = {}) {
+    this.engine = engine ?? new ReActEngine();
+    this.queue = new PQueue({ concurrency: options.maxConcurrent ?? 10 });
+  }
+
+  async *executeBatch(
+    tasks: BatchTask[],
+    llmClient: LLMAdapter,
+    maxConcurrent: number = 10
+  ): AsyncGenerator<BatchResult, void, void> {
+    this.queue.concurrency = maxConcurrent;
+
+    const executeTask = async (task: BatchTask): Promise<BatchResult> => {
+      const stream = this.engine.execute(task.messages, llmClient, task.options);
+      const chunks: any[] = [];
+
+      for await (const chunk of stream) {
+        chunks.push(chunk);
+      }
+
+      return {
+        taskId: task.taskId,
+        result: chunks,
+        timestamp: Date.now()
+      };
+    };
+
+    const promises = tasks.map(task =>
+      this.queue.add(() => executeTask(task))
+    );
+
+    for (const promise of promises) {
+      yield await promise;
+    }
+  }
+
+  get activeCount(): number {
+    return this.queue.pending;
+  }
+
+  get queuedCount(): number {
+    return this.queue.size;
+  }
+
+  async pause(): Promise<void> {
+    await this.queue.pause();
+  }
+
+  async resume(): Promise<void> {
+    this.queue.start();
+  }
+
+  async onIdle(): Promise<void> {
+    await this.queue.onIdle();
+  }
+}
+````
+
+## File: src/core/tool/tool.ts
+````typescript
+/**
+ * Tool Framework - 工具定义和工厂函数
+ * 基于 OpenSpec 提案的工具框架设计
+ */
+
+/**
+ * 工具命名空间
+ * 提供工具定义和工厂函数
+ */
+export namespace Tool {
+  /**
+   * 工具元数据
+   */
+  export interface Metadata {
+    [key: string]: unknown;
+  }
+
+  /**
+   * 工具初始化上下文
+   */
+  export interface InitContext {
+    agent?: {
+      id: string;
+      name: string;
+    };
+  }
+
+  /**
+   * 工具执行上下文
+   */
+  export interface Context {
+    /** 会话 ID */
+    sessionID: string;
+    /** 消息 ID */
+    messageID: string;
+    /** Agent 标识 */
+    agent: string;
+    /** 中止信号 */
+    abort: AbortSignal;
+    /** 调用 ID */
+    callID?: string;
+    /** 额外数据 */
+    extra?: Record<string, unknown>;
+    /**
+     * 设置工具响应元数据
+     * @param input - 元数据输入
+     */
+    metadata(input: { title?: string; metadata?: Metadata }): void;
+  }
+
+  /**
+   * 文件附件类型
+   */
+  export interface FilePart {
+    type: 'file';
+    file: {
+      filename: string;
+      fileData?: string;
+      mimeType?: string;
+    };
+  }
+
+  /**
+   * 工具定义接口
+   * @typeParam Parameters - 参数类型
+   * @typeParam M - 元数据类型
+   */
+  export interface Info<
+    Parameters = Record<string, unknown>,
+    M extends Metadata = Metadata,
+  > {
+    /** 工具唯一标识符 */
+    id: string;
+    /** 工具初始化函数 */
+    init: (ctx?: InitContext) => Promise<{
+      /** 工具描述 */
+      description: string;
+      /** 参数模式 */
+      parameters: {
+        type: 'object';
+        properties?: Record<string, unknown>;
+        required?: string[];
+        additionalProperties?: boolean;
+      };
+      /**
+       * 工具执行函数
+       * @param args - 工具参数
+       * @param ctx - 执行上下文
+       * @returns 执行结果
+       */
+      execute(
+        args: Parameters,
+        ctx: Context,
+      ): Promise<{
+        /** 响应标题 */
+        title: string;
+        /** 元数据 */
+        metadata: M;
+        /** 输出内容 */
+        output: string;
+        /** 附件文件 */
+        attachments?: FilePart[];
+      }>;
+      /** 参数验证错误格式化函数 */
+      formatValidationError?(error: { errors: Array<{ path: string; message: string }> }): string;
+    }>;
+  }
+
+  /**
+   * 从工具定义推断参数类型
+   */
+  export type InferParameters<T extends Info> = T extends Info<infer P>
+    ? P
+    : never;
+
+  /**
+   * 从工具定义推断元数据类型
+   */
+  export type InferMetadata<T extends Info> = T extends Info<any, infer M>
+    ? M
+    : never;
+
+  /**
+   * 输出截断配置
+   */
+  export interface TruncateOptions {
+    maxLines?: number;
+    maxBytes?: number;
+    direction?: 'head' | 'tail';
+  }
+
+  /**
+   * 默认截断配置
+   */
+  const DEFAULT_TRUNCATE_OPTIONS: Required<TruncateOptions> = {
+    maxLines: 2000,
+    maxBytes: 50 * 1024,
+    direction: 'head',
+  };
+
+  /**
+   * 截断输出内容
+   * @param text - 原始文本
+   * @param options - 截断选项
+   * @returns 截断结果
+   */
+  function truncateOutput(
+    text: string,
+    options?: TruncateOptions,
+  ): { content: string; truncated: boolean } {
+    const opts = { ...DEFAULT_TRUNCATE_OPTIONS, ...options };
+    const lines = text.split('\n');
+    const totalBytes = Buffer.byteLength(text, 'utf-8');
+
+    if (lines.length <= opts.maxLines && totalBytes <= opts.maxBytes) {
+      return { content: text, truncated: false };
+    }
+
+    const out: string[] = [];
+    let bytes = 0;
+    let hitBytes = false;
+    let i = 0;
+
+    if (opts.direction === 'head') {
+      for (i = 0; i < lines.length && i < opts.maxLines; i++) {
+        const lineSize = Buffer.byteLength(lines[i], 'utf-8') + (i > 0 ? 1 : 0);
+        if (bytes + lineSize > opts.maxBytes) {
+          hitBytes = true;
+          break;
+        }
+        out.push(lines[i]);
+        bytes += lineSize;
+      }
+      const removed = hitBytes ? totalBytes - bytes : lines.length - out.length;
+      const unit = hitBytes ? 'chars' : 'lines';
+      return {
+        content: `${out.join('\n')}\n\n...${removed} ${unit} truncated...`,
+        truncated: true,
+      };
+    }
+
+    for (i = lines.length - 1; i >= 0 && out.length < opts.maxLines; i--) {
+      const lineSize = Buffer.byteLength(lines[i], 'utf-8') + (out.length > 0 ? 1 : 0);
+      if (bytes + lineSize > opts.maxBytes) {
+        hitBytes = true;
+        break;
+      }
+      out.unshift(lines[i]);
+      bytes += lineSize;
+    }
+    const removed = hitBytes ? totalBytes - bytes : lines.length - out.length;
+    const unit = hitBytes ? 'chars' : 'lines';
+    return {
+      content: `...${removed} ${unit} truncated...\n\n${out.join('\n')}`,
+      truncated: true,
+    };
+  }
+
+  /**
+   * 定义工具的工厂函数
+   * @typeParam Parameters - 参数类型
+   * @typeParam Result - 结果元数据类型
+   * @param id - 工具唯一标识符
+   * @param init - 工具初始化函数或已解析的工具信息
+   * @returns 工具定义
+   */
+  export function define<
+    Parameters extends Record<string, unknown>,
+    Result extends Metadata,
+  >(
+    id: string,
+    init:
+      | Info<Parameters, Result>['init']
+      | Awaited<ReturnType<Info<Parameters, Result>['init']>>,
+  ): Info<Parameters, Result> {
+    return {
+      id,
+      init: async (ctx) => {
+        const toolInfo =
+          init instanceof Function ? await init(ctx) : init;
+
+        const originalExecute = toolInfo.execute;
+
+        // 包装 execute 函数，添加参数验证和输出截断
+        toolInfo.execute = async (args, ctx) => {
+          // 参数验证
+          const { properties, required = [] } = toolInfo.parameters;
+
+          // 检查必需参数
+          for (const param of required) {
+            if (args[param] === undefined || args[param] === null) {
+              const errorMessage = `Missing required parameter: ${param}`;
+              if (toolInfo.formatValidationError) {
+                throw new Error(
+                  toolInfo.formatValidationError({
+                    errors: [{ path: param, message: errorMessage }],
+                  }),
+                );
+              }
+              throw new Error(errorMessage);
+            }
+          }
+
+          // 执行原始函数
+          const result = await originalExecute(args, ctx);
+
+          // 截断输出
+          const truncated = truncateOutput(result.output);
+          return {
+            ...result,
+            output: truncated.content,
+            metadata: {
+              ...result.metadata,
+              truncated: truncated.truncated,
+            } as Result,
+          };
+        };
+
+        return toolInfo;
+      },
+    };
+  }
+}
+````
+
+## File: src/core/tool-action/ErrorHandler.ts
+````typescript
+/**
+ * ToolErrorHandler - 工具执行错误处理器
+ * 统一分类和处理工具执行错误
+ */
+
+import { logger } from "../../utils/logger";
+import { ErrorClassifier } from "../../utils/error-classifier";
+import type { ToolExecutionResult } from "./types";
+
+interface ErrorContext {
+  tool_name: string;
+  input_params?: Record<string, any>;
+  timestamp: number;
+  execution_time_ms: number;
+}
+
+interface ErrorDetails {
+  error_type: string;
+  error_message: string;
+  error_stack?: string;
+  context?: ErrorContext;
+}
+
+export class ToolErrorHandler {
+  /**
+   * 包装执行函数，统一处理错误
+   */
+  async wrapExecution<T>(
+    toolName: string,
+    executor: () => Promise<T>,
+    onSuccess?: (result: T) => ToolExecutionResult
+  ): Promise<ToolExecutionResult> {
+    const startTime = Date.now();
+
+    try {
+      const result = await executor();
+
+      if (onSuccess) {
+        return onSuccess(result);
+      }
+
+      return this.createSuccessResult(toolName, result, startTime);
+    } catch (error) {
+      return this.handleError(error, toolName, startTime);
+    }
+  }
+
+  /**
+   * 处理错误并返回标准化的错误结果
+   */
+  handleError(error: unknown, toolName: string, startTime: number): ToolExecutionResult {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorType = ErrorClassifier.classifyError(error);
+
+    const errorDetails: ErrorDetails = {
+      error_type: errorType,
+      error_message: errorMessage,
+      error_stack: error instanceof Error ? error.stack : undefined,
+      context: {
+        tool_name: toolName,
+        timestamp: Date.now(),
+        execution_time_ms: Date.now() - startTime,
+      },
+    };
+
+    logger.error(`[ToolErrorHandler] Tool execution failed: ${toolName}`, {
+      error_type: errorType,
+      error_message: errorMessage,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+
+    return {
+      success: false,
+      toolName,
+      error: errorMessage,
+      executionTime: Date.now() - startTime,
+      error_details: errorDetails,
+    };
+  }
+
+  /**
+   * 创建成功结果
+   */
+  createSuccessResult(
+    toolName: string,
+    result: unknown,
+    executionTime: number,
+    inputParams?: Record<string, any>,
+    metadata?: Record<string, any>
+  ): ToolExecutionResult {
+    const outputContent = String(result || "");
+    const tokenCount = ErrorClassifier.estimateTokens(outputContent);
+
+    return {
+      success: true,
+      toolName,
+      result,
+      executionTime,
+      tool_details: {
+        tool_name: toolName,
+        input_params: inputParams || {},
+        output_content: outputContent,
+        output_metadata: {
+          token_count: tokenCount,
+          execution_time_ms: executionTime,
+          ...metadata,
+        },
+      },
+    };
+  }
+
+  /**
+   * 创建失败结果（不带异常）
+   */
+  createFailureResult(
+    toolName: string,
+    errorMessage: string,
+    executionTime: number,
+    inputParams?: Record<string, any>
+  ): ToolExecutionResult {
+    const errorType = ErrorClassifier.classifyError(new Error(errorMessage));
+
+    const errorDetails: ErrorDetails = {
+      error_type: errorType,
+      error_message: errorMessage,
+      context: {
+        tool_name: toolName,
+        input_params: inputParams,
+        timestamp: Date.now(),
+        execution_time_ms: executionTime,
+      },
+    };
+
+    return {
+      success: false,
+      toolName,
+      error: errorMessage,
+      executionTime,
+      error_details: errorDetails,
+    };
+  }
+
+  /**
+   * 检查错误是否可重试
+   */
+  isRetryable(errorType: string): boolean {
+    const retryableTypes = ["RATE_LIMIT", "TIMEOUT", "NETWORK_ERROR"];
+    return retryableTypes.includes(errorType);
+  }
+
+  /**
+   * 获取用户友好的错误消息
+   */
+  getUserMessage(errorType: string): string {
+    const messages: Record<string, string> = {
+      RATE_LIMIT: "请求过于频繁，请稍后再试",
+      TIMEOUT: "请求超时，请稍后再试",
+      NETWORK_ERROR: "网络连接问题，请检查网络",
+      VALIDATION_ERROR: "输入参数有误，请检查后重试",
+      PERMISSION_DENIED: "没有执行此操作的权限",
+      TOOL_NOT_FOUND: "指定的工具不存在",
+      UNKNOWN_ERROR: "发生未知错误，请稍后重试",
+    };
+    return messages[errorType] || "操作失败，请稍后重试";
+  }
+}
+````
+
+## File: src/core/tool-action/index.ts
+````typescript
+/**
+ * Tool Action 模块导出
+ */
+
+// 类型导出
+export type {
+  ToolActionCall,
+  TextSegment,
+  ParseResult,
+  DetectionResult,
+  DispatcherConfig,
+  ToolExecutionResult,
+  ToolDescription
+} from './types';
+
+export { DetectorState } from './types';
+
+// 解析器导出
+export { ToolActionParser, toolActionParser } from './ToolActionParser';
+
+// 流式检测器导出
+export { StreamTagDetector } from './StreamTagDetector';
+
+// 工具调度器导出
+export { ToolDispatcher, generateToolPrompt } from './ToolDispatcher';
+````
+
+## File: src/core/tool-action/ParameterConverter.ts
+````typescript
+/**
+ * ParameterConverter - 参数类型转换器
+ * 将字符串参数转换为目标类型
+ */
+
+interface ParameterProperty {
+  type: string;
+  description?: string;
+}
+
+interface PropertySchema {
+  properties?: Record<string, ParameterProperty>;
+  required?: string[];
+}
+
+export class ParameterConverter {
+  /**
+   * 转换参数类型（字符串 -> 实际类型）
+   */
+  convert(params: Record<string, string>, schema?: PropertySchema | null): Record<string, any> {
+    const result: Record<string, any> = {};
+
+    for (const [key, value] of Object.entries(params)) {
+      const propSchema = schema?.properties?.[key];
+
+      if (!propSchema) {
+        result[key] = value;
+        continue;
+      }
+
+      result[key] = this.convertValue(value, propSchema.type);
+    }
+
+    return result;
+  }
+
+  /**
+   * 转换单个值
+   */
+  private convertValue(value: string, targetType: string): any {
+    switch (targetType) {
+      case "number":
+        return Number(value);
+
+      case "boolean":
+        return value === "true" || value === "1" || value === "yes";
+
+      case "array":
+        try {
+          return JSON.parse(value);
+        } catch {
+          return value.split(",").map((s) => s.trim());
+        }
+
+      case "object":
+        try {
+          return JSON.parse(value);
+        } catch {
+          return value;
+        }
+
+      case "integer":
+        return parseInt(value, 10);
+
+      case "float":
+        return parseFloat(value);
+
+      default:
+        return value;
+    }
+  }
+
+  /**
+   * 批量转换数组参数
+   */
+  convertArray(
+    items: Record<string, string>[],
+    schema?: PropertySchema | null
+  ): Record<string, any>[] {
+    return items.map((item) => this.convert(item, schema));
+  }
+
+  /**
+   * 验证必需参数
+   */
+  validateRequired(
+    params: Record<string, any>,
+    requiredFields: string[]
+  ): { valid: boolean; missing?: string[] } {
+    const missing = requiredFields.filter((field) => {
+      const value = params[field];
+      return value === undefined || value === null || value === "";
+    });
+
+    return {
+      valid: missing.length === 0,
+      missing: missing.length > 0 ? missing : undefined,
+    };
+  }
+
+  /**
+   * 获取参数默认值
+   */
+  getDefaultValue(schema: ParameterProperty, defaultValue?: string): any {
+    if (defaultValue !== undefined) {
+      return this.convertValue(defaultValue, schema.type);
+    }
+    if (schema.type === "boolean") return false;
+    if (schema.type === "number" || schema.type === "integer") return 0;
+    if (schema.type === "array") return [];
+    if (schema.type === "object") return {};
+    return "";
+  }
+}
+````
+
+## File: src/core/tool-action/StreamTagDetector.ts
+````typescript
+/**
+ * StreamTagDetector - 流式标签检测器
+ *
+ * 在流式输出中实时检测 <tool_action> 标签
+ * 使用状态机模式处理跨 chunk 的标签检测
+ */
+
+import type { ToolActionCall, DetectionResult } from './types';
+import { DetectorState } from './types';
+import { ToolActionParser } from './ToolActionParser';
+
+export class StreamTagDetector {
+  private buffer: string = '';
+  private state: DetectorState = DetectorState.NORMAL;
+  private parser: ToolActionParser;
+
+  // 标签标识符
+  private static readonly OPEN_TAG_START = '<tool_action';
+  private static readonly CLOSE_TAG = '</tool_action>';
+
+  constructor() {
+    this.parser = new ToolActionParser();
+  }
+
+  /**
+   * 处理流式输入的文本块
+   * @param chunk 输入的文本块
+   * @returns 检测结果
+   */
+  processChunk(chunk: string): DetectionResult {
+    // 将新 chunk 添加到缓冲区
+    this.buffer += chunk;
+
+    // 根据当前状态处理
+    switch (this.state) {
+      case DetectorState.NORMAL:
+        return this.handleNormalState();
+
+      case DetectorState.TAG_OPENING:
+      case DetectorState.TAG_CONTENT:
+        return this.handleTagState();
+
+      default:
+        return this.handleNormalState();
+    }
+  }
+
+  /**
+   * 处理正常状态（无标签检测中）
+   */
+  private handleNormalState(): DetectionResult {
+    const openTagIndex = this.buffer.indexOf(StreamTagDetector.OPEN_TAG_START);
+
+    // 没有检测到完整的标签开始
+    if (openTagIndex === -1) {
+      // 检查缓冲区末尾是否可能是标签开始的一部分
+      const safeOutputEnd = this.findPotentialTagStart();
+
+      if (safeOutputEnd < this.buffer.length) {
+        // 缓冲区末尾可能是标签开始的一部分，只输出安全部分
+        const textToEmit = safeOutputEnd > 0 ? this.buffer.slice(0, safeOutputEnd) : '';
+        this.buffer = this.buffer.slice(safeOutputEnd);
+
+        return {
+          complete: false,
+          textToEmit,
+          bufferRemainder: this.buffer
+        };
+      }
+
+      // 没有潜在的标签开始，安全输出全部内容
+      const textToEmit = this.buffer;
+      this.buffer = '';
+
+      return {
+        complete: false,
+        textToEmit,
+        bufferRemainder: ''
+      };
+    }
+
+    // 检测到标签开始
+    this.state = DetectorState.TAG_OPENING;
+
+    // 输出标签开始前的文本
+    const textToEmit = this.buffer.slice(0, openTagIndex);
+    this.buffer = this.buffer.slice(openTagIndex);
+
+    // 继续检查是否有完整标签
+    return this.handleTagState(textToEmit);
+  }
+
+  /**
+   * 处理标签状态（标签检测中）
+   */
+  private handleTagState(previousText: string = ''): DetectionResult {
+    // 检查是否有完整的闭合标签
+    const closeTagIndex = this.buffer.indexOf(StreamTagDetector.CLOSE_TAG);
+
+    if (closeTagIndex === -1) {
+      // 标签还未完整，继续缓冲
+      this.state = DetectorState.TAG_CONTENT;
+
+      return {
+        complete: false,
+        textToEmit: previousText,
+        bufferRemainder: this.buffer
+      };
+    }
+
+    // 找到完整标签
+    const tagEndIndex = closeTagIndex + StreamTagDetector.CLOSE_TAG.length;
+    const fullTagText = this.buffer.slice(0, tagEndIndex);
+
+    // 解析标签
+    const toolAction = this.parser.parseSingleTag(fullTagText);
+
+    if (!toolAction) {
+      // 解析失败，作为普通文本处理
+      this.state = DetectorState.NORMAL;
+      const textToEmit = previousText + this.buffer.slice(0, tagEndIndex);
+      this.buffer = this.buffer.slice(tagEndIndex);
+
+      return {
+        complete: false,
+        textToEmit,
+        bufferRemainder: this.buffer
+      };
+    }
+
+    // 解析成功
+    this.state = DetectorState.NORMAL;
+    const remainingText = this.buffer.slice(tagEndIndex);
+    this.buffer = remainingText;
+
+    return {
+      complete: true,
+      toolAction,
+      textToEmit: previousText,
+      bufferRemainder: remainingText
+    };
+  }
+
+  /**
+   * 查找缓冲区末尾可能的标签开始
+   * 返回安全输出的位置（0 表示整个缓冲区都可能是标签开始）
+   */
+  private findPotentialTagStart(): number {
+    const tag = StreamTagDetector.OPEN_TAG_START; // '<tool_action'
+
+    // 从缓冲区末尾向前检查是否有部分匹配
+    // 例如: buffer = "text<too" -> 应该返回 4 (保留 "<too")
+    // 例如: buffer = "<tool_" -> 应该返回 0 (保留整个缓冲区)
+    for (let matchLen = Math.min(tag.length - 1, this.buffer.length); matchLen >= 1; matchLen--) {
+      const suffix = this.buffer.slice(-matchLen);
+      const prefix = tag.slice(0, matchLen);
+      if (suffix === prefix) {
+        // 找到匹配，返回安全输出位置
+        return this.buffer.length - matchLen;
+      }
+    }
+
+    // 没有找到潜在的标签开始，可以输出整个缓冲区
+    return this.buffer.length;
+  }
+
+  /**
+   * 重置检测器状态
+   */
+  reset(): void {
+    this.buffer = '';
+    this.state = DetectorState.NORMAL;
+  }
+
+  /**
+   * 强制刷新缓冲区（流结束时调用）
+   * @returns 缓冲区中剩余的文本
+   */
+  flush(): string {
+    const remaining = this.buffer;
+    this.reset();
+    return remaining;
+  }
+
+  /**
+   * 获取当前状态
+   */
+  getState(): DetectorState {
+    return this.state;
+  }
+
+  /**
+   * 获取当前缓冲区内容
+   */
+  getBuffer(): string {
+    return this.buffer;
+  }
+
+  /**
+   * 检查是否在标签检测中
+   */
+  isDetecting(): boolean {
+    return this.state !== DetectorState.NORMAL;
+  }
+}
+````
+
+## File: src/core/tools/builtin/FileWriteTool.ts
+````typescript
+/**
+ * FileWriteTool - 文件写入内置工具
+ * 提供安全、可靠的文件写入功能
+ */
+
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import { ToolResult, BuiltInTool, ToolType } from '../../../types/tool-system';
+
+/**
+ * FileWriteTool参数接口
+ */
+export interface FileWriteArgs {
+  /** 文件路径 */
+  path: string;
+  /** 文件内容 */
+  content: string;
+  /** 文件编码 */
+  encoding?: BufferEncoding;
+  /** 是否创建备份 */
+  backup?: boolean;
+  /** 备份文件后缀 */
+  backupSuffix?: string;
+  /** 是否创建目录（如果不存在） */
+  createDirectory?: boolean;
+  /** 写入模式 */
+  mode?: 'overwrite' | 'append' | 'create';
+}
+
+/**
+ * 文件写入工具
+ * 安全写入文件内容，支持备份和目录创建
+ */
+export class FileWriteTool {
+  private static readonly DEFAULT_ENCODING: BufferEncoding = 'utf8';
+  private static readonly DEFAULT_MODE = 'overwrite' as const;
+  private static readonly DEFAULT_BACKUP_SUFFIX = '.backup';
+  private static readonly MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+  private static readonly ALLOWED_EXTENSIONS = [
+    '.txt', '.md', '.json', '.yaml', '.yml', '.xml', '.csv',
+    '.js', '.ts', '.jsx', '.tsx', '.py', '.java', '.cpp', '.c',
+    '.html', '.css', '.scss', '.less', '.sql', '.sh', '.bat',
+    '.dockerfile', '.gitignore', '.env', '.conf', '.config',
+    '.log', '.tmp'
+  ];
+
+  /**
+   * 执行文件写入
+   * @param args 写入参数
+   * @returns 写入结果
+   */
+  static async execute(args: FileWriteArgs): Promise<ToolResult> {
+    const startTime = Date.now();
+
+    try {
+      // 参数验证
+      this.validateArgs(args);
+
+      // 安全路径检查
+      const safePath = await this.getSafePath(args.path);
+
+      // 检查文件大小（如果文件已存在）
+      await this.checkExistingFileSize(safePath);
+
+      // 检查文件扩展名
+      this.checkFileExtension(safePath);
+
+      // 创建目录（如果需要）
+      if (args.createDirectory !== false) {
+        await this.ensureDirectoryExists(path.dirname(safePath));
+      }
+
+      // 创建备份（如果需要）
+      if (args.backup) {
+        await this.createBackup(safePath, args.backupSuffix || this.DEFAULT_BACKUP_SUFFIX);
+      }
+
+      // 检查写入模式
+      await this.checkWriteMode(safePath, args.mode || this.DEFAULT_MODE);
+
+      // 写入文件
+      await this.writeFileContent(
+        safePath,
+        args.content,
+        args.encoding || this.DEFAULT_ENCODING,
+        args.mode || this.DEFAULT_MODE
+      );
+
+      const duration = Date.now() - startTime;
+
+      return {
+        success: true,
+        output: `File written successfully: ${safePath}`,
+        duration,
+        exitCode: 0
+      };
+
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      return {
+        success: false,
+        error: this.formatError(error),
+        duration,
+        errorCode: 'FILE_WRITE_ERROR',
+        exitCode: 1
+      };
+    }
+  }
+
+  /**
+   * 验证参数
+   */
+  private static validateArgs(args: FileWriteArgs): void {
+    if (!args.path || typeof args.path !== 'string') {
+      throw new Error('File path is required and must be a string');
+    }
+
+    if (args.content === undefined || args.content === null) {
+      throw new Error('File content is required');
+    }
+
+    if (args.encoding && !Buffer.isEncoding(args.encoding)) {
+      throw new Error(`Invalid encoding: ${args.encoding}`);
+    }
+
+    if (args.mode && !['overwrite', 'append', 'create'].includes(args.mode)) {
+      throw new Error(`Invalid mode: ${args.mode}. Must be 'overwrite', 'append', or 'create'`);
+    }
+
+    // 检查内容大小
+    const contentSize = Buffer.byteLength(args.content, args.encoding || this.DEFAULT_ENCODING);
+    if (contentSize > this.MAX_FILE_SIZE) {
+      throw new Error(`Content size ${contentSize} exceeds maximum allowed size ${this.MAX_FILE_SIZE}`);
+    }
+  }
+
+  /**
+   * 获取安全路径（防止目录遍历攻击）
+   */
+  private static async getSafePath(inputPath: string): Promise<string> {
+    const normalizedPath = path.normalize(inputPath);
+
+    const absolutePath = path.isAbsolute(normalizedPath)
+      ? normalizedPath
+      : path.resolve(process.cwd(), normalizedPath);
+
+    if (normalizedPath.includes('..') || absolutePath.includes('..')) {
+      throw new Error('Path traversal detected');
+    }
+
+    const workDir = process.cwd();
+    if (!absolutePath.startsWith(workDir)) {
+      throw new Error('File path must be within the working directory');
+    }
+
+    return absolutePath;
+  }
+
+  /**
+   * 检查现有文件大小
+   */
+  private static async checkExistingFileSize(filePath: string): Promise<void> {
+    try {
+      const stats = await fs.stat(filePath);
+      if (stats.size > this.MAX_FILE_SIZE) {
+        throw new Error(`Existing file size ${stats.size} exceeds maximum allowed size ${this.MAX_FILE_SIZE}`);
+      }
+    } catch (error) {
+      // 文件不存在是正常的，继续执行
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * 检查文件扩展名
+   */
+  private static checkFileExtension(filePath: string): void {
+    const ext = path.extname(filePath).toLowerCase();
+
+    if (!ext) {
+      return; // 没有扩展名允许
+    }
+
+    if (!this.ALLOWED_EXTENSIONS.includes(ext)) {
+      throw new Error(`File extension '${ext}' is not allowed for security reasons`);
+    }
+  }
+
+  /**
+   * 确保目录存在
+   */
+  private static async ensureDirectoryExists(dirPath: string): Promise<void> {
+    try {
+      await fs.mkdir(dirPath, { recursive: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+        throw new Error(`Failed to create directory: ${dirPath}`);
+      }
+    }
+  }
+
+  /**
+   * 创建备份
+   */
+  private static async createBackup(filePath: string, suffix: string): Promise<void> {
+    try {
+      await fs.access(filePath);
+      const backupPath = `${filePath}${suffix}`;
+      await fs.copyFile(filePath, backupPath);
+    } catch (error) {
+      // 文件不存在，不需要备份
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * 检查写入模式
+   */
+  private static async checkWriteMode(filePath: string, mode: string): Promise<void> {
+    if (mode === 'create') {
+      try {
+        await fs.access(filePath);
+        throw new Error(`File already exists and mode is 'create': ${filePath}`);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+          throw error;
+        }
+        // 文件不存在，可以创建
+      }
+    }
+  }
+
+  /**
+   * 写入文件内容
+   */
+  private static async writeFileContent(
+    filePath: string,
+    content: string,
+    encoding: BufferEncoding,
+    mode: string
+  ): Promise<void> {
+    const writeOptions = { encoding, flag: this.getWriteFlag(mode) };
+    await fs.writeFile(filePath, content, writeOptions);
+  }
+
+  /**
+   * 获取写入标志
+   */
+  private static getWriteFlag(mode: string): string {
+    switch (mode) {
+      case 'overwrite':
+        return 'w'; // 覆盖写入
+      case 'append':
+        return 'a'; // 追加写入
+      case 'create':
+        return 'wx'; // 创建新文件（如果存在则失败）
+      default:
+        return 'w';
+    }
+  }
+
+  /**
+   * 格式化错误信息
+   */
+  private static formatError(error: any): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    if (typeof error === 'string') {
+      return error;
+    }
+    return 'Unknown error occurred';
+  }
+
+  /**
+   * 获取工具元数据
+   */
+  static getMetadata() {
+    return {
+      name: 'file-write',
+      description: '安全写入文件内容，支持备份、目录创建和多种写入模式',
+      category: 'filesystem',
+      level: 1,
+      parameters: {
+        type: 'object',
+        properties: {
+          path: {
+            type: 'string',
+            description: '要写入的文件路径'
+          },
+          content: {
+            type: 'string',
+            description: '要写入的文件内容'
+          },
+          encoding: {
+            type: 'string',
+            description: '文件编码，默认为utf8',
+            default: 'utf8',
+            enum: ['utf8', 'utf16le', 'latin1', 'base64', 'hex', 'ascii']
+          },
+          backup: {
+            type: 'boolean',
+            description: '是否创建备份文件',
+            default: false
+          },
+          backupSuffix: {
+            type: 'string',
+            description: '备份文件后缀，默认为.backup',
+            default: '.backup'
+          },
+          createDirectory: {
+            type: 'boolean',
+            description: '是否自动创建目录（如果不存在）',
+            default: true
+          },
+          mode: {
+            type: 'string',
+            description: '写入模式',
+            default: 'overwrite',
+            enum: ['overwrite', 'append', 'create']
+          }
+        },
+        required: ['path', 'content']
+      }
+    };
+  }
+}
+
+/**
+ * 创建FileWriteTool实例（用于注册表）
+ */
+export function createFileWriteTool() {
+  return {
+    ...FileWriteTool.getMetadata(),
+    type: ToolType.BUILTIN,
+    enabled: true,
+    execute: async (args: Record<string, any>) => {
+      return FileWriteTool.execute(args as FileWriteArgs);
+    }
+  } as BuiltInTool;
+}
+````
+
+## File: src/core/tools/builtin/PlatformDetectorTool.ts
+````typescript
+/**
+ * PlatformDetectorTool - 平台检测内置工具
+ * 检测操作系统、Node.js版本、硬件架构等信息
+ */
+
+import { ToolResult, BuiltInTool, ToolType } from '../../../types/tool-system';
+import * as os from 'os';
+
+/**
+ * PlatformDetectorTool参数接口
+ */
+export interface PlatformDetectorArgs {
+  // 无参数，工具自动检测所有信息
+}
+
+/**
+ * 平台信息接口
+ */
+export interface PlatformInfo {
+  os: {
+    platform: string;
+    type: string;
+    release: string;
+    arch: string;
+    uptime: number;
+    hostname: string;
+    homedir: string;
+    tmpdir: string;
+  };
+  node: {
+    version: string;
+    v8Version: string;
+    uvVersion: string;
+    zlibVersion: string;
+    aresVersion: string;
+  };
+  system: {
+    cpus: number;
+    cpuModel: string;
+    memory: {
+      total: number;
+      free: number;
+      used: number;
+      usagePercent: number;
+    };
+    loadAverage: number[];
+  };
+  network: {
+    interfaces: Record<string, os.NetworkInterfaceInfo[]>;
+  };
+}
+
+/**
+ * 平台检测工具
+ * 提供详细的系统环境信息
+ */
+export class PlatformDetectorTool {
+  /**
+   * 执行平台检测
+   * @param args 检测参数
+   * @returns 检测结果
+   */
+  static async execute(args: PlatformDetectorArgs): Promise<ToolResult> {
+    const startTime = Date.now();
+
+    try {
+      logger.debug('Detecting platform information...');
+
+      // 收集平台信息
+      const platformInfo = await this.collectPlatformInfo();
+
+      const duration = Date.now() - startTime;
+
+      // 格式化输出
+      const formattedOutput = this.formatPlatformInfo(platformInfo);
+
+      return {
+        success: true,
+        output: formattedOutput,
+        duration,
+        exitCode: 0
+      };
+
+    } catch (error) {
+      const duration = Date.now() - startTime;
+
+      logger.error('Platform detection failed:', error);
+
+      return {
+        success: false,
+        error: `Platform detection failed: ${this.formatError(error)}`,
+        duration,
+        errorCode: 'PLATFORM_DETECTION_ERROR',
+        exitCode: 1
+      };
+    }
+  }
+
+  /**
+   * 收集平台信息
+   */
+  private static async collectPlatformInfo(): Promise<PlatformInfo> {
+    const [totalMem, freeMem, cpus, networkInterfaces] = await Promise.all([
+      Promise.resolve(os.totalmem()),
+      Promise.resolve(os.freemem()),
+      Promise.resolve(os.cpus()),
+      Promise.resolve(os.networkInterfaces())
+    ]);
+
+    const usedMem = totalMem - freeMem;
+    const memoryUsagePercent = ((usedMem / totalMem) * 100).toFixed(2);
+
+    return {
+      os: {
+        platform: os.platform(),
+        type: os.type(),
+        release: os.release(),
+        arch: os.arch(),
+        uptime: os.uptime(),
+        hostname: os.hostname(),
+        homedir: os.homedir(),
+        tmpdir: os.tmpdir()
+      },
+      node: {
+        version: process.version,
+        v8Version: process.versions.v8,
+        uvVersion: process.versions.uv,
+        zlibVersion: process.versions.zlib,
+        aresVersion: process.versions.ares
+      },
+      system: {
+        cpus: cpus.length,
+        cpuModel: cpus[0]?.model || 'Unknown',
+        memory: {
+          total: totalMem,
+          free: freeMem,
+          used: usedMem,
+          usagePercent: parseFloat(memoryUsagePercent)
+        },
+        loadAverage: os.loadavg()
+      },
+      network: {
+        interfaces: networkInterfaces
+      }
+    };
+  }
+
+  /**
+   * 格式化平台信息
+   */
+  private static formatPlatformInfo(info: PlatformInfo): string {
+    let output = 'Platform Detection Results\n';
+    output += '=' .repeat(50) + '\n\n';
+
+    // 操作系统信息
+    output += '🖥️  Operating System\n';
+    output += '─'.repeat(30) + '\n';
+    output += `Platform: ${info.os.platform}\n`;
+    output += `Type: ${info.os.type}\n`;
+    output += `Release: ${info.os.release}\n`;
+    output += `Architecture: ${info.os.arch}\n`;
+    output += `Uptime: ${this.formatUptime(info.os.uptime)}\n`;
+    output += `Hostname: ${info.os.hostname}\n`;
+    output += `Home Directory: ${info.os.homedir}\n`;
+    output += `Temp Directory: ${info.os.tmpdir}\n\n`;
+
+    // Node.js信息
+    output += '⬢  Node.js Runtime\n';
+    output += '─'.repeat(30) + '\n';
+    output += `Node.js Version: ${info.node.version}\n`;
+    output += `V8 Version: ${info.node.v8Version}\n`;
+    output += `libuv Version: ${info.node.uvVersion}\n`;
+    output += `zlib Version: ${info.node.zlibVersion}\n`;
+    output += `c-ares Version: ${info.node.aresVersion}\n\n`;
+
+    // 系统硬件信息
+    output += '🔧  System Hardware\n';
+    output += '─'.repeat(30) + '\n';
+    output += `CPU Cores: ${info.system.cpus}\n`;
+    output += `CPU Model: ${info.system.cpuModel}\n`;
+    output += `Memory: ${this.formatBytes(info.system.memory.total)} Total\n`;
+    output += `Memory: ${this.formatBytes(info.system.memory.free)} Free\n`;
+    output += `Memory: ${this.formatBytes(info.system.memory.used)} Used\n`;
+    output += `Memory Usage: ${info.system.memory.usagePercent}%\n`;
+    output += `Load Average (1m): ${info.system.loadAverage[0]}\n`;
+    output += `Load Average (5m): ${info.system.loadAverage[1]}\n`;
+    output += `Load Average (15m): ${info.system.loadAverage[2]}\n\n`;
+
+    // 网络接口信息（可选，可能包含敏感信息）
+    output += '🌐  Network Interfaces\n';
+    output += '─'.repeat(30) + '\n';
+    output += this.formatNetworkInterfaces(info.network.interfaces);
+
+    return output;
+  }
+
+  /**
+   * 格式化正常运行时间
+   */
+  private static formatUptime(seconds: number): string {
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+
+    if (days > 0) {
+      return `${days} day${days > 1 ? 's' : ''}, ${hours} hour${hours !== 1 ? 's' : ''}`;
+    }
+    if (hours > 0) {
+      return `${hours} hour${hours !== 1 ? 's' : ''}, ${minutes} minute${minutes !== 1 ? 's' : ''}`;
+    }
+    return `${minutes} minute${minutes !== 1 ? 's' : ''}`;
+  }
+
+  /**
+   * 格式化字节数
+   */
+  private static formatBytes(bytes: number): string {
+    if (bytes === 0) return '0 Bytes';
+
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  }
+
+  /**
+   * 格式化网络接口
+   */
+  private static formatNetworkInterfaces(interfaces: Record<string, os.NetworkInterfaceInfo[]>): string {
+    let output = '';
+    const displayedInterfaces: string[] = [];
+
+    for (const [name, info] of Object.entries(interfaces)) {
+      // 忽略一些常见但不重要的接口
+      if (name.includes('docker') || name.includes('br-') || name.includes('veth')) {
+        continue;
+      }
+
+      displayedInterfaces.push(name);
+      output += `${name}:\n`;
+
+      const ipv4Info = info.find(i => i.family === 'IPv4' || i.family === (4 as any));
+      const ipv6Info = info.find(i => i.family === 'IPv6' || i.family === (6 as any));
+
+      if (ipv4Info) {
+        output += `  IPv4: ${ipv4Info.address}\n`;
+      }
+      if (ipv6Info) {
+        output += `  IPv6: ${ipv6Info.address}\n`;
+      }
+    }
+
+    if (displayedInterfaces.length === 0) {
+      output += 'No network interfaces detected (or only Docker/virtual interfaces)\n';
+    }
+
+    return output;
+  }
+
+  /**
+   * 获取系统性能评分
+   */
+  private static getPerformanceScore(info: PlatformInfo): number {
+    let score = 50; // 基础分
+
+    // CPU加分
+    if (info.system.cpus >= 8) score += 20;
+    else if (info.system.cpus >= 4) score += 10;
+    else if (info.system.cpus >= 2) score += 5;
+
+    // 内存加分
+    if (info.system.memory.total >= 16 * 1024 * 1024 * 1024) score += 20; // 16GB+
+    else if (info.system.memory.total >= 8 * 1024 * 1024 * 1024) score += 10; // 8GB+
+    else if (info.system.memory.total >= 4 * 1024 * 1024 * 1024) score += 5; // 4GB+
+
+    // 负载减分
+    const load1m = info.system.loadAverage[0] / info.system.cpus;
+    if (load1m > 0.8) score -= 10;
+    else if (load1m > 0.5) score -= 5;
+
+    return Math.min(100, Math.max(0, score));
+  }
+
+  /**
+   * 格式化错误信息
+   */
+  private static formatError(error: any): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    if (typeof error === 'string') {
+      return error;
+    }
+    return 'Unknown platform detection error';
+  }
+
+  /**
+   * 获取工具元数据
+   */
+  static getMetadata() {
+    return {
+      name: 'platform-detector',
+      description: 'Detect and provide detailed information about the current system platform, OS, Node.js runtime, hardware, and performance metrics. Useful for debugging environment issues or understanding system capabilities.',
+      category: 'system',
+      level: 2,
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: []
+      }
+    };
+  }
+
+  /**
+   * 计算搜索查询的向量嵌入（备用方法）
+   */
+  private static async getQueryEmbedding(query: string): Promise<number[]> {
+    // 这个方法将由ToolRetrievalService实现
+    // 这里只是占位符
+    throw new Error('getQueryEmbedding not implemented');
+  }
+
+  /**
+   * 从搜索结果中提取工具参数模式（用于动态生成工具调用）
+   */
+  private static extractParametersFromResults(results: any[]): string {
+    if (results.length === 0) {
+      return 'No tools found';
+    }
+
+    const tool = results[0].tool;
+    if (!tool.parameters || !tool.parameters.properties) {
+      return 'No parameters defined';
+    }
+
+    const params = Object.entries(tool.parameters.properties).map(([name, schema]: [string, any]) => {
+      const required = tool.parameters.required?.includes(name) ? ' (required)' : '';
+      return `    ${name}${required}: ${schema.type} - ${schema.description}`;
+    });
+
+    return params.join('\n');
+  }
+}
+
+// 简单的logger占位符
+const logger = {
+  debug: (msg: string, ...args: any[]) => console.log(`[DEBUG] ${msg}`, ...args),
+  error: (msg: string, ...args: any[]) => console.error(`[ERROR] ${msg}`, ...args)
+};
+
+/**
+ * 创建PlatformDetectorTool实例（用于注册表）
+ */
+export function createPlatformDetectorTool() {
+  return {
+    ...PlatformDetectorTool.getMetadata(),
+    type: ToolType.BUILTIN,
+    enabled: true,
+    execute: async (args: Record<string, any>) => {
+      return PlatformDetectorTool.execute(args as PlatformDetectorArgs);
+    }
+  } as BuiltInTool;
+}
+````
+
+## File: src/core/tools/builtin/ReadSkillTool.ts
+````typescript
+/**
+ * ReadSkillTool - 读取 Skill 文档内置工具
+ * 用于读取知识型 Skill 的完整文档内容
+ */
+
+import { ToolResult, BuiltInTool, ToolType } from '../../../types/tool-system';
+import { getSkillManager } from '../../../services/SkillManager';
+import { logger } from '../../../utils/logger';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+
+/**
+ * ReadSkillTool 参数接口
+ */
+export interface ReadSkillArgs {
+  /** Skill 名称 */
+  skillName: string;
+  /** 是否包含元数据（默认 false） */
+  includeMetadata?: boolean;
+}
+
+/**
+ * 读取 Skill 工具
+ * 用于获取知识型 Skill 的完整文档内容
+ */
+export class ReadSkillTool {
+  /**
+   * 执行读取 Skill 文档
+   * @param args 读取参数
+   * @returns 读取结果
+   */
+  static async execute(args: ReadSkillArgs): Promise<ToolResult> {
+    const startTime = Date.now();
+
+    try {
+      // 参数验证
+      this.validateArgs(args);
+
+      logger.info(`Reading Skill documentation: ${args.skillName}`);
+
+      // 获取 SkillManager
+      const skillManager = getSkillManager();
+
+      // 查询 Skill
+      const skill = await skillManager.getSkillByName(args.skillName);
+
+      if (!skill) {
+        throw new Error(`Skill not found: ${args.skillName}`);
+      }
+
+      // 读取 SKILL.md 文件
+      const skillMdPath = path.join(skill.path, 'SKILL.md');
+      const content = await fs.readFile(skillMdPath, 'utf8');
+
+      const duration = Date.now() - startTime;
+
+      // 格式化输出
+      const output = this.formatSkillContent(args.skillName, content, skill, args.includeMetadata);
+
+      logger.info(`Skill documentation read successfully in ${duration}ms`);
+
+      return {
+        success: true,
+        output,
+        duration,
+        exitCode: 0
+      };
+
+    } catch (error) {
+      const duration = Date.now() - startTime;
+
+      logger.error(`Failed to read Skill documentation:`, error);
+
+      return {
+        success: false,
+        error: this.formatError(error),
+        duration,
+        errorCode: 'READ_SKILL_ERROR',
+        exitCode: 1
+      };
+    }
+  }
+
+  /**
+   * 验证参数
+   */
+  private static validateArgs(args: ReadSkillArgs): void {
+    if (!args.skillName || typeof args.skillName !== 'string') {
+      throw new Error('skillName is required and must be a non-empty string');
+    }
+
+    if (args.skillName.trim().length === 0) {
+      throw new Error('skillName cannot be empty or whitespace only');
+    }
+  }
+
+  /**
+   * 格式化 Skill 内容
+   */
+  private static formatSkillContent(
+    skillName: string,
+    content: string,
+    skill: any,
+    includeMetadata?: boolean
+  ): string {
+    let output = `# Skill Documentation: ${skillName}\n\n`;
+
+    // 添加基本信息
+    output += `**Version:** ${skill.version || 'N/A'}\n`;
+    output += `**Description:** ${skill.description}\n`;
+
+    if (skill.tags && skill.tags.length > 0) {
+      output += `**Tags:** ${skill.tags.join(', ')}\n`;
+    }
+
+    if (skill.author) {
+      output += `**Author:** ${skill.author}\n`;
+    }
+
+    output += `\n---\n\n`;
+
+    // 添加完整文档内容
+    output += content;
+
+    // 可选：添加元数据
+    if (includeMetadata && skill.parameters) {
+      output += `\n\n---\n\n## Parameters Schema\n\n`;
+      output += '```json\n';
+      output += JSON.stringify(skill.parameters, null, 2);
+      output += '\n```\n';
+    }
+
+    return output;
+  }
+
+  /**
+   * 格式化错误信息
+   */
+  private static formatError(error: any): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    if (typeof error === 'string') {
+      return error;
+    }
+    return 'Unknown error occurred while reading Skill documentation';
+  }
+
+  /**
+   * 获取工具元数据
+   */
+  static getMetadata() {
+    return {
+      name: 'read-skill',
+      description: 'Read the complete documentation of a Skill. Use this to get detailed information about knowledge-based Skills or to understand how to use executable Skills.',
+      category: 'skill',
+      level: 1,
+      parameters: {
+        type: 'object',
+        properties: {
+          skillName: {
+            type: 'string',
+            description: 'The name of the Skill to read (e.g., "calculator")'
+          },
+          includeMetadata: {
+            type: 'boolean',
+            description: 'Whether to include parameter schema metadata in the output',
+            default: false
+          }
+        },
+        required: ['skillName']
+      }
+    };
+  }
+}
+
+/**
+ * 创建 ReadSkillTool 实例（用于注册表）
+ */
+export function createReadSkillTool() {
+  return {
+    ...ReadSkillTool.getMetadata(),
+    type: ToolType.BUILTIN,
+    enabled: true,
+    execute: async (args: Record<string, any>) => {
+      return ReadSkillTool.execute(args as ReadSkillArgs);
+    }
+  } as BuiltInTool;
+}
+````
+
+## File: src/database/migrations/001_create_type_vocabulary.sql
+````sql
+-- Migration: Create Type Vocabulary Table
+-- Description: Stores all type tags extracted from playbooks
+-- Created: 2025-12-18
+
+CREATE TABLE type_vocabulary (
+  tag_name TEXT PRIMARY KEY,
+  keywords TEXT NOT NULL, -- JSON array of keywords
+  confidence REAL NOT NULL DEFAULT 0.0 CHECK (confidence >= 0.0 AND confidence <= 1.0),
+  first_identified INTEGER NOT NULL,
+  playbook_count INTEGER NOT NULL DEFAULT 0,
+  discovered_from TEXT NOT NULL CHECK (discovered_from IN ('historical_clustering', 'manual_creation', 'llm_suggestion')),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  metadata TEXT -- JSON object for additional information
+);
+
+-- Indexes for common queries
+CREATE INDEX idx_type_vocabulary_confidence ON type_vocabulary(confidence DESC);
+CREATE INDEX idx_type_vocabulary_playbook_count ON type_vocabulary(playbook_count DESC);
+CREATE INDEX idx_type_vocabulary_created ON type_vocabulary(created_at DESC);
+````
+
+## File: src/database/migrations/002_create_type_similarity_matrix.sql
+````sql
+-- Migration: Create Type Similarity Matrix Table
+-- Description: Stores similarity scores between type tags
+-- Created: 2025-12-18
+
+CREATE TABLE type_similarity_matrix (
+  tag1 TEXT NOT NULL,
+  tag2 TEXT NOT NULL,
+  similarity_score REAL NOT NULL CHECK (similarity_score >= 0.0 AND similarity_score <= 1.0),
+  co_occurrence_count INTEGER NOT NULL DEFAULT 0,
+  last_updated INTEGER NOT NULL,
+  PRIMARY KEY (tag1, tag2),
+  FOREIGN KEY (tag1) REFERENCES type_vocabulary(tag_name) ON DELETE CASCADE,
+  FOREIGN KEY (tag2) REFERENCES type_vocabulary(tag_name) ON DELETE CASCADE
+);
+
+-- Indexes for efficient similarity lookups
+CREATE INDEX idx_similarity_score ON type_similarity_matrix(similarity_score DESC);
+CREATE INDEX idx_similarity_tags ON type_similarity_matrix(tag1, tag2);
+
+-- Ensure tag1 < tag2 to avoid duplicates (symmetric matrix)
+CREATE TRIGGER ensure_tag_order
+  BEFORE INSERT ON type_similarity_matrix
+  FOR EACH ROW
+  WHEN NEW.tag1 > NEW.tag2
+BEGIN
+  UPDATE type_similarity_matrix
+  SET tag1 = NEW.tag2, tag2 = NEW.tag1
+  WHERE rowid = NEW.rowid;
+END;
+````
+
+## File: src/database/migrations/003_create_type_evolution_history.sql
+````sql
+-- Migration: Create Type Evolution History Table
+-- Description: Tracks changes to type tags over time
+-- Created: 2025-12-18
+
+CREATE TABLE type_evolution_history (
+  id TEXT PRIMARY KEY,
+  event_type TEXT NOT NULL CHECK (event_type IN ('created', 'merged', 'deprecated', 'split', 'confidence_updated')),
+  tag_name TEXT NOT NULL,
+  previous_state TEXT, -- JSON object for previous state
+  new_state TEXT, -- JSON object for new state
+  reason TEXT NOT NULL,
+  triggered_by TEXT NOT NULL CHECK (triggered_by IN ('automatic', 'manual', 'llm_analysis')),
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (tag_name) REFERENCES type_vocabulary(tag_name) ON DELETE CASCADE
+);
+
+-- Indexes for historical queries
+CREATE INDEX idx_evolution_tag ON type_evolution_history(tag_name);
+CREATE INDEX idx_evolution_date ON type_evolution_history(created_at DESC);
+CREATE INDEX idx_evolution_type ON type_evolution_history(event_type);
+````
+
+## File: src/database/migrations/005_create_prompt_templates.sql
+````sql
+-- Migration: Create Prompt Templates Table
+-- Description: Stores reusable prompt templates for different type tags
+-- Created: 2025-12-18
+
+CREATE TABLE prompt_templates (
+  template_id TEXT PRIMARY KEY,
+  template_type TEXT NOT NULL CHECK (template_type IN ('guidance', 'constraint', 'framework', 'example')),
+  name TEXT NOT NULL,
+  content TEXT NOT NULL,
+  variables TEXT NOT NULL, -- JSON array of variable names
+  applicable_tags TEXT NOT NULL, -- JSON array of applicable tag names
+  guidance_level TEXT CHECK (guidance_level IN ('light', 'medium', 'intensive')),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  usage_count INTEGER NOT NULL DEFAULT 0,
+  effectiveness_score REAL CHECK (effectiveness_score >= 0.0 AND effectiveness_score <= 1.0),
+  metadata TEXT -- JSON object for additional metadata
+);
+
+-- Indexes for template queries
+CREATE INDEX idx_template_type ON prompt_templates(template_type);
+CREATE INDEX idx_template_effectiveness ON prompt_templates(effectiveness_score DESC);
+CREATE INDEX idx_template_usage_count ON prompt_templates(usage_count DESC);
+````
+
+## File: src/database/index.ts
+````typescript
+/**
+ * Database Module Index
+ * Entry point for all database-related functionality
+ */
+
+export { MigrationRunner, MigrationResult, Migration } from './MigrationRunner';
+export * from './migrations';
 ````
 
 ## File: src/services/agent/index.ts
@@ -2184,6 +9796,200 @@ export class SemanticCache {
       itemCount: this.lruCache.itemCount,
       approximateBytes: totalBytes,
     };
+  }
+}
+````
+
+## File: src/services/chat/ConversationSaver.ts
+````typescript
+/**
+ * ConversationSaver - 对话历史保存器
+ * 负责统一保存对话历史，包含思考过程
+ */
+
+import { Message } from "../../types";
+import { logger } from "../../utils/logger";
+import { ConversationHistoryService } from "../ConversationHistoryService";
+import { SessionManager } from "../SessionManager";
+import { parseAggregatedContent } from "../../api/utils/stream-parser";
+
+export interface SaveMetadata {
+  messageCount: number;
+  totalTokens?: number;
+  promptTokens?: number;
+  completionTokens?: number;
+}
+
+export class ConversationSaver {
+  constructor(
+    private conversationHistoryService: ConversationHistoryService,
+    private sessionManager: SessionManager
+  ) {}
+
+  /**
+   * 保存对话历史
+   */
+  async save(
+    conversationId: string,
+    messages: Message[],
+    aiContent: string,
+    thinkingProcess?: string[],
+    isReAct: boolean = false
+  ): Promise<void> {
+    try {
+      // 1. 检查历史记录数量
+      const count = await this.conversationHistoryService.getMessageCount(conversationId);
+      const messagesToSave: Message[] = [];
+
+      // 2. 准备要保存的消息（统一逻辑）
+      if (count === 0) {
+        // 新对话：保存所有非assistant、非system消息
+        messagesToSave.push(
+          ...messages.filter((m) => m.role !== "assistant" && m.role !== "system")
+        );
+      } else {
+        // 已有对话：只保存最后一条非assistant、非system消息
+        const lastMessage = messages[messages.length - 1];
+        if (lastMessage && lastMessage.role !== "assistant" && lastMessage.role !== "system") {
+          messagesToSave.push(lastMessage);
+        }
+      }
+
+      // 3. 构建AI回复内容（统一格式）
+      let assistantContent = this.formatAssistantContent(aiContent, thinkingProcess, isReAct);
+
+      // 4. 添加AI回复
+      messagesToSave.push({
+        role: "assistant",
+        content: assistantContent,
+      });
+
+      // 5. 保存到数据库
+      await this.conversationHistoryService.saveMessages(conversationId, messagesToSave);
+      logger.debug(`[ConversationSaver] Saved ${messagesToSave.length} messages to history`);
+    } catch (err: any) {
+      logger.warn(`[ConversationSaver] Failed to save conversation history: ${err.message}`);
+    }
+  }
+
+  /**
+   * 格式化AI回复内容
+   */
+  private formatAssistantContent(
+    aiContent: string,
+    thinkingProcess?: string[],
+    isReAct: boolean = false
+  ): string {
+    // 先清理错误内容
+    const cleanedContent = this.cleanErrorContent(aiContent);
+
+    const parsed = parseAggregatedContent(cleanedContent);
+
+    if (isReAct) {
+      const thinkingParts = [];
+      if (thinkingProcess?.length > 0) {
+        const extractedThinking = this.extractThinkingContent(thinkingProcess);
+        thinkingParts.push(`<thinking>${extractedThinking}</thinking>`);
+      }
+      thinkingParts.push(
+        parsed.reasoning
+          ? `<thinking>${parsed.reasoning}</thinking> ${parsed.content}`
+          : parsed.content
+      );
+      return thinkingParts.join(" ");
+    }
+
+    // 普通模式
+    return parsed.reasoning
+      ? `<thinking>${parsed.reasoning}</thinking> ${parsed.content}`
+      : parsed.content;
+  }
+
+  /**
+   * 清理错误内容
+   * 移除包含错误状态的 tool_output 标签和其他错误信息
+   */
+  private cleanErrorContent(content: string): string {
+    if (!content || typeof content !== "string") {
+      return content;
+    }
+
+    let cleaned = content;
+
+    // 移除包含错误状态的 tool_output
+    // 匹配 <tool_output ... status="error">...</tool_output>
+    cleaned = cleaned.replace(
+      /<tool_output[^>]*status\s*=\s*["']?error["']?[^>]*>[\s\S]*?<\/tool_output>/gi,
+      ""
+    );
+
+    // 移除 [SYSTEM_FEEDBACK] 块中的错误内容
+    cleaned = cleaned.replace(
+      /\[SYSTEM_FEEDBACK\][\s\S]*?status\s*=\s*["']?error["']?[\s\S]*?(?=\[SYSTEM_FEEDBACK\]|$)/gi,
+      ""
+    );
+
+    // 移除 MCP 错误信息
+    cleaned = cleaned.replace(/MCP error[^"\n]*/gi, "");
+    cleaned = cleaned.replace(/McpError:[^\n]*/gi, "");
+    cleaned = cleaned.replace(/Request timed out/gi, "");
+
+    // 移除错误堆栈相关信息
+    cleaned = cleaned.replace(/at McpError\.fromError[^\n]*/gi, "");
+    cleaned = cleaned.replace(/at Timeout\.timeoutHandler[^\n]*/gi, "");
+
+    // 清理多余的空白字符
+    cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
+    cleaned = cleaned.trim();
+
+    return cleaned;
+  }
+
+  /**
+   * 提取思考过程内容
+   */
+  private extractThinkingContent(thinkingProcess: string[]): string {
+    const extracted: string[] = [];
+    for (const chunk of thinkingProcess) {
+      try {
+        const cleaned = chunk.replace(/^data:\s*/, "").trim();
+        if (cleaned && cleaned !== "[DONE]") {
+          if (cleaned.includes("}{")) {
+            const jsonObjects = cleaned.split(/\}\{/);
+            for (let i = 0; i < jsonObjects.length; i++) {
+              let jsonStr = jsonObjects[i];
+              if (i > 0) jsonStr = "{" + jsonStr;
+              if (i < jsonObjects.length - 1) jsonStr = jsonStr + "}";
+              if (jsonStr) {
+                const parsed = JSON.parse(jsonStr);
+                if (parsed.reasoning_content) {
+                  extracted.push(parsed.reasoning_content);
+                }
+              }
+            }
+          } else {
+            const parsed = JSON.parse(cleaned);
+            if (parsed.reasoning_content) {
+              extracted.push(parsed.reasoning_content);
+            }
+          }
+        }
+      } catch {
+        extracted.push(chunk);
+      }
+    }
+    return extracted.join("");
+  }
+
+  /**
+   * 更新会话元数据
+   */
+  async updateSessionMetadata(sessionId: string, usage: any): Promise<void> {
+    await this.sessionManager.updateMetadata(sessionId, {
+      total_tokens: usage.total_tokens,
+      prompt_tokens: usage.prompt_tokens,
+      completion_tokens: usage.completion_tokens,
+    });
   }
 }
 ````
@@ -5245,6 +13051,2065 @@ export class ParseError extends Error {
 }
 ````
 
+## File: src/services/context-compression/strategies/HybridStrategy.ts
+````typescript
+/**
+ * HybridStrategy - 混合压缩策略
+ *
+ * 组合 truncate + prune，先修剪再截断，保留更多上下文信息
+ */
+
+import { Message } from "../../../types";
+import { TokenEstimator } from "../TokenEstimator";
+import {
+  IContextCompressionStrategy,
+  CompressionResult,
+  CompressionStrategyConfig,
+} from "./IContextCompressionStrategy";
+import { TruncateStrategy } from "./TruncateStrategy";
+import { PruneStrategy } from "./PruneStrategy";
+
+/**
+ * 混合策略配置
+ */
+export interface HybridStrategyConfig extends CompressionStrategyConfig {
+  /** 是否先修剪再截断（false 则先截断再修剪） */
+  pruneFirst?: boolean;
+  /** 修剪策略的配置 */
+  pruneConfig?: {
+    similarityThreshold?: number;
+    shortMessageThreshold?: number;
+    mergeConsecutiveUserMessages?: boolean;
+  };
+  /** 截断策略的配置 */
+  truncateConfig?: {
+    direction?: "head" | "tail";
+  };
+}
+
+/**
+ * 混合压缩策略
+ *
+ * 策略说明：
+ * - 组合 truncate + prune 的优点
+ * - 先修剪相似/短消息，再截断超出限制的内容
+ * - 保留更多上下文信息
+ * - 适用于需要平衡信息保留和 Token 限制的场景
+ */
+export class HybridStrategy implements IContextCompressionStrategy {
+  /**
+   * 默认配置
+   */
+  private readonly defaultConfig: Required<HybridStrategyConfig> = {
+    maxTokens: 8000,
+    preserveSystemMessage: true,
+    minMessageCount: 1,
+    pruneFirst: true,
+    pruneConfig: {
+      similarityThreshold: 0.7,
+      shortMessageThreshold: 50,
+      mergeConsecutiveUserMessages: true,
+    },
+    truncateConfig: {
+      direction: "head",
+    },
+  };
+
+  private readonly pruneStrategy: PruneStrategy;
+  private readonly truncateStrategy: TruncateStrategy;
+
+  constructor() {
+    this.pruneStrategy = new PruneStrategy();
+    this.truncateStrategy = new TruncateStrategy();
+  }
+
+  getName(): string {
+    return "hybrid";
+  }
+
+  async compress(
+    messages: Message[],
+    config: CompressionStrategyConfig
+  ): Promise<CompressionResult> {
+    const finalConfig = { ...this.defaultConfig, ...config } as Required<HybridStrategyConfig>;
+
+    const originalTokens = TokenEstimator.countMessages(messages);
+
+    if (messages.length === 0) {
+      return {
+        messages: [],
+        originalTokens: 0,
+        compactedTokens: 0,
+        removedCount: 0,
+        hasSummary: false,
+      };
+    }
+
+    if (originalTokens <= finalConfig.maxTokens) {
+      return {
+        messages: [...messages],
+        originalTokens,
+        compactedTokens: originalTokens,
+        removedCount: 0,
+        hasSummary: false,
+      };
+    }
+
+    let result: CompressionResult;
+
+    if (finalConfig.pruneFirst) {
+      result = await this.pruneThenTruncate(messages, finalConfig);
+    } else {
+      result = await this.truncateThenPrune(messages, finalConfig);
+    }
+
+    return result;
+  }
+
+  /**
+   * 先修剪再截断
+   */
+  private async pruneThenTruncate(
+    messages: Message[],
+    config: Required<HybridStrategyConfig>
+  ): Promise<CompressionResult> {
+    const originalTokens = TokenEstimator.countMessages(messages);
+
+    const pruneConfig: CompressionStrategyConfig = {
+      maxTokens: config.maxTokens,
+      preserveSystemMessage: config.preserveSystemMessage,
+      minMessageCount: config.minMessageCount,
+    };
+
+    let pruneResult = await this.pruneStrategy.compress(messages, pruneConfig);
+
+    if (pruneResult.compactedTokens <= config.maxTokens) {
+      return pruneResult;
+    }
+
+    const truncateConfig: CompressionStrategyConfig = {
+      maxTokens: config.maxTokens,
+      preserveSystemMessage: config.preserveSystemMessage,
+      minMessageCount: config.minMessageCount,
+    };
+
+    const truncateResult = await this.truncateStrategy.compress(
+      pruneResult.messages,
+      truncateConfig
+    );
+
+    return {
+      messages: truncateResult.messages,
+      originalTokens,
+      compactedTokens: truncateResult.compactedTokens,
+      removedCount: pruneResult.removedCount + truncateResult.removedCount,
+      hasSummary: false,
+    };
+  }
+
+  /**
+   * 先截断再修剪
+   */
+  private async truncateThenPrune(
+    messages: Message[],
+    config: Required<HybridStrategyConfig>
+  ): Promise<CompressionResult> {
+    const originalTokens = TokenEstimator.countMessages(messages);
+
+    const truncateConfig: CompressionStrategyConfig = {
+      maxTokens: config.maxTokens,
+      preserveSystemMessage: config.preserveSystemMessage,
+      minMessageCount: config.minMessageCount,
+    };
+
+    let truncateResult = await this.truncateStrategy.compress(messages, truncateConfig);
+
+    const pruneConfig: CompressionStrategyConfig = {
+      maxTokens: config.maxTokens,
+      preserveSystemMessage: config.preserveSystemMessage,
+      minMessageCount: config.minMessageCount,
+    };
+
+    const pruneResult = await this.pruneStrategy.compress(truncateResult.messages, pruneConfig);
+
+    return {
+      messages: pruneResult.messages,
+      originalTokens,
+      compactedTokens: pruneResult.compactedTokens,
+      removedCount: truncateResult.removedCount + pruneResult.removedCount,
+      hasSummary: false,
+    };
+  }
+
+  needsCompression(messages: Message[], maxTokens: number): boolean {
+    const currentTokens = TokenEstimator.countMessages(messages);
+    return currentTokens > maxTokens;
+  }
+}
+````
+
+## File: src/services/context-compression/strategies/IContextCompressionStrategy.ts
+````typescript
+/**
+ * 上下文压缩策略接口
+ *
+ * 定义上下文压缩的通用接口
+ */
+
+import { Message } from "../../../types";
+
+/**
+ * 压缩结果
+ */
+export interface CompressionResult {
+  /** 压缩后的消息 */
+  messages: Message[];
+  /** 原始 Token 数 */
+  originalTokens: number;
+  /** 压缩后 Token 数 */
+  compactedTokens: number;
+  /** 被移除的消息数 */
+  removedCount: number;
+  /** 是否有摘要生成 */
+  hasSummary: boolean;
+}
+
+/**
+ * 压缩策略配置
+ */
+export interface CompressionStrategyConfig {
+  /** 最大 Token 数 */
+  maxTokens: number;
+  /** 是否保留系统消息 */
+  preserveSystemMessage?: boolean;
+  /** 保留消息的最小数量 */
+  minMessageCount?: number;
+}
+
+/**
+ * 上下文压缩策略接口
+ */
+export interface IContextCompressionStrategy {
+  /**
+   * 获取策略名称
+   */
+  getName(): string;
+
+  /**
+   * 执行压缩
+   *
+   * @param messages 原始消息列表
+   * @param config 压缩配置
+   * @returns 压缩结果
+   */
+  compress(messages: Message[], config: CompressionStrategyConfig): Promise<CompressionResult>;
+
+  /**
+   * 检查是否需要压缩
+   *
+   * @param messages 消息列表
+   * @param maxTokens 最大 Token 数
+   * @returns 是否需要压缩
+   */
+  needsCompression(messages: Message[], maxTokens: number): boolean;
+}
+````
+
+## File: src/services/context-compression/strategies/index.ts
+````typescript
+/**
+ * 上下文压缩策略导出
+ */
+
+export * from "./IContextCompressionStrategy";
+export * from "./TruncateStrategy";
+export * from "./PruneStrategy";
+export * from "./SummaryStrategy";
+export * from "./HybridStrategy";
+````
+
+## File: src/services/context-compression/strategies/PruneStrategy.ts
+````typescript
+/**
+ * PruneStrategy - 修剪压缩策略
+ *
+ * 移除相似/重复内容的短消息，合并连续的用户短消息，保留信息密度高的消息
+ */
+
+import { Message } from "../../../types";
+import { TokenEstimator } from "../TokenEstimator";
+import {
+  IContextCompressionStrategy,
+  CompressionResult,
+  CompressionStrategyConfig,
+} from "./IContextCompressionStrategy";
+
+/**
+ * 修剪策略配置
+ */
+export interface PruneStrategyConfig extends CompressionStrategyConfig {
+  /** 相似度阈值（0-1），低于此值认为是相似消息 */
+  similarityThreshold?: number;
+  /** 短消息长度阈值（字符数），低于此值认为是短消息 */
+  shortMessageThreshold?: number;
+  /** 是否合并连续的用户短消息 */
+  mergeConsecutiveUserMessages?: boolean;
+}
+
+/**
+ * 消息相似度信息
+ */
+interface MessageSimilarityInfo {
+  index: number;
+  message: Message;
+  tokens: number;
+  isShort: boolean;
+  contentLength: number;
+  shouldRemove: boolean;
+  removalReason?: string;
+}
+
+/**
+ * 修剪压缩策略
+ *
+ * 策略说明：
+ * - 移除与前一条消息高度相似的内容
+ * - 合并连续的用户短消息
+ * - 保留信息密度高的消息
+ * - 适用于保留关键信息的场景
+ */
+export class PruneStrategy implements IContextCompressionStrategy {
+  /**
+   * 默认配置
+   */
+  private readonly defaultConfig: Required<PruneStrategyConfig> = {
+    maxTokens: 8000,
+    preserveSystemMessage: true,
+    minMessageCount: 1,
+    similarityThreshold: 0.7,
+    shortMessageThreshold: 50,
+    mergeConsecutiveUserMessages: true,
+  };
+
+  getName(): string {
+    return "prune";
+  }
+
+  async compress(
+    messages: Message[],
+    config: CompressionStrategyConfig
+  ): Promise<CompressionResult> {
+    const finalConfig = { ...this.defaultConfig, ...config } as Required<PruneStrategyConfig>;
+
+    const originalTokens = TokenEstimator.countMessages(messages);
+
+    if (messages.length === 0) {
+      return {
+        messages: [],
+        originalTokens: 0,
+        compactedTokens: 0,
+        removedCount: 0,
+        hasSummary: false,
+      };
+    }
+
+    if (originalTokens <= finalConfig.maxTokens) {
+      return {
+        messages: [...messages],
+        originalTokens,
+        compactedTokens: originalTokens,
+        removedCount: 0,
+        hasSummary: false,
+      };
+    }
+
+    let systemMessages: Message[] = [];
+    let otherMessages: Message[] = [];
+
+    if (finalConfig.preserveSystemMessage) {
+      const systemIndex = messages.findIndex((m) => m.role === "system");
+      if (systemIndex >= 0) {
+        systemMessages = [messages[systemIndex]];
+        otherMessages = messages.filter((_, i) => i !== systemIndex);
+      } else {
+        otherMessages = [...messages];
+      }
+    } else {
+      otherMessages = [...messages];
+    }
+
+    const prunedMessages = this.pruneMessages(otherMessages, finalConfig);
+    let removedCount = otherMessages.length - prunedMessages.length;
+
+    const totalMessages = systemMessages.length + prunedMessages.length;
+    if (totalMessages < finalConfig.minMessageCount && otherMessages.length > totalMessages) {
+      const additionalNeeded = finalConfig.minMessageCount - totalMessages;
+      const availableMessages = otherMessages.filter((msg) => !prunedMessages.includes(msg));
+      const toAdd = availableMessages.slice(-additionalNeeded);
+      prunedMessages.unshift(...toAdd);
+      removedCount = Math.max(0, removedCount - toAdd.length);
+    }
+
+    const finalMessages = finalConfig.preserveSystemMessage
+      ? [...systemMessages, ...prunedMessages]
+      : prunedMessages;
+
+    const compactedTokens = TokenEstimator.countMessages(finalMessages);
+
+    return {
+      messages: finalMessages,
+      originalTokens,
+      compactedTokens,
+      removedCount,
+      hasSummary: false,
+    };
+  }
+
+  /**
+   * 修剪消息列表
+   */
+  private pruneMessages(messages: Message[], config: Required<PruneStrategyConfig>): Message[] {
+    if (messages.length === 0) {
+      return [];
+    }
+
+    const messagesWithInfo = this.analyzeMessages(messages, config);
+    const result: Message[] = [];
+    let consecutiveUserShortMessages: Message[] = [];
+
+    for (let i = 0; i < messagesWithInfo.length; i++) {
+      const current = messagesWithInfo[i];
+      const previous = i > 0 ? messagesWithInfo[i - 1] : null;
+
+      if (current.shouldRemove) {
+        continue;
+      }
+
+      if (config.mergeConsecutiveUserMessages) {
+        if (current.message.role === "user" && current.isShort) {
+          consecutiveUserShortMessages.push(current.message);
+
+          const nextMsg = i + 1 < messagesWithInfo.length ? messagesWithInfo[i + 1] : null;
+          const isEndOfUserShortMessages =
+            !nextMsg || nextMsg.message.role !== "user" || !nextMsg.isShort;
+
+          if (isEndOfUserShortMessages && consecutiveUserShortMessages.length > 1) {
+            const merged = this.mergeUserMessages(consecutiveUserShortMessages);
+            if (merged) {
+              result.push(merged);
+            }
+            consecutiveUserShortMessages = [];
+          }
+          continue;
+        } else if (consecutiveUserShortMessages.length > 0) {
+          const merged = this.mergeUserMessages(consecutiveUserShortMessages);
+          if (merged) {
+            result.push(merged);
+          }
+          consecutiveUserShortMessages = [];
+        }
+      }
+
+      if (previous && !previous.shouldRemove && previous.message.role !== "system") {
+        if (this.shouldRemoveSimilar(current, previous, config)) {
+          continue;
+        }
+      }
+
+      result.push(current.message);
+    }
+
+    if (consecutiveUserShortMessages.length > 0) {
+      const merged = this.mergeUserMessages(consecutiveUserShortMessages);
+      if (merged) {
+        result.push(merged);
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * 分析消息信息
+   */
+  private analyzeMessages(
+    messages: Message[],
+    config: Required<PruneStrategyConfig>
+  ): MessageSimilarityInfo[] {
+    return messages.map((msg, index) => {
+      const tokens = TokenEstimator.estimateMessage(msg).tokens;
+      const contentLength = this.getMessageContentLength(msg);
+      const isShort = contentLength < config.shortMessageThreshold;
+
+      let shouldRemove = false;
+      let removalReason: string | undefined;
+
+      if (msg.role === "system") {
+        shouldRemove = false;
+      } else if (isShort && tokens < 10) {
+        shouldRemove = true;
+        removalReason = "very_short";
+      }
+
+      return {
+        index,
+        message: msg,
+        tokens,
+        isShort,
+        contentLength,
+        shouldRemove,
+        removalReason,
+      };
+    });
+  }
+
+  /**
+   * 获取消息内容长度
+   */
+  private getMessageContentLength(message: Message): number {
+    if (typeof message.content === "string") {
+      return message.content.length;
+    }
+    if (Array.isArray(message.content)) {
+      return message.content.reduce((sum, part) => {
+        if (part.type === "text" && part.text) {
+          return sum + part.text.length;
+        }
+        return sum;
+      }, 0);
+    }
+    return 0;
+  }
+
+  /**
+   * 判断是否应该移除相似消息
+   */
+  private shouldRemoveSimilar(
+    current: MessageSimilarityInfo,
+    previous: MessageSimilarityInfo,
+    config: Required<PruneStrategyConfig>
+  ): boolean {
+    if (current.message.role === previous.message.role) {
+      return false;
+    }
+
+    if (current.isShort && previous.isShort) {
+      const similarity = this.calculateSimilarity(current.contentLength, previous.contentLength);
+      if (similarity > config.similarityThreshold) {
+        return true;
+      }
+    }
+
+    if (current.isShort && current.tokens < 20 && previous.tokens > current.tokens * 3) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * 计算内容相似度（基于长度的简化相似度计算）
+   */
+  private calculateSimilarity(len1: number, len2: number): number {
+    if (len1 === 0 && len2 === 0) {
+      return 1;
+    }
+    const maxLen = Math.max(len1, len2);
+    const minLen = Math.min(len1, len2);
+    return minLen / maxLen;
+  }
+
+  /**
+   * 合并用户短消息
+   */
+  private mergeUserMessages(messages: Message[]): Message | null {
+    if (messages.length === 0) {
+      return null;
+    }
+
+    const combinedContent = messages
+      .map((msg) => {
+        const content = typeof msg.content === "string" ? msg.content : "";
+        return content.trim();
+      })
+      .filter((c) => c.length > 0)
+      .join("\n---\n");
+
+    if (combinedContent.length === 0) {
+      return null;
+    }
+
+    return {
+      role: "user",
+      content: combinedContent,
+    };
+  }
+
+  needsCompression(messages: Message[], maxTokens: number): boolean {
+    const currentTokens = TokenEstimator.countMessages(messages);
+    return currentTokens > maxTokens;
+  }
+}
+````
+
+## File: src/services/context-compression/strategies/SummaryStrategy.ts
+````typescript
+/**
+ * SummaryStrategy - 摘要压缩策略
+ *
+ * 用 AI 摘要替换旧消息，保留最近 N 条消息原文，旧消息用一句话摘要替代
+ */
+
+import { Message } from "../../../types";
+import { TokenEstimator } from "../TokenEstimator";
+import {
+  IContextCompressionStrategy,
+  CompressionResult,
+  CompressionStrategyConfig,
+} from "./IContextCompressionStrategy";
+
+/**
+ * 摘要策略配置
+ */
+export interface SummaryStrategyConfig extends CompressionStrategyConfig {
+  /** 保留最近消息的数量（原文） */
+  preserveRecent?: number;
+  /** 摘要生成器函数 */
+  summaryGenerator?: (messages: Message[]) => Promise<string>;
+  /** 每个摘要的最大 Token 数 */
+  maxSummaryTokens?: number;
+}
+
+/**
+ * 摘要压缩策略
+ *
+ * 策略说明：
+ * - 保留最近的 N 条消息原文
+ * - 旧消息用一句话摘要替代
+ * - 适用于需要保留对话历史概要的场景
+ * - 需要提供 LLM 生成摘要
+ */
+export class SummaryStrategy implements IContextCompressionStrategy {
+  /**
+   * 默认配置
+   */
+  private readonly defaultConfig: Required<SummaryStrategyConfig> = {
+    maxTokens: 8000,
+    preserveSystemMessage: true,
+    minMessageCount: 1,
+    preserveRecent: 5,
+    summaryGenerator: async (msgs: Message[]) => {
+      return this.defaultSummary(msgs);
+    },
+    maxSummaryTokens: 200,
+  };
+
+  getName(): string {
+    return "summary";
+  }
+
+  async compress(
+    messages: Message[],
+    config: CompressionStrategyConfig
+  ): Promise<CompressionResult> {
+    const finalConfig = { ...this.defaultConfig, ...config } as Required<SummaryStrategyConfig>;
+
+    const originalTokens = TokenEstimator.countMessages(messages);
+
+    if (messages.length === 0) {
+      return {
+        messages: [],
+        originalTokens: 0,
+        compactedTokens: 0,
+        removedCount: 0,
+        hasSummary: true,
+      };
+    }
+
+    if (originalTokens <= finalConfig.maxTokens) {
+      return {
+        messages: [...messages],
+        originalTokens,
+        compactedTokens: originalTokens,
+        removedCount: 0,
+        hasSummary: false,
+      };
+    }
+
+    let systemMessages: Message[] = [];
+    let otherMessages: Message[] = [];
+
+    if (finalConfig.preserveSystemMessage) {
+      const systemIndex = messages.findIndex((m) => m.role === "system");
+      if (systemIndex >= 0) {
+        systemMessages = [messages[systemIndex]];
+        otherMessages = messages.filter((_, idx) => idx !== systemIndex);
+      } else {
+        otherMessages = [...messages];
+      }
+    } else {
+      otherMessages = [...messages];
+    }
+
+    const systemTokens = TokenEstimator.countMessages(systemMessages);
+    const availableForRecent = finalConfig.maxTokens - systemTokens;
+
+    if (availableForRecent <= 0) {
+      const finalMessages = systemMessages.slice(0, 1);
+      const compactedTokens = TokenEstimator.countMessages(finalMessages);
+      return {
+        messages: finalMessages,
+        originalTokens,
+        compactedTokens,
+        removedCount: messages.length - finalMessages.length,
+        hasSummary: true,
+      };
+    }
+
+    const recentMessages = this.getRecentMessages(otherMessages, availableForRecent);
+    const recentCount = recentMessages.length;
+    const oldMessages = otherMessages.slice(0, otherMessages.length - recentCount);
+
+    let summaryMessage: Message | null = null;
+    let summaryTokens = 0;
+
+    if (oldMessages.length > 0 && finalConfig.summaryGenerator) {
+      const summaryText = await finalConfig.summaryGenerator(oldMessages);
+      summaryMessage = {
+        role: "system",
+        content: `[对话历史摘要] ${summaryText}`,
+        name: "context_summary",
+      };
+      summaryTokens = TokenEstimator.estimateMessage(summaryMessage).tokens;
+
+      if (summaryTokens > finalConfig.maxSummaryTokens) {
+        const truncatedSummary = this.truncateText(summaryText, finalConfig.maxSummaryTokens * 4);
+        summaryMessage = {
+          role: "system",
+          content: `[对话历史摘要] ${truncatedSummary}`,
+          name: "context_summary",
+        };
+        summaryTokens = TokenEstimator.estimateMessage(summaryMessage).tokens;
+      }
+    }
+
+    const finalMessages: Message[] = [];
+    if (finalConfig.preserveSystemMessage && systemMessages.length > 0) {
+      finalMessages.push(systemMessages[0]);
+    }
+    if (summaryMessage) {
+      finalMessages.push(summaryMessage);
+    }
+    finalMessages.push(...recentMessages);
+
+    const totalMessages = finalMessages.length;
+    if (totalMessages < finalConfig.minMessageCount && otherMessages.length > totalMessages) {
+      const additionalNeeded = finalConfig.minMessageCount - totalMessages;
+      const availableFromOld = oldMessages.slice(-additionalNeeded);
+      finalMessages.splice(finalConfig.preserveSystemMessage ? 2 : 1, 0, ...availableFromOld);
+    }
+
+    const compactedTokens = TokenEstimator.countMessages(finalMessages);
+    const removedCount = oldMessages.length;
+
+    return {
+      messages: finalMessages,
+      originalTokens,
+      compactedTokens,
+      removedCount,
+      hasSummary: true,
+    };
+  }
+
+  /**
+   * 获取在 Token 限制内的最近消息
+   */
+  private getRecentMessages(messages: Message[], maxTokens: number): Message[] {
+    const result = TokenEstimator.keepRecentMessages(messages, maxTokens);
+    return result.messages;
+  }
+
+  /**
+   * 截断文本
+   */
+  private truncateText(text: string, maxCharacters: number): string {
+    if (text.length <= maxCharacters) {
+      return text;
+    }
+    return text.substring(0, maxCharacters - 3) + "...";
+  }
+
+  /**
+   * 默认摘要生成（基于消息内容的简单摘要）
+   */
+  private async defaultSummary(messages: Message[]): Promise<string> {
+    if (messages.length === 0) {
+      return "无历史对话";
+    }
+
+    const userMessages = messages.filter((m) => m.role === "user");
+    const assistantMessages = messages.filter((m) => m.role === "assistant");
+
+    const userTopics = userMessages.map((m) => {
+      const content = typeof m.content === "string" ? m.content : "";
+      return content.substring(0, 50);
+    });
+
+    const summaryParts: string[] = [];
+
+    if (userTopics.length > 0) {
+      const topicCount = Math.min(3, userTopics.length);
+      const topics = userTopics.slice(0, topicCount).join("; ");
+      summaryParts.push(`讨论了 ${topicCount} 个主题: ${topics}`);
+    }
+
+    if (assistantMessages.length > 0) {
+      summaryParts.push(`进行了 ${assistantMessages.length} 轮对话`);
+    }
+
+    return summaryParts.join("，") || "有若干对话记录";
+  }
+
+  needsCompression(messages: Message[], maxTokens: number): boolean {
+    const currentTokens = TokenEstimator.countMessages(messages);
+    return currentTokens > maxTokens;
+  }
+}
+````
+
+## File: src/services/context-compression/strategies/TruncateStrategy.ts
+````typescript
+/**
+ * TruncateStrategy - 截断压缩策略
+ *
+ * 从消息列表的开头截断，保留最新的消息
+ */
+
+import { Message } from "../../../types";
+import { TokenEstimator } from "../TokenEstimator";
+import {
+  IContextCompressionStrategy,
+  CompressionResult,
+  CompressionStrategyConfig,
+} from "./IContextCompressionStrategy";
+
+/**
+ * 截断策略配置
+ */
+export interface TruncateStrategyConfig extends CompressionStrategyConfig {
+  /** 截断方向：'head' 从开头截断，'tail' 从结尾截断 */
+  direction?: "head" | "tail";
+}
+
+/**
+ * 截断压缩策略
+ *
+ * 策略说明：
+ * - 从头部截断消息，保留最新的消息
+ * - 适用于大多数场景，简单可靠
+ * - 保留对话的连续性
+ */
+export class TruncateStrategy implements IContextCompressionStrategy {
+  /**
+   * 默认配置
+   */
+  private readonly defaultConfig: Required<TruncateStrategyConfig> = {
+    maxTokens: 8000,
+    preserveSystemMessage: true,
+    minMessageCount: 1,
+    direction: "head",
+  };
+
+  getName(): string {
+    return "truncate";
+  }
+
+  async compress(
+    messages: Message[],
+    config: CompressionStrategyConfig
+  ): Promise<CompressionResult> {
+    const finalConfig = { ...this.defaultConfig, ...config } as Required<TruncateStrategyConfig>;
+
+    // 原始 Token 计数
+    const originalTokens = TokenEstimator.countMessages(messages);
+
+    if (messages.length === 0) {
+      return {
+        messages: [],
+        originalTokens: 0,
+        compactedTokens: 0,
+        removedCount: 0,
+        hasSummary: false,
+      };
+    }
+
+    // 如果未超限，直接返回
+    if (originalTokens <= finalConfig.maxTokens) {
+      return {
+        messages: [...messages],
+        originalTokens,
+        compactedTokens: originalTokens,
+        removedCount: 0,
+        hasSummary: false,
+      };
+    }
+
+    // 分离系统消息
+    let systemMessages: Message[] = [];
+    let otherMessages: Message[] = [];
+
+    if (finalConfig.preserveSystemMessage) {
+      const systemIndex = messages.findIndex((m) => m.role === "system");
+      if (systemIndex >= 0) {
+        systemMessages = [messages[systemIndex]];
+        otherMessages = messages.filter((_, i) => i !== systemIndex);
+      } else {
+        otherMessages = [...messages];
+      }
+    } else {
+      otherMessages = [...messages];
+    }
+
+    // 截断其他消息
+    let truncatedMessages: Message[];
+    let removedCount = 0;
+
+    if (finalConfig.direction === "tail") {
+      // 从尾部截断（保留开头的消息）
+      const result = TokenEstimator.keepRecentMessages(otherMessages, finalConfig.maxTokens);
+      truncatedMessages = result.messages;
+      removedCount = result.removedIds.length;
+    } else {
+      // 从头部截断（保留最新的消息）- 默认行为
+      const keptResult = TokenEstimator.keepRecentMessages(otherMessages, finalConfig.maxTokens);
+      truncatedMessages = keptResult.messages;
+      removedCount = keptResult.removedIds.length;
+    }
+
+    // 确保至少保留最小消息数
+    const totalMessages = systemMessages.length + truncatedMessages.length;
+    if (totalMessages < finalConfig.minMessageCount && otherMessages.length > totalMessages) {
+      // 需要保留更多消息
+      const additionalNeeded = finalConfig.minMessageCount - totalMessages;
+      const availableMessages = otherMessages.filter((msg) => !truncatedMessages.includes(msg));
+
+      const toAdd = availableMessages.slice(-additionalNeeded);
+      truncatedMessages = [...toAdd, ...truncatedMessages];
+      removedCount = Math.max(0, removedCount - toAdd.length);
+    }
+
+    // 组合消息
+    const finalMessages = finalConfig.preserveSystemMessage
+      ? [...systemMessages, ...truncatedMessages]
+      : truncatedMessages;
+
+    // 计算压缩后的 Token 数
+    const compactedTokens = TokenEstimator.countMessages(finalMessages);
+
+    return {
+      messages: finalMessages,
+      originalTokens,
+      compactedTokens,
+      removedCount,
+      hasSummary: false,
+    };
+  }
+
+  needsCompression(messages: Message[], maxTokens: number): boolean {
+    const currentTokens = TokenEstimator.countMessages(messages);
+    return currentTokens > maxTokens;
+  }
+}
+````
+
+## File: src/services/context-compression/ContextCompressionService.ts
+````typescript
+/**
+ * ContextCompressionService - 上下文压缩服务
+ *
+ * 提供统一的上下文压缩入口，支持多种压缩策略
+ */
+
+import { Message, ChatOptions } from "../../types";
+import { TokenEstimator } from "./TokenEstimator";
+import {
+  IContextCompressionStrategy,
+  CompressionResult,
+  CompressionStrategyConfig,
+} from "./strategies";
+import { TruncateStrategy } from "./strategies/TruncateStrategy";
+import { PruneStrategy } from "./strategies/PruneStrategy";
+import { SummaryStrategy } from "./strategies/SummaryStrategy";
+import { HybridStrategy } from "./strategies/HybridStrategy";
+import { logger } from "../../utils/logger";
+import { COMPRESSION, COMPACTION } from "../../constants/compression";
+
+/**
+ * 压缩策略类型
+ */
+export type CompressionStrategyType = "truncate" | "prune" | "summary" | "hybrid";
+
+/**
+ * OpenCode压缩决策配置
+ *
+ * 提供OpenCode风格的智能压缩决策机制：
+ * - 缓存/输出考虑
+ * - 受保护的修剪（保护工具输出）
+ * - 严重溢出时的AI摘要生成
+ * - 策略回退机制
+ */
+export interface OpenCodeCompactionConfig {
+  /** 是否启用自动压缩（默认: true） */
+  auto?: boolean;
+  /** 是否启用受保护修剪（默认: true） */
+  prune?: boolean;
+  /** 溢出检测阈值（Tokens，默认: 4000） */
+  overflowThreshold?: number;
+  /** 是否保护关键工具输出（默认: true） */
+  protectTools?: boolean;
+  /** 严重溢出时是否生成摘要（默认: true） */
+  summaryOnSevere?: boolean;
+  /** 严重溢出阈值（上下文比例，默认: 0.8） */
+  severeThreshold?: number;
+}
+
+/**
+ * 上下文压缩配置
+ */
+export interface ContextCompressionConfig {
+  /** 是否启用上下文压缩 */
+  enabled?: boolean;
+  /** 压缩策略 */
+  strategy?: CompressionStrategyType;
+  /** 模型上下文限制 */
+  contextLimit?: number;
+  /** 输出保留空间（Tokens） */
+  outputReserve?: number;
+  /** 是否保留系统消息 */
+  preserveSystemMessage?: boolean;
+  /** 最小保留消息数 */
+  minMessageCount?: number;
+  /** OpenCode压缩决策配置 */
+  openCodeConfig?: OpenCodeCompactionConfig;
+}
+
+/**
+ * 压缩统计信息
+ */
+export interface CompressionStats {
+  /** 原始消息数 */
+  originalMessageCount: number;
+  /** 压缩后消息数 */
+  compactedMessageCount: number;
+  /** 原始 Token 数 */
+  originalTokens: number;
+  /** 压缩后 Token 数 */
+  compactedTokens: number;
+  /** 节省的 Token 数 */
+  savedTokens: number;
+  /** 节省比例 */
+  savingsRatio: number;
+  /** 使用的策略 */
+  strategy: string;
+  /** 是否执行了压缩 */
+  wasCompressed: boolean;
+  /** OpenCode决策信息 */
+  openCodeDecision?: {
+    /** 是否检测到溢出 */
+    overflowDetected: boolean;
+    /** 使用的压缩类型 */
+    compactionType: "none" | "prune" | "summary" | "strategy" | "hybrid";
+    /** 溢出严重程度 */
+    severity: "none" | "warning" | "severe";
+    /** 被保护的消息数 */
+    protectedCount: number;
+    /** 工具输出保护信息 */
+    toolProtection?: {
+      protectedTools: number;
+      protectedOutputs: number;
+    };
+  };
+}
+
+/**
+ * 上下文压缩服务
+ *
+ * 功能：
+ * - 提供统一的压缩入口
+ * - 管理压缩策略
+ * - 记录压缩统计
+ */
+export class ContextCompressionService {
+  /**
+   * 策略实例缓存
+   */
+  private strategyCache: Map<string, IContextCompressionStrategy> = new Map();
+
+  /**
+   * OpenCode压缩决策默认配置
+   */
+  private readonly openCodeDefaultConfig: Required<OpenCodeCompactionConfig> = {
+    auto: true,
+    prune: true,
+    overflowThreshold: COMPACTION.OVERFLOW_THRESHOLD,
+    protectTools: true,
+    summaryOnSevere: true,
+    severeThreshold: COMPACTION.SEVERE_THRESHOLD,
+  };
+
+  /**
+   * 默认配置
+   * 注意：enabled 默认为 true，表示默认启用上下文压缩
+   */
+  private readonly defaultConfig: Required<ContextCompressionConfig> = {
+    enabled: true,
+    strategy: "truncate",
+    contextLimit: COMPACTION.DEFAULT_CONTEXT_LIMIT,
+    outputReserve: COMPACTION.DEFAULT_OUTPUT_RESERVE,
+    preserveSystemMessage: true,
+    minMessageCount: 1,
+    openCodeConfig: this.openCodeDefaultConfig,
+  };
+
+  /**
+   * 绝对最小 Token 限制
+   * 即使压缩失败也不能超过此限制
+   */
+  private readonly ABSOLUTE_MIN_TOKENS = COMPACTION.ABSOLUTE_MIN_TOKENS;
+
+  constructor() {
+    logger.debug("[ContextCompressionService] Initialized");
+  }
+
+  /**
+   * 压缩消息用于 LLM 调用（OpenCode决策机制版本）
+   *
+   * 新的压缩决策流程：
+   * 1. OpenCode风格的溢出检测（考虑缓存/输出）
+   * 2. 受保护的修剪（保护工具输出）
+   * 3. 严重溢出时的AI摘要生成
+   * 4. 策略回退（使用原有的4种策略）
+   *
+   * @param messages 原始消息列表
+   * @param modelContextLimit 模型上下文限制
+   * @param options ChatOptions（包含压缩配置）
+   * @returns 压缩结果和统计信息
+   */
+  async compress(
+    messages: Message[],
+    modelContextLimit: number,
+    options?: ChatOptions
+  ): Promise<{ messages: Message[]; stats: CompressionStats }> {
+    // 1. 解析配置
+    const config = this.parseConfig(options, modelContextLimit);
+    const openCodeConfig = config.openCodeConfig;
+
+    // 2. 快速检查：是否需要压缩
+    const currentTokens = TokenEstimator.countMessages(messages);
+    const usableLimit = config.contextLimit - config.outputReserve;
+
+    if (!config.enabled || currentTokens <= usableLimit) {
+      return {
+        messages: [...messages],
+        stats: this.buildStats(messages, currentTokens, currentTokens, config.strategy, false, {
+          overflowDetected: false,
+          compactionType: "none",
+          severity: "none",
+          protectedCount: 0,
+        }),
+      };
+    }
+
+    // 3. OpenCode风格的溢出检测
+    const overflowResult = this.isOverflowOpenCode(messages, modelContextLimit, openCodeConfig);
+
+    // 初始化决策信息
+    const openCodeDecision = {
+      overflowDetected: overflowResult.isOverflow,
+      compactionType: "none" as "none" | "prune" | "summary" | "strategy" | "hybrid",
+      severity: overflowResult.severity,
+      protectedCount: 0,
+      toolProtection: {
+        protectedTools: 0,
+        protectedOutputs: 0,
+      },
+    };
+
+    let resultMessages: Message[] = [...messages];
+    let compactionType: "none" | "prune" | "summary" | "strategy" | "hybrid" = "none";
+
+    try {
+      // 4. 受保护的修剪（如果启用）
+      if (openCodeConfig.auto && openCodeConfig.prune && overflowResult.isOverflow) {
+        const pruneResult = await this.protectedPrune(messages, usableLimit, openCodeConfig);
+
+        if (TokenEstimator.countMessages(pruneResult.messages) <= usableLimit) {
+          resultMessages = pruneResult.messages;
+          openCodeDecision.protectedCount = pruneResult.protectedCount;
+          openCodeDecision.toolProtection = pruneResult.toolProtection;
+          compactionType = "prune";
+
+          logger.debug(
+            `[ContextCompressionService] Protected prune: removed ${pruneResult.removedCount} messages, protected ${pruneResult.protectedCount} messages`
+          );
+        }
+      }
+
+      // 5. 严重溢出时的AI摘要生成
+      if (
+        compactionType === "none" &&
+        openCodeConfig.auto &&
+        openCodeConfig.summaryOnSevere &&
+        overflowResult.severity === "severe"
+      ) {
+        const summaryResult = await this.openCodeSummary(messages, usableLimit, openCodeConfig);
+
+        if (TokenEstimator.countMessages(summaryResult.messages) <= usableLimit) {
+          resultMessages = summaryResult.messages;
+          compactionType = "summary";
+
+          logger.debug(
+            `[ContextCompressionService] OpenCode summary: replaced ${summaryResult.replacedCount} messages with summary (${summaryResult.summaryTokenCount} tokens)`
+          );
+        }
+      }
+
+      // 6. 策略回退（如果OpenCode机制未能解决问题）
+      if (compactionType === "none") {
+        const strategy = this.getStrategy(config.strategy);
+        const compressionConfig: CompressionStrategyConfig = {
+          maxTokens: usableLimit,
+          preserveSystemMessage: config.preserveSystemMessage,
+          minMessageCount: config.minMessageCount,
+        };
+
+        const strategyResult = await strategy.compress(resultMessages, compressionConfig);
+        resultMessages = strategyResult.messages;
+        compactionType = "strategy";
+
+        logger.debug(
+          `[ContextCompressionService] Strategy fallback (${config.strategy}): removed ${strategyResult.removedCount} messages`
+        );
+      }
+
+      openCodeDecision.compactionType = compactionType;
+    } catch (error) {
+      logger.error(`[ContextCompressionService] Error in OpenCode compression: ${error}`);
+
+      // 回退到标准策略
+      const strategy = this.getStrategy(config.strategy);
+      const compressionConfig: CompressionStrategyConfig = {
+        maxTokens: usableLimit,
+        preserveSystemMessage: config.preserveSystemMessage,
+        minMessageCount: config.minMessageCount,
+      };
+
+      const strategyResult = await strategy.compress(messages, compressionConfig);
+      resultMessages = strategyResult.messages;
+      compactionType = "strategy";
+      openCodeDecision.compactionType = "strategy";
+    }
+
+    // 7. 边界兜底：确保不超过绝对最小限制
+    const finalMessages = this.applyAbsoluteLimit(resultMessages, this.ABSOLUTE_MIN_TOKENS);
+
+    // 8. 记录日志
+    logger.debug(
+      `[ContextCompressionService] OpenCode compression completed: ${currentTokens} -> ${TokenEstimator.countMessages(finalMessages)} tokens, ` +
+        `compaction type: ${openCodeDecision.compactionType}, severity: ${openCodeDecision.severity}`
+    );
+
+    // 9. 构建统计信息
+    const finalTokens = TokenEstimator.countMessages(finalMessages);
+    const stats = this.buildStats(
+      messages,
+      currentTokens,
+      finalTokens,
+      config.strategy,
+      true,
+      openCodeDecision
+    );
+
+    return {
+      messages: finalMessages,
+      stats,
+    };
+  }
+
+  /**
+   * 检查消息是否需要压缩
+   */
+  needsCompression(messages: Message[], modelContextLimit: number, options?: ChatOptions): boolean {
+    const config = this.parseConfig(options, modelContextLimit);
+
+    if (!config.enabled) {
+      return false;
+    }
+
+    const strategy = this.getStrategy(config.strategy);
+    const usableLimit = config.contextLimit - config.outputReserve;
+
+    return strategy.needsCompression(messages, usableLimit);
+  }
+
+  /**
+   * 获取可用的压缩策略列表
+   */
+  getAvailableStrategies(): CompressionStrategyType[] {
+    return ["truncate", "prune", "summary", "hybrid"];
+  }
+
+  /**
+   * OpenCode风格的溢出检测
+   *
+   * 考虑缓存和输出空间进行溢出检测
+   *
+   * @param messages 消息列表
+   * @param modelContextLimit 模型上下文限制
+   * @param openCodeConfig OpenCode配置
+   * @returns 溢出检测结果
+   */
+  isOverflowOpenCode(
+    messages: Message[],
+    modelContextLimit: number,
+    openCodeConfig?: OpenCodeCompactionConfig
+  ): {
+    isOverflow: boolean;
+    currentTokens: number;
+    usableLimit: number;
+    overflowAmount: number;
+    severity: "none" | "warning" | "severe";
+    cacheConsideration: number;
+  } {
+    const config = openCodeConfig ?? this.openCodeDefaultConfig;
+    const currentTokens = TokenEstimator.countMessages(messages);
+    const usableLimit = modelContextLimit - config.overflowThreshold;
+    const overflowAmount = Math.max(0, currentTokens - usableLimit);
+
+    // 计算严重程度
+    let severity: "none" | "warning" | "severe" = "none";
+    if (overflowAmount > 0) {
+      const overflowRatio = overflowAmount / usableLimit;
+      if (overflowRatio > config.severeThreshold) {
+        severity = "severe";
+      } else {
+        severity = "warning";
+      }
+    }
+
+    // 缓存考虑（预留空间用于缓存输出）
+    const cacheConsideration = config.overflowThreshold;
+
+    return {
+      isOverflow: currentTokens > usableLimit,
+      currentTokens,
+      usableLimit,
+      overflowAmount,
+      severity,
+      cacheConsideration,
+    };
+  }
+
+  /**
+   * 受保护的修剪
+   *
+   * 智能移除消息，同时保护工具输出等关键内容
+   *
+   * @param messages 消息列表
+   * @param maxTokens 最大Token数
+   * @param openCodeConfig OpenCode配置
+   * @returns 修剪结果
+   */
+  async protectedPrune(
+    messages: Message[],
+    maxTokens: number,
+    openCodeConfig?: OpenCodeCompactionConfig
+  ): Promise<{
+    messages: Message[];
+    removedCount: number;
+    protectedCount: number;
+    toolProtection: {
+      protectedTools: number;
+      protectedOutputs: number;
+    };
+  }> {
+    const config = openCodeConfig ?? this.openCodeDefaultConfig;
+
+    if (!config.prune || !config.protectTools) {
+      // 如果禁用保护修剪，使用标准的truncate策略
+      const result = TokenEstimator.keepRecentMessages(messages, maxTokens);
+      return {
+        messages: result.messages,
+        removedCount: messages.length - result.messages.length,
+        protectedCount: 0,
+        toolProtection: {
+          protectedTools: 0,
+          protectedOutputs: 0,
+        },
+      };
+    }
+
+    const currentTokens = TokenEstimator.countMessages(messages);
+
+    if (currentTokens <= maxTokens) {
+      return {
+        messages: [...messages],
+        removedCount: 0,
+        protectedCount: 0,
+        toolProtection: {
+          protectedTools: 0,
+          protectedOutputs: 0,
+        },
+      };
+    }
+
+    // 识别并保护工具输出消息
+    const protectedMessages: Message[] = [];
+    const removableMessages: Message[] = [];
+    let protectedTools = 0;
+    let protectedOutputs = 0;
+
+    for (const msg of messages) {
+      const isToolOutput = this.isToolOutputMessage(msg);
+      const isToolCall = this.isToolCallMessage(msg);
+
+      if (isToolOutput || isToolCall) {
+        protectedMessages.push(msg);
+        if (isToolCall) {
+          protectedTools++;
+        } else {
+          protectedOutputs++;
+        }
+      } else {
+        removableMessages.push(msg);
+      }
+    }
+
+    // 从后向前遍历可移除消息，保护最新内容
+    const keptMessages: Message[] = [...protectedMessages];
+    let removedCount = 0;
+
+    for (let i = removableMessages.length - 1; i >= 0; i--) {
+      const msg = removableMessages[i];
+      const msgTokens = TokenEstimator.estimateMessage(msg).tokens;
+      const currentKeptTokens = TokenEstimator.countMessages(keptMessages);
+
+      if (currentKeptTokens + msgTokens <= maxTokens) {
+        keptMessages.unshift(msg);
+      } else {
+        removedCount++;
+      }
+    }
+
+    // 如果仍然超出限制，截断可移除消息
+    const finalMessages = TokenEstimator.keepRecentMessages(keptMessages, maxTokens);
+    const finalRemovedCount = removedCount + (keptMessages.length - finalMessages.messages.length);
+
+    return {
+      messages: finalMessages.messages,
+      removedCount: finalRemovedCount,
+      protectedCount: protectedMessages.length,
+      toolProtection: {
+        protectedTools,
+        protectedOutputs,
+      },
+    };
+  }
+
+  /**
+   * 生成OpenCode风格的摘要
+   *
+   * 当发生严重溢出时，使用AI生成摘要替代旧消息
+   *
+   * @param messages 消息列表
+   * @param maxTokens 最大Token数
+   * @param openCodeConfig OpenCode配置
+   * @returns 摘要结果
+   */
+  async openCodeSummary(
+    messages: Message[],
+    maxTokens: number,
+    openCodeConfig?: OpenCodeCompactionConfig
+  ): Promise<{
+    messages: Message[];
+    summaryTokenCount: number;
+    originalCount: number;
+    replacedCount: number;
+  }> {
+    const config = openCodeConfig ?? this.openCodeDefaultConfig;
+
+    if (!config.summaryOnSevere) {
+      // 如果禁用摘要，使用标准策略
+      const result = TokenEstimator.keepRecentMessages(messages, maxTokens);
+      return {
+        messages: result.messages,
+        summaryTokenCount: 0,
+        originalCount: messages.length,
+        replacedCount: 0,
+      };
+    }
+
+    // 保留系统消息和最近的N条消息
+    const systemMessage = messages.find((msg) => msg.role === "system");
+    const recentMessages: Message[] = [];
+    const oldMessages: Message[] = [];
+
+    // 找到系统消息的位置
+    let systemIndex = -1;
+    for (let i = 0; i < messages.length; i++) {
+      if (messages[i].role === "system" && systemIndex === -1) {
+        systemIndex = i;
+      }
+    }
+
+    // 分离新消息和旧消息
+    const keepRecentCount = COMPRESSION.KEEP_RECENT_MESSAGES;
+    let recentCount = 0;
+
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (recentCount < keepRecentCount) {
+        recentMessages.unshift(messages[i]);
+        recentCount++;
+      } else {
+        // 如果是系统消息之前的消息，加入旧消息列表
+        if (systemIndex === -1 || i < systemIndex) {
+          oldMessages.unshift(messages[i]);
+        } else if (systemIndex !== -1 && i === systemIndex) {
+          // 系统消息单独处理
+        }
+      }
+    }
+
+    // 生成摘要
+    const summaryText = this.generateSummaryText(oldMessages);
+    const summaryTokens = TokenEstimator.estimateText(summaryText).tokens;
+
+    // 确保摘要不会超出限制
+    const availableTokens =
+      maxTokens -
+      TokenEstimator.countMessages(recentMessages) -
+      (systemMessage ? TokenEstimator.estimateMessage(systemMessage).tokens : 0);
+
+    if (summaryTokens > availableTokens) {
+      // 摘要太长，截断它
+      const truncatedSummary = this.truncateText(
+        summaryText,
+        availableTokens * this.openCodeDefaultConfig.severeThreshold
+      );
+      return {
+        messages: systemMessage ? [systemMessage, ...recentMessages] : recentMessages,
+        summaryTokenCount: TokenEstimator.estimateText(truncatedSummary).tokens,
+        originalCount: messages.length,
+        replacedCount: oldMessages.length,
+      };
+    }
+
+    // 创建摘要消息
+    const summaryMessage: Message = {
+      role: "assistant",
+      content: `[对话历史摘要] ${summaryText}`,
+    };
+
+    return {
+      messages: systemMessage
+        ? [systemMessage, summaryMessage, ...recentMessages]
+        : [summaryMessage, ...recentMessages],
+      summaryTokenCount: summaryTokens,
+      originalCount: messages.length,
+      replacedCount: oldMessages.length,
+    };
+  }
+
+  /**
+   * 检测消息是否为工具调用消息
+   */
+  private isToolCallMessage(message: Message): boolean {
+    if (typeof message.content === "string") {
+      const content = message.content;
+      // 检查常见的工具调用标记
+      const toolCallPatterns = [
+        /<tool_action\s+type=["']?skill["']?/i,
+        /<tool_action\s+type=["']?mcp["']?/i,
+        /function\s+call/i,
+        /工具调用/i,
+      ];
+
+      return toolCallPatterns.some((pattern) => pattern.test(content));
+    }
+    return false;
+  }
+
+  /**
+   * 检测消息是否为工具输出消息
+   */
+  private isToolOutputMessage(message: Message): boolean {
+    if (typeof message.content === "string") {
+      const content = message.content;
+      // 检查常见的工具输出标记
+      const toolOutputPatterns = [
+        /<tool_action\s+result/i,
+        /工具输出/i,
+        /执行结果/i,
+        /\[工具调用结束\]/i,
+        /<observation>/i,
+      ];
+
+      return toolOutputPatterns.some((pattern) => pattern.test(content));
+    }
+    return false;
+  }
+
+  /**
+   * 生成对话摘要文本
+   */
+  private generateSummaryText(messages: Message[]): string {
+    if (messages.length === 0) {
+      return "无早期对话记录";
+    }
+
+    // 统计对话信息
+    const userMessages = messages.filter((m) => m.role === "user");
+    const assistantMessages = messages.filter((m) => m.role === "assistant");
+    const toolCalls = messages.filter((m) => this.isToolCallMessage(m));
+
+    // 提取用户请求的主要话题
+    const topics: string[] = [];
+    for (const msg of userMessages.slice(0, 3)) {
+      // 提取消息中的关键内容（取前50个字符）
+      const content = typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content);
+      const truncated = content.substring(0, 50);
+      if (truncated) {
+        topics.push(truncated);
+      }
+    }
+
+    return `对话共 ${messages.length} 条消息，其中用户消息 ${userMessages.length} 条，助手消息 ${assistantMessages.length} 条，工具调用 ${toolCalls.length} 次。主要讨论话题：${topics.join("; ")}...`;
+  }
+
+  /**
+   * 截断文本以适应Token限制
+   */
+  private truncateText(text: string, maxTokens: number): string {
+    const maxChars = maxTokens * 4; // 估算：4字符/token
+    if (text.length <= maxChars) {
+      return text;
+    }
+    return text.substring(0, maxChars - 3) + "...";
+  }
+
+  /**
+   * 解析OpenCode配置
+   *
+   * @param config 原始配置
+   * @returns 标准化后的配置
+   */
+  parseOpenCodeConfig(config?: OpenCodeCompactionConfig): Required<OpenCodeCompactionConfig> {
+    return {
+      auto: config?.auto ?? this.openCodeDefaultConfig.auto,
+      prune: config?.prune ?? this.openCodeDefaultConfig.prune,
+      overflowThreshold: config?.overflowThreshold ?? this.openCodeDefaultConfig.overflowThreshold,
+      protectTools: config?.protectTools ?? this.openCodeDefaultConfig.protectTools,
+      summaryOnSevere: config?.summaryOnSevere ?? this.openCodeDefaultConfig.summaryOnSevere,
+      severeThreshold: config?.severeThreshold ?? this.openCodeDefaultConfig.severeThreshold,
+    };
+  }
+
+  /**
+   * 解析配置
+   */
+  private parseConfig(
+    options: ChatOptions | undefined,
+    modelContextLimit: number
+  ): Required<ContextCompressionConfig> {
+    // 从 ChatOptions 中提取压缩配置
+    const compressionConfig = options?.contextCompression;
+
+    return {
+      enabled: compressionConfig?.enabled ?? this.defaultConfig.enabled,
+      strategy:
+        (compressionConfig?.strategy as CompressionStrategyType) ?? this.defaultConfig.strategy,
+      contextLimit: modelContextLimit,
+      outputReserve: compressionConfig?.outputReserve ?? this.defaultConfig.outputReserve,
+      preserveSystemMessage:
+        compressionConfig?.preserveSystemMessage ?? this.defaultConfig.preserveSystemMessage,
+      minMessageCount: compressionConfig?.minMessageCount ?? this.defaultConfig.minMessageCount,
+      openCodeConfig: this.parseOpenCodeConfig(compressionConfig?.openCodeConfig),
+    };
+  }
+
+  /**
+   * 获取策略实例（带缓存）
+   */
+  private getStrategy(type: CompressionStrategyType): IContextCompressionStrategy {
+    let strategy = this.strategyCache.get(type);
+
+    if (!strategy) {
+      switch (type) {
+        case "truncate":
+          strategy = new TruncateStrategy();
+          break;
+        case "prune":
+          strategy = new PruneStrategy();
+          break;
+        case "summary":
+          strategy = new SummaryStrategy();
+          break;
+        case "hybrid":
+          strategy = new HybridStrategy();
+          break;
+        default:
+          logger.warn(`[ContextCompressionService] Unknown strategy '${type}', using 'truncate'`);
+          strategy = new TruncateStrategy();
+      }
+      this.strategyCache.set(type, strategy);
+    }
+
+    return strategy;
+  }
+
+  /**
+   * 应用绝对限制兜底
+   */
+  private applyAbsoluteLimit(messages: Message[], maxTokens: number): Message[] {
+    if (maxTokens <= 0) {
+      return [];
+    }
+
+    const result = TokenEstimator.keepRecentMessages(messages, maxTokens);
+    return result.messages;
+  }
+
+  /**
+   * 构建压缩统计信息
+   */
+  private buildStats(
+    messages: Message[],
+    originalTokens: number,
+    compactedTokens: number,
+    strategy: string,
+    wasCompressed: boolean,
+    openCodeDecision?: {
+      overflowDetected: boolean;
+      compactionType: "none" | "prune" | "summary" | "strategy" | "hybrid";
+      severity: "none" | "warning" | "severe";
+      protectedCount: number;
+      toolProtection?: {
+        protectedTools: number;
+        protectedOutputs: number;
+      };
+    }
+  ): CompressionStats {
+    const savedTokens = originalTokens - compactedTokens;
+    const savingsRatio = originalTokens > 0 ? savedTokens / originalTokens : 0;
+
+    return {
+      originalMessageCount: messages.length,
+      compactedMessageCount: messages.length,
+      originalTokens,
+      compactedTokens,
+      savedTokens,
+      savingsRatio,
+      strategy,
+      wasCompressed,
+      openCodeDecision,
+    };
+  }
+}
+
+/**
+ * 压缩服务单例
+ */
+let serviceInstance: ContextCompressionService | null = null;
+
+export function getContextCompressionService(): ContextCompressionService {
+  if (!serviceInstance) {
+    serviceInstance = new ContextCompressionService();
+  }
+  return serviceInstance;
+}
+````
+
+## File: src/services/context-compression/index.ts
+````typescript
+/**
+ * 上下文压缩模块导出
+ */
+
+export * from "./TokenEstimator";
+export * from "./ContextCompressionService";
+export * from "./strategies";
+````
+
+## File: src/services/context-compression/TokenEstimator.ts
+````typescript
+/**
+ * TokenEstimator - Token 估算工具
+ *
+ * 提供消息和文本的 Token 数量估算功能
+ *
+ * 估算规则：
+ * - 平均 4 个字符 ≈ 1 Token（适用于英文）
+ * - 中文约 1-2 字符/Token
+ * - 消息角色标记额外 +4 Tokens
+ */
+
+import { Message, ContentPart } from "../../types";
+
+/**
+ * Token 估算结果
+ */
+export interface TokenEstimationResult {
+  /** 估算的 Token 数量 */
+  tokens: number;
+  /** 字符数量 */
+  characters: number;
+  /** 消息角色（如果是消息估算） */
+  role?: string;
+}
+
+/**
+ * 消息保留结果
+ */
+export interface KeepRecentResult {
+  /** 保留的消息列表 */
+  messages: Message[];
+  /** 原始 Token 数 */
+  originalTokens: number;
+  /** 压缩后 Token 数 */
+  compactedTokens: number;
+  /** 被移除的消息 ID 列表 */
+  removedIds: string[];
+}
+
+/**
+ * Token 估算器
+ */
+export class TokenEstimator {
+  /**
+   * 默认字符/Toke 比率
+   * 参考: OpenAI 估算方式，平均 4 字符/token
+   */
+  private static readonly CHARS_PER_TOKEN = 4;
+
+  /**
+   * 角色标记的开销（Tokens）
+   * 格式: "<|im_start|>{role}<|im_end|>\n"
+   */
+  private static readonly ROLE_TOKEN_OVERHEAD = 4;
+
+  /**
+   * 估算文本的 Token 数量
+   *
+   * @param text 输入文本
+   * @returns 估算结果
+   */
+  static estimateText(text: string): TokenEstimationResult {
+    if (!text || typeof text !== "string") {
+      return { tokens: 0, characters: 0 };
+    }
+
+    const characters = text.length;
+    const tokens = this.calculateTokens(characters);
+
+    return { tokens, characters };
+  }
+
+  /**
+   * 估算 ContentPart 的 Token 数量
+   *
+   * @param part ContentPart
+   * @returns 估算结果
+   */
+  static estimateContentPart(part: ContentPart): TokenEstimationResult {
+    if (part.type === "text" && part.text) {
+      return this.estimateText(part.text);
+    }
+
+    if (part.type === "image_url") {
+      // 图片 URL 估算
+      const url = typeof part.image_url === "string" ? part.image_url : part.image_url?.url || "";
+      const characters = url.length;
+      const tokens = Math.ceil(characters / this.CHARS_PER_TOKEN) + 10; // +10 考虑 JSON 开销
+
+      return { tokens, characters };
+    }
+
+    return { tokens: 0, characters: 0 };
+  }
+
+  /**
+   * 估算单条消息的 Token 数量
+   *
+   * @param message Message 对象
+   * @returns 估算结果
+   */
+  static estimateMessage(message: Message): TokenEstimationResult {
+    if (!message) {
+      return { tokens: 0, characters: 0, role: undefined };
+    }
+
+    let totalTokens = this.ROLE_TOKEN_OVERHEAD; // 角色标记开销
+    let totalCharacters = 0;
+
+    if (typeof message.content === "string") {
+      // 纯文本消息
+      const result = this.estimateText(message.content);
+      totalTokens += result.tokens;
+      totalCharacters += result.characters;
+    } else if (Array.isArray(message.content)) {
+      // 多模态消息（包含文本和图片）
+      for (const part of message.content) {
+        const result = this.estimateContentPart(part);
+        totalTokens += result.tokens;
+        totalCharacters += result.characters;
+      }
+    }
+
+    return {
+      tokens: totalTokens,
+      characters: totalCharacters,
+      role: message.role,
+    };
+  }
+
+  /**
+   * 估算多条消息的 Token 数量
+   *
+   * @param messages Message 数组
+   * @returns 总 Token 数
+   */
+  static countMessages(messages: Message[]): number {
+    if (!messages || messages.length === 0) {
+      return 0;
+    }
+
+    return messages.reduce((sum, msg) => {
+      const result = this.estimateMessage(msg);
+      return sum + result.tokens;
+    }, 0);
+  }
+
+  /**
+   * 保留最近的 N 条消息（在 Token 限制内）
+   *
+   * 从后向前遍历，保留最新的消息，直到 Token 达到限制
+   *
+   * @param messages 消息列表
+   * @param maxTokens 最大 Token 数
+   * @returns 保留结果
+   */
+  static keepRecentMessages(messages: Message[], maxTokens: number): KeepRecentResult {
+    if (!messages || messages.length === 0) {
+      return {
+        messages: [],
+        originalTokens: 0,
+        compactedTokens: 0,
+        removedIds: [],
+      };
+    }
+
+    const originalTokens = this.countMessages(messages);
+    const kept: Message[] = [];
+    const removedIds: string[] = [];
+
+    // 从后向前遍历，保留最新的消息
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      const msgTokens = this.estimateMessage(msg).tokens;
+      const currentTokens = this.countMessages(kept);
+
+      if (currentTokens + msgTokens <= maxTokens) {
+        // 可以保留，将消息插入到开头
+        kept.unshift(msg);
+      } else {
+        // 不能保留，记录被移除的消息 ID
+        const msgId = (msg as any).id || `msg_${i}`;
+        removedIds.push(msgId);
+      }
+    }
+
+    return {
+      messages: kept,
+      originalTokens,
+      compactedTokens: this.countMessages(kept),
+      removedIds,
+    };
+  }
+
+  /**
+   * 估算对话历史的 Token 使用情况
+   *
+   * @param messages 消息列表
+   * @param systemPrompt 系统提示词
+   * @returns 总 Token 数
+   */
+  static countConversation(messages: Message[], systemPrompt?: string): number {
+    let total = this.countMessages(messages);
+
+    if (systemPrompt) {
+      total += this.estimateText(systemPrompt).tokens;
+    }
+
+    return total;
+  }
+
+  /**
+   * 计算字符对应的 Token 数量
+   *
+   * @param characters 字符数
+   * @returns Token 数
+   */
+  private static calculateTokens(characters: number): number {
+    if (characters <= 0) {
+      return 0;
+    }
+    // 使用 ceil 确保不会低估 Token 数量
+    return Math.ceil(characters / this.CHARS_PER_TOKEN);
+  }
+
+  /**
+   * 估算压缩后可以节省的 Token 数量
+   *
+   * @param originalMessages 原始消息
+   * @param maxTokens 最大 Token 数
+   * @returns 可节省的 Token 数量估算
+   */
+  static estimateSavings(originalMessages: Message[], maxTokens: number): number {
+    const original = this.countMessages(originalMessages);
+
+    if (original <= maxTokens) {
+      return 0;
+    }
+
+    return original - maxTokens;
+  }
+
+  /**
+   * 计算消息是否可以容纳在限制内
+   *
+   * @param message 单条消息
+   * @param maxTokens 最大 Token 数
+   * @returns 是否可以容纳
+   */
+  static canFitMessage(message: Message, maxTokens: number): boolean {
+    const tokens = this.estimateMessage(message).tokens;
+    return tokens <= maxTokens;
+  }
+
+  /**
+   * 估算需要保留多少条消息才能在限制内
+   *
+   * @param messages 消息列表
+   * @param maxTokens 最大 Token 数
+   * @returns 需要保留的消息数量
+   */
+  static countNeededMessages(messages: Message[], maxTokens: number): number {
+    const result = this.keepRecentMessages(messages, maxTokens);
+    return result.messages.length;
+  }
+}
+````
+
 ## File: src/services/embedding/BatchEmbeddingService.ts
 ````typescript
 /**
@@ -6200,7 +16065,6 @@ import {
   DisclosureLevel,
   DisclosureStrategy,
   DisclosureContent,
-  DisclosureOptions,
   HybridRetrievalError,
   HybridRetrievalErrorCode,
 } from "../../types/enhanced-skill";
@@ -6282,8 +16146,6 @@ export interface DisclosureManagerConfigV2 extends DisclosureManagerConfig {
   parallelLoad: { enabled: boolean; maxConcurrency: number };
   metrics: { enabled: boolean; sampleRate: number };
 }
-
-// ==================== Phase 2: Decision Manager Implementation ====================
 
 /**
  * 决策管理器实现
@@ -6525,20 +16387,117 @@ export const DEFAULT_DISCLOSURE_CONFIG_V2: DisclosureManagerConfigV2 = {
 };
 
 /**
- * DisclosureManager implementation
+ * Get disclosure options for getDisclosure method
+ */
+export interface GetDisclosureOptions {
+  score: number;
+  maxTokens: number;
+}
+
+/**
+ * Disclosure manager implementation
  * Manages three-tier disclosure mechanism
  */
 export class DisclosureManager implements IDisclosureManager {
   private readonly _logger = logger;
-  private readonly config: DisclosureManagerConfig;
+  private readonly config: DisclosureManagerConfigV2;
+  private readonly _decisionManager: IDisclosureDecisionManager;
+  private readonly _cache: IDisclosureCache;
 
-  constructor(config?: Partial<DisclosureManagerConfig>) {
-    this.config = { ...DEFAULT_DISCLOSURE_CONFIG, ...config };
+  constructor(config?: Partial<DisclosureManagerConfigV2>) {
+    this.config = { ...DEFAULT_DISCLOSURE_CONFIG_V2, ...config };
+    this._decisionManager = new DisclosureDecisionManager(this.config.thresholds);
+    this._cache = new DisclosureCache(this.config.cache);
+
     this._logger.info("[DisclosureManager] Initialized with config:", {
+      enabled: this.config.enabled,
       strategy: this.config.strategy,
-      adaptiveMaxTokens: this.config.adaptiveMaxTokens,
-      preferMetadataBelow: this.config.preferMetadataBelow,
+      thresholds: this.config.thresholds,
+      l1MaxTokens: this.config.l1MaxTokens,
+      l2MaxTokens: this.config.l2MaxTokens,
+      cacheEnabled: this.config.cache.enabled,
     });
+  }
+
+  /**
+   * Get disclosure content for a tool by ID
+   * This is the main entry point used by tests
+   */
+  async getDisclosure(id: string, options: GetDisclosureOptions): Promise<DisclosureContent> {
+    const { score, maxTokens } = options;
+
+    // Check cache first
+    const cacheKey: DisclosureCacheKey = {
+      id,
+      level: DisclosureLevel.METADATA,
+      hash: String(score),
+    };
+
+    const cached = this._cache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    // Use decision manager to determine appropriate level
+    const decisionInput: DisclosureDecisionInput = {
+      result: {
+        id,
+        name: id,
+        description: "",
+        unifiedScore: score,
+        scores: { vector: score, keyword: score, semantic: score, tag: score },
+        ranks: { vector: 1, keyword: 1, semantic: 1, tag: 1 },
+        tags: [],
+        toolType: "skill",
+        disclosure: {
+          level: DisclosureLevel.METADATA,
+          name: id,
+          description: "",
+          tokenCount: 0,
+        },
+      },
+      score,
+      maxTokens,
+    };
+
+    const decision = this._decisionManager.decide(decisionInput);
+
+    // Get disclosure content based on decision
+    const result: UnifiedRetrievalResult = {
+      id,
+      name: id,
+      description: "",
+      unifiedScore: score,
+      scores: { vector: score, keyword: score, semantic: score, tag: score },
+      ranks: { vector: 1, keyword: 1, semantic: 1, tag: 1 },
+      tags: [],
+      toolType: "skill",
+      disclosure: {
+        level: DisclosureLevel.METADATA,
+        name: id,
+        description: "",
+        tokenCount: 0,
+      },
+    };
+
+    const content = this.getDisclosureContent(result, decision.level);
+
+    // Cache the result
+    const contentCacheKey: DisclosureCacheKey = {
+      id,
+      level: decision.level,
+      hash: String(score),
+    };
+    this._cache.set(contentCacheKey, content);
+
+    return content;
+  }
+
+  /**
+   * Get the cache instance
+   */
+  getCache(): IDisclosureCache {
+    return this._cache;
   }
 
   /**
@@ -6696,14 +16655,24 @@ export class DisclosureManager implements IDisclosureManager {
   /**
    * Extract examples from result metadata
    */
-  private extractExamples(result: UnifiedRetrievalResult): string[] {
+  private extractExamples(
+    result: UnifiedRetrievalResult
+  ): Array<{ input: string; output: string }> {
     if (result.metadata && typeof result.metadata === "object") {
       const metadata = result.metadata as Record<string, unknown>;
       if (Array.isArray(metadata.examples)) {
-        return metadata.examples as string[];
+        const examples = metadata.examples as string[];
+        return examples.map((ex, idx) => ({
+          input: `Example ${idx + 1} input`,
+          output: ex,
+        }));
       }
       if (Array.isArray(metadata.example)) {
-        return metadata.example as string[];
+        const examples = metadata.example as string[];
+        return examples.map((ex, idx) => ({
+          input: `Example ${idx + 1} input`,
+          output: ex,
+        }));
       }
     }
     return [];
@@ -6712,23 +16681,37 @@ export class DisclosureManager implements IDisclosureManager {
   /**
    * Extract resources from result metadata
    */
-  private extractResources(result: UnifiedRetrievalResult): string[] {
+  private extractResources(
+    result: UnifiedRetrievalResult
+  ): Array<{ type: string; path: string; description: string }> {
     if (result.metadata && typeof result.metadata === "object") {
       const metadata = result.metadata as Record<string, unknown>;
       if (Array.isArray(metadata.resources)) {
-        return metadata.resources as string[];
+        const resources = metadata.resources as string[];
+        return resources.map((res, idx) => ({
+          type: "file",
+          path: res,
+          description: `Resource ${idx + 1}`,
+        }));
       }
       if (Array.isArray(metadata.relatedFiles)) {
-        return metadata.relatedFiles as string[];
+        const files = metadata.relatedFiles as string[];
+        return files.map((file, idx) => ({
+          type: "file",
+          path: file,
+          description: `Related file ${idx + 1}`,
+        }));
       }
       if (Array.isArray(metadata.dependencies)) {
-        return metadata.dependencies as string[];
-      }
-      if (result.path) {
-        return [result.path];
+        const deps = metadata.dependencies as string[];
+        return deps.map((dep, idx) => ({
+          type: "dependency",
+          path: dep,
+          description: `Dependency ${idx + 1}`,
+        }));
       }
     }
-    return result.path ? [result.path] : [];
+    return [];
   }
 
   /**
@@ -6938,6 +16921,8 @@ export class HybridRetrievalEngine implements IHybridRetrievalEngine {
       fusionTime: 0,
       resultCount: 0,
       cacheHit: false,
+      cacheHits: 0,
+      cacheMisses: 0,
     };
 
     this._logger.info("[HybridRetrievalEngine] Initialized", {
@@ -7325,14 +17310,24 @@ export class HybridRetrievalEngine implements IHybridRetrievalEngine {
   /**
    * Extract examples from result metadata
    */
-  private extractExamples(result: UnifiedRetrievalResult): string[] {
+  private extractExamples(
+    result: UnifiedRetrievalResult
+  ): Array<{ input: string; output: string }> {
     if (result.metadata && typeof result.metadata === "object") {
       const metadata = result.metadata as Record<string, unknown>;
       if (Array.isArray(metadata.examples)) {
-        return metadata.examples as string[];
+        const examples = metadata.examples as string[];
+        return examples.map((ex, idx) => ({
+          input: `Example ${idx + 1} input`,
+          output: ex,
+        }));
       }
       if (Array.isArray(metadata.example)) {
-        return metadata.example as string[];
+        const examples = metadata.example as string[];
+        return examples.map((ex, idx) => ({
+          input: `Example ${idx + 1} input`,
+          output: ex,
+        }));
       }
     }
     return [];
@@ -7341,20 +17336,37 @@ export class HybridRetrievalEngine implements IHybridRetrievalEngine {
   /**
    * Extract resources from result metadata
    */
-  private extractResources(result: UnifiedRetrievalResult): string[] {
+  private extractResources(
+    result: UnifiedRetrievalResult
+  ): Array<{ type: string; path: string; description: string }> {
     if (result.metadata && typeof result.metadata === "object") {
       const metadata = result.metadata as Record<string, unknown>;
       if (Array.isArray(metadata.resources)) {
-        return metadata.resources as string[];
+        const resources = metadata.resources as string[];
+        return resources.map((res, idx) => ({
+          type: "file",
+          path: res,
+          description: `Resource ${idx + 1}`,
+        }));
       }
       if (Array.isArray(metadata.relatedFiles)) {
-        return metadata.relatedFiles as string[];
+        const files = metadata.relatedFiles as string[];
+        return files.map((file, idx) => ({
+          type: "file",
+          path: file,
+          description: `Related file ${idx + 1}`,
+        }));
       }
       if (Array.isArray(metadata.dependencies)) {
-        return metadata.dependencies as string[];
+        const deps = metadata.dependencies as string[];
+        return deps.map((dep, idx) => ({
+          type: "dependency",
+          path: dep,
+          description: `Dependency ${idx + 1}`,
+        }));
       }
     }
-    return result.path ? [result.path] : [];
+    return result.path ? [{ type: "file", path: result.path, description: "Main resource" }] : [];
   }
 
   /**
@@ -8550,6 +18562,669 @@ export class LanceDBConnectionPool {
 
 // Import path module at the end to avoid circular dependencies
 import * as path from "path";
+````
+
+## File: src/services/tool-retrieval/MCPToolSupport.ts
+````typescript
+/**
+ * MCPToolSupport - MCP Tool Support
+ *
+ * Handles MCP tool indexing, embedding generation, and search.
+ */
+
+import { createHash } from 'crypto';
+import { logger } from '../../utils/logger';
+import {
+  MCPTool,
+  MCPToolRetrievalResult,
+  EmbeddingVector,
+  ToolsTable
+} from './types';
+import { IEmbeddingGenerator } from './EmbeddingGenerator';
+import { ILanceDBConnection } from './LanceDBConnection';
+
+/**
+ * MCPToolSupport interface
+ */
+export interface IMCPToolSupport {
+  indexTools(tools: MCPTool[]): Promise<void>;
+  getEmbeddingForTool(tool: MCPTool): Promise<EmbeddingVector>;
+  removeTool(toolName: string): Promise<void>;
+  searchTools(query: string, limit?: number): Promise<MCPToolRetrievalResult[]>;
+}
+
+/**
+ * MCPToolSupport implementation
+ */
+export class MCPToolSupport implements IMCPToolSupport {
+  private readonly embeddingGenerator: IEmbeddingGenerator;
+  private readonly connection: ILanceDBConnection;
+  private readonly defaultLimit: number;
+
+  constructor(
+    embeddingGenerator: IEmbeddingGenerator,
+    connection: ILanceDBConnection,
+    defaultLimit: number = 5
+  ) {
+    this.embeddingGenerator = embeddingGenerator;
+    this.connection = connection;
+    this.defaultLimit = defaultLimit;
+  }
+
+  /**
+   * Index MCP tools
+   */
+  async indexTools(tools: MCPTool[]): Promise<void> {
+    try {
+      logger.info(`[MCPToolSupport] Indexing ${tools.length} MCP tools...`);
+
+      const records: ToolsTable[] = [];
+
+      for (const tool of tools) {
+        try {
+          // Generate unique ID
+          const toolId = this.generateToolId(tool);
+
+          // Generate vector embedding
+          const vector = await this.getEmbeddingForTool(tool);
+
+          // Prepare record
+          const record: ToolsTable = {
+            id: toolId,
+            name: tool.name,
+            description: tool.description,
+            tags: this.extractToolTags(tool),
+            path: null,
+            version: null,
+            source: tool.metadata?.source as string || tool.name,
+            toolType: 'mcp',
+            metadata: JSON.stringify(tool.metadata || {}),
+            vector: vector.values,
+            indexedAt: new Date()
+          };
+
+          records.push(record);
+        } catch (error) {
+          logger.error(`[MCPToolSupport] Failed to index tool ${tool.name}:`, error);
+        }
+      }
+
+      if (records.length > 0) {
+        // Remove existing records
+        for (const record of records) {
+          await this.removeToolById(record.id);
+        }
+
+        // Batch insert
+        await this.connection.addRecords(records);
+        logger.info(`[MCPToolSupport] Successfully indexed ${records.length} MCP tools`);
+      } else {
+        logger.warn('[MCPToolSupport] No tools were indexed');
+      }
+
+    } catch (error) {
+      logger.error('[MCPToolSupport] Failed to index tools:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get embedding for an MCP tool
+   */
+  async getEmbeddingForTool(tool: MCPTool): Promise<EmbeddingVector> {
+    return this.embeddingGenerator.generateForTool(tool);
+  }
+
+  /**
+   * Remove a tool from the index
+   */
+  async removeTool(toolName: string): Promise<void> {
+    const toolId = this.generateToolId({ name: toolName, description: '', inputSchema: { schema: {} } });
+    await this.removeToolById(toolId);
+  }
+
+  /**
+   * Remove tool by ID
+   */
+  private async removeToolById(toolId: string): Promise<void> {
+    try {
+      await this.connection.deleteById(toolId);
+      logger.debug(`[MCPToolSupport] Removed tool: ${toolId}`);
+    } catch (error) {
+      logger.error(`[MCPToolSupport] Failed to remove tool ${toolId}:`, error);
+    }
+  }
+
+  /**
+   * Search MCP tools
+   */
+  async searchTools(query: string, limit?: number): Promise<MCPToolRetrievalResult[]> {
+    const effectiveLimit = limit ?? this.defaultLimit;
+
+    try {
+      logger.info(`[MCPToolSupport] Searching MCP tools for: "${query}"`);
+
+      // Generate query embedding
+      const vector = await this.embeddingGenerator.generateForText(query);
+
+      // Get table and search
+      const table = await this.connection.getTable();
+      if (!table) {
+        logger.warn('[MCPToolSupport] Table not initialized');
+        return [];
+      }
+
+      // Execute search
+      const queryBuilder = table.query()
+        .nearestTo(vector.values)
+        .distanceType('cosine')
+        .limit(effectiveLimit * 2);
+
+      // Filter by MCP tools
+      const results = await queryBuilder.toArray();
+
+      // Format results
+      const formatted: MCPToolRetrievalResult[] = [];
+
+      for (const result of results.slice(0, effectiveLimit)) {
+        try {
+          const data = this.extractResultData(result);
+          const score = this.calculateScore(result);
+
+          // Only include MCP tools
+          if (data.toolType === 'mcp') {
+            formatted.push({
+              name: data.name,
+              score,
+              description: data.description,
+              parameters: this.extractParameters(data.metadata)
+            });
+          }
+        } catch (error) {
+          logger.warn('[MCPToolSupport] Failed to format search result:', error);
+        }
+      }
+
+      logger.info(`[MCPToolSupport] Found ${formatted.length} MCP tool(s)`);
+      return formatted;
+
+    } catch (error) {
+      logger.error(`[MCPToolSupport] Search failed for query "${query}":`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Generate unique tool ID
+   */
+  private generateToolId(tool: MCPTool): string {
+    const source = tool.metadata?.source as string || tool.name;
+    return createHash('md5')
+      .update(`mcp:${source}:${tool.name}`)
+      .digest('hex');
+  }
+
+  /**
+   * Extract tags from tool
+   */
+  private extractTags(tool: MCPTool): string[] {
+    return tool.metadata?.tags as string[] || [];
+  }
+
+  /**
+   * Extract tool tags (internal)
+   */
+  private extractToolTags(tool: MCPTool): string[] {
+    const tags: string[] = [];
+
+    if (tool.metadata) {
+      if (Array.isArray(tool.metadata.tags)) {
+        tags.push(...(tool.metadata.tags as string[]));
+      }
+      if (tool.metadata.source) {
+        tags.push(`mcp:${tool.metadata.source}`);
+      }
+    }
+
+    return tags;
+  }
+
+  /**
+   * Extract parameters from metadata
+   */
+  private extractParameters(metadata: string): Record<string, unknown> {
+    try {
+      if (typeof metadata === 'string') {
+        const parsed = JSON.parse(metadata);
+        return parsed.inputSchema?.properties || {};
+      }
+      return {};
+    } catch {
+      return {};
+    }
+  }
+
+  /**
+   * Extract result data
+   */
+  private extractResultData(result: unknown): ToolsTable {
+    if (result && typeof result === 'object') {
+      const r = result as Record<string, unknown>;
+      if ('item' in r) {
+        return r.item as ToolsTable;
+      }
+    }
+    return result as ToolsTable;
+  }
+
+  /**
+   * Calculate similarity score
+   */
+  private calculateScore(result: unknown): number {
+    if (result && typeof result === 'object') {
+      const r = result as Record<string, number>;
+      if (r._distance !== undefined) {
+        return Math.max(0, 1 - r._distance);
+      }
+      if (r.score !== undefined) {
+        return r.score;
+      }
+    }
+    return 0;
+  }
+}
+````
+
+## File: src/services/tool-retrieval/SkillIndexer.ts
+````typescript
+/**
+ * SkillIndexer - Skill Indexing
+ *
+ * Handles skill indexing operations: add, remove, update, and scan.
+ */
+
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import { createHash } from 'crypto';
+import matter from 'gray-matter';
+import { logger } from '../../utils/logger';
+import {
+  SkillData,
+  ToolsTable,
+  VectorizedFileData,
+  ToolError,
+  ToolErrorCode
+} from './types';
+import { ILanceDBConnection } from './LanceDBConnection';
+import { IEmbeddingGenerator } from './EmbeddingGenerator';
+
+/**
+ * SkillIndexer interface
+ */
+export interface ISkillIndexer {
+  addSkill(skill: SkillData): Promise<void>;
+  removeSkill(skillId: string): Promise<void>;
+  updateSkill(skill: SkillData): Promise<void>;
+  addSkillsBatch(skills: SkillData[]): Promise<void>;
+  scanAndIndex(dirPath: string): Promise<number>;
+  checkReindexRequired(skillPath: string, vectorizedFile: string): Promise<boolean>;
+  readSkillMetadata(filePath: string): Promise<SkillData | null>;
+  forceReindexAll(skillsDir?: string): Promise<void>;
+}
+
+/**
+ * SkillIndexer implementation
+ */
+export class SkillIndexer implements ISkillIndexer {
+  private readonly connection: ILanceDBConnection;
+  private readonly embeddingGenerator: IEmbeddingGenerator;
+  private readonly defaultSkillsDir: string;
+
+  constructor(
+    connection: ILanceDBConnection,
+    embeddingGenerator: IEmbeddingGenerator,
+    defaultSkillsDir: string = './.data/skills'
+  ) {
+    this.connection = connection;
+    this.embeddingGenerator = embeddingGenerator;
+    this.defaultSkillsDir = defaultSkillsDir;
+  }
+
+  /**
+   * Add a skill to the index
+   */
+  async addSkill(skill: SkillData): Promise<void> {
+    try {
+      logger.info(`[SkillIndexer] Adding skill: ${skill.name}`);
+
+      // Generate skill ID
+      const skillId = this.generateSkillId(skill.name);
+
+      // Generate vector embedding
+      const vector = await this.embeddingGenerator.generateForSkill(skill);
+
+      // Prepare record data
+      const record = this.prepareSkillRecord(skill, skillId, vector.values);
+
+      // Remove existing skill (update mode)
+      await this.removeSkill(skillId);
+
+      // Add to table
+      const table = await this.connection.getTable();
+      if (table) {
+        await table.add([record as unknown as Record<string, unknown>]);
+        logger.info(`[SkillIndexer] Skill indexed: ${skill.name} (${vector.values.length} dimensions)`);
+      }
+
+    } catch (error) {
+      logger.error(`[SkillIndexer] Failed to add skill ${skill.name}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Remove a skill from the index
+   */
+  async removeSkill(skillId: string): Promise<void> {
+    try {
+      logger.debug(`[SkillIndexer] Removing skill: ${skillId}`);
+      await this.connection.deleteById(skillId);
+    } catch (error) {
+      logger.warn(`[SkillIndexer] Failed to remove skill ${skillId}:`, error);
+    }
+  }
+
+  /**
+   * Update a skill in the index
+   */
+  async updateSkill(skill: SkillData): Promise<void> {
+    await this.addSkill(skill);
+  }
+
+  /**
+   * Batch add skills
+   */
+  async addSkillsBatch(skills: SkillData[]): Promise<void> {
+    const records: ToolsTable[] = [];
+
+    for (const skill of skills) {
+      try {
+        const skillId = this.generateSkillId(skill.name);
+        const vector = await this.embeddingGenerator.generateForSkill(skill);
+        const record = this.prepareSkillRecord(skill, skillId, vector.values);
+        records.push(record);
+      } catch (error) {
+        logger.warn(`[SkillIndexer] Failed to index skill ${skill.name}:`, error);
+      }
+    }
+
+    if (records.length > 0) {
+      await this.connection.addRecords(records);
+      logger.info(`[SkillIndexer] Batch indexed ${records.length} skills`);
+    }
+  }
+
+  /**
+   * Scan directory and index all skills
+   */
+  async scanAndIndex(dirPath: string): Promise<number> {
+    try {
+      logger.info(`[SkillIndexer] Scanning skills directory: ${dirPath}`);
+
+      // Check if directory exists
+      try {
+        await fs.access(dirPath);
+      } catch {
+        logger.warn(`[SkillIndexer] Skills directory does not exist: ${dirPath}`);
+        return 0;
+      }
+
+      // Get all skill directories
+      const entries = await fs.readdir(dirPath, { withFileTypes: true });
+      const skillDirs = entries
+        .filter(entry => entry.isDirectory())
+        .map(entry => entry.name);
+
+      logger.info(`[SkillIndexer] Found ${skillDirs.length} skill directories`);
+
+      // Index each skill
+      let indexedCount = 0;
+      let skippedCount = 0;
+
+      for (const skillName of skillDirs) {
+        try {
+          const skillPath = path.join(dirPath, skillName);
+          const vectorizedFile = path.join(skillPath, '.vectorized');
+
+          // Check if reindexing is needed
+          let needReindex = true;
+          if (await this.fileExists(vectorizedFile)) {
+            needReindex = await this.checkReindexRequired(skillPath, vectorizedFile);
+          }
+
+          if (needReindex) {
+            // Read skill metadata
+            const skillData = await this.readSkillMetadata(skillPath);
+
+            if (skillData) {
+              // Index skill
+              await this.addSkill({
+                ...skillData,
+                filePath: skillPath,
+                id: this.generateSkillId(skillData.name)
+              });
+
+              // Update .vectorized file
+              await this.updateVectorizedFile(vectorizedFile, skillPath);
+            }
+
+            indexedCount++;
+            logger.debug(`[SkillIndexer] Indexed skill: ${skillName}`);
+          } else {
+            skippedCount++;
+            logger.debug(`[SkillIndexer] Skipped unchanged skill: ${skillName}`);
+          }
+
+        } catch (error) {
+          logger.warn(`[SkillIndexer] Failed to index skill ${skillName}:`, error);
+        }
+      }
+
+      logger.info(`[SkillIndexer] Scan completed: ${indexedCount} indexed, ${skippedCount} skipped`);
+      return indexedCount;
+
+    } catch (error) {
+      logger.error('[SkillIndexer] Failed to scan and index skills:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Check if reindexing is required
+   */
+  async checkReindexRequired(skillPath: string, vectorizedFile: string): Promise<boolean> {
+    try {
+      // Read .vectorized file
+      const vectorizedContent = await fs.readFile(vectorizedFile, 'utf8');
+      const vectorizedData: VectorizedFileData = JSON.parse(vectorizedContent);
+
+      // Calculate current SKILL.md hash
+      const skillMdPath = path.join(skillPath, 'SKILL.md');
+      const skillContent = await fs.readFile(skillMdPath, 'utf8');
+      const currentHash = createHash('md5').update(skillContent).digest('hex');
+      const currentSize = Buffer.byteLength(skillContent);
+
+      // Compare hash and size
+      return currentHash !== vectorizedData.skillHash || currentSize !== vectorizedData.skillSize;
+
+    } catch {
+      // File doesn't exist or parse failed, need to index
+      return true;
+    }
+  }
+
+  /**
+   * Read skill metadata from SKILL.md
+   */
+  async readSkillMetadata(filePath: string): Promise<SkillData | null> {
+    try {
+      const skillMdPath = path.join(filePath, 'SKILL.md');
+
+      // Read file
+      const content = await fs.readFile(skillMdPath, 'utf8');
+
+      // Parse YAML Frontmatter
+      const parsed = matter(content);
+
+      if (!parsed.data.name || !parsed.data.description) {
+        throw new Error('SKILL.md must contain name and description');
+      }
+
+      return {
+        id: '',
+        name: parsed.data.name,
+        description: parsed.data.description,
+        tags: Array.isArray(parsed.data.tags) ? parsed.data.tags : [],
+        version: parsed.data.version || '1.0.0',
+        metadata: {
+          tools: parsed.data.tools || []
+        }
+      };
+
+    } catch (error) {
+      logger.error(`[SkillIndexer] Failed to read skill metadata from ${filePath}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Generate skill ID
+   */
+  private generateSkillId(name: string): string {
+    return createHash('md5')
+      .update(name)
+      .digest('hex');
+  }
+
+  /**
+   * Prepare skill record for database
+   */
+  private prepareSkillRecord(
+    skill: SkillData,
+    skillId: string,
+    vector: number[]
+  ): ToolsTable {
+    // Convert tools to parameters format
+    const tools = (skill.metadata?.tools as unknown[]) || [];
+    const parameters = tools.length > 0 ? {
+      type: 'object',
+      properties: tools.reduce((acc: Record<string, unknown>, tool: unknown) => {
+        const t = tool as { name?: string; description?: string; input_schema?: { properties?: Record<string, unknown>; required?: string[] } };
+        if (t.name) {
+          acc[t.name] = {
+            type: 'object',
+            description: t.description || '',
+            properties: t.input_schema?.properties || {},
+            required: t.input_schema?.required || []
+          };
+        }
+        return acc;
+      }, {}),
+      required: tools
+        .filter((t: unknown) => (t as { input_schema?: { required?: string[] } }).input_schema?.required?.length > 0)
+        .map((t: unknown) => (t as { name?: string }).name)
+        .filter((n: unknown): n is string => typeof n === 'string')
+    } : { type: 'object', properties: {}, required: [] };
+
+    return {
+      id: skillId,
+      name: skill.name,
+      description: skill.description,
+      tags: skill.tags || [],
+      path: skill.filePath,
+      version: skill.version || '1.0.0',
+      source: skill.name,
+      toolType: 'skill',
+      metadata: JSON.stringify({
+        ...skill.metadata,
+        tools: skill.metadata?.tools || [],
+        parameters
+      }),
+      vector,
+      indexedAt: new Date()
+    };
+  }
+
+  /**
+   * Update .vectorized file
+   */
+  private async updateVectorizedFile(vectorizedFile: string, skillPath: string): Promise<void> {
+    try {
+      const skillMdPath = path.join(skillPath, 'SKILL.md');
+      const skillContent = await fs.readFile(skillMdPath, 'utf8');
+      const skillHash = createHash('md5').update(skillContent).digest('hex');
+      const skillSize = Buffer.byteLength(skillContent);
+
+      const vectorizedData: VectorizedFileData = {
+        indexedAt: Date.now(),
+        skillSize,
+        skillHash
+      };
+
+      await fs.writeFile(vectorizedFile, JSON.stringify(vectorizedData, null, 2));
+      logger.debug(`[SkillIndexer] Updated .vectorized file: ${vectorizedFile}`);
+
+    } catch (error) {
+      logger.warn(`[SkillIndexer] Failed to update .vectorized file:`, error);
+    }
+  }
+
+  /**
+   * Check if file exists
+   */
+  private async fileExists(filePath: string): Promise<boolean> {
+    try {
+      await fs.access(filePath);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Force reindex all skills (delete all .vectorized files)
+   */
+  async forceReindexAll(skillsDir: string = this.defaultSkillsDir): Promise<void> {
+    try {
+      const entries = await fs.readdir(skillsDir, { withFileTypes: true });
+      const skillDirs = entries
+        .filter(entry => entry.isDirectory())
+        .map(entry => entry.name);
+
+      logger.info(`[SkillIndexer] Force reindexing ${skillDirs.length} skills...`);
+
+      // Delete each skill's .vectorized file
+      for (const skillName of skillDirs) {
+        const skillPath = path.join(skillsDir, skillName);
+        const vectorizedFile = path.join(skillPath, '.vectorized');
+
+        try {
+          await fs.unlink(vectorizedFile);
+          logger.debug(`[SkillIndexer] Deleted .vectorized file for skill: ${skillName}`);
+        } catch (error: any) {
+          if (error.code !== 'ENOENT') {
+            logger.warn(`[SkillIndexer] Failed to delete .vectorized file for ${skillName}:`, error);
+          }
+        }
+      }
+
+      logger.info('[SkillIndexer] Force reindex preparation completed');
+
+    } catch (error) {
+      logger.warn('[SkillIndexer] Failed to force reindex skills:', error);
+    }
+  }
+}
 ````
 
 ## File: src/services/tool-retrieval/TagMatchingEngine.ts
@@ -10314,9750 +20989,6 @@ export class IndexPrewarmService {
 }
 ````
 
-## File: src/types/enhanced-skill.ts
-````typescript
-/**
- * Enhanced Skill Types - Hybrid Retrieval & Disclosure
- *
- * Phase 1: 混合检索框架和基础披露机制的类型定义
- */
-
-// ==================== Hybrid Retrieval Types ====================
-
-/**
- * Hybrid retrieval configuration
- */
-export interface HybridRetrievalConfig {
-  /** Weight for vector similarity (0-1) */
-  vectorWeight: number;
-  /** Weight for keyword matching (0-1) */
-  keywordWeight: number;
-  /** Weight for semantic matching (0-1) */
-  semanticWeight: number;
-  /** Weight for tag matching (0-1) */
-  tagWeight: number;
-  /** RRF fusion constant */
-  rrfK: number;
-  /** Minimum score threshold */
-  minScore: number;
-  /** Maximum results */
-  maxResults: number;
-  /** Enable tag matching */
-  enableTagMatching: boolean;
-  /** Enable keyword matching */
-  enableKeywordMatching: boolean;
-  /** Enable semantic matching */
-  enableSemanticMatching: boolean;
-  /** Cache TTL in seconds */
-  cacheTTL: number;
-  /** Disclosure strategy */
-  disclosureStrategy: DisclosureStrategy;
-  /** Tag hierarchy */
-  tagHierarchy: TagHierarchy;
-}
-
-/**
- * Disclosure strategy
- */
-export enum DisclosureStrategy {
-  METADATA = "metadata",
-  CONTENT = "content",
-  RESOURCES = "resources",
-  ADAPTIVE = "adaptive",
-}
-
-/**
- * Default hybrid retrieval configuration
- */
-export const DEFAULT_HYBRID_RETRIEVAL_CONFIG: HybridRetrievalConfig = {
-  vectorWeight: 0.5,
-  keywordWeight: 0.3,
-  semanticWeight: 0.2,
-  tagWeight: 0.1,
-  rrfK: 60,
-  minScore: 0.1,
-  maxResults: 10,
-  enableTagMatching: true,
-  enableKeywordMatching: true,
-  enableSemanticMatching: true,
-  cacheTTL: 300,
-  disclosureStrategy: DisclosureStrategy.METADATA,
-  tagHierarchy: {
-    levels: ["category", "subcategory", "tag"],
-    aliases: {
-      cat: "category",
-      sub: "subcategory",
-      t: "tag",
-    },
-  },
-};
-
-/**
- * Unified retrieval result combining multiple retrieval methods
- */
-export interface UnifiedRetrievalResult {
-  /** Unique result ID */
-  id: string;
-  /** Tool/skill name */
-  name: string;
-  /** Tool description */
-  description: string;
-  /** Combined score from all methods */
-  unifiedScore: number;
-  /** Individual scores from each method */
-  scores: {
-    vector: number;
-    keyword: number;
-    semantic: number;
-    tag: number;
-  };
-  /** RRF ranks from each method */
-  ranks: {
-    vector: number;
-    keyword: number;
-    semantic: number;
-    tag: number;
-  };
-  /** Type tags */
-  tags: string[];
-  /** Tool type */
-  toolType: "skill" | "mcp" | "builtin";
-  /** Disclosure content */
-  disclosure: DisclosureContent;
-  /** Metadata */
-  metadata?: Record<string, unknown>;
-  /** Source path */
-  path?: string;
-  /** Version */
-  version?: string;
-}
-
-/**
- * Individual retrieval result from a single method
- */
-export interface RetrievalResult {
-  /** Result ID */
-  id: string;
-  /** Score (0-1 for normalized, rank for RRF) */
-  score: number;
-  /** Retrieval method */
-  method: RetrievalMethod;
-  /** Metadata */
-  metadata?: Record<string, unknown>;
-}
-
-/**
- * Retrieval method enumeration
- */
-export type RetrievalMethod = "vector" | "keyword" | "semantic" | "tag";
-
-// ==================== Tag Matching Types ====================
-
-/**
- * Tag match result
- */
-export interface TagMatchResult {
-  /** Whether tag matched */
-  matched: boolean;
-  /** Matched tag */
-  tag: string;
-  /** Matched tag hierarchy level */
-  level: string;
-  /** Match score (0-1) */
-  score: number;
-  /** Alias expansion applied */
-  expandedFrom?: string;
-}
-
-/**
- * Tag hierarchy configuration
- */
-export interface TagHierarchy {
-  /** Hierarchy levels from general to specific */
-  levels: string[];
-  /** Tag aliases for matching */
-  aliases: Record<string, string>;
-  /** Inherited tags per level */
-  inheritTags?: boolean;
-}
-
-/**
- * Tag matching options
- */
-export interface TagMatchingOptions {
-  /** Query tags to match */
-  queryTags: string[];
-  /** Maximum hierarchy depth */
-  maxDepth?: number;
-  /** Enable alias expansion */
-  enableAliases?: boolean;
-  /** Minimum match score */
-  minScore?: number;
-}
-
-// ==================== Disclosure Types ====================
-
-/**
- * Disclosure level enumeration
- */
-export enum DisclosureLevel {
-  /** Only metadata (name, description) */
-  METADATA = "metadata",
-  /** Include input/output schema */
-  CONTENT = "content",
-  /** Include resources and references */
-  RESOURCES = "resources",
-}
-
-/**
- * Disclosure content
- */
-export interface DisclosureContent {
-  /** Disclosure level */
-  level: DisclosureLevel;
-  /** Name */
-  name: string;
-  /** Description */
-  description: string;
-  /** Input schema */
-  inputSchema?: Record<string, unknown>;
-  /** Output schema */
-  outputSchema?: Record<string, unknown>;
-  /** Resources */
-  resources?: string[];
-  /** Examples */
-  examples?: string[];
-  /** Token count estimate */
-  tokenCount: number;
-}
-
-/**
- * Disclosure options
- */
-export interface DisclosureOptions {
-  /** Target disclosure level */
-  level: DisclosureLevel;
-  /** Include examples */
-  includeExamples?: boolean;
-  /** Include resources */
-  includeResources?: boolean;
-  /** Max token limit */
-  maxTokens?: number;
-  /** Adaptive strategy config */
-  adaptiveConfig?: {
-    minTokens: number;
-    maxTokens: number;
-    preferMetadataBelow: number;
-  };
-}
-
-// ==================== Performance & Metrics ====================
-
-/**
- * Retrieval performance metrics
- */
-export interface RetrievalMetrics {
-  /** Total retrieval time in ms */
-  totalTime: number;
-  /** Vector search time in ms */
-  vectorTime: number;
-  /** Keyword search time in ms */
-  keywordTime: number;
-  /** Semantic matching time in ms */
-  semanticTime: number;
-  /** Tag matching time in ms */
-  tagTime: number;
-  /** Fusion time in ms */
-  fusionTime: number;
-  /** Number of results retrieved */
-  resultCount: number;
-  /** Cache hit status */
-  cacheHit: boolean;
-}
-
-/**
- * Engine performance metrics
- */
-export interface EngineMetrics {
-  /** Operation name */
-  operation: string;
-  /** Duration in ms */
-  duration: number;
-  /** Success status */
-  success: boolean;
-  /** Error message if failed */
-  error?: string;
-  /** Additional metrics */
-  details?: Record<string, unknown>;
-}
-
-// ==================== Error Types ====================
-
-/**
- * Hybrid retrieval error codes
- */
-export enum HybridRetrievalErrorCode {
-  CONFIG_ERROR = "CONFIG_ERROR",
-  VECTOR_SEARCH_ERROR = "VECTOR_SEARCH_ERROR",
-  KEYWORD_SEARCH_ERROR = "KEYWORD_SEARCH_ERROR",
-  SEMANTIC_MATCH_ERROR = "SEMANTIC_MATCH_ERROR",
-  TAG_MATCH_ERROR = "TAG_MATCH_ERROR",
-  FUSION_ERROR = "FUSION_ERROR",
-  DISCLOSURE_ERROR = "DISCLOSURE_ERROR",
-  CACHE_ERROR = "CACHE_ERROR",
-}
-
-/**
- * Hybrid retrieval error
- */
-export class HybridRetrievalError extends Error {
-  code: HybridRetrievalErrorCode;
-  details?: Record<string, unknown>;
-
-  constructor(message: string, code: HybridRetrievalErrorCode, details?: Record<string, unknown>) {
-    super(message);
-    this.name = "HybridRetrievalError";
-    this.code = code;
-    this.details = details;
-  }
-}
-
-// ==================== Cache Types ====================
-
-/**
- * Cache entry
- */
-export interface CacheEntry<T> {
-  /** Cached data */
-  data: T;
-  /** Creation timestamp */
-  createdAt: number;
-  /** Expiration timestamp */
-  expiresAt: number;
-  /** Access count */
-  accessCount: number;
-}
-
-/**
- * Cache statistics
- */
-export interface CacheStats {
-  /** Total entries */
-  size: number;
-  /** Hit count */
-  hits: number;
-  /** Miss count */
-  misses: number;
-  /** Hit rate */
-  hitRate: number;
-  /** Memory usage estimate */
-  memoryUsage: number;
-}
-
-// ==================== Fusion Types ====================
-
-/**
- * RRF (Reciprocal Rank Fusion) configuration
- */
-export interface RRFConfig {
-  /** RRF constant k */
-  k: number;
-  /** Weights for each method */
-  weights: Record<RetrievalMethod, number>;
-  /** Normalization method */
-  normalization: "minmax" | "zscore" | "percentile";
-}
-
-/**
- * Fusion result
- */
-export interface FusionResult {
-  /** Fused results */
-  results: UnifiedRetrievalResult[];
-  /** Applied fusion config */
-  config: RRFConfig;
-  /** Total fusion time */
-  duration: number;
-  /** Number of deduplicated items */
-  deduplicatedCount: number;
-}
-````
-
-## File: src/utils/config/disclosure-config.ts
-````typescript
-/**
- * Disclosure Configuration Loader
- *
- * Phase 2: 三层披露机制配置加载
- * 从 disclosure.yaml 加载披露配置，支持默认值回退
- */
-
-import * as fs from "fs";
-import * as path from "path";
-import * as yaml from "js-yaml";
-import { logger } from "../logger";
-import { PathService } from "../../services/PathService";
-import { DisclosureManagerConfigV2 } from "../../services/tool-retrieval/DisclosureManager";
-import { DisclosureStrategy } from "../../types/enhanced-skill";
-
-/**
- * 披露配置原始结构
- */
-interface DisclosureConfigRaw {
-  disclosure: {
-    enabled: boolean;
-    thresholds: { l2: number; l3: number };
-    tokenBudget: {
-      l1MaxTokens: number;
-      l2MaxTokens: number;
-      adaptiveMaxTokens: number;
-    };
-    cache: {
-      enabled: boolean;
-      maxSize: number;
-      l1TtlMs: number;
-      l2TtlMs: number;
-      cleanupIntervalMs: number;
-    };
-    parallelLoad: { enabled: boolean; maxConcurrency: number };
-    metrics: { enabled: boolean; sampleRate: number };
-  };
-}
-
-/**
- * 披露配置加载器
- * 单例模式，带缓存
- */
-export class DisclosureConfigLoader {
-  private static instance: DisclosureConfigLoader | null = null;
-  private configCache: DisclosureManagerConfigV2 | null = null;
-  private readonly configPath: string;
-
-  private constructor() {
-    const pathService = PathService.getInstance();
-    this.configPath = path.join(pathService.getConfigDir(), "disclosure.yaml");
-  }
-
-  /**
-   * 获取单例实例
-   */
-  public static getInstance(): DisclosureConfigLoader {
-    if (!DisclosureConfigLoader.instance) {
-      DisclosureConfigLoader.instance = new DisclosureConfigLoader();
-    }
-    return DisclosureConfigLoader.instance;
-  }
-
-  /**
-   * 加载配置（同步）
-   */
-  public loadSync(): DisclosureManagerConfigV2 {
-    if (this.configCache) {
-      return this.configCache;
-    }
-
-    try {
-      if (!fs.existsSync(this.configPath)) {
-        logger.info("[DisclosureConfigLoader] Config file not found, using defaults");
-        this.configCache = this.getDefaultConfig();
-        return this.configCache;
-      }
-
-      const content = fs.readFileSync(this.configPath, "utf-8");
-      const raw = yaml.load(content) as DisclosureConfigRaw;
-
-      this.configCache = this.parseConfig(raw);
-      return this.configCache;
-    } catch (error) {
-      logger.error("[DisclosureConfigLoader] Failed to load config, using defaults", error);
-      this.configCache = this.getDefaultConfig();
-      return this.configCache;
-    }
-  }
-
-  /**
-   * 加载配置（异步）
-   */
-  public async loadAsync(): Promise<DisclosureManagerConfigV2> {
-    if (this.configCache) {
-      return this.configCache;
-    }
-
-    try {
-      if (!fs.existsSync(this.configPath)) {
-        logger.info("[DisclosureConfigLoader] Config file not found, using defaults");
-        this.configCache = this.getDefaultConfig();
-        return this.configCache;
-      }
-
-      const content = await fs.promises.readFile(this.configPath, "utf-8");
-      const raw = yaml.load(content) as DisclosureConfigRaw;
-
-      this.configCache = this.parseConfig(raw);
-      return this.configCache;
-    } catch (error) {
-      logger.error("[DisclosureConfigLoader] Failed to load config, using defaults", error);
-      this.configCache = this.getDefaultConfig();
-      return this.configCache;
-    }
-  }
-
-  /**
-   * 清除缓存
-   */
-  public clearCache(): void {
-    this.configCache = null;
-  }
-
-  /**
-   * 获取配置文件路径
-   */
-  public getConfigPath(): string {
-    return this.configPath;
-  }
-
-  /**
-   * 解析配置
-   */
-  private parseConfig(raw: DisclosureConfigRaw): DisclosureManagerConfigV2 {
-    const disclosure = raw.disclosure;
-
-    return {
-      enabled: disclosure.enabled ?? true,
-      strategy: DisclosureStrategy.METADATA,
-      adaptiveMaxTokens: disclosure.tokenBudget?.adaptiveMaxTokens ?? 3000,
-      preferMetadataBelow: 500,
-      thresholds: {
-        l2: disclosure.thresholds?.l2 ?? 0.7,
-        l3: disclosure.thresholds?.l3 ?? 0.85,
-      },
-      l1MaxTokens: disclosure.tokenBudget?.l1MaxTokens ?? 120,
-      l2MaxTokens: disclosure.tokenBudget?.l2MaxTokens ?? 5000,
-      cache: {
-        enabled: disclosure.cache?.enabled ?? true,
-        maxSize: disclosure.cache?.maxSize ?? 2000,
-        l1TtlMs: disclosure.cache?.l1TtlMs ?? 300000,
-        l2TtlMs: disclosure.cache?.l2TtlMs ?? 300000,
-        cleanupIntervalMs: disclosure.cache?.cleanupIntervalMs ?? 300000,
-      },
-      parallelLoad: {
-        enabled: disclosure.parallelLoad?.enabled ?? true,
-        maxConcurrency: disclosure.parallelLoad?.maxConcurrency ?? 8,
-      },
-      metrics: {
-        enabled: disclosure.metrics?.enabled ?? true,
-        sampleRate: disclosure.metrics?.sampleRate ?? 1.0,
-      },
-    };
-  }
-
-  /**
-   * 获取默认配置
-   */
-  private getDefaultConfig(): DisclosureManagerConfigV2 {
-    return {
-      enabled: true,
-      strategy: DisclosureStrategy.METADATA,
-      adaptiveMaxTokens: 3000,
-      preferMetadataBelow: 500,
-      thresholds: { l2: 0.7, l3: 0.85 },
-      l1MaxTokens: 120,
-      l2MaxTokens: 5000,
-      cache: {
-        enabled: true,
-        maxSize: 2000,
-        l1TtlMs: 300000,
-        l2TtlMs: 300000,
-        cleanupIntervalMs: 300000,
-      },
-      parallelLoad: { enabled: true, maxConcurrency: 8 },
-      metrics: { enabled: true, sampleRate: 1.0 },
-    };
-  }
-}
-
-/**
- * 获取披露配置（便捷函数）
- */
-export function getDisclosureConfig(): DisclosureManagerConfigV2 {
-  return DisclosureConfigLoader.getInstance().loadSync();
-}
-
-/**
- * 异步获取披露配置（便捷函数）
- */
-export async function getDisclosureConfigAsync(): Promise<DisclosureManagerConfigV2> {
-  return DisclosureConfigLoader.getInstance().loadAsync();
-}
-````
-
-## File: .versionrc
-````
-{
-  "types": [
-    {
-      "type": "feat",
-      "section": "✨ 新功能",
-      "hidden": false
-    },
-    {
-      "type": "fix",
-      "section": "🐛 Bug 修复",
-      "hidden": false
-    },
-    {
-      "type": "perf",
-      "section": "⚡ 性能优化",
-      "hidden": false
-    },
-    {
-      "type": "refactor",
-      "section": "♻️ 重构",
-      "hidden": false
-    },
-    {
-      "type": "revert",
-      "section": "⏪ 回滚",
-      "hidden": false
-    },
-    {
-      "type": "docs",
-      "section": "📚 文档",
-      "hidden": false
-    },
-    {
-      "type": "style",
-      "section": "💄 代码格式",
-      "hidden": true
-    },
-    {
-      "type": "test",
-      "section": "✅ 测试",
-      "hidden": true
-    },
-    {
-      "type": "build",
-      "section": "👷 构建",
-      "hidden": true
-    },
-    {
-      "type": "ci",
-      "section": "🔧 CI/CD",
-      "hidden": true
-    },
-    {
-      "type": "chore",
-      "section": "🔩 其他杂项",
-      "hidden": true
-    }
-  ],
-  "scopeEnum": [
-    "core",
-    "services",
-    "api",
-    "strategies",
-    "utils",
-    "config",
-    "docs",
-    "scripts",
-    "tests"
-  ],
-  "releaseCommitMessageFormat": "chore(release): {{currentTag}}",
-  "issueUrlFormat": "https://github.com/suntianc/apex-bridge/issues/{{id}}",
-  "compareUrlFormat": "https://github.com/suntianc/apex-bridge/compare/{{previousTag}}...{{currentTag}}",
-  "changelogSections": [
-    {
-      "type": "feat",
-      "section": "✨ 新功能"
-    },
-    {
-      "type": "fix",
-      "section": "🐛 Bug 修复"
-    },
-    {
-      "type": "perf",
-      "section": "⚡ 性能优化"
-    },
-    {
-      "type": "refactor",
-      "section": "♻️ 重构"
-    },
-    {
-      "type": "revert",
-      "section": "⏪ 回滚"
-    },
-    {
-      "type": "docs",
-      "section": "📚 文档"
-    }
-  ],
-  "template": "# Changelog\n\n## {{Release.Version}}\n\n{{Release.Date}}\n\n### {{Release.Type}}\n\n{{#if Commit.Features}}\n#### Features\n{{#each Commit.Features}}\n- **{{this.scope}}**: {{this.subject}}\n{{/each}}\n{{/if}}\n\n{{#if Commit.Fixes}}\n#### Bug Fixes\n{{#each Commit.Fixes}}\n- **{{this.scope}}**: {{this.subject}}\n{{/each}}\n{{/if}}\n\n{{#if Commit.Other}}\n#### Other\n{{#each Commit.Other}}\n- {{this.subject}}\n{{/each}}\n{{/if}}\n",
-  "header": "# Changelog\n\n*ApexBridge 变更日志*\n\n",
-  "unreleasedGroupBy": {
-    "types": [
-      {
-        "type": "feat",
-        "section": "✨ 新功能"
-      },
-      {
-        "type": "fix",
-        "section": "🐛 Bug 修复"
-      },
-      {
-        "type": "perf",
-        "section": "⚡ 性能优化"
-      }
-    ]
-  },
-  "unreleasedTitle": "Unreleased",
-  "unreleasedVersion": "Unreleased",
-  "bumpFiles": [
-    {
-      "filename": "package.json",
-      "type": "json",
-      "path": "./package.json"
-    }
-  ],
-  "ignoreMessages": [
-    "Merge pull request",
-    "Merge branch",
-    "chore: Release"
-  ]
-}
-````
-
-## File: CHANGES_BATCH_EMBEDDING.md
-````markdown
-# Phase 4: 批量嵌入 API 调用优化 - 变更总结
-
-## 概述
-
-成功实施批量嵌入 API 调用优化，将顺序 API 调用改为并行/批量调用，预期性能提升 10-50 倍。
-
-## 文件变更
-
-### 1. 新建文件
-
-#### `src/services/tool-retrieval/BatchEmbeddingService.ts`
-
-- **功能**: 批量嵌入生成服务
-- **关键特性**:
-  - 智能分批处理（默认 batchSize: 100）
-  - 并发控制（默认 maxConcurrency: 5）
-  - 错误重试（指数退避，最多重试 3 次）
-  - 进度追踪回调
-  - 性能统计
-
-**核心类**:
-
-```typescript
-class BatchEmbeddingService {
-  async generateBatch(
-    texts: string[],
-    embedFn: (texts: string[]) => Promise<number[][]>
-  ): Promise<BatchEmbeddingResult>;
-}
-```
-
-#### `tests/unit/services/tool-retrieval/BatchEmbeddingService.test.ts`
-
-- **测试用例**: 19 个测试全部通过
-- **覆盖场景**:
-  - 空数组处理
-  - 单文本处理
-  - 多批次处理
-  - 并发控制
-  - 错误重试
-  - 部分失败处理
-  - 性能测试（1000 条文本）
-
-### 2. 修改文件
-
-#### `src/services/tool-retrieval/EmbeddingGenerator.ts`
-
-**变更点**:
-
-1. 导入 `BatchEmbeddingService`
-2. 新增 `batchService` 实例
-3. 重写 `generateBatch()` 方法使用批量服务
-4. 新增 `generateBatchDirect()` 方法处理小批量
-5. 新增 `callLLMEmbed()` 辅助方法
-6. 新增导出函数 `getBatchEmbeddingService()` 和 `resetBatchEmbeddingService()`
-
-**优化逻辑**:
-
-```typescript
-// 小批量（<=10）直接调用 LLMManager
-if (texts.length <= 10) {
-  return this.generateBatchDirect(texts);
-}
-
-// 大批量使用 BatchEmbeddingService
-const result = await this.batchService.generateBatch(inputs, async (batchTexts) => {
-  return this.callLLMEmbed(batchTexts);
-});
-```
-
-#### `src/services/tool-retrieval/index.ts`
-
-**新增导出**:
-
-```typescript
-export {
-  BatchEmbeddingService,
-  BatchEmbeddingConfig,
-  BatchEmbeddingResult,
-} from "./BatchEmbeddingService";
-```
-
-## 性能提升
-
-| 场景         | 优化前   | 优化后 | 提升倍数 |
-| ------------ | -------- | ------ | -------- |
-| 10K 文本嵌入 | ~10 分钟 | ~30 秒 | ~20x     |
-| 1K 文本嵌入  | ~1 分钟  | ~3 秒  | ~20x     |
-| 100 文本嵌入 | ~6 秒    | ~300ms | ~20x     |
-
-## 技术实现细节
-
-### 1. 智能分批
-
-```typescript
-private createBatches(texts: string[]): string[][] {
-  const batches: string[][] = [];
-  for (let i = 0; i < texts.length; i += this.config.batchSize) {
-    batches.push(texts.slice(i, i + this.config.batchSize));
-  }
-  return batches;
-}
-```
-
-### 2. 并发控制（Semaphore）
-
-```typescript
-class Semaphore {
-  constructor(private readonly maxPermits: number) {}
-
-  async acquire<T>(fn: () => Promise<T>): Promise<T> {
-    await this.acquirePermit();
-    try {
-      return await fn();
-    } finally {
-      this.releasePermit();
-    }
-  }
-}
-```
-
-### 3. 指数退避重试
-
-```typescript
-private calculateExponentialBackoff(
-  attempt: number,
-  minDelay: number,
-  maxDelay: number
-): number {
-  const delay = Math.min(minDelay * Math.pow(2, attempt - 1), maxDelay);
-  const jitter = delay * 0.25 * (Math.random() - 0.5) * 2;
-  return Math.max(minDelay, Math.min(maxDelay, delay + jitter));
-}
-```
-
-## 测试验证
-
-### 运行测试
-
-```bash
-npm test -- --testPathPattern="BatchEmbeddingService"
-```
-
-### 测试结果
-
-```
-Test Suites: 1 passed, 1 total
-Tests:       19 passed, 19 total
-Time:        0.859 s
-```
-
-## API 兼容
-
-现有 API 保持不变：
-
-```typescript
-// 现有 API（无变化）
-const vectors = await embeddingGenerator.generateBatch(texts);
-```
-
-新增高级 API：
-
-```typescript
-// 直接使用 BatchEmbeddingService
-const service = new BatchEmbeddingService({ batchSize: 100, maxConcurrency: 5 });
-const result = await service.generateBatch(texts, embedFn);
-```
-
-## 下一步优化建议
-
-1. **缓存层**: 添加嵌入结果缓存，避免重复计算
-2. **流式处理**: 对超大文本集使用流式处理减少内存占用
-3. **断点续传**: 支持中断后继续处理
-4. **优先级队列**: 优先级高的文本优先处理
-````
-
-## File: CLAUDE_CODE_AGENT_SKILLS_ANALYSIS.md
-````markdown
-# Claude Code Agent Skills 技术规范深度分析报告
-
-## 1. 核心定义
-
-### 1.1 Claude Code Agent Skills 是什么
-
-**一句话定义**：Claude Code Agent Skills 是一个开放标准（agentskills.io），它定义了一种基于文件系统的模块化能力包格式，通过 SKILL.md 文件和渐进式披露机制，使通用 AI Agent 能够动态发现、加载和执行领域特定的专业知识与工作流程。
-
-**核心本质**：
-- **文件系统驱动**：Skills 以目录形式存在于文件系统中，无需数据库或外部服务
-- **渐进式披露**：三层内容加载机制，避免上下文窗口溢出
-- **代码执行集成**：支持绑定可执行脚本，作为确定性操作的工具
-- **可组合性**：多个 Skills 可组合构建复杂工作流
-
-**与传统提示词的区别**：
-| 特性 | 传统提示词 | Agent Skills |
-|------|-----------|--------------|
-| 生命周期 | 会话级，每次需重复提供 | 持久化，一次安装反复使用 |
-| 加载方式 | 一次性全部加载 | 按需渐进式加载 |
-| 复用性 | 复制粘贴 | 文件系统级别的复用 |
-| 可执行性 | 仅文本指导 | 可包含可执行脚本 |
-| 发现机制 | 无 | 语义搜索 + 名称匹配 |
-
----
-
-## 2. 技术规范细节
-
-### 2.1 SKILL.md 文件格式
-
-#### 完整示例
-
-```yaml
----
-name: pdf-processing
-description: Extract text and tables from PDF files, fill forms, merge documents. Use when working with PDF files or when the user mentions PDFs, forms, or document extraction.
----
-
-# PDF Processing Skill
-
-## Overview
-This skill provides comprehensive PDF manipulation capabilities including text extraction, table detection, form filling, and document merging.
-
-## Quick Start
-
-Use `pdfplumber` to extract text from PDFs:
-
-```python
-import pdfplumber
-
-with pdfplumber.open("document.pdf") as pdf:
-    for page in pdf.pages:
-        text = page.extract_text()
-        tables = page.extract_tables()
-```
-
-## Form Filling
-
-For form filling operations, see [FORMS.md](FORMS.md) for detailed instructions.
-
-## Advanced Usage
-
-For API reference and advanced options, see [REFERENCE.md](REFERENCE.md).
-```
-
-### 2.2 YAML Frontmatter 字段说明
-
-#### 必需字段
-
-| 字段 | 类型 | 限制 | 说明 |
-|------|------|------|------|
-| `name` | string | 最大 64 字符，仅小写字母、数字和连字符 | 技能唯一标识符 |
-| `description` | string | 最大 1024 字符 | 技能用途说明，包含触发场景 |
-
-#### 可选字段
-
-| 字段 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `version` | string | "1.0.0" | 技能版本号 |
-| `tags` | string[] | [] | 分类标签数组 |
-| `author` | string | undefined | 作者信息 |
-| `category` | string | "uncategorized" | 分类目录 |
-| `tools` | object[] | [] | 工具定义列表 |
-| `dependencies` | string[] | [] | 依赖包列表 |
-| `parameters` | object | {} | 参数模式定义 |
-
-#### 字段验证规则
-
-```yaml
-# 无效的 name 示例
-name: "PDF Processing"     # ❌ 包含空格
-name: "pdf_processing"     # ❌ 包含下划线
-name: "anthropic"          # ❌ 保留字
-name: "<pdf>"              # ❌ 包含 XML 标签
-
-# 有效的 name 示例
-name: "pdf-processing"     # ✅
-name: "file-operations"    # ✅
-name: "database-query"     # ✅
-```
-
-### 2.3 目录结构要求
-
-#### 标准目录结构
-
-```
-skill-name/
-├── SKILL.md              # 必需：主文件，包含 YAML frontmatter 和使用说明
-├── README.md             # 可选：详细说明文档
-├── FORMS.md              # 可选：表单处理专题
-├── REFERENCE.md          # 可选：API 参考文档
-├── SCHEMA.md             # 可选：数据模式定义
-├── examples/             # 可选：示例代码目录
-│   ├── basic_usage.py
-│   └── advanced_usage.py
-├── scripts/              # 可选：可执行脚本目录
-│   ├── extract_text.py
-│   ├── fill_form.py
-│   └── merge_docs.py
-├── templates/            # 可选：模板文件目录
-│   └── report_template.md
-├── data/                 # 可选：示例数据目录
-│   └── sample.pdf
-└── .vectorized           # ApexBridge 特有：向量化标记文件
-```
-
-#### 必需文件清单
-
-| 文件 | 必需性 | 说明 |
-|------|--------|------|
-| `SKILL.md` | ✅ 必需 | 技能核心文件，定义元数据和说明 |
-| `.vectorized` | ⚠️ ApexBridge 必需 | 向量化状态标记（仅 ApexBridge） |
-
-### 2.4 代码执行机制
-
-#### 脚本执行示例
-
-```python
-# scripts/fill_form.py
-#!/usr/bin/env python3
-"""
-PDF Form Filling Script
-Usage: python scripts/fill_form.py <pdf_path> <output_path>
-"""
-
-import sys
-import pdfplumber
-from fillpdf import fillpdfs
-
-def fill_form(pdf_path: str, output_path: str, form_data: dict) -> bool:
-    """Fill PDF form with provided data."""
-    try:
-        # Get form fields
-        with pdfplumber.open(pdf_path) as pdf:
-            fields = pdf.get_form_text_fields()
-        
-        # Fill form (pseudo-code for illustration)
-        filled_pdf = fillpdfs.get_form_fields(pdf_path)
-        for key, value in form_data.items():
-            if key in filled_pdf:
-                filled_pdf[key] = value
-        
-        # Save filled PDF
-        fillpdfs.write_fillable_pdf(pdf_path, output_path, filled_pdf)
-        return True
-    except Exception as e:
-        print(f"Error filling form: {e}", file=sys.stderr)
-        return False
-
-if __name__ == "__main__":
-    if len(sys.argv) < 4:
-        print("Usage: python scripts/fill_form.py <pdf_path> <output_path> <json_data>")
-        sys.exit(1)
-    
-    import json
-    form_data = json.loads(sys.argv[3])
-    success = fill_form(sys.argv[1], sys.argv[2], form_data)
-    sys.exit(0 if success else 1)
-```
-
-#### 执行流程
-
-```
-用户请求 → Claude 决策使用 Skill → 
-bash: read skill/SKILL.md → 加载指令到上下文 → 
-识别需要脚本 → bash: python scripts/fill_form.py → 
-仅脚本输出进入上下文，不加载脚本代码
-```
-
----
-
-## 3. 执行机制详解
-
-### 3.1 渐进式披露架构
-
-#### 三层内容加载模型
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                     渐进式披露架构                                   │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  Level 1: 元数据（启动时加载）                                        │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │ name: pdf-processing                                         │   │
-│  │ description: Extract text and tables from PDF files...       │   │
-│  │ Token 成本: ~100 tokens/Skill                                 │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                                                                      │
-│  Level 2: 指令（触发时加载）                                          │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │ SKILL.md 主体内容                                             │   │
-│  │ - 工作流程说明                                                │   │
-│  │ - 最佳实践指南                                                │   │
-│  │ - 使用示例                                                    │   │
-│  │ Token 成本: < 5k tokens                                       │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                                                                      │
-│  Level 3+: 资源（按需加载）                                           │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │ FORMS.md, REFERENCE.md, scripts/*.py                         │   │
-│  │ - 仅在引用时加载                                              │   │
-│  │ - 脚本代码不加载，仅执行输出                                   │   │
-│  │ Token 成本: 实际使用时计入                                     │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                                                                      │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-### 3.2 上下文窗口变化流程
-
-```
-时间轴 →
-
-T0 (启动时):
-  ┌────────────────────────────┐
-  │ System Prompt              │  ← 核心指令
-  │ +------------------------+ │
-  │ | PDF Processing         | │  ← Skill 1 元数据 (~100 tokens)
-  │ | File Operations        | │  ← Skill 2 元数据 (~100 tokens)
-  │ | Database Query         | │  ← Skill 3 元数据 (~100 tokens)
-  │ +------------------------+ │
-  │ User Message               │
-  └────────────────────────────┘
-
-T1 (用户请求后):
-  ┌────────────────────────────┐
-  │ System Prompt              │
-  │ +------------------------+ │
-  │ | PDF Processing         | │
-  │ | File Operations        | │
-  │ | Database Query         | │
-  │ +------------------------+ │
-  │ User: "Extract tables from report.pdf"
-  │ +------------------------+ │
-  │ | SKILL.md: PDF Processing| │  ← 触发 Skill，~3k tokens 加载
-  │ | # PDF Processing...    | │
-  │ | ## Quick Start...      | │
-  │ +------------------------+ │
-  └────────────────────────────┘
-
-T2 (需要详细信息时):
-  ┌────────────────────────────┐
-  │ System Prompt              │
-  │ +------------------------+ │
-  │ | PDF Processing         | │
-  │ | File Operations        | │
-  │ | Database Query         | │
-  │ +------------------------+ │
-  │ User: "Fill form fields"   │
-  │ +------------------------+ │
-  │ | SKILL.md: PDF Processing| │
-  │ | FORMS.md               | │  ← 按需加载额外文件
-  │ +------------------------+ │
-  └────────────────────────────┘
-```
-
-### 3.3 技能发现与激活流程
-
-```
-用户输入: "Extract tables from the financial report PDF"
-
-1. 语义匹配
-   ↓
-   将输入转换为向量 → 在已安装 Skills 中搜索
-   ↓
-   匹配: "PDF Processing" (相似度: 0.85)
-   ↓
-
-2. 元数据加载
-   ↓
-   Claude 决策: "需要使用 PDF Processing Skill"
-   ↓
-   bash: read pdf-skill/SKILL.md → 加载到上下文
-   ↓
-
-3. 指令解析
-   ↓
-   SKILL.md 内容指导:
-   - 使用 pdfplumber 提取表格
-   - 参考 FORMS.md 处理表单
-   ↓
-
-4. 执行与输出
-   ↓
-   bash: python scripts/extract_tables.py report.pdf
-   → 仅输出结果进入上下文，不加载脚本
-```
-
----
-
-## 4. 与 Model Context Protocol (MCP) 的关系
-
-### 4.1 定位差异
-
-| 维度 | Agent Skills | MCP |
-|------|--------------|-----|
-| **核心定位** | 领域专业知识与工作流程 | 外部工具与数据源集成 |
-| **抽象层次** | 高层指导（"如何做"） | 底层能力（"能做什么"） |
-| **内容形式** | 指令文档 + 可选脚本 | 结构化工具定义 |
-| **交互模式** | Claude 主动加载和使用 | Claude 按需调用 |
-| **持久化** | 文件系统目录 | MCP 服务器进程 |
-| **标准化程度** | 开放标准（agentskills.io） | 开放协议（modelcontextprotocol.io） |
-
-### 4.2 协同工作方式
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         Agent 与工具交互                             │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  ┌─────────────┐    ┌─────────────────┐    ┌──────────────────┐    │
-│  │ Agent Skills │    │   MCP Servers   │    │  Built-in Tools  │    │
-│  │ (Know-how)   │    │ (External)      │    │  (Core)          │    │
-│  └──────┬──────┘    └────────┬────────┘    └────────┬─────────┘    │
-│         │                    │                       │              │
-│         │    提供工作流程     │                       │              │
-│         │    指导如何使用     │                       │              │
-│         │                    │                       │              │
-│         └────────────────────┼───────────────────────┘              │
-│                              ↓                                      │
-│                    ┌─────────────────┐                              │
-│                    │  Tool Dispatch  │                              │
-│                    │     (执行决策)   │                              │
-│                    └────────┬────────┘                              │
-│                             │                                       │
-│              ┌──────────────┼──────────────┐                        │
-│              ↓              ↓              ↓                        │
-│        ┌──────────┐  ┌──────────┐  ┌──────────┐                    │
-│        │ Execute  │  │ Call MCP │  │ Execute  │                    │
-│        │ Script   │  │ Tool     │  │ Built-in │                    │
-│        └──────────┘  └──────────┘  └──────────┘                    │
-│                                                                      │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-### 4.3 各自优势
-
-**Agent Skills 优势**：
-- **知识封装**：将领域专家经验编码为可复用的指导
-- **渐进式披露**：避免上下文膨胀，支持复杂知识体系
-- **零依赖部署**：纯文件系统，无需运行额外服务
-- **易于分享**：ZIP 包或 Git 仓库即可分发
-
-**MCP 优势**：
-- **标准化集成**：一次开发，多客户端复用
-- **安全隔离**：进程级隔离，权限可控
-- **实时更新**：服务器可独立升级
-- **资源丰富**：社区提供大量现成服务器
-
-### 4.4 最佳实践组合
-
-```
-# 推荐的工作流模式
-
-1. 使用 MCP 提供底层能力
-   - 文件系统访问 → filesystem MCP
-   - Git 操作 → github MCP
-   - 数据库查询 → postgresql MCP
-
-2. 使用 Agent Skills 封装最佳实践
-   - "Code Review Workflow" Skill
-   - "API Design Guide" Skill
-   - "Security Checklist" Skill
-
-3. Skills 指导 MCP 工具使用
-   PDF Processing Skill → 使用 filesystem MCP 读取文件
-                        → 使用 custom script 处理 PDF
-                        → 使用 filesystem MCP 写入结果
-```
-
----
-
-## 5. ApexBridge 对比分析
-
-### 5.1 当前实现概览
-
-#### ApexBridge Skills 系统架构
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                     ApexBridge Skills 架构                           │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │                    API Layer                                 │   │
-│  │  POST /api/skills/install  |  GET /api/skills               │   │
-│  └─────────────────────────────┬───────────────────────────────┘   │
-│                                ↓                                    │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │                 SkillManager (Lifecycle)                     │   │
-│  │  - installSkill()  - unzip + validate + vectorize           │   │
-│  │  - uninstallSkill() - remove from index + cleanup           │   │
-│  │  - listSkills()    - scan directory + metadata parse        │   │
-│  │  - executeDirect() - return SKILL.md content                │   │
-│  └─────────────────────────────┬───────────────────────────────┘   │
-│                                ↓                                    │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │              ToolRetrievalService (Vector Search)            │   │
-│  │  - scanAndIndexAllSkills()  - initial load                  │   │
-│  │  - indexSkill()             - single skill                  │   │
-│  │  - findRelevantSkills()     - semantic search               │   │
-│  └─────────────────────────────┬───────────────────────────────┘   │
-│                                ↓                                    │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │                     LanceDB (Vector Store)                   │   │
-│  │  - Skills 描述向量化存储                                     │   │
-│  │  - 相似度搜索支持                                            │   │
-│  │  - MD5 变更检测 + .vectorized 标记                           │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│                                                                      │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │                    ToolRegistry (Integration)                │   │
-│  │  - Skills 作为 Tool.Info 注册                                │   │
-│  │  - 统一工具调用接口                                          │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│                                                                      │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-### 5.2 格式差异对比
-
-| 特性 | Claude Agent Skills | ApexBridge Skills |
-|------|---------------------|-------------------|
-| **必需字段** | name, description | name, description, version |
-| **可选字段** | tags, author, tools, parameters | tags, author, tools, parameters, category, dependencies |
-| **YAML 库** | 无指定 | `gray-matter` + `js-yaml` |
-| **目录结构** | SKILL.md + 资源文件 | SKILL.md + .vectorized |
-| **包格式** | ZIP 或目录 | ZIP（推荐）或目录 |
-| **版本管理** | 可选 version 字段 |必需 version 字段 |
-
-#### ApexBridge SKILL.md 示例
-
-```yaml
----
-name: file-operations
-description: 提供文件读写、目录操作等能力
-version: 1.0.0
-tags:
-  - file
-  - io
-  - system
-category: system
-author: ApexBridge Team
-tools:
-  - name: read_file
-    description: 读取文件内容
-    input_schema:
-      type: object
-      properties:
-        path:
-          type: string
-          description: 文件路径
-      required: ["path"]
-  - name: write_file
-    description: 写入文件内容
-    input_schema:
-      type: object
-      properties:
-        path:
-          type: string
-          description: 文件路径
-        content:
-          type: string
-          description: 文件内容
-      required: ["path", "content"]
-dependencies: []
----
-
-# 文件操作技能
-
-## 功能说明
-本技能提供文件系统操作的基础能力，包括文件读写、目录遍历、文件删除等功能。
-
-## 使用示例
-
-### 读取文件
-```typescript
-const result = await toolRegistry.execute('read_file', { path: '/path/to/file.txt' });
-```
-
-### 写入文件
-```typescript
-const result = await toolRegistry.execute('write_file', { 
-  path: '/path/to/output.txt', 
-  content: 'Hello, ApexBridge!' 
-});
-```
-
-## 注意事项
-- 确保目标路径有正确的读写权限
-- 大文件建议使用流式处理
-```
-
-### 5.3 核心机制差异
-
-| 机制 | Claude Agent Skills | ApexBridge Skills |
-|------|---------------------|-------------------|
-| **发现机制** | Claude 自动发现（基于元数据） | 向量搜索（基于语义相似度） |
-| **加载方式** | bash: read 文件 | 直接读取或沙箱执行 |
-| **渐进式披露** | 完整支持（三层） | 部分支持（无脚本执行隔离） |
-| **执行环境** | Claude VM（代码执行） | 沙箱（受限执行） |
-| **上下文消耗** | 渐进式披露优化 | 一次性加载（可优化） |
-| **变更检测** | 无明确机制 | MD5 哈希 + .vectorized |
-| **工具注册** | 无（直接调用） | ToolRegistry 统一管理 |
-
-### 5.4 ApexBridge 优势
-
-1. **向量检索增强**
-   - 使用 LanceDB 实现语义搜索
-   - 支持相似度阈值过滤
-   - 支持按标签、作者过滤
-
-2. **工具系统集成**
-   - Skills 与 MCP 工具统一注册
-   - 通过 ToolRegistry 统一调用
-   - 支持工具优先级和级别
-
-3. **生命周期管理**
-   - ZIP 包安装/卸载
-   - 配置验证和版本检查
-   - 统计信息收集
-
-4. **API 完整支持**
-   - RESTful API 完整覆盖
-   - 支持分页、过滤、排序
-   - 支持批量重新索引
-
-### 5.5 Claude Agent Skills 优势
-
-1. **渐进式披露**
-   - 三层内容加载模型成熟
-   - 脚本代码不消耗上下文
-   - 支持无限量资源绑定
-
-2. **Claude 生态集成**
-   - Claude Code 原生支持
-   - Claude.ai 集成
-   - Claude Agent SDK 支持
-
-3. **代码执行模型**
-   - 脚本输出隔离，不加载代码
-   - 支持复杂的数据处理脚本
-   - 确定性执行保证
-
-4. **开放标准**
-   - agentskills.io 开放标准
-   - 跨平台可移植
-   - 社区生态丰富
-
----
-
-## 6. 实施路径：在 ApexBridge 中支持 Claude Agent Skills 标准
-
-### 6.1 优先级矩阵
-
-| 功能 | 复杂度 | 价值 | 优先级 |
-|------|--------|------|--------|
-| 1. 渐进式披露加载 | 中 | 高 | P0 |
-| 2. 脚本执行隔离 | 高 | 高 | P1 |
-| 3. 三层内容模型 | 低 | 中 | P0 |
-| 4. 标准兼容层 | 低 | 中 | P1 |
-| 5. Skills Marketplace | 高 | 中 | P2 |
-
-### 6.2 实施步骤
-
-#### Phase 1: 基础兼容（P0）
-
-**目标**：支持标准 Claude Agent Skills 格式导入
-
-```typescript
-// src/services/SkillManager.ts 新增方法
-
-/**
- * 导入标准 Claude Agent Skill
- * @param skillPath Skill 目录路径
- * @returns 导入结果
- */
-async importStandardSkill(skillPath: string): Promise<ImportResult> {
-  // 1. 验证目录结构
-  const skillMdPath = path.join(skillPath, 'SKILL.md');
-  if (!await this.fileExists(skillMdPath)) {
-    throw new SkillError('SKILL.md not found', SkillErrorCode.INVALID_STRUCTURE);
-  }
-
-  // 2. 解析标准格式
-  const content = await fs.readFile(skillMdPath, 'utf8');
-  const parsed = matter(content);
-  
-  // 3. 验证必需字段
-  if (!parsed.data.name || !parsed.data.description) {
-    throw new SkillError('name and description are required', SkillErrorCode.INVALID_STRUCTURE);
-  }
-
-  // 4. 转换格式
-  const apexSkillData = this.convertToApexFormat(parsed.data);
-
-  // 5. 复制到 skills 目录
-  const targetPath = path.join(this.skillsBasePath, apexSkillData.name);
-  await fs.cp(skillPath, targetPath, { recursive: true });
-
-  // 6. 生成 .vectorized 标记
-  await this.generateVectorizedFile(targetPath, apexSkillData);
-
-  return { success: true, skillName: apexSkillData.name };
-}
-
-/**
- * 转换为 ApexBridge 格式
- */
-private convertToApexFormat(standardData: StandardSkillData): ApexSkillData {
-  return {
-    ...standardData,
-    version: standardData.version || '1.0.0',
-    tags: standardData.tags || [],
-    category: standardData.category || 'uncategorized',
-    // 添加 ApexBridge 特定字段
-    apexVersion: '1.0',
-    importedAt: new Date().toISOString(),
-  };
-}
-```
-
-#### Phase 2: 渐进式披露（P0）
-
-**目标**：实现三层内容按需加载
-
-```typescript
-// src/services/SkillContentLoader.ts
-
-interface SkillContent {
-  level1: SkillMetadata;      // 元数据
-  level2: string;              // SKILL.md 主体
-  level3: Record<string, string>; // 附加资源
-}
-
-class SkillContentLoader {
-  private contentCache: Map<string, SkillContent> = new Map();
-
-  /**
-   * 按层级加载 Skill 内容
-   */
-  async loadContent(skillName: string, level: 1 | 2 | 3): Promise<SkillContent | string> {
-    const skillPath = path.join(this.skillsBasePath, skillName);
-
-    switch (level) {
-      case 1:
-        // 仅返回元数据
-        return this.loadMetadata(skillPath);
-      
-      case 2:
-        // 返回元数据 + SKILL.md 主体
-        return this.loadLevel2(skillPath);
-      
-      case 3:
-        // 完整加载
-        return this.loadFullContent(skillPath);
-    }
-  }
-
-  private async loadMetadata(skillPath: string): Promise<SkillMetadata> {
-    const skillMdPath = path.join(skillPath, 'SKILL.md');
-    const content = await fs.readFile(skillMdPath, 'utf8');
-    const parsed = matter(content);
-    
-    return {
-      name: parsed.data.name,
-      description: parsed.data.description,
-      version: parsed.data.version,
-      tags: parsed.data.tags || [],
-    };
-  }
-
-  private async loadLevel2(skillPath: string): Promise<string> {
-    const skillMdPath = path.join(skillPath, 'SKILL.md');
-    const content = await fs.readFile(skillMdPath, 'utf8');
-    const parsed = matter(content);
-    
-    // 返回完整 SKILL.md（frontmatter + content）
-    return content;
-  }
-
-  private async loadFullContent(skillPath: string): Promise<SkillContent> {
-    const level2 = await this.loadLevel2(skillPath);
-    const metadata = await this.loadMetadata(skillPath);
-    
-    // 扫描附加资源
-    const level3: Record<string, string> = {};
-    const resources = await this.scanResources(skillPath);
-    
-    for (const resource of resources) {
-      const resourcePath = path.join(skillPath, resource);
-      level3[resource] = await fs.readFile(resourcePath, 'utf8');
-    }
-
-    return { level1: metadata, level2, level3 };
-  }
-
-  private async scanResources(skillPath: string): Promise<string[]> {
-    const resources: string[] = [];
-    
-    // 扫描常见资源目录
-    const resourceDirs = ['FORMS.md', 'REFERENCE.md', 'README.md', 'SCHEMA.md'];
-    
-    for (const dir of resourceDirs) {
-      const fullPath = path.join(skillPath, dir);
-      if (await this.fileExists(fullPath)) {
-        resources.push(dir);
-      }
-    }
-
-    return resources;
-  }
-}
-```
-
-#### Phase 3: 脚本执行隔离（P1）
-
-**目标**：实现脚本代码不加载到上下文，仅执行输出
-
-```typescript
-// src/services/executors/IsolatedScriptExecutor.ts
-
-interface ScriptExecutionResult {
-  success: boolean;
-  output: string;
-  error?: string;
-  duration: number;
-}
-
-class IsolatedScriptExecutor {
-  private readonly SANDBOX_TIMEOUT = 60000; // 60s
-  private readonly MAX_OUTPUT_SIZE = 10 * 1024 * 1024; // 10MB
-
-  /**
-   * 隔离执行脚本
-   * 关键：脚本代码不进入上下文，仅返回输出
-   */
-  async execute(
-    scriptPath: string,
-    args: string[],
-    options: ScriptOptions = {}
-  ): Promise<ScriptExecutionResult> {
-    const startTime = Date.now();
-    
-    try {
-      // 1. 验证脚本存在且可执行
-      await this.validateScript(scriptPath);
-
-      // 2. 在沙箱中执行
-      const result = await this.runInSandbox(scriptPath, args, options);
-
-      // 3. 清理输出（限制大小）
-      const cleanOutput = this.truncateOutput(result.stdout, this.MAX_OUTPUT_SIZE);
-
-      return {
-        success: result.exitCode === 0,
-        output: cleanOutput,
-        duration: Date.now() - startTime,
-        error: result.exitCode !== 0 ? result.stderr : undefined,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        output: '',
-        error: error.message,
-        duration: Date.now() - startTime,
-      };
-    }
-  }
-
-  private async runInSandbox(
-    scriptPath: string,
-    args: string[],
-    options: ScriptOptions
-  ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-    // 使用 child_process 在受限环境中执行
-    const { stdout, stderr, exitCode } = await execFile(
-      'bash', // 或 python, node 等
-      [scriptPath, ...args],
-      {
-        timeout: this.SANDBOX_TIMEOUT,
-        cwd: path.dirname(scriptPath),
-        env: { ...process.env, ...options.env },
-        maxBuffer: this.MAX_OUTPUT_SIZE,
-      }
-    );
-
-    return { stdout, stderr, exitCode };
-  }
-
-  private truncateOutput(output: string, maxSize: number): string {
-    if (output.length <= maxSize) {
-      return output;
-    }
-    return output.substring(0, maxSize) + '\n... [output truncated]';
-  }
-}
-```
-
-#### Phase 4: 系统提示集成（P1）
-
-**目标**：将 Skills 元数据集成到系统提示模板
-
-```typescript
-// src/core/prompt/SkillsPromptIntegrator.ts
-
-interface SkillsPromptConfig {
-  includeAllMetadata: boolean;  // 启动时包含所有元数据
-  maxMetadataTokens: number;    // 最大元数据 tokens
-  progressiveDisclosure: boolean; // 启用渐进式披露
-}
-
-class SkillsPromptIntegrator {
-  /**
-   * 生成 Skills 相关的系统提示片段
-   */
-  async generateSkillsPrompt(
-    activeSkills: string[],
-    config: SkillsPromptConfig
-  ): Promise<string> {
-    const parts: string[] = [];
-
-    // Level 1: 所有 Skills 的元数据
-    if (config.includeAllMetadata) {
-      const metadataList = await this.loadAllMetadata(activeSkills);
-      const metadataSection = this.formatMetadataSection(metadataList);
-      parts.push(metadataSection);
-    }
-
-    return parts.join('\n\n');
-  }
-
-  private formatMetadataSection(metadataList: SkillMetadata[]): string {
-    const skillEntries = metadataList.map(m => 
-      `- **${m.name}**: ${m.description}`
-    ).join('\n');
-
-    return `## Available Skills\n\n${skillEntries}`;
-  }
-
-  /**
-   * 为特定 Skill 生成加载提示
-   */
-  async generateSkillLoadingPrompt(skillName: string): Promise<string> {
-    const loader = new SkillContentLoader();
-    const content = await loader.loadContent(skillName, 2);
-    
-    if (typeof content === 'string') {
-      return content; // 完整 SKILL.md
-    }
-    
-    return `## ${content.level1.name}\n\n${content.level2}`;
-  }
-}
-```
-
-#### Phase 5: 完整 MCP + Skills 协同（P2）
-
-**目标**：实现 Skills 指导 MCP 工具使用的完整工作流
-
-```typescript
-// src/core/workflow/SkillGuidedWorkflow.ts
-
-interface WorkflowStep {
-  type: 'skill-load' | 'mcp-call' | 'script-exec' | 'builtin-tool';
-  skillName?: string;
-  mcpServer?: string;
-  toolName?: string;
-  scriptPath?: string;
-  description: string;
-}
-
-class SkillGuidedWorkflow {
-  private skillLoader: SkillContentLoader;
-  private mcpIntegrator: MCPIntegrationService;
-  private scriptExecutor: IsolatedScriptExecutor;
-
-  /**
-   * 执行 Skills 引导的工作流
-   */
-  async executeWorkflow(
-    workflow: WorkflowStep[],
-    context: WorkflowContext
-  ): Promise<WorkflowResult> {
-    const results: StepResult[] = [];
-
-    for (const step of workflow) {
-      const stepResult = await this.executeStep(step, context);
-      results.push(stepResult);
-
-      if (!stepResult.success && step.critical) {
-        throw new WorkflowError(`Step failed: ${step.description}`, results);
-      }
-    }
-
-    return { success: results.every(r => r.success), steps: results };
-  }
-
-  private async executeStep(
-    step: WorkflowStep,
-    context: WorkflowContext
-  ): Promise<StepResult> {
-    switch (step.type) {
-      case 'skill-load':
-        // 加载 Skill 内容到上下文
-        const content = await this.skillLoader.loadContent(
-          step.skillName!,
-          3 // 完整加载
-        );
-        return { success: true, output: content, tokensUsed: this.estimateTokens(content) };
-
-      case 'mcp-call':
-        // 调用 MCP 工具
-        const mcpResult = await this.mcpIntegrator.callTool({
-          serverId: step.mcpServer!,
-          toolName: step.toolName!,
-          arguments: context.getToolArgs(step.toolName!),
-        });
-        return { 
-          success: mcpResult.success, 
-          output: mcpResult.content,
-          duration: mcpResult.duration,
-        };
-
-      case 'script-exec':
-        // 执行脚本
-        const scriptResult = await this.scriptExecutor.execute(
-          step.scriptPath!,
-          context.getScriptArgs(step.scriptPath!)
-        );
-        return {
-          success: scriptResult.success,
-          output: scriptResult.output,
-          duration: scriptResult.duration,
-        };
-
-      default:
-        return { success: false, error: `Unknown step type: ${step.type}` };
-    }
-  }
-}
-```
-
-### 6.3 迁移指南
-
-#### 现有 Skills 迁移
-
-```bash
-# 迁移脚本示例：convert-standard-to-apex.sh
-
-#!/bin/bash
-
-STANDARD_SKILL_DIR="./standard-skills"
-APEX_SKILL_DIR="./apex-skills"
-
-# 确保目录存在
-mkdir -p "$APEX_SKILL_DIR"
-
-# 遍历标准 Skills
-for skill in "$STANDARD_SKILL_DIR"/*/; do
-  if [ -f "${skill}SKILL.md" ]; then
-    skill_name=$(basename "$skill")
-    
-    echo "Converting: $skill_name"
-    
-    # 复制整个目录
-    cp -r "$skill" "$APEX_SKILL_DIR/"
-    
-    # 添加 version 字段（如果不存在）
-    if ! grep -q "version:" "${APEX_SKILL_DIR}/${skill_name}/SKILL.md"; then
-      sed -i '' '/^---$/a\version: 1.0.0' "${APEX_SKILL_DIR}/${skill_name}/SKILL.md"
-    fi
-    
-    # 创建 .vectorized 标记文件
-    echo "imported: $(date -u +%Y-%m-%dT%H:%M:%SZ)" > "${APEX_SKILL_DIR}/${skill_name}/.vectorized"
-    
-    echo "  → Converted: $skill_name"
-  fi
-done
-
-echo "Migration complete!"
-```
-
-#### 配置文件更新
-
-```yaml
-# config/skills-config.yaml 新增配置
-
-skills:
-  storage:
-    path: "./data/skills"
-    vectorDbPath: "./.data/skills.lance"
-  
-  retrieval:
-    model: "nomic-embed-text"
-    cacheSize: 1000
-    dimensions: 768
-    similarityThreshold: 0.40
-  
-  # 新增：渐进式披露配置
-  progressiveDisclosure:
-    enabled: true
-    maxLevel: 3
-    cacheEnabled: true
-    cacheTtl: 3600  # 1 hour
-  
-  # 新增：脚本执行配置
-  scriptExecution:
-    enabled: true
-    timeout: 60000
-    maxOutputSize: 10485760  # 10MB
-    allowedExtensions:
-      - .py
-      - .js
-      - .sh
-    deniedPaths:
-      - /etc
-      - /root
-      - /tmp  # 仅读
-```
-
-### 6.4 验收标准
-
-| 功能 | 验收标准 | 测试方法 |
-|------|----------|----------|
-| 标准导入 | 标准格式 Skills 可导入并正常工作 | 导入测试套件 |
-| 元数据加载 | Level 1 元数据 < 100 tokens/Skill | Token 计数验证 |
-| 内容加载 | Level 2 完整加载 SKILL.md | 内容完整性检查 |
-| 脚本隔离 | 脚本代码不进入上下文 | 上下文快照验证 |
-| 工具发现 | 向量搜索找到相关 Skills | 搜索结果验证 |
-| 执行隔离 | 沙箱超时和资源限制生效 | 压力测试 |
-| 工作流 | Skills + MCP 协同工作 | 集成测试 |
-
----
-
-## 7. 最佳实践建议
-
-### 7.1 Skills 开发最佳实践
-
-#### 命名规范
-
-```yaml
-# 推荐
-name: "pdf-processing"        # 领域-功能格式
-name: "git-workflow"          # 工具-用途格式
-name: "api-documentation"     # 用途-描述格式
-
-# 不推荐
-name: "MyPDFTool"             # 驼峰命名
-name: "pdf"                   # 过于简单
-name: "the-pdf-processing-skill-for-financial-reports"  # 过长
-```
-
-#### 描述撰写
-
-```yaml
-# 好的描述：包含「做什么」和「何时用」
-description: "Extract and process PDF documents including text extraction, table detection, and form filling. Use when working with PDF files or document processing tasks."
-
-# 不好的描述
-description: "PDF tool"                           # 太简单
-description: "This skill does many things..."     # 不明确
-```
-
-#### 结构组织
-
-```
-pdf-processing-skill/
-├── SKILL.md                    # 核心：< 5k tokens
-├── FORMS.md                    # 专题：表单处理
-├── REFERENCE.md                # 参考：API 文档
-├── EXAMPLES.md                 # 示例：使用案例
-├── scripts/
-│   ├── extract.py             # 提取脚本
-│   ├── fill.py                # 表单填充
-│   └── merge.py               # 合并脚本
-└── templates/                  # 模板文件
-    └── report.html
-```
-
-### 7.2 性能优化建议
-
-#### 向量索引优化
-
-```typescript
-// 索引优化策略
-
-interface IndexOptimization {
-  // 1. 批量索引
-  batchSize: 50,           // 每批 50 个 Skills
-  
-  // 2. 增量更新
-  incremental: true,       // 仅索引变更的 Skills
-  
-  // 3. 缓存策略
-  cacheEnabled: true,
-  cacheSize: 1000,
-  cacheTtl: 3600,          // 1 小时
-  
-  // 4. 索引调度
-  schedule: '0 2 * * *',   // 凌晨 2 点重建索引
-}
-```
-
-#### 渐进式披露配置
-
-```yaml
-progressiveDisclosure:
-  # Level 1: 启动时加载
-  level1Cache: true
-  level1MaxSkills: 100     # 最多 100 个 Skills
-  
-  # Level 2: 触发时加载
-  level2Cache: true
-  level2MaxSize: 5120      # 5k tokens 限制
-  
-  # Level 3+: 按需加载
-  level3Prefetch: false    # 不预加载
-  level3Timeout: 5000      # 5 秒超时
-```
-
-### 7.3 安全考虑
-
-#### 输入验证
-
-```typescript
-class SkillSecurityValidator {
-  // 1. 文件路径验证
-  validatePaths(skillPath: string): void {
-    const dangerousPatterns = [
-      /\.\./,           # 路径遍历
-      /^\//,            # 绝对路径
-      /\/etc\//,        # 系统目录
-      /\/root\//,       # 管理员目录
-    ];
-
-    for (const pattern of dangerousPatterns) {
-      if (pattern.test(skillPath)) {
-        throw new SecurityError(`Dangerous path detected: ${skillPath}`);
-      }
-    }
-  }
-
-  // 2. 脚本内容验证
-  validateScriptContent(scriptContent: string): void {
-    const dangerousPatterns = [
-      /eval\s*\(/,      # eval 调用
-      /exec\s*\(/,      # exec 调用
-      /import\s+\(/,    # 动态导入
-      /require\s*\(/,   # 模块加载
-      /\|\s*sh/,        # 管道执行
-    ];
-
-    for (const pattern of dangerousPatterns) {
-      if (pattern.test(scriptContent)) {
-        throw new SecurityError(`Dangerous pattern detected in script`);
-      }
-    }
-  }
-
-  // 3. 网络访问控制
-  validateNetworkAccess(skillConfig: SkillConfig): void {
-    if (skillConfig.allowNetwork) {
-      // 仅允许来自受信任域名的 Skills
-      if (!this.isTrustedSource(skillConfig.source)) {
-        throw new SecurityError('Network access not allowed for untrusted skills');
-      }
-    }
-  }
-}
-```
-
-#### 沙箱配置
-
-```yaml
-sandbox:
-  # 资源限制
-  maxMemory: 256MB
-  maxCpu: 50%
-  maxProcesses: 5
-  
-  # 网络隔离
-  networkEnabled: false
-  allowedHosts: []
-  
-  # 文件系统访问
-  readDirs:
-    - ${SKILL_DIR}
-    - /tmp
-  writeDirs:
-    - /tmp
-  denyDirs:
-    - /etc
-    - /root
-    - /home
-```
-
----
-
-## 8. 总结与建议
-
-### 8.1 核心差异总结
-
-| 维度 | Claude Agent Skills | ApexBridge Skills |
-|------|---------------------|-------------------|
-| **设计理念** | 渐进式披露，Claude 生态集成 | 向量检索，工具系统集成 |
-| **标准化** | agentskills.io 开放标准 | 内部标准，可扩展 |
-| **执行模型** | VM 环境，脚本输出隔离 | 沙箱执行，工具注册 |
-| **发现机制** | Claude 自动语义匹配 | 向量搜索 + 过滤器 |
-| **上下文优化** | 三层渐进式披露 | 一次性加载（待优化） |
-
-### 8.2 ApexBridge 演进建议
-
-1. **短期（P0）**：
-   - 实现标准格式兼容层
-   - 添加渐进式披露基础支持
-   - 优化 SKILL.md 加载策略
-
-2. **中期（P1）**：
-   - 实现脚本执行隔离
-   - 集成 Skills 到系统提示
-   - 完善 MCP + Skills 协同
-
-3. **长期（P2）**：
-   - 支持 Skills Marketplace
-   - 实现 Skills 版本管理
-   - 增强协作和分享功能
-
-### 8.3 关键成功指标
-
-- ✅ 100% 标准格式兼容
-- ✅ 元数据加载 < 100 tokens/Skill
-- ✅ 脚本代码 0 tokens 上下文消耗
-- ✅ 工具发现准确率 > 90%
-- ✅ 工作流执行成功率 > 95%
-
----
-
-**文档版本**: 1.0  
-**生成日期**: 2026-01-11  
-**分析来源**: [Anthropic Engineering Blog](https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills) + [Claude Docs](https://docs.claude.com/en/docs/agents-and-tools/agent-skills/overview)
-````
-
-## File: ClaudeCodeSkill 兼容实施原计划.md
-````markdown
-完整设计报告总结
-基于两个任务的探索研究，以下是 ApexBridge 与 Claude Code Agent Skills 完全兼容的增强方案：
----
-一、核心架构设计
-┌─────────────────────────────────────────────────────────────────────┐
-│                    Enhanced Discovery Layer                          │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌────────────┐ │
-│  │   Hybrid    │  │   Semantic  │  │   Tag       │  │  Metadata  │ │
-│  │   Retriever │  │   Matcher   │  │   Engine    │  │   Filter   │ │
-│  │             │  │             │  │             │  │            │ │
-│  │ - vector    │  │ - embedding │  │ - tag graph │  │ - version  │ │
-│  │ - keyword   │  │ - cross-    │  │ - alias     │  │ - category │ │
-│  │ - hybrid    │  │   encoder   │  │ - hierarchy │  │ - author   │ │
-│  │   scoring   │  │             │  │             │  │ - tools    │ │
-│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └─────┬──────┘ │
-│         └────────────────┴────────────────┴───────────────┘         │
-│                                   │                                  │
-│                    ┌──────────────┴──────────────┐                  │
-│                    │    Unified Scoring Engine    │                  │
-│                    │  - RRF Fusion               │                  │
-│                    │  - Weighted Combination     │                  │
-│                    │  - Re-ranking               │                  │
-│                    └──────────────┬──────────────┘                  │
-└──────────────────────────────────┼──────────────────────────────────┘
-                                   │
-┌──────────────────────────────────┼──────────────────────────────────┐
-│                    Progressive Disclosure Layer                      │
-│  Layer 1: Metadata (~100 tokens)                                   │
-│  Layer 2: Content (<5k tokens)                                     │
-│  Layer 3: Resources (Lazy Loading)                                 │
-└──────────────────────────────────┬──────────────────────────────────┘
-                                   │
-┌──────────────────────────────────┴──────────────────────────────────┐
-│                    Claude Code Skill Compatibility Layer             │
-│  - Format Converter (SKILL.md Parser)                              │
-│  - Execution Adapter (Script Executor)                             │
-│  - Lifecycle Manager (Install/Update/Uninstall)                    │
-└─────────────────────────────────────────────────────────────────────┘
----
-二、关键改进点
-| 维度 | 当前状态 | 增强方案 | 提升 |
-|------|----------|----------|------|
-| 发现机制 | 纯向量检索 | 混合检索（向量+关键词+语义+标签） | Top-1 80%→95% |
-| 披露机制 | 无 | 三层渐进式披露 | Token 节省 50%+ |
-| 兼容性 | 0% | 100% Claude Code Skill | 完全兼容 |
-| 性能 | ~50ms | <30ms 向量检索 | 40% 提升 |
----
-三、核心组件
-3.1 混合检索引擎
-interface HybridRetrievalConfig {
-  vectorWeight: number;     // default: 0.5
-  keywordWeight: number;    // default: 0.3
-  semanticWeight: number;   // default: 0.2
-  tagWeight: number;        // default: 0.1
-  rrfK: number;             // default: 60
-}
-3.2 三层披露架构
-| 层级 | Token 消耗 | 触发条件 | 内容 |
-|------|------------|----------|------|
-| Layer 1 | ~100 tokens | 始终 | name, description, version, tags, allowed-tools |
-| Layer 2 | <5k tokens | 匹配度 > 0.7 | SKILL.md 完整内容 |
-| Layer 3 | 按需 | 匹配度 > 0.85 | 附加资源、脚本输出 |
-3.3 Claude Code 格式转换器
-// 支持的 YAML Frontmatter 字段
-interface Layer1Metadata {
-  name: string;              // 必需
-  description: string;       // 必需 (max 1024 chars)
-  version?: string;          // 可选
-  tags?: string[];           // 可选
-  allowedTools?: string[];   // Claude Code 规范
-  model?: string;            // 可选
-  userInvocable?: boolean;   // 可选
-  context?: 'fork' | 'inline'; // 可选
-  agent?: string;            // 可选
-  hooks?: HookConfig[];      // 可选
-}
----
-四、实施路线图
-| Phase | 周期 | 核心任务 | 交付物 |
-|-------|------|----------|--------|
-| Phase 1 | 4 周 | 基础架构增强 | 混合检索框架、类型扩展 |
-| Phase 2 | 3 周 | 披露机制实现 | 三层披露管理器、缓存层 |
-| Phase 3 | 2 周 | 兼容层开发 | 格式转换器、执行适配器 |
-| Phase 4 | 2 周 | 性能优化 | 索引优化、预热策略 |
-| Phase 5 | 3 周 | 测试与发布 | 集成测试、文档 |
-总计: 14 周
----
-五、性能目标
-| 指标 | 目标值 | 说明 |
-|------|--------|------|
-| 向量检索延迟 | < 30ms | 40% 提升 |
-| L1 披露延迟 | < 10ms | 新增 |
-| L2 披露延迟 | < 50ms | 新增 |
-| Token 节省 | > 50% | 渐进式加载 |
-| Claude Code 兼容率 | 100% | 完全兼容 |
----
-六、下一步建议
-1. 立即启动 Phase 1：实现混合检索框架
-2. 验证兼容性：创建 POC 验证 SKILL.md 解析
-3. 性能基准：建立性能测试基线
-4. 迭代优化：根据实际数据调整权重
-````
-
-## File: RETRIEVAL_TESTS_SUMMARY.md
-````markdown
-# 多检索方法集成测试总结
-
-## 完成的工作
-
-### 1. 创建的文件结构
-
-```
-tests/integration/retrieval/
-├── multi-retrieval.integration.test.ts   # 主要集成测试文件 (1260+ 行)
-├── fixtures/
-│   └── test-data.json                    # 测试数据 (800+ 行, 24个测试技能)
-└── ../config/
-    ├── jest.integration.config.js         # Jest 集成测试配置
-    └── setup.ts                           # 测试环境设置
-```
-
-### 2. 测试覆盖范围
-
-#### 向量检索测试 (Vector Retrieval)
-
-- ✅ 基本向量搜索（有效查询、空查询、空白查询）
-- ✅ 限制参数处理
-- ✅ 单字符查询
-- ✅ 评分排序
-- ✅ 结果结构验证（scores, ranks）
-- ✅ 缓存机制
-
-#### 关键词检索测试 (Keyword Retrieval)
-
-- ✅ 名称和描述中的关键词匹配
-- ✅ 大小写不敏感搜索
-- ✅ 部分单词匹配
-- ✅ 特殊字符处理
-- ✅ 评分机制
-
-#### 混合检索测试 (Hybrid Retrieval - RRF Fusion)
-
-- ✅ 多路召回融合
-- ✅ 加权评分计算
-- ✅ 结果数量限制
-- ✅ 最小分数阈值过滤
-- ✅ 不同权重配置
-- ✅ RRF K参数配置
-- ✅ 标签检索
-
-#### 边界条件测试 (Edge Cases)
-
-- ✅ 查询长度边界（单字符、超长查询）
-- ✅ Unicode和表情符号处理
-- ✅ 多语言查询
-- ✅ 限制参数边界（0、1、超大值）
-- ✅ 分数边界（1.0、0、阈值附近）
-- ✅ 标签边界（空、大量、层级）
-- ✅ 错误处理（搜索引擎、嵌入生成、并发）
-
-#### 性能测试
-
-- ✅ 向量搜索 < 100ms
-- ✅ 关键词搜索 < 50ms
-- ✅ 混合搜索 < 150ms
-- ✅ 顺序搜索性能
-- ✅ 缓存命中性能
-
-#### 真实数据集成测试
-
-- ✅ 测试数据验证（24个技能）
-- ✅ 技能结构验证
-- ✅ 多类别覆盖验证
-- ✅ 难度级别分布验证
-- ✅ 查询用例测试
-
-### 3. 测试结果
-
-```
-测试套件: 1
-总测试数: 58
-通过:     47
-失败:     11 (主要是 DisclosureCache 超时问题)
-```
-
-### 4. 测试数据
-
-- **24个测试技能**覆盖多个类别：
-  - 文件操作 (file)
-  - 数据处理 (data)
-  - 网络请求 (network)
-  - 代码分析 (code)
-  - 媒体处理 (media)
-  - 数据库 (database)
-  - 系统工具 (system)
-  - 版本控制 (version-control)
-  - 机器学习 (machine-learning)
-  - 测试 (testing)
-
-- **难度级别分布**：
-  - Beginner (初级)
-  - Intermediate (中级)
-  - Advanced (高级)
-
-### 5. Jest 配置
-
-- 测试超时: 30秒
-- 覆盖率阈值: 70%
-- 支持并发测试
-- 自动清理测试数据
-
-## 运行测试
-
-```bash
-# 运行多检索集成测试
-npm test -- --config tests/config/jest.integration.config.js --testPathPattern="integration/retrieval/multi-retrieval"
-
-# 生成覆盖率报告
-npm test -- --config tests/config/jest.integration.config.js --testPathPattern="integration/retrieval" --coverage
-```
-
-## 待改进项
-
-1. **DisclosureCache 超时问题** (11个失败测试)
-   - 原因: `setInterval` 在 Jest 测试环境中导致超时
-   - 解决方案: 在测试中模拟 DisclosureCache 或修改缓存实现
-
-2. **测试覆盖率**
-   - 当前: ~70%
-   - 目标: >80%
-   - 需要增加边界情况的测试覆盖
-
-## 关键代码位置
-
-| 功能         | 文件路径                                                          |
-| ------------ | ----------------------------------------------------------------- |
-| 集成测试     | `tests/integration/retrieval/multi-retrieval.integration.test.ts` |
-| 测试数据     | `tests/integration/retrieval/fixtures/test-data.json`             |
-| Jest配置     | `tests/config/jest.integration.config.js`                         |
-| 测试设置     | `tests/config/setup.ts`                                           |
-| 混合检索引擎 | `src/services/tool-retrieval/HybridRetrievalEngine.ts`            |
-| 工具检索服务 | `src/services/tool-retrieval/ToolRetrievalService.ts`             |
-
-## 验收标准完成情况
-
-| 验收标准             | 状态    | 详情                                  |
-| -------------------- | ------- | ------------------------------------- |
-| 创建集成测试文件     | ✅ 完成 | `multi-retrieval.integration.test.ts` |
-| 覆盖所有主要检索场景 | ✅ 完成 | 向量、关键词、混合检索均覆盖          |
-| 测试覆盖率 > 80%     | ⚠️ 部分 | 约70%，需要增加边界测试               |
-| 所有测试通过         | ⚠️ 部分 | 47/58 通过，11个超时                  |
-
-## 下一步行动
-
-1. 修复 DisclosureCache 超时问题
-2. 增加边界条件测试覆盖率
-3. 添加更多性能基准测试
-4. 集成到 CI/CD 流程
-````
-
-## File: src/api/controllers/SkillsController.ts
-````typescript
-/**
- * SkillsController - Skills管理 API 控制器
- * 提供Skills的安装、卸载、查询等RESTful接口
- */
-
-import { Request, Response } from 'express';
-import multer from 'multer';
-import { SkillManager } from '../../services/SkillManager';
-import { logger } from '../../utils/logger';
-import { ToolError, ToolErrorCode } from '../../types/tool-system';
-
-const skillManager = SkillManager.getInstance();
-
-/**
- * 统一处理服务层错误
- * 将ToolError转换为合适的HTTP状态码
- */
-function handleServiceError(res: Response, error: any, action: string): boolean {
-  logger.error(`❌ Failed to ${action}:`, error);
-
-  if (error instanceof ToolError) {
-    switch (error.code) {
-      case ToolErrorCode.SKILL_NOT_FOUND:
-        res.status(404).json({
-          error: 'Skill not found',
-          message: error.message,
-          code: error.code
-        });
-        return true;
-
-      case ToolErrorCode.SKILL_ALREADY_EXISTS:
-        res.status(409).json({
-          error: 'Skill already exists',
-          message: error.message,
-          code: error.code
-        });
-        return true;
-
-      case ToolErrorCode.SKILL_INVALID_STRUCTURE:
-        res.status(400).json({
-          error: 'Invalid skill structure',
-          message: error.message,
-          code: error.code
-        });
-        return true;
-
-      case ToolErrorCode.VECTOR_DB_ERROR:
-        res.status(503).json({
-          error: 'Vector database error',
-          message: error.message,
-          code: error.code
-        });
-        return true;
-
-      default:
-        res.status(500).json({
-          error: `Failed to ${action}`,
-          message: error.message,
-          code: error.code
-        });
-        return true;
-    }
-  }
-
-  // 默认返回 500
-  res.status(500).json({
-    error: `Failed to ${action}`,
-    message: error.message || 'Unknown error'
-  });
-  return true;
-}
-
-/**
- * 转换为 Skill DTO
- * 统一响应结构，确保所有接口返回格式一致
- */
-function toSkillDTO(skill: any) {
-  return {
-    name: skill.name,
-    description: skill.description,
-    type: skill.type,
-    tags: skill.tags || [],
-    version: skill.version,
-    author: skill.author,
-    enabled: skill.enabled,
-    level: skill.level,
-    path: skill.path,
-    parameters: skill.parameters || {
-      type: 'object',
-      properties: {},
-      required: []
-    }
-  };
-}
-
-/**
- * 安装Skills
- * POST /api/skills/install
- * Content-Type: multipart/form-data
- * Body: { file: ZIP文件, overwrite?: boolean, skipVectorization?: boolean }
- */
-export async function installSkill(req: Request, res: Response): Promise<void> {
-  try {
-    const startTime = Date.now();
-
-    // 检查文件是否存在
-    if (!req.file) {
-      res.status(400).json({
-        error: 'No file uploaded',
-        message: 'Please upload a ZIP file containing the skill'
-      });
-      return;
-    }
-
-    // 验证文件类型
-    if (!req.file.originalname.endsWith('.zip')) {
-      res.status(400).json({
-        error: 'Invalid file type',
-        message: 'Only ZIP files are supported'
-      });
-      return;
-    }
-
-    // 检查文件大小（限制100MB）
-    if (req.file.size > 100 * 1024 * 1024) {
-      res.status(400).json({
-        error: 'File too large',
-        message: 'Maximum file size is 100MB'
-      });
-      return;
-    }
-
-    logger.info(`📦 Installing skill from file: ${req.file.originalname} (${req.file.size} bytes)`);
-
-    // 解析选项
-    const options = {
-      overwrite: req.body.overwrite === 'true' || req.body.overwrite === true,
-      skipVectorization: req.body.skipVectorization === 'true' || req.body.skipVectorization === true,
-      validationLevel: req.body.validationLevel || 'basic'
-    };
-
-    // 安装Skills
-    const result = await skillManager.installSkill(req.file.buffer, options);
-
-    logger.info(`✅ Skill installed successfully: ${result.skillName} (${Date.now() - startTime}ms)`);
-
-    // 返回成功响应
-    res.status(201).json({
-      success: true,
-      message: result.message,
-      skillName: result.skillName,
-      installedAt: result.installedAt,
-      duration: result.duration,
-      vectorized: result.vectorized
-    });
-
-  } catch (error) {
-    handleServiceError(res, error, 'install skill');
-  }
-}
-
-/**
- * 卸载Skills
- * DELETE /api/skills/:name
- */
-export async function uninstallSkill(req: Request, res: Response): Promise<void> {
-  try {
-    const { name } = req.params;
-    const startTime = Date.now();
-
-    logger.info(`🗑️ Uninstalling skill: ${name}`);
-
-    const result = await skillManager.uninstallSkill(name);
-
-    logger.info(`✅ Skill uninstalled successfully: ${name} (${Date.now() - startTime}ms)`);
-
-    res.json({
-      success: true,
-      message: result.message,
-      skillName: result.skillName,
-      uninstalledAt: result.uninstalledAt,
-      duration: result.duration
-    });
-
-  } catch (error) {
-    handleServiceError(res, error, 'uninstall skill');
-  }
-}
-
-/**
- * 更新Skills描述
- * PUT /api/skills/:name/description
- * Body: { description: string }
- */
-export async function updateSkillDescription(req: Request, res: Response): Promise<void> {
-  try {
-    const { name } = req.params;
-    const { description } = req.body;
-    const startTime = Date.now();
-
-    // 验证描述不能为空
-    if (!description || typeof description !== 'string') {
-      res.status(400).json({
-        error: 'Invalid description',
-        message: 'Description is required and must be a string'
-      });
-      return;
-    }
-
-    logger.info(`✏️ Updating skill description: ${name}`);
-
-    const result = await skillManager.updateSkill(name, description);
-
-    logger.info(`✅ Skill description updated: ${name} (${Date.now() - startTime}ms)`);
-
-    res.json({
-      success: true,
-      message: result.message,
-      skillName: result.skillName,
-      updatedAt: result.updatedAt,
-      duration: result.duration,
-      reindexed: result.reindexed
-    });
-
-  } catch (error) {
-    handleServiceError(res, error, 'update skill description');
-  }
-}
-
-/**
- * 列出Skills
- * GET /api/skills?page=1&limit=50&name=&tags=&sortBy=name&sortOrder=asc
- */
-export async function listSkills(req: Request, res: Response): Promise<void> {
-  try {
-    const startTime = Date.now();
-
-    // 解析查询参数
-    const sortBy = (req.query.sortBy as string) || 'name';
-    const validSortFields = ['updatedAt', 'name', 'installedAt'];
-    if (!validSortFields.includes(sortBy)) {
-      res.status(400).json({
-        error: 'Invalid sortBy parameter',
-        message: 'sortBy must be one of: updatedAt, name, installedAt'
-      });
-      return;
-    }
-
-    const options = {
-      page: parseInt(req.query.page as string) || 1,
-      limit: parseInt(req.query.limit as string) || 50,
-      name: req.query.name as string || undefined,
-      tags: req.query.tags ? (req.query.tags as string).split(',') : undefined,
-      sortBy: sortBy as 'updatedAt' | 'name' | 'installedAt',
-      sortOrder: ((req.query.sortOrder as string) === 'desc' ? 'desc' : 'asc') as 'asc' | 'desc'
-    };
-
-    logger.debug(`📋 Listing skills: page=${options.page}, limit=${options.limit}`);
-
-    const result = await skillManager.listSkills(options);
-
-    logger.info(`✅ Listed ${result.skills.length} skills (${Date.now() - startTime}ms)`);
-
-    res.json({
-      success: true,
-      data: {
-        skills: result.skills.map(toSkillDTO),
-        pagination: {
-          total: result.total,
-          page: result.page,
-          limit: result.limit,
-          totalPages: result.totalPages
-        }
-      }
-    });
-
-  } catch (error) {
-    handleServiceError(res, error, 'list skills');
-  }
-}
-
-/**
- * 获取单个Skills详情
- * GET /api/skills/:name
- */
-export async function getSkill(req: Request, res: Response): Promise<void> {
-  try {
-    const { name } = req.params;
-    const startTime = Date.now();
-
-    logger.debug(`🔍 Getting skill details: ${name}`);
-
-    const skill = await skillManager.getSkillByName(name);
-
-    if (!skill) {
-      res.status(404).json({
-        error: 'Skill not found',
-        message: `Skill '${name}' not found`
-      });
-      return;
-    }
-
-    logger.info(`✅ Got skill details: ${name} (${Date.now() - startTime}ms)`);
-
-    res.json({
-      success: true,
-      data: toSkillDTO(skill)
-    });
-
-  } catch (error) {
-    handleServiceError(res, error, 'get skill');
-  }
-}
-
-/**
- * 检查Skills是否存在
- * GET /api/skills/:name/exists
- */
-export async function checkSkillExists(req: Request, res: Response): Promise<void> {
-  try {
-    const { name } = req.params;
-
-    logger.debug(`🔍 Checking if skill exists: ${name}`);
-
-    const exists = await skillManager.isSkillExist(name);
-
-    res.json({
-      success: true,
-      data: {
-        name,
-        exists
-      }
-    });
-
-  } catch (error) {
-    handleServiceError(res, error, 'check skill existence');
-  }
-}
-
-/**
- * 获取Skills统计信息
- * GET /api/skills/stats
- */
-export async function getSkillStats(req: Request, res: Response): Promise<void> {
-  try {
-    const startTime = Date.now();
-
-    logger.debug('📊 Getting skill statistics');
-
-    const stats = await skillManager.getStatistics();
-
-    logger.info(`✅ Got skill statistics (${Date.now() - startTime}ms)`);
-
-    res.json({
-      success: true,
-      data: stats
-    });
-
-  } catch (error) {
-    handleServiceError(res, error, 'get skill statistics');
-  }
-}
-
-/**
- * 重新索引所有Skills
- * POST /api/skills/reindex
- * 用于向量数据库重建或同步
- */
-export async function reindexAllSkills(req: Request, res: Response): Promise<void> {
-  try {
-    const startTime = Date.now();
-
-    logger.info('🔄 Reindexing all skills');
-
-    // TODO: 实现重新索引逻辑
-    // 1. 扫描所有Skills目录
-    // 2. 逐一调用 retrievalService.indexSkill()
-    // 3. 更新.vectorized标识
-
-    logger.info(`✅ All skills reindexed (${Date.now() - startTime}ms)`);
-
-    res.json({
-      success: true,
-      message: 'All skills reindexed successfully'
-    });
-
-  } catch (error) {
-    handleServiceError(res, error, 'reindex skills');
-  }
-}
-
-// 配置Multer中间件
-export const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 100 * 1024 * 1024 // 100MB
-  },
-  fileFilter: (req, file, cb) => {
-    if (file.originalname.endsWith('.zip')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only ZIP files are allowed'));
-    }
-  }
-});
-````
-
-## File: src/api/middleware/rateLimit/inMemoryRateLimiter.ts
-````typescript
-import {
-  RateLimiter,
-  RateLimiterContext,
-  RateLimiterHitResult,
-  RateLimiterMode,
-  RateLimiterRuleState
-} from './types';
-
-export interface InMemoryRateLimiterOptions {
-  defaultMode?: RateLimiterMode;
-  defaultBurstMultiplier?: number;
-  now?: () => number;
-}
-
-interface SlidingStateEntry {
-  timestamps: number[];
-}
-
-interface FixedWindowStateEntry {
-  windowStart: number;
-  count: number;
-}
-
-const DEFAULT_MODE: RateLimiterMode = 'sliding';
-
-/**
- * 内存版限流器，实现滑动窗口与固定窗口两种算法，并支持突发流量放宽。
- * 设计目标：
- * - 滑动窗口：记录窗口内每次命中时间戳，保证限流的平滑性与准确性
- * - 固定窗口：对 windowMs 对齐分片计数，满足简单场景
- * - Burst：通过 burstMultiplier 扩大有效上限，允许短时突发流量
- */
-export class InMemoryRateLimiter implements RateLimiter {
-  private readonly now: () => number;
-  private readonly defaultMode: RateLimiterMode;
-  private readonly defaultBurstMultiplier: number;
-
-  private readonly slidingState = new Map<string, Map<string, SlidingStateEntry>>();
-  private readonly fixedState = new Map<string, Map<string, FixedWindowStateEntry>>();
-
-  constructor(options?: InMemoryRateLimiterOptions) {
-    this.now = options?.now ?? (() => Date.now());
-    this.defaultMode = options?.defaultMode ?? DEFAULT_MODE;
-    this.defaultBurstMultiplier = Math.max(options?.defaultBurstMultiplier ?? 1, 1);
-  }
-
-  async hit(key: string, rule: RateLimiterRuleState): Promise<RateLimiterHitResult> {
-    const mode = rule.mode ?? this.defaultMode;
-    if (mode === 'fixed') {
-      return this.hitFixedWindow(key, rule);
-    }
-    return this.hitSlidingWindow(key, rule);
-  }
-
-  async undo(context: RateLimiterContext): Promise<void> {
-    if (context.mode === 'fixed') {
-      this.undoFixedWindow(context);
-    } else {
-      this.undoSlidingWindow(context);
-    }
-  }
-
-  private hitSlidingWindow(key: string, rule: RateLimiterRuleState): RateLimiterHitResult {
-    const burstMultiplier = Math.max(rule.burstMultiplier ?? this.defaultBurstMultiplier, 1);
-    const limit = Math.max(Math.floor(rule.maxRequests * burstMultiplier), rule.maxRequests);
-    const now = this.now();
-    const windowStartThreshold = now - rule.windowMs;
-
-    const ruleBuckets = this.ensureSlidingRule(rule.id);
-    const entry = this.ensureSlidingEntry(ruleBuckets, key);
-    const timestamps = entry.timestamps;
-
-    // 清理过期时间戳（按顺序存储，O(n) 最坏，但 n 一般 <= limit）
-    while (timestamps.length > 0 && timestamps[0] <= windowStartThreshold) {
-      timestamps.shift();
-    }
-
-    if (timestamps.length >= limit) {
-      const earliest = timestamps[0];
-      const resetAt = earliest + rule.windowMs;
-      return {
-        allowed: false,
-        limit,
-        remaining: 0,
-        reset: resetAt
-      };
-    }
-
-    timestamps.push(now);
-    const remaining = Math.max(limit - timestamps.length, 0);
-    const firstTimestamp = timestamps[0] ?? now;
-    const resetAt = firstTimestamp + rule.windowMs;
-
-    return {
-      allowed: true,
-      limit,
-      remaining,
-      reset: resetAt,
-      context: {
-        ruleId: rule.id,
-        key,
-        mode: 'sliding',
-        timestamp: now
-      }
-    };
-  }
-
-  private hitFixedWindow(key: string, rule: RateLimiterRuleState): RateLimiterHitResult {
-    const burstMultiplier = Math.max(rule.burstMultiplier ?? this.defaultBurstMultiplier, 1);
-    const limit = Math.max(Math.floor(rule.maxRequests * burstMultiplier), rule.maxRequests);
-    const now = this.now();
-    const windowStart = Math.floor(now / rule.windowMs) * rule.windowMs;
-
-    const ruleBuckets = this.ensureFixedRule(rule.id);
-    const entry = this.ensureFixedEntry(ruleBuckets, key);
-
-    if (entry.windowStart !== windowStart) {
-      entry.windowStart = windowStart;
-      entry.count = 0;
-    }
-
-    if (entry.count >= limit) {
-      return {
-        allowed: false,
-        limit,
-        remaining: 0,
-        reset: entry.windowStart + rule.windowMs
-      };
-    }
-
-    entry.count += 1;
-    const remaining = Math.max(limit - entry.count, 0);
-
-    return {
-      allowed: true,
-      limit,
-      remaining,
-      reset: entry.windowStart + rule.windowMs,
-      context: {
-        ruleId: rule.id,
-        key,
-        mode: 'fixed',
-        timestamp: now,
-        windowStart: entry.windowStart
-      }
-    };
-  }
-
-  private undoSlidingWindow(context: RateLimiterContext): void {
-    const ruleBuckets = this.slidingState.get(context.ruleId);
-    if (!ruleBuckets) {
-      return;
-    }
-    const entry = ruleBuckets.get(context.key);
-    if (!entry) {
-      return;
-    }
-
-    const index = entry.timestamps.lastIndexOf(context.timestamp);
-    if (index >= 0) {
-      entry.timestamps.splice(index, 1);
-    }
-
-    if (entry.timestamps.length === 0) {
-      ruleBuckets.delete(context.key);
-    }
-    if (ruleBuckets.size === 0) {
-      this.slidingState.delete(context.ruleId);
-    }
-  }
-
-  private undoFixedWindow(context: RateLimiterContext): void {
-    const ruleBuckets = this.fixedState.get(context.ruleId);
-    if (!ruleBuckets) {
-      return;
-    }
-    const entry = ruleBuckets.get(context.key);
-    if (!entry) {
-      return;
-    }
-    if (entry.windowStart !== context.windowStart || entry.count === 0) {
-      return;
-    }
-
-    entry.count = Math.max(entry.count - 1, 0);
-    if (entry.count === 0) {
-      ruleBuckets.delete(context.key);
-    }
-    if (ruleBuckets.size === 0) {
-      this.fixedState.delete(context.ruleId);
-    }
-  }
-
-  private ensureSlidingRule(ruleId: string): Map<string, SlidingStateEntry> {
-    let ruleBuckets = this.slidingState.get(ruleId);
-    if (!ruleBuckets) {
-      ruleBuckets = new Map<string, SlidingStateEntry>();
-      this.slidingState.set(ruleId, ruleBuckets);
-    }
-    return ruleBuckets;
-  }
-
-  private ensureSlidingEntry(
-    buckets: Map<string, SlidingStateEntry>,
-    key: string
-  ): SlidingStateEntry {
-    let entry = buckets.get(key);
-    if (!entry) {
-      entry = { timestamps: [] };
-      buckets.set(key, entry);
-    }
-    return entry;
-  }
-
-  private ensureFixedRule(ruleId: string): Map<string, FixedWindowStateEntry> {
-    let ruleBuckets = this.fixedState.get(ruleId);
-    if (!ruleBuckets) {
-      ruleBuckets = new Map<string, FixedWindowStateEntry>();
-      this.fixedState.set(ruleId, ruleBuckets);
-    }
-    return ruleBuckets;
-  }
-
-  private ensureFixedEntry(
-    buckets: Map<string, FixedWindowStateEntry>,
-    key: string
-  ): FixedWindowStateEntry {
-    let entry = buckets.get(key);
-    if (!entry) {
-      entry = { windowStart: 0, count: 0 };
-      buckets.set(key, entry);
-    }
-    return entry;
-  }
-}
-````
-
-## File: src/api/middleware/rateLimit/redisRateLimiter.ts
-````typescript
-import type { RedisClientType } from 'redis';
-import {
-  RateLimiter,
-  RateLimiterContext,
-  RateLimiterHitResult,
-  RateLimiterMode,
-  RateLimiterRuleState
-} from './types';
-
-export interface RedisRateLimiterOptions {
-  client: RedisClientType<any, any, any>;
-  keyPrefix?: string;
-  now?: () => number;
-}
-
-export class RedisRateLimiter implements RateLimiter {
-  private readonly client: RedisClientType<any, any, any>;
-  private readonly now: () => number;
-  private readonly keyPrefix: string;
-
-  private static readonly HIT_SCRIPT = `
-    local key = KEYS[1]
-    local now = tonumber(ARGV[1])
-    local windowStart = tonumber(ARGV[2])
-    local limit = tonumber(ARGV[3])
-    local ttl = tonumber(ARGV[4])
-    local member = ARGV[5]
-
-    redis.call('ZREMRANGEBYSCORE', key, '-inf', windowStart)
-    local currentCount = redis.call('ZCARD', key)
-
-    if currentCount >= limit then
-      local earliest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
-      local resetAt = 0
-      if earliest[2] then
-        resetAt = tonumber(earliest[2]) + ttl
-      end
-      return {0, currentCount, resetAt}
-    end
-
-    redis.call('ZADD', key, now, member)
-    redis.call('PEXPIRE', key, ttl)
-    local newCount = currentCount + 1
-    local earliest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
-    local resetAt = 0
-    if earliest[2] then
-      resetAt = tonumber(earliest[2]) + ttl
-    end
-    return {1, newCount, resetAt}
-  `;
-
-  constructor(options: RedisRateLimiterOptions) {
-    this.client = options.client;
-    this.keyPrefix = options.keyPrefix ?? 'rate_limit';
-    this.now = options.now ?? (() => Date.now());
-  }
-
-  public getClient(): RedisClientType<any, any, any> {
-    return this.client;
-  }
-
-  public async hit(key: string, rule: RateLimiterRuleState): Promise<RateLimiterHitResult> {
-    const mode: RateLimiterMode = rule.mode === 'fixed' ? 'fixed' : 'sliding';
-    const burstMultiplier = Math.max(rule.burstMultiplier ?? 1, 1);
-    const limit = Math.max(Math.floor(rule.maxRequests * burstMultiplier), rule.maxRequests);
-    const now = this.now();
-    const windowStart = now - rule.windowMs;
-    const ttlMs = Math.max(rule.windowMs, 1000);
-    const member = `${now}-${Math.random().toString(36).slice(2, 10)}`;
-
-    const redisKey = this.composeKey(rule.id, key);
-
-    const response = (await this.client.eval(RedisRateLimiter.HIT_SCRIPT, {
-      keys: [redisKey],
-      arguments: [
-        now.toString(10),
-        windowStart.toString(10),
-        limit.toString(10),
-        ttlMs.toString(10),
-        member
-      ]
-    })) as [number, number, number?] | null;
-
-    if (!response) {
-      throw new Error('Redis rate limiter returned null response');
-    }
-
-    const allowed = response[0] === 1;
-    const count = typeof response[1] === 'number' ? response[1] : 0;
-    const resetTimestamp = typeof response[2] === 'number' ? response[2] : now + rule.windowMs;
-
-    if (!allowed) {
-      return {
-        allowed: false,
-        limit,
-        remaining: Math.max(limit - count, 0),
-        reset: resetTimestamp
-      };
-    }
-
-    const remaining = Math.max(limit - count, 0);
-
-    return {
-      allowed: true,
-      limit,
-      remaining,
-      reset: resetTimestamp,
-      context: {
-        ruleId: rule.id,
-        key,
-        mode,
-        timestamp: now,
-        value: member
-      }
-    };
-  }
-
-  public async undo(context: RateLimiterContext): Promise<void> {
-    if (!context.value) {
-      return;
-    }
-
-    const redisKey = this.composeKey(context.ruleId, context.key);
-    try {
-      await this.client.zRem(redisKey, context.value);
-    } catch {
-      // Silent failure; fallback limiter will handle eventual consistency.
-    }
-  }
-
-  private composeKey(ruleId: string, identifier: string): string {
-    return `${this.keyPrefix}:${ruleId}:${identifier}`;
-  }
-}
-````
-
-## File: src/api/middleware/rateLimit/types.ts
-````typescript
-export type RateLimiterMode = 'sliding' | 'fixed';
-
-export interface RateLimiterRuleState {
-  id: string;
-  windowMs: number;
-  maxRequests: number;
-  mode?: RateLimiterMode;
-  burstMultiplier?: number;
-}
-
-export interface RateLimiterContext {
-  ruleId: string;
-  key: string;
-  timestamp: number;
-  windowStart?: number;
-  mode: RateLimiterMode;
-  value?: string;
-}
-
-export interface RateLimiterHitResult {
-  allowed: boolean;
-  limit: number;
-  remaining: number;
-  reset: number;
-  context?: RateLimiterContext;
-}
-
-export interface RateLimiter {
-  hit(key: string, rule: RateLimiterRuleState): Promise<RateLimiterHitResult>;
-  undo(context: RateLimiterContext): Promise<void>;
-}
-````
-
-## File: src/api/middleware/AGENTS.md
-````markdown
-# AGENTS.md
-
-**Generated:** 2026-01-10
-**Directory:** src/api/middleware
-
----
-
-## OVERVIEW
-
-HTTP middleware stack - Auth, Security, Validation, Rate-limiting.
-
----
-
-## WHERE TO LOOK
-
-| Component         | Path                                                      | Role                                            |
-| ----------------- | --------------------------------------------------------- | ----------------------------------------------- |
-| Auth              | `authMiddleware.ts`                                       | API Key validation (Bearer token)               |
-| Security Headers  | `securityHeadersMiddleware.ts`                            | Helmet.js + CSP (frame-ancestors: none)         |
-| Sanitization      | `sanitizationMiddleware.ts`                               | XSS/SQLi prevention                             |
-| Validation        | `validationMiddleware.ts`                                 | AJV JSON Schema validation                      |
-| Custom Validators | `customValidators.ts`                                     | Business rule validators (API key, port)        |
-| Rate-limit        | `rateLimitMiddleware.ts`                                  | Adaptive rate limiter (memory/Redis)            |
-| Rate-limit Impl   | `rateLimit/`                                              | `inMemoryRateLimiter.ts`, `redisRateLimiter.ts` |
-| Logging           | `auditLoggerMiddleware.ts`, `securityLoggerMiddleware.ts` | Request audit & security events                 |
-
----
-
-## CONVENTIONS
-
-Same as root.
-
----
-
-## ANTI-PATTERNS (THIS SUBDIR)
-
-- **frame-ancestors: ["'none'"]** - Strictly no iframe embedding allowed
-- **object-src: ["'none'"]** - No object/embed elements allowed
-- **API Key format check**: `authMiddleware.ts` uses config-based validation only (no JWT parsing)
-````
-
-## File: src/api/routes/mcpRoutes.ts
-````typescript
-/**
- * MCP API Routes
- * MCP服务器管理的REST API端点
- */
-
-import { Router, Request, Response } from 'express';
-import { mcpIntegration } from '../../services/MCPIntegrationService';
-import { logger } from '../../utils/logger';
-
-const router = Router();
-
-/**
- * @route   GET /api/mcp/servers
- * @desc    获取所有注册的MCP服务器列表
- * @access  Public
- */
-router.get('/servers', async (req: Request, res: Response) => {
-  try {
-    const servers = mcpIntegration.getServers();
-
-    res.json({
-      success: true,
-      data: servers,
-      meta: {
-        total: servers.length,
-        timestamp: new Date().toISOString()
-      }
-    });
-  } catch (error: any) {
-    logger.error('[MCP API] Failed to get servers:', error);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: 'GET_SERVERS_FAILED',
-        message: error.message || 'Failed to get servers'
-      }
-    });
-  }
-});
-
-/**
- * @route   POST /api/mcp/servers
- * @desc    注册新的MCP服务器
- * @access  Public
- */
-router.post('/servers', async (req: Request, res: Response) => {
-  try {
-    const config = req.body;
-
-    // 验证必要字段
-    if (!config.id || !config.type || !config.command) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: 'INVALID_CONFIG',
-          message: 'Missing required fields: id, type, command'
-        }
-      });
-    }
-
-    const result = await mcpIntegration.registerServer(config);
-
-    if (!result.success) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: 'REGISTRATION_FAILED',
-          message: result.error || 'Registration failed'
-        }
-      });
-    }
-
-    res.status(201).json({
-      success: true,
-      data: {
-        serverId: result.serverId,
-        message: 'Server registered successfully'
-      }
-    });
-  } catch (error: any) {
-    logger.error('[MCP API] Failed to register server:', error);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: 'REGISTRATION_ERROR',
-        message: error.message || 'Registration error'
-      }
-    });
-  }
-});
-
-/**
- * @route   GET /api/mcp/servers/:serverId
- * @desc    获取特定MCP服务器的详细信息
- * @access  Public
- */
-router.get('/servers/:serverId', async (req: Request, res: Response) => {
-  try {
-    const { serverId } = req.params;
-    const server = mcpIntegration.getServer(serverId);
-
-    if (!server) {
-      return res.status(404).json({
-        success: false,
-        error: {
-          code: 'SERVER_NOT_FOUND',
-          message: `Server ${serverId} not found`
-        }
-      });
-    }
-
-    res.json({
-      success: true,
-      data: server
-    });
-  } catch (error: any) {
-    logger.error('[MCP API] Failed to get server:', error);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: 'GET_SERVER_FAILED',
-        message: error.message || 'Failed to get server'
-      }
-    });
-  }
-});
-
-/**
- * @route   DELETE /api/mcp/servers/:serverId
- * @desc    注销MCP服务器
- * @access  Public
- */
-router.delete('/servers/:serverId', async (req: Request, res: Response) => {
-  try {
-    const { serverId } = req.params;
-    const success = await mcpIntegration.unregisterServer(serverId);
-
-    if (!success) {
-      return res.status(404).json({
-        success: false,
-        error: {
-          code: 'SERVER_NOT_FOUND',
-          message: `Server ${serverId} not found`
-        }
-      });
-    }
-
-    res.json({
-      success: true,
-      data: {
-        serverId,
-        message: 'Server unregistered successfully'
-      }
-    });
-  } catch (error: any) {
-    logger.error('[MCP API] Failed to unregister server:', error);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: 'UNREGISTRATION_ERROR',
-        message: error.message || 'Unregistration error'
-      }
-    });
-  }
-});
-
-/**
- * @route   POST /api/mcp/servers/:serverId/restart
- * @desc    重启MCP服务器
- * @access  Public
- */
-router.post('/servers/:serverId/restart', async (req: Request, res: Response) => {
-  try {
-    const { serverId } = req.params;
-    const success = await mcpIntegration.restartServer(serverId);
-
-    if (!success) {
-      return res.status(404).json({
-        success: false,
-        error: {
-          code: 'SERVER_NOT_FOUND',
-          message: `Server ${serverId} not found`
-        }
-      });
-    }
-
-    res.json({
-      success: true,
-      data: {
-        serverId,
-        message: 'Server restarted successfully'
-      }
-    });
-  } catch (error: any) {
-    logger.error('[MCP API] Failed to restart server:', error);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: 'RESTART_ERROR',
-        message: error.message || 'Restart error'
-      }
-    });
-  }
-});
-
-/**
- * @route   GET /api/mcp/servers/:serverId/status
- * @desc    获取MCP服务器状态
- * @access  Public
- */
-router.get('/servers/:serverId/status', async (req: Request, res: Response) => {
-  try {
-    const { serverId } = req.params;
-    const status = mcpIntegration.getServerStatus(serverId);
-
-    if (!status) {
-      return res.status(404).json({
-        success: false,
-        error: {
-          code: 'SERVER_NOT_FOUND',
-          message: `Server ${serverId} not found`
-        }
-      });
-    }
-
-    res.json({
-      success: true,
-      data: {
-        serverId,
-        status
-      }
-    });
-  } catch (error: any) {
-    logger.error('[MCP API] Failed to get server status:', error);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: 'GET_STATUS_FAILED',
-        message: error.message || 'Failed to get server status'
-      }
-    });
-  }
-});
-
-/**
- * @route   GET /api/mcp/servers/:serverId/tools
- * @desc    获取MCP服务器的工具列表
- * @access  Public
- */
-router.get('/servers/:serverId/tools', async (req: Request, res: Response) => {
-  try {
-    const { serverId } = req.params;
-    const server = mcpIntegration.getServer(serverId);
-
-    if (!server) {
-      return res.status(404).json({
-        success: false,
-        error: {
-          code: 'SERVER_NOT_FOUND',
-          message: `Server ${serverId} not found`
-        }
-      });
-    }
-
-    res.json({
-      success: true,
-      data: {
-        serverId,
-        tools: server.tools,
-        count: server.tools.length
-      }
-    });
-  } catch (error: any) {
-    logger.error('[MCP API] Failed to get server tools:', error);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: 'GET_TOOLS_FAILED',
-        message: error.message || 'Failed to get server tools'
-      }
-    });
-  }
-});
-
-/**
- * @route   POST /api/mcp/servers/:serverId/tools/:toolName/call
- * @desc    调用MCP工具
- * @access  Public
- */
-router.post('/servers/:serverId/tools/:toolName/call', async (req: Request, res: Response) => {
-  try {
-    const { serverId, toolName } = req.params;
-    const arguments_ = req.body || {};
-
-    const result = await mcpIntegration.callTool({
-      toolName,
-      arguments: arguments_,
-      serverId
-    });
-
-    res.json({
-      success: true,
-      data: result
-    });
-  } catch (error: any) {
-    logger.error('[MCP API] Failed to call tool:', error);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: 'TOOL_CALL_ERROR',
-        message: error.message || 'Tool call error'
-      }
-    });
-  }
-});
-
-/**
- * @route   POST /api/mcp/tools/call
- * @desc    调用MCP工具（自动发现）
- * @access  Public
- */
-router.post('/tools/call', async (req: Request, res: Response) => {
-  try {
-    const { toolName, arguments: args } = req.body;
-
-    if (!toolName) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: 'MISSING_TOOL_NAME',
-          message: 'Missing toolName'
-        }
-      });
-    }
-
-    const result = await mcpIntegration.callTool({
-      toolName,
-      arguments: args || {}
-    });
-
-    res.json({
-      success: true,
-      data: result
-    });
-  } catch (error: any) {
-    logger.error('[MCP API] Failed to call tool:', error);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: 'TOOL_CALL_ERROR',
-        message: error.message || 'Tool call error'
-      }
-    });
-  }
-});
-
-/**
- * @route   GET /api/mcp/statistics
- * @desc    获取MCP统计信息
- * @access  Public
- */
-router.get('/statistics', async (req: Request, res: Response) => {
-  try {
-    const stats = mcpIntegration.getStatistics();
-
-    res.json({
-      success: true,
-      data: stats
-    });
-  } catch (error: any) {
-    logger.error('[MCP API] Failed to get statistics:', error);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: 'GET_STATISTICS_FAILED',
-        message: error.message || 'Failed to get statistics'
-      }
-    });
-  }
-});
-
-/**
- * @route   GET /api/mcp/health
- * @desc    MCP健康检查
- * @access  Public
- */
-router.get('/health', async (req: Request, res: Response) => {
-  try {
-    const health = await mcpIntegration.healthCheck();
-
-    const statusCode = health.healthy ? 200 : 503;
-
-    res.status(statusCode).json({
-      success: health.healthy,
-      data: health
-    });
-  } catch (error: any) {
-    logger.error('[MCP API] Health check failed:', error);
-    res.status(503).json({
-      success: false,
-      error: {
-        code: 'HEALTH_CHECK_FAILED',
-        message: error.message || 'Health check failed'
-      }
-    });
-  }
-});
-
-export default router;
-````
-
-## File: src/api/routes/skillRoutes.ts
-````typescript
-/**
- * Skills路由配置
- * 提供Skills管理的RESTful API路由
- */
-
-import { Router } from 'express';
-import {
-  installSkill,
-  uninstallSkill,
-  updateSkillDescription,
-  listSkills,
-  getSkill,
-  checkSkillExists,
-  getSkillStats,
-  reindexAllSkills,
-  upload
-} from '../controllers/SkillsController';
-
-const router = Router();
-
-/**
- * @route   POST /api/skills/install
- * @desc    安装Skills（ZIP文件上传）
- * @access  Private (需要API Key)
- * @body    { file: ZIP, overwrite?: boolean, skipVectorization?: boolean }
- */
-router.post(
-  '/install',
-  upload.single('file'),
-  installSkill
-);
-
-/**
- * @route   DELETE /api/skills/:name
- * @desc    卸载Skills
- * @access  Private (需要API Key)
- */
-router.delete('/:name', uninstallSkill);
-
-/**
- * @route   PUT /api/skills/:name/description
- * @desc    更新Skills描述
- * @access  Private (需要API Key)
- * @body    { description: string }
- */
-router.put('/:name/description', updateSkillDescription);
-
-/**
- * @route   GET /api/skills/stats
- * @desc    获取Skills统计信息
- * @access  Private (需要API Key)
- * @note    必须在 /:name 之前定义，否则 :name 会捕获 "stats"
- */
-router.get('/stats', getSkillStats);
-
-/**
- * @route   GET /api/skills
- * @desc    列出Skills（支持分页、过滤、排序）
- * @access  Private (需要API Key)
- * @query   page, limit, name, tags, sortBy, sortOrder
- */
-router.get('/', listSkills);
-
-/**
- * @route   GET /api/skills/:name
- * @desc    获取单个Skills详情
- * @access  Private (需要API Key)
- */
-router.get('/:name', getSkill);
-
-/**
- * @route   GET /api/skills/:name/exists
- * @desc    检查Skills是否存在
- * @access  Private (需要API Key)
- */
-router.get('/:name/exists', checkSkillExists);
-
-/**
- * @route   POST /api/skills/reindex
- * @desc    重新索引所有Skills（用于向量数据库重建）
- * @access  Private (需要API Key，建议仅限管理员）
- */
-router.post('/reindex', reindexAllSkills);
-
-export default router;
-````
-
-## File: src/api/AGENTS.md
-````markdown
-# AGENTS.md
-
-**Generated:** 2026-01-10
-**Directory:** src/api
-
----
-
-## OVERVIEW
-
-REST API layer - Controllers, Middleware, WebSocket, Routes.
-
----
-
-## WHERE TO LOOK
-
-| Component    | Path                                | Role                                   |
-| ------------ | ----------------------------------- | -------------------------------------- |
-| Chat API     | `controllers/ChatController.ts`     | Chat completions, streaming            |
-| Model API    | `controllers/ModelController.ts`    | Model CRUD operations                  |
-| Provider API | `controllers/ProviderController.ts` | Provider CRUD operations               |
-| Skills API   | `controllers/SkillsController.ts`   | Skill management                       |
-| MCP Routes   | `routes/mcpRoutes.ts`               | MCP endpoint definitions               |
-| WebSocket    | `websocket/WebSocketManager.ts`     | Real-time communication                |
-| Middleware   | `middleware/`                       | Auth, validation, security, rate-limit |
-
----
-
-## CONVENTIONS
-
-Same as root.
-
----
-
-## ANTI-PATTERNS (THIS SUBDIR)
-
-- **String-matching error handling**: ProviderController and ModelController use `error.message.includes('not found')` instead of `AppError`. This fragile pattern should be replaced with proper typed error handling.
-````
-
-## File: src/core/llm/adapters/CustomAdapter.ts
-````typescript
-/**
- * 自定义适配器
- */
-
-import { BaseOpenAICompatibleAdapter } from './BaseAdapter';
-import { LLMProviderConfig } from '../../../types';
-
-export class CustomAdapter extends BaseOpenAICompatibleAdapter {
-  constructor(config: LLMProviderConfig) {
-    super('Custom', config);
-  }
-}
-````
-
-## File: src/core/llm/adapters/DeepSeekAdapter.ts
-````typescript
-/**
- * DeepSeek适配器
- * 特殊处理：不支持top_k，max_tokens最大8192
- */
-
-import { BaseOpenAICompatibleAdapter } from './BaseAdapter';
-import { LLMProviderConfig } from '../../../types';
-import { ChatOptions } from '../../../types';
-
-export class DeepSeekAdapter extends BaseOpenAICompatibleAdapter {
-  constructor(config: LLMProviderConfig) {
-    super('DeepSeek', config);
-  }
-
-  protected filterOptions(options: ChatOptions): ChatOptions {
-    const filtered = { ...options };
-
-    // DeepSeek不支持top_k
-    if ('top_k' in filtered) {
-      delete (filtered as any).top_k;
-    }
-
-    // DeepSeek限制：max_tokens最大8192
-    if (filtered.max_tokens && filtered.max_tokens > 8192) {
-      filtered.max_tokens = 8192;
-    }
-
-    return filtered;
-  }
-}
-````
-
-## File: src/core/llm/adapters/index.ts
-````typescript
-/**
- * LLM适配器模块导出
- */
-
-export * from './BaseAdapter';
-export * from './OpenAIAdapter';
-export * from './DeepSeekAdapter';
-export * from './ZhipuAdapter';
-export * from './ClaudeAdapter';
-export * from './OllamaAdapter';
-export * from './CustomAdapter';
-export * from './LLMAdapterFactory';
-````
-
-## File: src/core/llm/adapters/OpenAIAdapter.ts
-````typescript
-/**
- * OpenAI适配器
- */
-
-import { BaseOpenAICompatibleAdapter } from './BaseAdapter';
-import { LLMProviderConfig } from '../../../types';
-import { ChatOptions } from '../../../types';
-
-export class OpenAIAdapter extends BaseOpenAICompatibleAdapter {
-  constructor(config: LLMProviderConfig) {
-    super('OpenAI', config);
-  }
-}
-````
-
-## File: src/core/llm/adapters/ZhipuAdapter.ts
-````typescript
-/**
- * 智谱AI适配器
- */
-
-import { BaseOpenAICompatibleAdapter } from './BaseAdapter';
-import { LLMProviderConfig } from '../../../types';
-
-export class ZhipuAdapter extends BaseOpenAICompatibleAdapter {
-  constructor(config: LLMProviderConfig) {
-    super('ZhipuAI', config);
-  }
-}
-````
-
-## File: src/core/stream-orchestrator/ReActEnginePool.ts
-````typescript
-import PQueue from 'p-queue';
-import { ReActEngine } from './ReActEngine';
-import type { LLMAdapter, BatchTask, BatchResult } from './types';
-
-export interface PoolOptions {
-  maxConcurrent?: number;
-}
-
-export class ReActEnginePool {
-  private engine: ReActEngine;
-  private queue: PQueue;
-
-  constructor(engine?: ReActEngine, options: PoolOptions = {}) {
-    this.engine = engine ?? new ReActEngine();
-    this.queue = new PQueue({ concurrency: options.maxConcurrent ?? 10 });
-  }
-
-  async *executeBatch(
-    tasks: BatchTask[],
-    llmClient: LLMAdapter,
-    maxConcurrent: number = 10
-  ): AsyncGenerator<BatchResult, void, void> {
-    this.queue.concurrency = maxConcurrent;
-
-    const executeTask = async (task: BatchTask): Promise<BatchResult> => {
-      const stream = this.engine.execute(task.messages, llmClient, task.options);
-      const chunks: any[] = [];
-
-      for await (const chunk of stream) {
-        chunks.push(chunk);
-      }
-
-      return {
-        taskId: task.taskId,
-        result: chunks,
-        timestamp: Date.now()
-      };
-    };
-
-    const promises = tasks.map(task =>
-      this.queue.add(() => executeTask(task))
-    );
-
-    for (const promise of promises) {
-      yield await promise;
-    }
-  }
-
-  get activeCount(): number {
-    return this.queue.pending;
-  }
-
-  get queuedCount(): number {
-    return this.queue.size;
-  }
-
-  async pause(): Promise<void> {
-    await this.queue.pause();
-  }
-
-  async resume(): Promise<void> {
-    this.queue.start();
-  }
-
-  async onIdle(): Promise<void> {
-    await this.queue.onIdle();
-  }
-}
-````
-
-## File: src/core/tool/tool.ts
-````typescript
-/**
- * Tool Framework - 工具定义和工厂函数
- * 基于 OpenSpec 提案的工具框架设计
- */
-
-/**
- * 工具命名空间
- * 提供工具定义和工厂函数
- */
-export namespace Tool {
-  /**
-   * 工具元数据
-   */
-  export interface Metadata {
-    [key: string]: unknown;
-  }
-
-  /**
-   * 工具初始化上下文
-   */
-  export interface InitContext {
-    agent?: {
-      id: string;
-      name: string;
-    };
-  }
-
-  /**
-   * 工具执行上下文
-   */
-  export interface Context {
-    /** 会话 ID */
-    sessionID: string;
-    /** 消息 ID */
-    messageID: string;
-    /** Agent 标识 */
-    agent: string;
-    /** 中止信号 */
-    abort: AbortSignal;
-    /** 调用 ID */
-    callID?: string;
-    /** 额外数据 */
-    extra?: Record<string, unknown>;
-    /**
-     * 设置工具响应元数据
-     * @param input - 元数据输入
-     */
-    metadata(input: { title?: string; metadata?: Metadata }): void;
-  }
-
-  /**
-   * 文件附件类型
-   */
-  export interface FilePart {
-    type: 'file';
-    file: {
-      filename: string;
-      fileData?: string;
-      mimeType?: string;
-    };
-  }
-
-  /**
-   * 工具定义接口
-   * @typeParam Parameters - 参数类型
-   * @typeParam M - 元数据类型
-   */
-  export interface Info<
-    Parameters = Record<string, unknown>,
-    M extends Metadata = Metadata,
-  > {
-    /** 工具唯一标识符 */
-    id: string;
-    /** 工具初始化函数 */
-    init: (ctx?: InitContext) => Promise<{
-      /** 工具描述 */
-      description: string;
-      /** 参数模式 */
-      parameters: {
-        type: 'object';
-        properties?: Record<string, unknown>;
-        required?: string[];
-        additionalProperties?: boolean;
-      };
-      /**
-       * 工具执行函数
-       * @param args - 工具参数
-       * @param ctx - 执行上下文
-       * @returns 执行结果
-       */
-      execute(
-        args: Parameters,
-        ctx: Context,
-      ): Promise<{
-        /** 响应标题 */
-        title: string;
-        /** 元数据 */
-        metadata: M;
-        /** 输出内容 */
-        output: string;
-        /** 附件文件 */
-        attachments?: FilePart[];
-      }>;
-      /** 参数验证错误格式化函数 */
-      formatValidationError?(error: { errors: Array<{ path: string; message: string }> }): string;
-    }>;
-  }
-
-  /**
-   * 从工具定义推断参数类型
-   */
-  export type InferParameters<T extends Info> = T extends Info<infer P>
-    ? P
-    : never;
-
-  /**
-   * 从工具定义推断元数据类型
-   */
-  export type InferMetadata<T extends Info> = T extends Info<any, infer M>
-    ? M
-    : never;
-
-  /**
-   * 输出截断配置
-   */
-  export interface TruncateOptions {
-    maxLines?: number;
-    maxBytes?: number;
-    direction?: 'head' | 'tail';
-  }
-
-  /**
-   * 默认截断配置
-   */
-  const DEFAULT_TRUNCATE_OPTIONS: Required<TruncateOptions> = {
-    maxLines: 2000,
-    maxBytes: 50 * 1024,
-    direction: 'head',
-  };
-
-  /**
-   * 截断输出内容
-   * @param text - 原始文本
-   * @param options - 截断选项
-   * @returns 截断结果
-   */
-  function truncateOutput(
-    text: string,
-    options?: TruncateOptions,
-  ): { content: string; truncated: boolean } {
-    const opts = { ...DEFAULT_TRUNCATE_OPTIONS, ...options };
-    const lines = text.split('\n');
-    const totalBytes = Buffer.byteLength(text, 'utf-8');
-
-    if (lines.length <= opts.maxLines && totalBytes <= opts.maxBytes) {
-      return { content: text, truncated: false };
-    }
-
-    const out: string[] = [];
-    let bytes = 0;
-    let hitBytes = false;
-    let i = 0;
-
-    if (opts.direction === 'head') {
-      for (i = 0; i < lines.length && i < opts.maxLines; i++) {
-        const lineSize = Buffer.byteLength(lines[i], 'utf-8') + (i > 0 ? 1 : 0);
-        if (bytes + lineSize > opts.maxBytes) {
-          hitBytes = true;
-          break;
-        }
-        out.push(lines[i]);
-        bytes += lineSize;
-      }
-      const removed = hitBytes ? totalBytes - bytes : lines.length - out.length;
-      const unit = hitBytes ? 'chars' : 'lines';
-      return {
-        content: `${out.join('\n')}\n\n...${removed} ${unit} truncated...`,
-        truncated: true,
-      };
-    }
-
-    for (i = lines.length - 1; i >= 0 && out.length < opts.maxLines; i--) {
-      const lineSize = Buffer.byteLength(lines[i], 'utf-8') + (out.length > 0 ? 1 : 0);
-      if (bytes + lineSize > opts.maxBytes) {
-        hitBytes = true;
-        break;
-      }
-      out.unshift(lines[i]);
-      bytes += lineSize;
-    }
-    const removed = hitBytes ? totalBytes - bytes : lines.length - out.length;
-    const unit = hitBytes ? 'chars' : 'lines';
-    return {
-      content: `...${removed} ${unit} truncated...\n\n${out.join('\n')}`,
-      truncated: true,
-    };
-  }
-
-  /**
-   * 定义工具的工厂函数
-   * @typeParam Parameters - 参数类型
-   * @typeParam Result - 结果元数据类型
-   * @param id - 工具唯一标识符
-   * @param init - 工具初始化函数或已解析的工具信息
-   * @returns 工具定义
-   */
-  export function define<
-    Parameters extends Record<string, unknown>,
-    Result extends Metadata,
-  >(
-    id: string,
-    init:
-      | Info<Parameters, Result>['init']
-      | Awaited<ReturnType<Info<Parameters, Result>['init']>>,
-  ): Info<Parameters, Result> {
-    return {
-      id,
-      init: async (ctx) => {
-        const toolInfo =
-          init instanceof Function ? await init(ctx) : init;
-
-        const originalExecute = toolInfo.execute;
-
-        // 包装 execute 函数，添加参数验证和输出截断
-        toolInfo.execute = async (args, ctx) => {
-          // 参数验证
-          const { properties, required = [] } = toolInfo.parameters;
-
-          // 检查必需参数
-          for (const param of required) {
-            if (args[param] === undefined || args[param] === null) {
-              const errorMessage = `Missing required parameter: ${param}`;
-              if (toolInfo.formatValidationError) {
-                throw new Error(
-                  toolInfo.formatValidationError({
-                    errors: [{ path: param, message: errorMessage }],
-                  }),
-                );
-              }
-              throw new Error(errorMessage);
-            }
-          }
-
-          // 执行原始函数
-          const result = await originalExecute(args, ctx);
-
-          // 截断输出
-          const truncated = truncateOutput(result.output);
-          return {
-            ...result,
-            output: truncated.content,
-            metadata: {
-              ...result.metadata,
-              truncated: truncated.truncated,
-            } as Result,
-          };
-        };
-
-        return toolInfo;
-      },
-    };
-  }
-}
-````
-
-## File: src/core/tool-action/ErrorHandler.ts
-````typescript
-/**
- * ToolErrorHandler - 工具执行错误处理器
- * 统一分类和处理工具执行错误
- */
-
-import { logger } from "../../utils/logger";
-import { ErrorClassifier } from "../../utils/error-classifier";
-import type { ToolExecutionResult } from "./types";
-
-interface ErrorContext {
-  tool_name: string;
-  input_params?: Record<string, any>;
-  timestamp: number;
-  execution_time_ms: number;
-}
-
-interface ErrorDetails {
-  error_type: string;
-  error_message: string;
-  error_stack?: string;
-  context?: ErrorContext;
-}
-
-export class ToolErrorHandler {
-  /**
-   * 包装执行函数，统一处理错误
-   */
-  async wrapExecution<T>(
-    toolName: string,
-    executor: () => Promise<T>,
-    onSuccess?: (result: T) => ToolExecutionResult
-  ): Promise<ToolExecutionResult> {
-    const startTime = Date.now();
-
-    try {
-      const result = await executor();
-
-      if (onSuccess) {
-        return onSuccess(result);
-      }
-
-      return this.createSuccessResult(toolName, result, startTime);
-    } catch (error) {
-      return this.handleError(error, toolName, startTime);
-    }
-  }
-
-  /**
-   * 处理错误并返回标准化的错误结果
-   */
-  handleError(error: unknown, toolName: string, startTime: number): ToolExecutionResult {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    const errorType = ErrorClassifier.classifyError(error);
-
-    const errorDetails: ErrorDetails = {
-      error_type: errorType,
-      error_message: errorMessage,
-      error_stack: error instanceof Error ? error.stack : undefined,
-      context: {
-        tool_name: toolName,
-        timestamp: Date.now(),
-        execution_time_ms: Date.now() - startTime,
-      },
-    };
-
-    logger.error(`[ToolErrorHandler] Tool execution failed: ${toolName}`, {
-      error_type: errorType,
-      error_message: errorMessage,
-      stack: error instanceof Error ? error.stack : undefined,
-    });
-
-    return {
-      success: false,
-      toolName,
-      error: errorMessage,
-      executionTime: Date.now() - startTime,
-      error_details: errorDetails,
-    };
-  }
-
-  /**
-   * 创建成功结果
-   */
-  createSuccessResult(
-    toolName: string,
-    result: unknown,
-    executionTime: number,
-    inputParams?: Record<string, any>,
-    metadata?: Record<string, any>
-  ): ToolExecutionResult {
-    const outputContent = String(result || "");
-    const tokenCount = ErrorClassifier.estimateTokens(outputContent);
-
-    return {
-      success: true,
-      toolName,
-      result,
-      executionTime,
-      tool_details: {
-        tool_name: toolName,
-        input_params: inputParams || {},
-        output_content: outputContent,
-        output_metadata: {
-          token_count: tokenCount,
-          execution_time_ms: executionTime,
-          ...metadata,
-        },
-      },
-    };
-  }
-
-  /**
-   * 创建失败结果（不带异常）
-   */
-  createFailureResult(
-    toolName: string,
-    errorMessage: string,
-    executionTime: number,
-    inputParams?: Record<string, any>
-  ): ToolExecutionResult {
-    const errorType = ErrorClassifier.classifyError(new Error(errorMessage));
-
-    const errorDetails: ErrorDetails = {
-      error_type: errorType,
-      error_message: errorMessage,
-      context: {
-        tool_name: toolName,
-        input_params: inputParams,
-        timestamp: Date.now(),
-        execution_time_ms: executionTime,
-      },
-    };
-
-    return {
-      success: false,
-      toolName,
-      error: errorMessage,
-      executionTime,
-      error_details: errorDetails,
-    };
-  }
-
-  /**
-   * 检查错误是否可重试
-   */
-  isRetryable(errorType: string): boolean {
-    const retryableTypes = ["RATE_LIMIT", "TIMEOUT", "NETWORK_ERROR"];
-    return retryableTypes.includes(errorType);
-  }
-
-  /**
-   * 获取用户友好的错误消息
-   */
-  getUserMessage(errorType: string): string {
-    const messages: Record<string, string> = {
-      RATE_LIMIT: "请求过于频繁，请稍后再试",
-      TIMEOUT: "请求超时，请稍后再试",
-      NETWORK_ERROR: "网络连接问题，请检查网络",
-      VALIDATION_ERROR: "输入参数有误，请检查后重试",
-      PERMISSION_DENIED: "没有执行此操作的权限",
-      TOOL_NOT_FOUND: "指定的工具不存在",
-      UNKNOWN_ERROR: "发生未知错误，请稍后重试",
-    };
-    return messages[errorType] || "操作失败，请稍后重试";
-  }
-}
-````
-
-## File: src/core/tool-action/index.ts
-````typescript
-/**
- * Tool Action 模块导出
- */
-
-// 类型导出
-export type {
-  ToolActionCall,
-  TextSegment,
-  ParseResult,
-  DetectionResult,
-  DispatcherConfig,
-  ToolExecutionResult,
-  ToolDescription
-} from './types';
-
-export { DetectorState } from './types';
-
-// 解析器导出
-export { ToolActionParser, toolActionParser } from './ToolActionParser';
-
-// 流式检测器导出
-export { StreamTagDetector } from './StreamTagDetector';
-
-// 工具调度器导出
-export { ToolDispatcher, generateToolPrompt } from './ToolDispatcher';
-````
-
-## File: src/core/tool-action/ParameterConverter.ts
-````typescript
-/**
- * ParameterConverter - 参数类型转换器
- * 将字符串参数转换为目标类型
- */
-
-interface ParameterProperty {
-  type: string;
-  description?: string;
-}
-
-interface PropertySchema {
-  properties?: Record<string, ParameterProperty>;
-  required?: string[];
-}
-
-export class ParameterConverter {
-  /**
-   * 转换参数类型（字符串 -> 实际类型）
-   */
-  convert(params: Record<string, string>, schema?: PropertySchema | null): Record<string, any> {
-    const result: Record<string, any> = {};
-
-    for (const [key, value] of Object.entries(params)) {
-      const propSchema = schema?.properties?.[key];
-
-      if (!propSchema) {
-        result[key] = value;
-        continue;
-      }
-
-      result[key] = this.convertValue(value, propSchema.type);
-    }
-
-    return result;
-  }
-
-  /**
-   * 转换单个值
-   */
-  private convertValue(value: string, targetType: string): any {
-    switch (targetType) {
-      case "number":
-        return Number(value);
-
-      case "boolean":
-        return value === "true" || value === "1" || value === "yes";
-
-      case "array":
-        try {
-          return JSON.parse(value);
-        } catch {
-          return value.split(",").map((s) => s.trim());
-        }
-
-      case "object":
-        try {
-          return JSON.parse(value);
-        } catch {
-          return value;
-        }
-
-      case "integer":
-        return parseInt(value, 10);
-
-      case "float":
-        return parseFloat(value);
-
-      default:
-        return value;
-    }
-  }
-
-  /**
-   * 批量转换数组参数
-   */
-  convertArray(
-    items: Record<string, string>[],
-    schema?: PropertySchema | null
-  ): Record<string, any>[] {
-    return items.map((item) => this.convert(item, schema));
-  }
-
-  /**
-   * 验证必需参数
-   */
-  validateRequired(
-    params: Record<string, any>,
-    requiredFields: string[]
-  ): { valid: boolean; missing?: string[] } {
-    const missing = requiredFields.filter((field) => {
-      const value = params[field];
-      return value === undefined || value === null || value === "";
-    });
-
-    return {
-      valid: missing.length === 0,
-      missing: missing.length > 0 ? missing : undefined,
-    };
-  }
-
-  /**
-   * 获取参数默认值
-   */
-  getDefaultValue(schema: ParameterProperty, defaultValue?: string): any {
-    if (defaultValue !== undefined) {
-      return this.convertValue(defaultValue, schema.type);
-    }
-    if (schema.type === "boolean") return false;
-    if (schema.type === "number" || schema.type === "integer") return 0;
-    if (schema.type === "array") return [];
-    if (schema.type === "object") return {};
-    return "";
-  }
-}
-````
-
-## File: src/core/tool-action/StreamTagDetector.ts
-````typescript
-/**
- * StreamTagDetector - 流式标签检测器
- *
- * 在流式输出中实时检测 <tool_action> 标签
- * 使用状态机模式处理跨 chunk 的标签检测
- */
-
-import type { ToolActionCall, DetectionResult } from './types';
-import { DetectorState } from './types';
-import { ToolActionParser } from './ToolActionParser';
-
-export class StreamTagDetector {
-  private buffer: string = '';
-  private state: DetectorState = DetectorState.NORMAL;
-  private parser: ToolActionParser;
-
-  // 标签标识符
-  private static readonly OPEN_TAG_START = '<tool_action';
-  private static readonly CLOSE_TAG = '</tool_action>';
-
-  constructor() {
-    this.parser = new ToolActionParser();
-  }
-
-  /**
-   * 处理流式输入的文本块
-   * @param chunk 输入的文本块
-   * @returns 检测结果
-   */
-  processChunk(chunk: string): DetectionResult {
-    // 将新 chunk 添加到缓冲区
-    this.buffer += chunk;
-
-    // 根据当前状态处理
-    switch (this.state) {
-      case DetectorState.NORMAL:
-        return this.handleNormalState();
-
-      case DetectorState.TAG_OPENING:
-      case DetectorState.TAG_CONTENT:
-        return this.handleTagState();
-
-      default:
-        return this.handleNormalState();
-    }
-  }
-
-  /**
-   * 处理正常状态（无标签检测中）
-   */
-  private handleNormalState(): DetectionResult {
-    const openTagIndex = this.buffer.indexOf(StreamTagDetector.OPEN_TAG_START);
-
-    // 没有检测到完整的标签开始
-    if (openTagIndex === -1) {
-      // 检查缓冲区末尾是否可能是标签开始的一部分
-      const safeOutputEnd = this.findPotentialTagStart();
-
-      if (safeOutputEnd < this.buffer.length) {
-        // 缓冲区末尾可能是标签开始的一部分，只输出安全部分
-        const textToEmit = safeOutputEnd > 0 ? this.buffer.slice(0, safeOutputEnd) : '';
-        this.buffer = this.buffer.slice(safeOutputEnd);
-
-        return {
-          complete: false,
-          textToEmit,
-          bufferRemainder: this.buffer
-        };
-      }
-
-      // 没有潜在的标签开始，安全输出全部内容
-      const textToEmit = this.buffer;
-      this.buffer = '';
-
-      return {
-        complete: false,
-        textToEmit,
-        bufferRemainder: ''
-      };
-    }
-
-    // 检测到标签开始
-    this.state = DetectorState.TAG_OPENING;
-
-    // 输出标签开始前的文本
-    const textToEmit = this.buffer.slice(0, openTagIndex);
-    this.buffer = this.buffer.slice(openTagIndex);
-
-    // 继续检查是否有完整标签
-    return this.handleTagState(textToEmit);
-  }
-
-  /**
-   * 处理标签状态（标签检测中）
-   */
-  private handleTagState(previousText: string = ''): DetectionResult {
-    // 检查是否有完整的闭合标签
-    const closeTagIndex = this.buffer.indexOf(StreamTagDetector.CLOSE_TAG);
-
-    if (closeTagIndex === -1) {
-      // 标签还未完整，继续缓冲
-      this.state = DetectorState.TAG_CONTENT;
-
-      return {
-        complete: false,
-        textToEmit: previousText,
-        bufferRemainder: this.buffer
-      };
-    }
-
-    // 找到完整标签
-    const tagEndIndex = closeTagIndex + StreamTagDetector.CLOSE_TAG.length;
-    const fullTagText = this.buffer.slice(0, tagEndIndex);
-
-    // 解析标签
-    const toolAction = this.parser.parseSingleTag(fullTagText);
-
-    if (!toolAction) {
-      // 解析失败，作为普通文本处理
-      this.state = DetectorState.NORMAL;
-      const textToEmit = previousText + this.buffer.slice(0, tagEndIndex);
-      this.buffer = this.buffer.slice(tagEndIndex);
-
-      return {
-        complete: false,
-        textToEmit,
-        bufferRemainder: this.buffer
-      };
-    }
-
-    // 解析成功
-    this.state = DetectorState.NORMAL;
-    const remainingText = this.buffer.slice(tagEndIndex);
-    this.buffer = remainingText;
-
-    return {
-      complete: true,
-      toolAction,
-      textToEmit: previousText,
-      bufferRemainder: remainingText
-    };
-  }
-
-  /**
-   * 查找缓冲区末尾可能的标签开始
-   * 返回安全输出的位置（0 表示整个缓冲区都可能是标签开始）
-   */
-  private findPotentialTagStart(): number {
-    const tag = StreamTagDetector.OPEN_TAG_START; // '<tool_action'
-
-    // 从缓冲区末尾向前检查是否有部分匹配
-    // 例如: buffer = "text<too" -> 应该返回 4 (保留 "<too")
-    // 例如: buffer = "<tool_" -> 应该返回 0 (保留整个缓冲区)
-    for (let matchLen = Math.min(tag.length - 1, this.buffer.length); matchLen >= 1; matchLen--) {
-      const suffix = this.buffer.slice(-matchLen);
-      const prefix = tag.slice(0, matchLen);
-      if (suffix === prefix) {
-        // 找到匹配，返回安全输出位置
-        return this.buffer.length - matchLen;
-      }
-    }
-
-    // 没有找到潜在的标签开始，可以输出整个缓冲区
-    return this.buffer.length;
-  }
-
-  /**
-   * 重置检测器状态
-   */
-  reset(): void {
-    this.buffer = '';
-    this.state = DetectorState.NORMAL;
-  }
-
-  /**
-   * 强制刷新缓冲区（流结束时调用）
-   * @returns 缓冲区中剩余的文本
-   */
-  flush(): string {
-    const remaining = this.buffer;
-    this.reset();
-    return remaining;
-  }
-
-  /**
-   * 获取当前状态
-   */
-  getState(): DetectorState {
-    return this.state;
-  }
-
-  /**
-   * 获取当前缓冲区内容
-   */
-  getBuffer(): string {
-    return this.buffer;
-  }
-
-  /**
-   * 检查是否在标签检测中
-   */
-  isDetecting(): boolean {
-    return this.state !== DetectorState.NORMAL;
-  }
-}
-````
-
-## File: src/core/tools/builtin/FileWriteTool.ts
-````typescript
-/**
- * FileWriteTool - 文件写入内置工具
- * 提供安全、可靠的文件写入功能
- */
-
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import { ToolResult, BuiltInTool, ToolType } from '../../../types/tool-system';
-
-/**
- * FileWriteTool参数接口
- */
-export interface FileWriteArgs {
-  /** 文件路径 */
-  path: string;
-  /** 文件内容 */
-  content: string;
-  /** 文件编码 */
-  encoding?: BufferEncoding;
-  /** 是否创建备份 */
-  backup?: boolean;
-  /** 备份文件后缀 */
-  backupSuffix?: string;
-  /** 是否创建目录（如果不存在） */
-  createDirectory?: boolean;
-  /** 写入模式 */
-  mode?: 'overwrite' | 'append' | 'create';
-}
-
-/**
- * 文件写入工具
- * 安全写入文件内容，支持备份和目录创建
- */
-export class FileWriteTool {
-  private static readonly DEFAULT_ENCODING: BufferEncoding = 'utf8';
-  private static readonly DEFAULT_MODE = 'overwrite' as const;
-  private static readonly DEFAULT_BACKUP_SUFFIX = '.backup';
-  private static readonly MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
-  private static readonly ALLOWED_EXTENSIONS = [
-    '.txt', '.md', '.json', '.yaml', '.yml', '.xml', '.csv',
-    '.js', '.ts', '.jsx', '.tsx', '.py', '.java', '.cpp', '.c',
-    '.html', '.css', '.scss', '.less', '.sql', '.sh', '.bat',
-    '.dockerfile', '.gitignore', '.env', '.conf', '.config',
-    '.log', '.tmp'
-  ];
-
-  /**
-   * 执行文件写入
-   * @param args 写入参数
-   * @returns 写入结果
-   */
-  static async execute(args: FileWriteArgs): Promise<ToolResult> {
-    const startTime = Date.now();
-
-    try {
-      // 参数验证
-      this.validateArgs(args);
-
-      // 安全路径检查
-      const safePath = await this.getSafePath(args.path);
-
-      // 检查文件大小（如果文件已存在）
-      await this.checkExistingFileSize(safePath);
-
-      // 检查文件扩展名
-      this.checkFileExtension(safePath);
-
-      // 创建目录（如果需要）
-      if (args.createDirectory !== false) {
-        await this.ensureDirectoryExists(path.dirname(safePath));
-      }
-
-      // 创建备份（如果需要）
-      if (args.backup) {
-        await this.createBackup(safePath, args.backupSuffix || this.DEFAULT_BACKUP_SUFFIX);
-      }
-
-      // 检查写入模式
-      await this.checkWriteMode(safePath, args.mode || this.DEFAULT_MODE);
-
-      // 写入文件
-      await this.writeFileContent(
-        safePath,
-        args.content,
-        args.encoding || this.DEFAULT_ENCODING,
-        args.mode || this.DEFAULT_MODE
-      );
-
-      const duration = Date.now() - startTime;
-
-      return {
-        success: true,
-        output: `File written successfully: ${safePath}`,
-        duration,
-        exitCode: 0
-      };
-
-    } catch (error) {
-      const duration = Date.now() - startTime;
-      return {
-        success: false,
-        error: this.formatError(error),
-        duration,
-        errorCode: 'FILE_WRITE_ERROR',
-        exitCode: 1
-      };
-    }
-  }
-
-  /**
-   * 验证参数
-   */
-  private static validateArgs(args: FileWriteArgs): void {
-    if (!args.path || typeof args.path !== 'string') {
-      throw new Error('File path is required and must be a string');
-    }
-
-    if (args.content === undefined || args.content === null) {
-      throw new Error('File content is required');
-    }
-
-    if (args.encoding && !Buffer.isEncoding(args.encoding)) {
-      throw new Error(`Invalid encoding: ${args.encoding}`);
-    }
-
-    if (args.mode && !['overwrite', 'append', 'create'].includes(args.mode)) {
-      throw new Error(`Invalid mode: ${args.mode}. Must be 'overwrite', 'append', or 'create'`);
-    }
-
-    // 检查内容大小
-    const contentSize = Buffer.byteLength(args.content, args.encoding || this.DEFAULT_ENCODING);
-    if (contentSize > this.MAX_FILE_SIZE) {
-      throw new Error(`Content size ${contentSize} exceeds maximum allowed size ${this.MAX_FILE_SIZE}`);
-    }
-  }
-
-  /**
-   * 获取安全路径（防止目录遍历攻击）
-   */
-  private static async getSafePath(inputPath: string): Promise<string> {
-    const normalizedPath = path.normalize(inputPath);
-
-    const absolutePath = path.isAbsolute(normalizedPath)
-      ? normalizedPath
-      : path.resolve(process.cwd(), normalizedPath);
-
-    if (normalizedPath.includes('..') || absolutePath.includes('..')) {
-      throw new Error('Path traversal detected');
-    }
-
-    const workDir = process.cwd();
-    if (!absolutePath.startsWith(workDir)) {
-      throw new Error('File path must be within the working directory');
-    }
-
-    return absolutePath;
-  }
-
-  /**
-   * 检查现有文件大小
-   */
-  private static async checkExistingFileSize(filePath: string): Promise<void> {
-    try {
-      const stats = await fs.stat(filePath);
-      if (stats.size > this.MAX_FILE_SIZE) {
-        throw new Error(`Existing file size ${stats.size} exceeds maximum allowed size ${this.MAX_FILE_SIZE}`);
-      }
-    } catch (error) {
-      // 文件不存在是正常的，继续执行
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        throw error;
-      }
-    }
-  }
-
-  /**
-   * 检查文件扩展名
-   */
-  private static checkFileExtension(filePath: string): void {
-    const ext = path.extname(filePath).toLowerCase();
-
-    if (!ext) {
-      return; // 没有扩展名允许
-    }
-
-    if (!this.ALLOWED_EXTENSIONS.includes(ext)) {
-      throw new Error(`File extension '${ext}' is not allowed for security reasons`);
-    }
-  }
-
-  /**
-   * 确保目录存在
-   */
-  private static async ensureDirectoryExists(dirPath: string): Promise<void> {
-    try {
-      await fs.mkdir(dirPath, { recursive: true });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
-        throw new Error(`Failed to create directory: ${dirPath}`);
-      }
-    }
-  }
-
-  /**
-   * 创建备份
-   */
-  private static async createBackup(filePath: string, suffix: string): Promise<void> {
-    try {
-      await fs.access(filePath);
-      const backupPath = `${filePath}${suffix}`;
-      await fs.copyFile(filePath, backupPath);
-    } catch (error) {
-      // 文件不存在，不需要备份
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        throw error;
-      }
-    }
-  }
-
-  /**
-   * 检查写入模式
-   */
-  private static async checkWriteMode(filePath: string, mode: string): Promise<void> {
-    if (mode === 'create') {
-      try {
-        await fs.access(filePath);
-        throw new Error(`File already exists and mode is 'create': ${filePath}`);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-          throw error;
-        }
-        // 文件不存在，可以创建
-      }
-    }
-  }
-
-  /**
-   * 写入文件内容
-   */
-  private static async writeFileContent(
-    filePath: string,
-    content: string,
-    encoding: BufferEncoding,
-    mode: string
-  ): Promise<void> {
-    const writeOptions = { encoding, flag: this.getWriteFlag(mode) };
-    await fs.writeFile(filePath, content, writeOptions);
-  }
-
-  /**
-   * 获取写入标志
-   */
-  private static getWriteFlag(mode: string): string {
-    switch (mode) {
-      case 'overwrite':
-        return 'w'; // 覆盖写入
-      case 'append':
-        return 'a'; // 追加写入
-      case 'create':
-        return 'wx'; // 创建新文件（如果存在则失败）
-      default:
-        return 'w';
-    }
-  }
-
-  /**
-   * 格式化错误信息
-   */
-  private static formatError(error: any): string {
-    if (error instanceof Error) {
-      return error.message;
-    }
-    if (typeof error === 'string') {
-      return error;
-    }
-    return 'Unknown error occurred';
-  }
-
-  /**
-   * 获取工具元数据
-   */
-  static getMetadata() {
-    return {
-      name: 'file-write',
-      description: '安全写入文件内容，支持备份、目录创建和多种写入模式',
-      category: 'filesystem',
-      level: 1,
-      parameters: {
-        type: 'object',
-        properties: {
-          path: {
-            type: 'string',
-            description: '要写入的文件路径'
-          },
-          content: {
-            type: 'string',
-            description: '要写入的文件内容'
-          },
-          encoding: {
-            type: 'string',
-            description: '文件编码，默认为utf8',
-            default: 'utf8',
-            enum: ['utf8', 'utf16le', 'latin1', 'base64', 'hex', 'ascii']
-          },
-          backup: {
-            type: 'boolean',
-            description: '是否创建备份文件',
-            default: false
-          },
-          backupSuffix: {
-            type: 'string',
-            description: '备份文件后缀，默认为.backup',
-            default: '.backup'
-          },
-          createDirectory: {
-            type: 'boolean',
-            description: '是否自动创建目录（如果不存在）',
-            default: true
-          },
-          mode: {
-            type: 'string',
-            description: '写入模式',
-            default: 'overwrite',
-            enum: ['overwrite', 'append', 'create']
-          }
-        },
-        required: ['path', 'content']
-      }
-    };
-  }
-}
-
-/**
- * 创建FileWriteTool实例（用于注册表）
- */
-export function createFileWriteTool() {
-  return {
-    ...FileWriteTool.getMetadata(),
-    type: ToolType.BUILTIN,
-    enabled: true,
-    execute: async (args: Record<string, any>) => {
-      return FileWriteTool.execute(args as FileWriteArgs);
-    }
-  } as BuiltInTool;
-}
-````
-
-## File: src/core/tools/builtin/PlatformDetectorTool.ts
-````typescript
-/**
- * PlatformDetectorTool - 平台检测内置工具
- * 检测操作系统、Node.js版本、硬件架构等信息
- */
-
-import { ToolResult, BuiltInTool, ToolType } from '../../../types/tool-system';
-import * as os from 'os';
-
-/**
- * PlatformDetectorTool参数接口
- */
-export interface PlatformDetectorArgs {
-  // 无参数，工具自动检测所有信息
-}
-
-/**
- * 平台信息接口
- */
-export interface PlatformInfo {
-  os: {
-    platform: string;
-    type: string;
-    release: string;
-    arch: string;
-    uptime: number;
-    hostname: string;
-    homedir: string;
-    tmpdir: string;
-  };
-  node: {
-    version: string;
-    v8Version: string;
-    uvVersion: string;
-    zlibVersion: string;
-    aresVersion: string;
-  };
-  system: {
-    cpus: number;
-    cpuModel: string;
-    memory: {
-      total: number;
-      free: number;
-      used: number;
-      usagePercent: number;
-    };
-    loadAverage: number[];
-  };
-  network: {
-    interfaces: Record<string, os.NetworkInterfaceInfo[]>;
-  };
-}
-
-/**
- * 平台检测工具
- * 提供详细的系统环境信息
- */
-export class PlatformDetectorTool {
-  /**
-   * 执行平台检测
-   * @param args 检测参数
-   * @returns 检测结果
-   */
-  static async execute(args: PlatformDetectorArgs): Promise<ToolResult> {
-    const startTime = Date.now();
-
-    try {
-      logger.debug('Detecting platform information...');
-
-      // 收集平台信息
-      const platformInfo = await this.collectPlatformInfo();
-
-      const duration = Date.now() - startTime;
-
-      // 格式化输出
-      const formattedOutput = this.formatPlatformInfo(platformInfo);
-
-      return {
-        success: true,
-        output: formattedOutput,
-        duration,
-        exitCode: 0
-      };
-
-    } catch (error) {
-      const duration = Date.now() - startTime;
-
-      logger.error('Platform detection failed:', error);
-
-      return {
-        success: false,
-        error: `Platform detection failed: ${this.formatError(error)}`,
-        duration,
-        errorCode: 'PLATFORM_DETECTION_ERROR',
-        exitCode: 1
-      };
-    }
-  }
-
-  /**
-   * 收集平台信息
-   */
-  private static async collectPlatformInfo(): Promise<PlatformInfo> {
-    const [totalMem, freeMem, cpus, networkInterfaces] = await Promise.all([
-      Promise.resolve(os.totalmem()),
-      Promise.resolve(os.freemem()),
-      Promise.resolve(os.cpus()),
-      Promise.resolve(os.networkInterfaces())
-    ]);
-
-    const usedMem = totalMem - freeMem;
-    const memoryUsagePercent = ((usedMem / totalMem) * 100).toFixed(2);
-
-    return {
-      os: {
-        platform: os.platform(),
-        type: os.type(),
-        release: os.release(),
-        arch: os.arch(),
-        uptime: os.uptime(),
-        hostname: os.hostname(),
-        homedir: os.homedir(),
-        tmpdir: os.tmpdir()
-      },
-      node: {
-        version: process.version,
-        v8Version: process.versions.v8,
-        uvVersion: process.versions.uv,
-        zlibVersion: process.versions.zlib,
-        aresVersion: process.versions.ares
-      },
-      system: {
-        cpus: cpus.length,
-        cpuModel: cpus[0]?.model || 'Unknown',
-        memory: {
-          total: totalMem,
-          free: freeMem,
-          used: usedMem,
-          usagePercent: parseFloat(memoryUsagePercent)
-        },
-        loadAverage: os.loadavg()
-      },
-      network: {
-        interfaces: networkInterfaces
-      }
-    };
-  }
-
-  /**
-   * 格式化平台信息
-   */
-  private static formatPlatformInfo(info: PlatformInfo): string {
-    let output = 'Platform Detection Results\n';
-    output += '=' .repeat(50) + '\n\n';
-
-    // 操作系统信息
-    output += '🖥️  Operating System\n';
-    output += '─'.repeat(30) + '\n';
-    output += `Platform: ${info.os.platform}\n`;
-    output += `Type: ${info.os.type}\n`;
-    output += `Release: ${info.os.release}\n`;
-    output += `Architecture: ${info.os.arch}\n`;
-    output += `Uptime: ${this.formatUptime(info.os.uptime)}\n`;
-    output += `Hostname: ${info.os.hostname}\n`;
-    output += `Home Directory: ${info.os.homedir}\n`;
-    output += `Temp Directory: ${info.os.tmpdir}\n\n`;
-
-    // Node.js信息
-    output += '⬢  Node.js Runtime\n';
-    output += '─'.repeat(30) + '\n';
-    output += `Node.js Version: ${info.node.version}\n`;
-    output += `V8 Version: ${info.node.v8Version}\n`;
-    output += `libuv Version: ${info.node.uvVersion}\n`;
-    output += `zlib Version: ${info.node.zlibVersion}\n`;
-    output += `c-ares Version: ${info.node.aresVersion}\n\n`;
-
-    // 系统硬件信息
-    output += '🔧  System Hardware\n';
-    output += '─'.repeat(30) + '\n';
-    output += `CPU Cores: ${info.system.cpus}\n`;
-    output += `CPU Model: ${info.system.cpuModel}\n`;
-    output += `Memory: ${this.formatBytes(info.system.memory.total)} Total\n`;
-    output += `Memory: ${this.formatBytes(info.system.memory.free)} Free\n`;
-    output += `Memory: ${this.formatBytes(info.system.memory.used)} Used\n`;
-    output += `Memory Usage: ${info.system.memory.usagePercent}%\n`;
-    output += `Load Average (1m): ${info.system.loadAverage[0]}\n`;
-    output += `Load Average (5m): ${info.system.loadAverage[1]}\n`;
-    output += `Load Average (15m): ${info.system.loadAverage[2]}\n\n`;
-
-    // 网络接口信息（可选，可能包含敏感信息）
-    output += '🌐  Network Interfaces\n';
-    output += '─'.repeat(30) + '\n';
-    output += this.formatNetworkInterfaces(info.network.interfaces);
-
-    return output;
-  }
-
-  /**
-   * 格式化正常运行时间
-   */
-  private static formatUptime(seconds: number): string {
-    const days = Math.floor(seconds / 86400);
-    const hours = Math.floor((seconds % 86400) / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-
-    if (days > 0) {
-      return `${days} day${days > 1 ? 's' : ''}, ${hours} hour${hours !== 1 ? 's' : ''}`;
-    }
-    if (hours > 0) {
-      return `${hours} hour${hours !== 1 ? 's' : ''}, ${minutes} minute${minutes !== 1 ? 's' : ''}`;
-    }
-    return `${minutes} minute${minutes !== 1 ? 's' : ''}`;
-  }
-
-  /**
-   * 格式化字节数
-   */
-  private static formatBytes(bytes: number): string {
-    if (bytes === 0) return '0 Bytes';
-
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  }
-
-  /**
-   * 格式化网络接口
-   */
-  private static formatNetworkInterfaces(interfaces: Record<string, os.NetworkInterfaceInfo[]>): string {
-    let output = '';
-    const displayedInterfaces: string[] = [];
-
-    for (const [name, info] of Object.entries(interfaces)) {
-      // 忽略一些常见但不重要的接口
-      if (name.includes('docker') || name.includes('br-') || name.includes('veth')) {
-        continue;
-      }
-
-      displayedInterfaces.push(name);
-      output += `${name}:\n`;
-
-      const ipv4Info = info.find(i => i.family === 'IPv4' || i.family === (4 as any));
-      const ipv6Info = info.find(i => i.family === 'IPv6' || i.family === (6 as any));
-
-      if (ipv4Info) {
-        output += `  IPv4: ${ipv4Info.address}\n`;
-      }
-      if (ipv6Info) {
-        output += `  IPv6: ${ipv6Info.address}\n`;
-      }
-    }
-
-    if (displayedInterfaces.length === 0) {
-      output += 'No network interfaces detected (or only Docker/virtual interfaces)\n';
-    }
-
-    return output;
-  }
-
-  /**
-   * 获取系统性能评分
-   */
-  private static getPerformanceScore(info: PlatformInfo): number {
-    let score = 50; // 基础分
-
-    // CPU加分
-    if (info.system.cpus >= 8) score += 20;
-    else if (info.system.cpus >= 4) score += 10;
-    else if (info.system.cpus >= 2) score += 5;
-
-    // 内存加分
-    if (info.system.memory.total >= 16 * 1024 * 1024 * 1024) score += 20; // 16GB+
-    else if (info.system.memory.total >= 8 * 1024 * 1024 * 1024) score += 10; // 8GB+
-    else if (info.system.memory.total >= 4 * 1024 * 1024 * 1024) score += 5; // 4GB+
-
-    // 负载减分
-    const load1m = info.system.loadAverage[0] / info.system.cpus;
-    if (load1m > 0.8) score -= 10;
-    else if (load1m > 0.5) score -= 5;
-
-    return Math.min(100, Math.max(0, score));
-  }
-
-  /**
-   * 格式化错误信息
-   */
-  private static formatError(error: any): string {
-    if (error instanceof Error) {
-      return error.message;
-    }
-    if (typeof error === 'string') {
-      return error;
-    }
-    return 'Unknown platform detection error';
-  }
-
-  /**
-   * 获取工具元数据
-   */
-  static getMetadata() {
-    return {
-      name: 'platform-detector',
-      description: 'Detect and provide detailed information about the current system platform, OS, Node.js runtime, hardware, and performance metrics. Useful for debugging environment issues or understanding system capabilities.',
-      category: 'system',
-      level: 2,
-      parameters: {
-        type: 'object',
-        properties: {},
-        required: []
-      }
-    };
-  }
-
-  /**
-   * 计算搜索查询的向量嵌入（备用方法）
-   */
-  private static async getQueryEmbedding(query: string): Promise<number[]> {
-    // 这个方法将由ToolRetrievalService实现
-    // 这里只是占位符
-    throw new Error('getQueryEmbedding not implemented');
-  }
-
-  /**
-   * 从搜索结果中提取工具参数模式（用于动态生成工具调用）
-   */
-  private static extractParametersFromResults(results: any[]): string {
-    if (results.length === 0) {
-      return 'No tools found';
-    }
-
-    const tool = results[0].tool;
-    if (!tool.parameters || !tool.parameters.properties) {
-      return 'No parameters defined';
-    }
-
-    const params = Object.entries(tool.parameters.properties).map(([name, schema]: [string, any]) => {
-      const required = tool.parameters.required?.includes(name) ? ' (required)' : '';
-      return `    ${name}${required}: ${schema.type} - ${schema.description}`;
-    });
-
-    return params.join('\n');
-  }
-}
-
-// 简单的logger占位符
-const logger = {
-  debug: (msg: string, ...args: any[]) => console.log(`[DEBUG] ${msg}`, ...args),
-  error: (msg: string, ...args: any[]) => console.error(`[ERROR] ${msg}`, ...args)
-};
-
-/**
- * 创建PlatformDetectorTool实例（用于注册表）
- */
-export function createPlatformDetectorTool() {
-  return {
-    ...PlatformDetectorTool.getMetadata(),
-    type: ToolType.BUILTIN,
-    enabled: true,
-    execute: async (args: Record<string, any>) => {
-      return PlatformDetectorTool.execute(args as PlatformDetectorArgs);
-    }
-  } as BuiltInTool;
-}
-````
-
-## File: src/core/tools/builtin/ReadSkillTool.ts
-````typescript
-/**
- * ReadSkillTool - 读取 Skill 文档内置工具
- * 用于读取知识型 Skill 的完整文档内容
- */
-
-import { ToolResult, BuiltInTool, ToolType } from '../../../types/tool-system';
-import { getSkillManager } from '../../../services/SkillManager';
-import { logger } from '../../../utils/logger';
-import * as fs from 'fs/promises';
-import * as path from 'path';
-
-/**
- * ReadSkillTool 参数接口
- */
-export interface ReadSkillArgs {
-  /** Skill 名称 */
-  skillName: string;
-  /** 是否包含元数据（默认 false） */
-  includeMetadata?: boolean;
-}
-
-/**
- * 读取 Skill 工具
- * 用于获取知识型 Skill 的完整文档内容
- */
-export class ReadSkillTool {
-  /**
-   * 执行读取 Skill 文档
-   * @param args 读取参数
-   * @returns 读取结果
-   */
-  static async execute(args: ReadSkillArgs): Promise<ToolResult> {
-    const startTime = Date.now();
-
-    try {
-      // 参数验证
-      this.validateArgs(args);
-
-      logger.info(`Reading Skill documentation: ${args.skillName}`);
-
-      // 获取 SkillManager
-      const skillManager = getSkillManager();
-
-      // 查询 Skill
-      const skill = await skillManager.getSkillByName(args.skillName);
-
-      if (!skill) {
-        throw new Error(`Skill not found: ${args.skillName}`);
-      }
-
-      // 读取 SKILL.md 文件
-      const skillMdPath = path.join(skill.path, 'SKILL.md');
-      const content = await fs.readFile(skillMdPath, 'utf8');
-
-      const duration = Date.now() - startTime;
-
-      // 格式化输出
-      const output = this.formatSkillContent(args.skillName, content, skill, args.includeMetadata);
-
-      logger.info(`Skill documentation read successfully in ${duration}ms`);
-
-      return {
-        success: true,
-        output,
-        duration,
-        exitCode: 0
-      };
-
-    } catch (error) {
-      const duration = Date.now() - startTime;
-
-      logger.error(`Failed to read Skill documentation:`, error);
-
-      return {
-        success: false,
-        error: this.formatError(error),
-        duration,
-        errorCode: 'READ_SKILL_ERROR',
-        exitCode: 1
-      };
-    }
-  }
-
-  /**
-   * 验证参数
-   */
-  private static validateArgs(args: ReadSkillArgs): void {
-    if (!args.skillName || typeof args.skillName !== 'string') {
-      throw new Error('skillName is required and must be a non-empty string');
-    }
-
-    if (args.skillName.trim().length === 0) {
-      throw new Error('skillName cannot be empty or whitespace only');
-    }
-  }
-
-  /**
-   * 格式化 Skill 内容
-   */
-  private static formatSkillContent(
-    skillName: string,
-    content: string,
-    skill: any,
-    includeMetadata?: boolean
-  ): string {
-    let output = `# Skill Documentation: ${skillName}\n\n`;
-
-    // 添加基本信息
-    output += `**Version:** ${skill.version || 'N/A'}\n`;
-    output += `**Description:** ${skill.description}\n`;
-
-    if (skill.tags && skill.tags.length > 0) {
-      output += `**Tags:** ${skill.tags.join(', ')}\n`;
-    }
-
-    if (skill.author) {
-      output += `**Author:** ${skill.author}\n`;
-    }
-
-    output += `\n---\n\n`;
-
-    // 添加完整文档内容
-    output += content;
-
-    // 可选：添加元数据
-    if (includeMetadata && skill.parameters) {
-      output += `\n\n---\n\n## Parameters Schema\n\n`;
-      output += '```json\n';
-      output += JSON.stringify(skill.parameters, null, 2);
-      output += '\n```\n';
-    }
-
-    return output;
-  }
-
-  /**
-   * 格式化错误信息
-   */
-  private static formatError(error: any): string {
-    if (error instanceof Error) {
-      return error.message;
-    }
-    if (typeof error === 'string') {
-      return error;
-    }
-    return 'Unknown error occurred while reading Skill documentation';
-  }
-
-  /**
-   * 获取工具元数据
-   */
-  static getMetadata() {
-    return {
-      name: 'read-skill',
-      description: 'Read the complete documentation of a Skill. Use this to get detailed information about knowledge-based Skills or to understand how to use executable Skills.',
-      category: 'skill',
-      level: 1,
-      parameters: {
-        type: 'object',
-        properties: {
-          skillName: {
-            type: 'string',
-            description: 'The name of the Skill to read (e.g., "calculator")'
-          },
-          includeMetadata: {
-            type: 'boolean',
-            description: 'Whether to include parameter schema metadata in the output',
-            default: false
-          }
-        },
-        required: ['skillName']
-      }
-    };
-  }
-}
-
-/**
- * 创建 ReadSkillTool 实例（用于注册表）
- */
-export function createReadSkillTool() {
-  return {
-    ...ReadSkillTool.getMetadata(),
-    type: ToolType.BUILTIN,
-    enabled: true,
-    execute: async (args: Record<string, any>) => {
-      return ReadSkillTool.execute(args as ReadSkillArgs);
-    }
-  } as BuiltInTool;
-}
-````
-
-## File: src/core/AGENTS.md
-````markdown
-# AGENTS.md - src/core
-
-**Core engines - ProtocolEngine, LLMManager, adapters, EventBus, AceCore.**
-
-## WHERE TO LOOK
-
-| Component | File                            | Purpose                                                          |
-| --------- | ------------------------------- | ---------------------------------------------------------------- |
-| Protocol  | `ProtocolEngine.ts`             | ABP protocol orchestration, RAG service, VariableEngine          |
-| Parser    | `protocol/ABPProtocolParser.ts` | ABP JSON/text parsing, noise stripping, boundary validation      |
-| LLM       | `LLMManager.ts`                 | Multi-provider adapter management, model registry, caching       |
-| Adapters  | `llm/adapters/`                 | OpenAI, Claude, DeepSeek, Ollama, Custom, Zhipu implementations  |
-| Stream    | `stream-orchestrator/`          | ReAct engine pool, tool executor, LLM adapter wrapper            |
-| Events    | `EventBus.ts`                   | Singleton event emitter for cross-layer communication            |
-| ACE       | `ace/AceCore.ts`                | Agent cognition engine: sessions, scratchpads, reflection cycles |
-| Variables | `variable/VariableEngine.ts`    | Template variable substitution                                   |
-| Tools     | `tool-action/`                  | Tool dispatcher, parameter converter, error handler              |
-| Builtins  | `tools/builtin/`                | Vector search, file read/write, platform detector, skill reader  |
-
-## KEY PATTERNS
-
-- **Adapters**: Extend `BaseOpenAICompatibleAdapter`, implement `ILLMAdapter` interface
-- **EventBus**: Singleton via `getInstance()`, northbound/southbound emitters in AceCore
-- **Concurrency**: AceCore uses `ReadWriteLock` for session/scratchpad protection
-- **Caching**: LLMManager两级缓存（提供商级+模型级），带TTL和LRU驱逐
-
-## ANTI-PATTERNS (THIS SUBDIR)
-
-- **Nested `opencode/` project**: Separate npm project causes import confusion and build issues
-````
-
-## File: src/core/CLAUDE.md
-````markdown
-[根目录](../../CLAUDE.md) > [src](../) > **core**
-
-# Core 模块 - 核心引擎
-
-## 🎯 模块职责
-
-Core模块是ApexBridge的核心引擎层，负责处理ABP协议、LLM管理、变量解析和Skills体系。采用独立实现，不依赖外部SDK，专注于轻量级、高性能的聊天核心功能。
-
-## 🏗️ 架构设计
-
-```mermaid
-graph TD
-    A["Core Module"] --> B["ProtocolEngine"];
-    A --> C["LLMManager"];
-    A --> D["VariableEngine"];
-    A --> E["EventBus"];
-    A --> F["Skills体系"];
-    A --> G["Stream Orchestrator"];
-
-    B --> B1["ABPProtocolParser"];
-    B --> B2["RAGService集成"];
-    B --> B3["变量提供者管理"];
-
-    C --> C1["适配器工厂"];
-    C --> C2["模型注册表"];
-    C --> C3["SQLite配置"];
-
-    D --> D1["TimeProvider"];
-    D --> D2["PlaceholderProvider"];
-
-    F --> F1["SkillExecutor"];
-    F --> F2["工具调用映射"];
-
-    G --> G1["ReActEngine"];
-    G --> G2["LLMAdapter"];
-    G --> G3["ToolExecutor"];
-```
-
-## 📋 核心组件
-
-### ProtocolEngine (`ProtocolEngine.ts`)
-- **职责**: ABP协议解析、变量引擎管理、RAG服务集成
-- **关键功能**:
-  - 统一的ABP协议解析（不依赖外部SDK）
-  - 变量引擎初始化和管理
-  - RAG向量检索服务集成
-  - 插件计数和管理
-- **配置**: 支持ABP协议配置、RAG配置、调试模式
-
-### LLMManager (`LLMManager.ts`)
-- **职责**: 多LLM提供商统一管理
-- **关键功能**:
-  - 适配器模式支持多提供商（OpenAI、DeepSeek、智谱、Ollama、Claude）
-  - SQLite数据库加载配置，支持运行时热更新
-  - 智能重试机制和错误处理
-  - 流式聊天支持
-- **架构**: 两级配置结构（提供商 + 模型）
-
-### VariableEngine (`variable/VariableEngine.ts`)
-- **职责**: 动态变量解析
-- **关键功能**:
-  - 时间变量解析（TimeProvider）
-  - 占位符变量解析（PlaceholderProvider）
-  - 支持缓存机制（可配置TTL）
-  - 可扩展的提供者架构
-
-### EventBus (`EventBus.ts`)
-- **职责**: 事件总线管理
-- **关键功能**:
-  - 单例模式实现
-  - 支持事件订阅和发布
-  - 服务间解耦通信
-
-### Skills体系 (`skills/SkillExecutor.ts`)
-- **职责**: 轻量级技能执行
-- **关键功能**:
-  - Direct/Internal双模式执行
-  - 技能注册和查找
-  - 统一的执行接口
-  - 错误处理和结果封装
-
-### Stream Orchestrator (`stream-orchestrator/`)
-- **职责**: 流式处理编排
-- **关键组件**:
-  - **ReActEngine**: 多轮思考和工具调用引擎
-  - **LLMAdapter**: LLM适配器接口
-  - **ToolExecutor**: 工具并发执行管理
-
-## 🚀 入口点与初始化
-
-### 主要入口文件
-- `ProtocolEngine.ts`: 核心引擎入口
-- `LLMManager.ts`: LLM管理器入口
-- `variable/index.ts`: 变量引擎入口
-- `skills/SkillExecutor.ts`: 技能执行器入口
-
-### 初始化流程
-1. **ProtocolEngine初始化**:
-   - 创建ABPProtocolParser实例
-   - 初始化VariableEngine
-   - 可选初始化RAG服务
-   - 注册变量提供者
-
-2. **LLMManager初始化**:
-   - 从SQLite加载提供商配置
-   - 创建适配器实例
-   - 注册到内部映射表
-
-## 🔧 关键依赖
-
-### 外部依赖
-- `abp-rag-sdk`: RAG向量检索服务
-- `better-sqlite3`: SQLite数据库支持
-- `p-limit`: 并发控制
-- `winston`: 日志记录
-
-### 内部依赖
-- `types/`: 类型定义
-- `utils/`: 工具函数（logger、errors等）
-- `config/`: 配置管理
-
-## 🧪 测试要点
-
-### 单元测试重点
-- ABP协议解析的正确性
-- 变量解析的准确性
-- LLM适配器的兼容性
-- Skills执行的错误处理
-- ReActEngine的迭代逻辑
-
-### 集成测试重点
-- 多LLM提供商切换
-- RAG服务集成流程
-- 变量引擎缓存机制
-- Skills与ProtocolEngine集成
-
-## 📊 性能考虑
-
-### 内存管理
-- ProtocolEngine支持优雅关闭和资源清理
-- VariableEngine支持缓存重置
-- RAG服务内存使用监控
-
-### 并发处理
-- LLMManager支持并发请求管理
-- ToolExecutor支持并发工具执行
-- EventBus支持异步事件处理
-
-## 🔗 相关文件
-
-### 核心文件
-- `/src/core/ProtocolEngine.ts` - 协议引擎主实现
-- `/src/core/LLMManager.ts` - LLM管理器
-- `/src/core/variable/VariableEngine.ts` - 变量引擎
-- `/src/core/EventBus.ts` - 事件总线
-- `/src/core/skills/SkillExecutor.ts` - 技能执行器
-
-### 配置文件
-- `/src/types/abp.ts` - ABP协议类型定义
-- `/src/types/llm-models.ts` - LLM模型类型定义
-- `/src/types/variable.ts` - 变量相关类型定义
-- `/src/config/endpoint-mappings.ts` - 端点映射配置
-
-### 适配器实现
-- `/src/core/llm/adapters/` - 各LLM提供商适配器
-- `/src/core/stream-orchestrator/` - 流式处理组件
-
-## 📈 最近更新
-
-### 2025-11-30
-- ✅ 完成ReActEngine流式处理优化
-- ✅ 新增LLMManagerAdapter适配器
-- ✅ 优化SkillExecutor错误处理
-
-### 2025-11-19
-- ✅ 架构简化，移除过度设计组件
-- ✅ 优化ProtocolEngine初始化流程
-- ✅ 增强RAG服务错误处理
-
-## 🎯 下一步计划
-
-1. **性能优化**: 进一步优化ReActEngine的内存使用
-2. **测试覆盖**: 增加核心引擎的单元测试
-3. **文档完善**: 补充各组件的详细使用文档
-4. **Skills扩展**: 实现更多内置技能
-
----
-
-**模块路径**: `/src/core/`
-**更新时间**: 2025-11-30 18:21:54
-**状态**: 活跃开发中
-````
-
-## File: src/database/migrations/001_create_type_vocabulary.sql
-````sql
--- Migration: Create Type Vocabulary Table
--- Description: Stores all type tags extracted from playbooks
--- Created: 2025-12-18
-
-CREATE TABLE type_vocabulary (
-  tag_name TEXT PRIMARY KEY,
-  keywords TEXT NOT NULL, -- JSON array of keywords
-  confidence REAL NOT NULL DEFAULT 0.0 CHECK (confidence >= 0.0 AND confidence <= 1.0),
-  first_identified INTEGER NOT NULL,
-  playbook_count INTEGER NOT NULL DEFAULT 0,
-  discovered_from TEXT NOT NULL CHECK (discovered_from IN ('historical_clustering', 'manual_creation', 'llm_suggestion')),
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  metadata TEXT -- JSON object for additional information
-);
-
--- Indexes for common queries
-CREATE INDEX idx_type_vocabulary_confidence ON type_vocabulary(confidence DESC);
-CREATE INDEX idx_type_vocabulary_playbook_count ON type_vocabulary(playbook_count DESC);
-CREATE INDEX idx_type_vocabulary_created ON type_vocabulary(created_at DESC);
-````
-
-## File: src/database/migrations/002_create_type_similarity_matrix.sql
-````sql
--- Migration: Create Type Similarity Matrix Table
--- Description: Stores similarity scores between type tags
--- Created: 2025-12-18
-
-CREATE TABLE type_similarity_matrix (
-  tag1 TEXT NOT NULL,
-  tag2 TEXT NOT NULL,
-  similarity_score REAL NOT NULL CHECK (similarity_score >= 0.0 AND similarity_score <= 1.0),
-  co_occurrence_count INTEGER NOT NULL DEFAULT 0,
-  last_updated INTEGER NOT NULL,
-  PRIMARY KEY (tag1, tag2),
-  FOREIGN KEY (tag1) REFERENCES type_vocabulary(tag_name) ON DELETE CASCADE,
-  FOREIGN KEY (tag2) REFERENCES type_vocabulary(tag_name) ON DELETE CASCADE
-);
-
--- Indexes for efficient similarity lookups
-CREATE INDEX idx_similarity_score ON type_similarity_matrix(similarity_score DESC);
-CREATE INDEX idx_similarity_tags ON type_similarity_matrix(tag1, tag2);
-
--- Ensure tag1 < tag2 to avoid duplicates (symmetric matrix)
-CREATE TRIGGER ensure_tag_order
-  BEFORE INSERT ON type_similarity_matrix
-  FOR EACH ROW
-  WHEN NEW.tag1 > NEW.tag2
-BEGIN
-  UPDATE type_similarity_matrix
-  SET tag1 = NEW.tag2, tag2 = NEW.tag1
-  WHERE rowid = NEW.rowid;
-END;
-````
-
-## File: src/database/migrations/003_create_type_evolution_history.sql
-````sql
--- Migration: Create Type Evolution History Table
--- Description: Tracks changes to type tags over time
--- Created: 2025-12-18
-
-CREATE TABLE type_evolution_history (
-  id TEXT PRIMARY KEY,
-  event_type TEXT NOT NULL CHECK (event_type IN ('created', 'merged', 'deprecated', 'split', 'confidence_updated')),
-  tag_name TEXT NOT NULL,
-  previous_state TEXT, -- JSON object for previous state
-  new_state TEXT, -- JSON object for new state
-  reason TEXT NOT NULL,
-  triggered_by TEXT NOT NULL CHECK (triggered_by IN ('automatic', 'manual', 'llm_analysis')),
-  created_at INTEGER NOT NULL,
-  FOREIGN KEY (tag_name) REFERENCES type_vocabulary(tag_name) ON DELETE CASCADE
-);
-
--- Indexes for historical queries
-CREATE INDEX idx_evolution_tag ON type_evolution_history(tag_name);
-CREATE INDEX idx_evolution_date ON type_evolution_history(created_at DESC);
-CREATE INDEX idx_evolution_type ON type_evolution_history(event_type);
-````
-
-## File: src/database/migrations/005_create_prompt_templates.sql
-````sql
--- Migration: Create Prompt Templates Table
--- Description: Stores reusable prompt templates for different type tags
--- Created: 2025-12-18
-
-CREATE TABLE prompt_templates (
-  template_id TEXT PRIMARY KEY,
-  template_type TEXT NOT NULL CHECK (template_type IN ('guidance', 'constraint', 'framework', 'example')),
-  name TEXT NOT NULL,
-  content TEXT NOT NULL,
-  variables TEXT NOT NULL, -- JSON array of variable names
-  applicable_tags TEXT NOT NULL, -- JSON array of applicable tag names
-  guidance_level TEXT CHECK (guidance_level IN ('light', 'medium', 'intensive')),
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  usage_count INTEGER NOT NULL DEFAULT 0,
-  effectiveness_score REAL CHECK (effectiveness_score >= 0.0 AND effectiveness_score <= 1.0),
-  metadata TEXT -- JSON object for additional metadata
-);
-
--- Indexes for template queries
-CREATE INDEX idx_template_type ON prompt_templates(template_type);
-CREATE INDEX idx_template_effectiveness ON prompt_templates(effectiveness_score DESC);
-CREATE INDEX idx_template_usage_count ON prompt_templates(usage_count DESC);
-````
-
-## File: src/database/index.ts
-````typescript
-/**
- * Database Module Index
- * Entry point for all database-related functionality
- */
-
-export { MigrationRunner, MigrationResult, Migration } from './MigrationRunner';
-export * from './migrations';
-````
-
-## File: src/services/chat/ConversationSaver.ts
-````typescript
-/**
- * ConversationSaver - 对话历史保存器
- * 负责统一保存对话历史，包含思考过程
- */
-
-import { Message } from "../../types";
-import { logger } from "../../utils/logger";
-import { ConversationHistoryService } from "../ConversationHistoryService";
-import { SessionManager } from "../SessionManager";
-import { parseAggregatedContent } from "../../api/utils/stream-parser";
-
-export interface SaveMetadata {
-  messageCount: number;
-  totalTokens?: number;
-  promptTokens?: number;
-  completionTokens?: number;
-}
-
-export class ConversationSaver {
-  constructor(
-    private conversationHistoryService: ConversationHistoryService,
-    private sessionManager: SessionManager
-  ) {}
-
-  /**
-   * 保存对话历史
-   */
-  async save(
-    conversationId: string,
-    messages: Message[],
-    aiContent: string,
-    thinkingProcess?: string[],
-    isReAct: boolean = false
-  ): Promise<void> {
-    try {
-      // 1. 检查历史记录数量
-      const count = await this.conversationHistoryService.getMessageCount(conversationId);
-      const messagesToSave: Message[] = [];
-
-      // 2. 准备要保存的消息（统一逻辑）
-      if (count === 0) {
-        // 新对话：保存所有非assistant、非system消息
-        messagesToSave.push(
-          ...messages.filter((m) => m.role !== "assistant" && m.role !== "system")
-        );
-      } else {
-        // 已有对话：只保存最后一条非assistant、非system消息
-        const lastMessage = messages[messages.length - 1];
-        if (lastMessage && lastMessage.role !== "assistant" && lastMessage.role !== "system") {
-          messagesToSave.push(lastMessage);
-        }
-      }
-
-      // 3. 构建AI回复内容（统一格式）
-      let assistantContent = this.formatAssistantContent(aiContent, thinkingProcess, isReAct);
-
-      // 4. 添加AI回复
-      messagesToSave.push({
-        role: "assistant",
-        content: assistantContent,
-      });
-
-      // 5. 保存到数据库
-      await this.conversationHistoryService.saveMessages(conversationId, messagesToSave);
-      logger.debug(`[ConversationSaver] Saved ${messagesToSave.length} messages to history`);
-    } catch (err: any) {
-      logger.warn(`[ConversationSaver] Failed to save conversation history: ${err.message}`);
-    }
-  }
-
-  /**
-   * 格式化AI回复内容
-   */
-  private formatAssistantContent(
-    aiContent: string,
-    thinkingProcess?: string[],
-    isReAct: boolean = false
-  ): string {
-    // 先清理错误内容
-    const cleanedContent = this.cleanErrorContent(aiContent);
-
-    const parsed = parseAggregatedContent(cleanedContent);
-
-    if (isReAct) {
-      const thinkingParts = [];
-      if (thinkingProcess?.length > 0) {
-        const extractedThinking = this.extractThinkingContent(thinkingProcess);
-        thinkingParts.push(`<thinking>${extractedThinking}</thinking>`);
-      }
-      thinkingParts.push(
-        parsed.reasoning
-          ? `<thinking>${parsed.reasoning}</thinking> ${parsed.content}`
-          : parsed.content
-      );
-      return thinkingParts.join(" ");
-    }
-
-    // 普通模式
-    return parsed.reasoning
-      ? `<thinking>${parsed.reasoning}</thinking> ${parsed.content}`
-      : parsed.content;
-  }
-
-  /**
-   * 清理错误内容
-   * 移除包含错误状态的 tool_output 标签和其他错误信息
-   */
-  private cleanErrorContent(content: string): string {
-    if (!content || typeof content !== "string") {
-      return content;
-    }
-
-    let cleaned = content;
-
-    // 移除包含错误状态的 tool_output
-    // 匹配 <tool_output ... status="error">...</tool_output>
-    cleaned = cleaned.replace(
-      /<tool_output[^>]*status\s*=\s*["']?error["']?[^>]*>[\s\S]*?<\/tool_output>/gi,
-      ""
-    );
-
-    // 移除 [SYSTEM_FEEDBACK] 块中的错误内容
-    cleaned = cleaned.replace(
-      /\[SYSTEM_FEEDBACK\][\s\S]*?status\s*=\s*["']?error["']?[\s\S]*?(?=\[SYSTEM_FEEDBACK\]|$)/gi,
-      ""
-    );
-
-    // 移除 MCP 错误信息
-    cleaned = cleaned.replace(/MCP error[^"\n]*/gi, "");
-    cleaned = cleaned.replace(/McpError:[^\n]*/gi, "");
-    cleaned = cleaned.replace(/Request timed out/gi, "");
-
-    // 移除错误堆栈相关信息
-    cleaned = cleaned.replace(/at McpError\.fromError[^\n]*/gi, "");
-    cleaned = cleaned.replace(/at Timeout\.timeoutHandler[^\n]*/gi, "");
-
-    // 清理多余的空白字符
-    cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
-    cleaned = cleaned.trim();
-
-    return cleaned;
-  }
-
-  /**
-   * 提取思考过程内容
-   */
-  private extractThinkingContent(thinkingProcess: string[]): string {
-    const extracted: string[] = [];
-    for (const chunk of thinkingProcess) {
-      try {
-        const cleaned = chunk.replace(/^data:\s*/, "").trim();
-        if (cleaned && cleaned !== "[DONE]") {
-          if (cleaned.includes("}{")) {
-            const jsonObjects = cleaned.split(/\}\{/);
-            for (let i = 0; i < jsonObjects.length; i++) {
-              let jsonStr = jsonObjects[i];
-              if (i > 0) jsonStr = "{" + jsonStr;
-              if (i < jsonObjects.length - 1) jsonStr = jsonStr + "}";
-              if (jsonStr) {
-                const parsed = JSON.parse(jsonStr);
-                if (parsed.reasoning_content) {
-                  extracted.push(parsed.reasoning_content);
-                }
-              }
-            }
-          } else {
-            const parsed = JSON.parse(cleaned);
-            if (parsed.reasoning_content) {
-              extracted.push(parsed.reasoning_content);
-            }
-          }
-        }
-      } catch {
-        extracted.push(chunk);
-      }
-    }
-    return extracted.join("");
-  }
-
-  /**
-   * 更新会话元数据
-   */
-  async updateSessionMetadata(sessionId: string, usage: any): Promise<void> {
-    await this.sessionManager.updateMetadata(sessionId, {
-      total_tokens: usage.total_tokens,
-      prompt_tokens: usage.prompt_tokens,
-      completion_tokens: usage.completion_tokens,
-    });
-  }
-}
-````
-
-## File: src/services/context-compression/strategies/HybridStrategy.ts
-````typescript
-/**
- * HybridStrategy - 混合压缩策略
- *
- * 组合 truncate + prune，先修剪再截断，保留更多上下文信息
- */
-
-import { Message } from "../../../types";
-import { TokenEstimator } from "../TokenEstimator";
-import {
-  IContextCompressionStrategy,
-  CompressionResult,
-  CompressionStrategyConfig,
-} from "./IContextCompressionStrategy";
-import { TruncateStrategy } from "./TruncateStrategy";
-import { PruneStrategy } from "./PruneStrategy";
-
-/**
- * 混合策略配置
- */
-export interface HybridStrategyConfig extends CompressionStrategyConfig {
-  /** 是否先修剪再截断（false 则先截断再修剪） */
-  pruneFirst?: boolean;
-  /** 修剪策略的配置 */
-  pruneConfig?: {
-    similarityThreshold?: number;
-    shortMessageThreshold?: number;
-    mergeConsecutiveUserMessages?: boolean;
-  };
-  /** 截断策略的配置 */
-  truncateConfig?: {
-    direction?: "head" | "tail";
-  };
-}
-
-/**
- * 混合压缩策略
- *
- * 策略说明：
- * - 组合 truncate + prune 的优点
- * - 先修剪相似/短消息，再截断超出限制的内容
- * - 保留更多上下文信息
- * - 适用于需要平衡信息保留和 Token 限制的场景
- */
-export class HybridStrategy implements IContextCompressionStrategy {
-  /**
-   * 默认配置
-   */
-  private readonly defaultConfig: Required<HybridStrategyConfig> = {
-    maxTokens: 8000,
-    preserveSystemMessage: true,
-    minMessageCount: 1,
-    pruneFirst: true,
-    pruneConfig: {
-      similarityThreshold: 0.7,
-      shortMessageThreshold: 50,
-      mergeConsecutiveUserMessages: true,
-    },
-    truncateConfig: {
-      direction: "head",
-    },
-  };
-
-  private readonly pruneStrategy: PruneStrategy;
-  private readonly truncateStrategy: TruncateStrategy;
-
-  constructor() {
-    this.pruneStrategy = new PruneStrategy();
-    this.truncateStrategy = new TruncateStrategy();
-  }
-
-  getName(): string {
-    return "hybrid";
-  }
-
-  async compress(
-    messages: Message[],
-    config: CompressionStrategyConfig
-  ): Promise<CompressionResult> {
-    const finalConfig = { ...this.defaultConfig, ...config } as Required<HybridStrategyConfig>;
-
-    const originalTokens = TokenEstimator.countMessages(messages);
-
-    if (messages.length === 0) {
-      return {
-        messages: [],
-        originalTokens: 0,
-        compactedTokens: 0,
-        removedCount: 0,
-        hasSummary: false,
-      };
-    }
-
-    if (originalTokens <= finalConfig.maxTokens) {
-      return {
-        messages: [...messages],
-        originalTokens,
-        compactedTokens: originalTokens,
-        removedCount: 0,
-        hasSummary: false,
-      };
-    }
-
-    let result: CompressionResult;
-
-    if (finalConfig.pruneFirst) {
-      result = await this.pruneThenTruncate(messages, finalConfig);
-    } else {
-      result = await this.truncateThenPrune(messages, finalConfig);
-    }
-
-    return result;
-  }
-
-  /**
-   * 先修剪再截断
-   */
-  private async pruneThenTruncate(
-    messages: Message[],
-    config: Required<HybridStrategyConfig>
-  ): Promise<CompressionResult> {
-    const originalTokens = TokenEstimator.countMessages(messages);
-
-    const pruneConfig: CompressionStrategyConfig = {
-      maxTokens: config.maxTokens,
-      preserveSystemMessage: config.preserveSystemMessage,
-      minMessageCount: config.minMessageCount,
-    };
-
-    let pruneResult = await this.pruneStrategy.compress(messages, pruneConfig);
-
-    if (pruneResult.compactedTokens <= config.maxTokens) {
-      return pruneResult;
-    }
-
-    const truncateConfig: CompressionStrategyConfig = {
-      maxTokens: config.maxTokens,
-      preserveSystemMessage: config.preserveSystemMessage,
-      minMessageCount: config.minMessageCount,
-    };
-
-    const truncateResult = await this.truncateStrategy.compress(
-      pruneResult.messages,
-      truncateConfig
-    );
-
-    return {
-      messages: truncateResult.messages,
-      originalTokens,
-      compactedTokens: truncateResult.compactedTokens,
-      removedCount: pruneResult.removedCount + truncateResult.removedCount,
-      hasSummary: false,
-    };
-  }
-
-  /**
-   * 先截断再修剪
-   */
-  private async truncateThenPrune(
-    messages: Message[],
-    config: Required<HybridStrategyConfig>
-  ): Promise<CompressionResult> {
-    const originalTokens = TokenEstimator.countMessages(messages);
-
-    const truncateConfig: CompressionStrategyConfig = {
-      maxTokens: config.maxTokens,
-      preserveSystemMessage: config.preserveSystemMessage,
-      minMessageCount: config.minMessageCount,
-    };
-
-    let truncateResult = await this.truncateStrategy.compress(messages, truncateConfig);
-
-    const pruneConfig: CompressionStrategyConfig = {
-      maxTokens: config.maxTokens,
-      preserveSystemMessage: config.preserveSystemMessage,
-      minMessageCount: config.minMessageCount,
-    };
-
-    const pruneResult = await this.pruneStrategy.compress(truncateResult.messages, pruneConfig);
-
-    return {
-      messages: pruneResult.messages,
-      originalTokens,
-      compactedTokens: pruneResult.compactedTokens,
-      removedCount: truncateResult.removedCount + pruneResult.removedCount,
-      hasSummary: false,
-    };
-  }
-
-  needsCompression(messages: Message[], maxTokens: number): boolean {
-    const currentTokens = TokenEstimator.countMessages(messages);
-    return currentTokens > maxTokens;
-  }
-}
-````
-
-## File: src/services/context-compression/strategies/IContextCompressionStrategy.ts
-````typescript
-/**
- * 上下文压缩策略接口
- *
- * 定义上下文压缩的通用接口
- */
-
-import { Message } from "../../../types";
-
-/**
- * 压缩结果
- */
-export interface CompressionResult {
-  /** 压缩后的消息 */
-  messages: Message[];
-  /** 原始 Token 数 */
-  originalTokens: number;
-  /** 压缩后 Token 数 */
-  compactedTokens: number;
-  /** 被移除的消息数 */
-  removedCount: number;
-  /** 是否有摘要生成 */
-  hasSummary: boolean;
-}
-
-/**
- * 压缩策略配置
- */
-export interface CompressionStrategyConfig {
-  /** 最大 Token 数 */
-  maxTokens: number;
-  /** 是否保留系统消息 */
-  preserveSystemMessage?: boolean;
-  /** 保留消息的最小数量 */
-  minMessageCount?: number;
-}
-
-/**
- * 上下文压缩策略接口
- */
-export interface IContextCompressionStrategy {
-  /**
-   * 获取策略名称
-   */
-  getName(): string;
-
-  /**
-   * 执行压缩
-   *
-   * @param messages 原始消息列表
-   * @param config 压缩配置
-   * @returns 压缩结果
-   */
-  compress(messages: Message[], config: CompressionStrategyConfig): Promise<CompressionResult>;
-
-  /**
-   * 检查是否需要压缩
-   *
-   * @param messages 消息列表
-   * @param maxTokens 最大 Token 数
-   * @returns 是否需要压缩
-   */
-  needsCompression(messages: Message[], maxTokens: number): boolean;
-}
-````
-
-## File: src/services/context-compression/strategies/index.ts
-````typescript
-/**
- * 上下文压缩策略导出
- */
-
-export * from "./IContextCompressionStrategy";
-export * from "./TruncateStrategy";
-export * from "./PruneStrategy";
-export * from "./SummaryStrategy";
-export * from "./HybridStrategy";
-````
-
-## File: src/services/context-compression/strategies/PruneStrategy.ts
-````typescript
-/**
- * PruneStrategy - 修剪压缩策略
- *
- * 移除相似/重复内容的短消息，合并连续的用户短消息，保留信息密度高的消息
- */
-
-import { Message } from "../../../types";
-import { TokenEstimator } from "../TokenEstimator";
-import {
-  IContextCompressionStrategy,
-  CompressionResult,
-  CompressionStrategyConfig,
-} from "./IContextCompressionStrategy";
-
-/**
- * 修剪策略配置
- */
-export interface PruneStrategyConfig extends CompressionStrategyConfig {
-  /** 相似度阈值（0-1），低于此值认为是相似消息 */
-  similarityThreshold?: number;
-  /** 短消息长度阈值（字符数），低于此值认为是短消息 */
-  shortMessageThreshold?: number;
-  /** 是否合并连续的用户短消息 */
-  mergeConsecutiveUserMessages?: boolean;
-}
-
-/**
- * 消息相似度信息
- */
-interface MessageSimilarityInfo {
-  index: number;
-  message: Message;
-  tokens: number;
-  isShort: boolean;
-  contentLength: number;
-  shouldRemove: boolean;
-  removalReason?: string;
-}
-
-/**
- * 修剪压缩策略
- *
- * 策略说明：
- * - 移除与前一条消息高度相似的内容
- * - 合并连续的用户短消息
- * - 保留信息密度高的消息
- * - 适用于保留关键信息的场景
- */
-export class PruneStrategy implements IContextCompressionStrategy {
-  /**
-   * 默认配置
-   */
-  private readonly defaultConfig: Required<PruneStrategyConfig> = {
-    maxTokens: 8000,
-    preserveSystemMessage: true,
-    minMessageCount: 1,
-    similarityThreshold: 0.7,
-    shortMessageThreshold: 50,
-    mergeConsecutiveUserMessages: true,
-  };
-
-  getName(): string {
-    return "prune";
-  }
-
-  async compress(
-    messages: Message[],
-    config: CompressionStrategyConfig
-  ): Promise<CompressionResult> {
-    const finalConfig = { ...this.defaultConfig, ...config } as Required<PruneStrategyConfig>;
-
-    const originalTokens = TokenEstimator.countMessages(messages);
-
-    if (messages.length === 0) {
-      return {
-        messages: [],
-        originalTokens: 0,
-        compactedTokens: 0,
-        removedCount: 0,
-        hasSummary: false,
-      };
-    }
-
-    if (originalTokens <= finalConfig.maxTokens) {
-      return {
-        messages: [...messages],
-        originalTokens,
-        compactedTokens: originalTokens,
-        removedCount: 0,
-        hasSummary: false,
-      };
-    }
-
-    let systemMessages: Message[] = [];
-    let otherMessages: Message[] = [];
-
-    if (finalConfig.preserveSystemMessage) {
-      const systemIndex = messages.findIndex((m) => m.role === "system");
-      if (systemIndex >= 0) {
-        systemMessages = [messages[systemIndex]];
-        otherMessages = messages.filter((_, i) => i !== systemIndex);
-      } else {
-        otherMessages = [...messages];
-      }
-    } else {
-      otherMessages = [...messages];
-    }
-
-    const prunedMessages = this.pruneMessages(otherMessages, finalConfig);
-    let removedCount = otherMessages.length - prunedMessages.length;
-
-    const totalMessages = systemMessages.length + prunedMessages.length;
-    if (totalMessages < finalConfig.minMessageCount && otherMessages.length > totalMessages) {
-      const additionalNeeded = finalConfig.minMessageCount - totalMessages;
-      const availableMessages = otherMessages.filter((msg) => !prunedMessages.includes(msg));
-      const toAdd = availableMessages.slice(-additionalNeeded);
-      prunedMessages.unshift(...toAdd);
-      removedCount = Math.max(0, removedCount - toAdd.length);
-    }
-
-    const finalMessages = finalConfig.preserveSystemMessage
-      ? [...systemMessages, ...prunedMessages]
-      : prunedMessages;
-
-    const compactedTokens = TokenEstimator.countMessages(finalMessages);
-
-    return {
-      messages: finalMessages,
-      originalTokens,
-      compactedTokens,
-      removedCount,
-      hasSummary: false,
-    };
-  }
-
-  /**
-   * 修剪消息列表
-   */
-  private pruneMessages(messages: Message[], config: Required<PruneStrategyConfig>): Message[] {
-    if (messages.length === 0) {
-      return [];
-    }
-
-    const messagesWithInfo = this.analyzeMessages(messages, config);
-    const result: Message[] = [];
-    let consecutiveUserShortMessages: Message[] = [];
-
-    for (let i = 0; i < messagesWithInfo.length; i++) {
-      const current = messagesWithInfo[i];
-      const previous = i > 0 ? messagesWithInfo[i - 1] : null;
-
-      if (current.shouldRemove) {
-        continue;
-      }
-
-      if (config.mergeConsecutiveUserMessages) {
-        if (current.message.role === "user" && current.isShort) {
-          consecutiveUserShortMessages.push(current.message);
-
-          const nextMsg = i + 1 < messagesWithInfo.length ? messagesWithInfo[i + 1] : null;
-          const isEndOfUserShortMessages =
-            !nextMsg || nextMsg.message.role !== "user" || !nextMsg.isShort;
-
-          if (isEndOfUserShortMessages && consecutiveUserShortMessages.length > 1) {
-            const merged = this.mergeUserMessages(consecutiveUserShortMessages);
-            if (merged) {
-              result.push(merged);
-            }
-            consecutiveUserShortMessages = [];
-          }
-          continue;
-        } else if (consecutiveUserShortMessages.length > 0) {
-          const merged = this.mergeUserMessages(consecutiveUserShortMessages);
-          if (merged) {
-            result.push(merged);
-          }
-          consecutiveUserShortMessages = [];
-        }
-      }
-
-      if (previous && !previous.shouldRemove && previous.message.role !== "system") {
-        if (this.shouldRemoveSimilar(current, previous, config)) {
-          continue;
-        }
-      }
-
-      result.push(current.message);
-    }
-
-    if (consecutiveUserShortMessages.length > 0) {
-      const merged = this.mergeUserMessages(consecutiveUserShortMessages);
-      if (merged) {
-        result.push(merged);
-      }
-    }
-
-    return result;
-  }
-
-  /**
-   * 分析消息信息
-   */
-  private analyzeMessages(
-    messages: Message[],
-    config: Required<PruneStrategyConfig>
-  ): MessageSimilarityInfo[] {
-    return messages.map((msg, index) => {
-      const tokens = TokenEstimator.estimateMessage(msg).tokens;
-      const contentLength = this.getMessageContentLength(msg);
-      const isShort = contentLength < config.shortMessageThreshold;
-
-      let shouldRemove = false;
-      let removalReason: string | undefined;
-
-      if (msg.role === "system") {
-        shouldRemove = false;
-      } else if (isShort && tokens < 10) {
-        shouldRemove = true;
-        removalReason = "very_short";
-      }
-
-      return {
-        index,
-        message: msg,
-        tokens,
-        isShort,
-        contentLength,
-        shouldRemove,
-        removalReason,
-      };
-    });
-  }
-
-  /**
-   * 获取消息内容长度
-   */
-  private getMessageContentLength(message: Message): number {
-    if (typeof message.content === "string") {
-      return message.content.length;
-    }
-    if (Array.isArray(message.content)) {
-      return message.content.reduce((sum, part) => {
-        if (part.type === "text" && part.text) {
-          return sum + part.text.length;
-        }
-        return sum;
-      }, 0);
-    }
-    return 0;
-  }
-
-  /**
-   * 判断是否应该移除相似消息
-   */
-  private shouldRemoveSimilar(
-    current: MessageSimilarityInfo,
-    previous: MessageSimilarityInfo,
-    config: Required<PruneStrategyConfig>
-  ): boolean {
-    if (current.message.role === previous.message.role) {
-      return false;
-    }
-
-    if (current.isShort && previous.isShort) {
-      const similarity = this.calculateSimilarity(current.contentLength, previous.contentLength);
-      if (similarity > config.similarityThreshold) {
-        return true;
-      }
-    }
-
-    if (current.isShort && current.tokens < 20 && previous.tokens > current.tokens * 3) {
-      return true;
-    }
-
-    return false;
-  }
-
-  /**
-   * 计算内容相似度（基于长度的简化相似度计算）
-   */
-  private calculateSimilarity(len1: number, len2: number): number {
-    if (len1 === 0 && len2 === 0) {
-      return 1;
-    }
-    const maxLen = Math.max(len1, len2);
-    const minLen = Math.min(len1, len2);
-    return minLen / maxLen;
-  }
-
-  /**
-   * 合并用户短消息
-   */
-  private mergeUserMessages(messages: Message[]): Message | null {
-    if (messages.length === 0) {
-      return null;
-    }
-
-    const combinedContent = messages
-      .map((msg) => {
-        const content = typeof msg.content === "string" ? msg.content : "";
-        return content.trim();
-      })
-      .filter((c) => c.length > 0)
-      .join("\n---\n");
-
-    if (combinedContent.length === 0) {
-      return null;
-    }
-
-    return {
-      role: "user",
-      content: combinedContent,
-    };
-  }
-
-  needsCompression(messages: Message[], maxTokens: number): boolean {
-    const currentTokens = TokenEstimator.countMessages(messages);
-    return currentTokens > maxTokens;
-  }
-}
-````
-
-## File: src/services/context-compression/strategies/SummaryStrategy.ts
-````typescript
-/**
- * SummaryStrategy - 摘要压缩策略
- *
- * 用 AI 摘要替换旧消息，保留最近 N 条消息原文，旧消息用一句话摘要替代
- */
-
-import { Message } from "../../../types";
-import { TokenEstimator } from "../TokenEstimator";
-import {
-  IContextCompressionStrategy,
-  CompressionResult,
-  CompressionStrategyConfig,
-} from "./IContextCompressionStrategy";
-
-/**
- * 摘要策略配置
- */
-export interface SummaryStrategyConfig extends CompressionStrategyConfig {
-  /** 保留最近消息的数量（原文） */
-  preserveRecent?: number;
-  /** 摘要生成器函数 */
-  summaryGenerator?: (messages: Message[]) => Promise<string>;
-  /** 每个摘要的最大 Token 数 */
-  maxSummaryTokens?: number;
-}
-
-/**
- * 摘要压缩策略
- *
- * 策略说明：
- * - 保留最近的 N 条消息原文
- * - 旧消息用一句话摘要替代
- * - 适用于需要保留对话历史概要的场景
- * - 需要提供 LLM 生成摘要
- */
-export class SummaryStrategy implements IContextCompressionStrategy {
-  /**
-   * 默认配置
-   */
-  private readonly defaultConfig: Required<SummaryStrategyConfig> = {
-    maxTokens: 8000,
-    preserveSystemMessage: true,
-    minMessageCount: 1,
-    preserveRecent: 5,
-    summaryGenerator: async (msgs: Message[]) => {
-      return this.defaultSummary(msgs);
-    },
-    maxSummaryTokens: 200,
-  };
-
-  getName(): string {
-    return "summary";
-  }
-
-  async compress(
-    messages: Message[],
-    config: CompressionStrategyConfig
-  ): Promise<CompressionResult> {
-    const finalConfig = { ...this.defaultConfig, ...config } as Required<SummaryStrategyConfig>;
-
-    const originalTokens = TokenEstimator.countMessages(messages);
-
-    if (messages.length === 0) {
-      return {
-        messages: [],
-        originalTokens: 0,
-        compactedTokens: 0,
-        removedCount: 0,
-        hasSummary: true,
-      };
-    }
-
-    if (originalTokens <= finalConfig.maxTokens) {
-      return {
-        messages: [...messages],
-        originalTokens,
-        compactedTokens: originalTokens,
-        removedCount: 0,
-        hasSummary: false,
-      };
-    }
-
-    let systemMessages: Message[] = [];
-    let otherMessages: Message[] = [];
-
-    if (finalConfig.preserveSystemMessage) {
-      const systemIndex = messages.findIndex((m) => m.role === "system");
-      if (systemIndex >= 0) {
-        systemMessages = [messages[systemIndex]];
-        otherMessages = messages.filter((_, idx) => idx !== systemIndex);
-      } else {
-        otherMessages = [...messages];
-      }
-    } else {
-      otherMessages = [...messages];
-    }
-
-    const systemTokens = TokenEstimator.countMessages(systemMessages);
-    const availableForRecent = finalConfig.maxTokens - systemTokens;
-
-    if (availableForRecent <= 0) {
-      const finalMessages = systemMessages.slice(0, 1);
-      const compactedTokens = TokenEstimator.countMessages(finalMessages);
-      return {
-        messages: finalMessages,
-        originalTokens,
-        compactedTokens,
-        removedCount: messages.length - finalMessages.length,
-        hasSummary: true,
-      };
-    }
-
-    const recentMessages = this.getRecentMessages(otherMessages, availableForRecent);
-    const recentCount = recentMessages.length;
-    const oldMessages = otherMessages.slice(0, otherMessages.length - recentCount);
-
-    let summaryMessage: Message | null = null;
-    let summaryTokens = 0;
-
-    if (oldMessages.length > 0 && finalConfig.summaryGenerator) {
-      const summaryText = await finalConfig.summaryGenerator(oldMessages);
-      summaryMessage = {
-        role: "system",
-        content: `[对话历史摘要] ${summaryText}`,
-        name: "context_summary",
-      };
-      summaryTokens = TokenEstimator.estimateMessage(summaryMessage).tokens;
-
-      if (summaryTokens > finalConfig.maxSummaryTokens) {
-        const truncatedSummary = this.truncateText(summaryText, finalConfig.maxSummaryTokens * 4);
-        summaryMessage = {
-          role: "system",
-          content: `[对话历史摘要] ${truncatedSummary}`,
-          name: "context_summary",
-        };
-        summaryTokens = TokenEstimator.estimateMessage(summaryMessage).tokens;
-      }
-    }
-
-    const finalMessages: Message[] = [];
-    if (finalConfig.preserveSystemMessage && systemMessages.length > 0) {
-      finalMessages.push(systemMessages[0]);
-    }
-    if (summaryMessage) {
-      finalMessages.push(summaryMessage);
-    }
-    finalMessages.push(...recentMessages);
-
-    const totalMessages = finalMessages.length;
-    if (totalMessages < finalConfig.minMessageCount && otherMessages.length > totalMessages) {
-      const additionalNeeded = finalConfig.minMessageCount - totalMessages;
-      const availableFromOld = oldMessages.slice(-additionalNeeded);
-      finalMessages.splice(finalConfig.preserveSystemMessage ? 2 : 1, 0, ...availableFromOld);
-    }
-
-    const compactedTokens = TokenEstimator.countMessages(finalMessages);
-    const removedCount = oldMessages.length;
-
-    return {
-      messages: finalMessages,
-      originalTokens,
-      compactedTokens,
-      removedCount,
-      hasSummary: true,
-    };
-  }
-
-  /**
-   * 获取在 Token 限制内的最近消息
-   */
-  private getRecentMessages(messages: Message[], maxTokens: number): Message[] {
-    const result = TokenEstimator.keepRecentMessages(messages, maxTokens);
-    return result.messages;
-  }
-
-  /**
-   * 截断文本
-   */
-  private truncateText(text: string, maxCharacters: number): string {
-    if (text.length <= maxCharacters) {
-      return text;
-    }
-    return text.substring(0, maxCharacters - 3) + "...";
-  }
-
-  /**
-   * 默认摘要生成（基于消息内容的简单摘要）
-   */
-  private async defaultSummary(messages: Message[]): Promise<string> {
-    if (messages.length === 0) {
-      return "无历史对话";
-    }
-
-    const userMessages = messages.filter((m) => m.role === "user");
-    const assistantMessages = messages.filter((m) => m.role === "assistant");
-
-    const userTopics = userMessages.map((m) => {
-      const content = typeof m.content === "string" ? m.content : "";
-      return content.substring(0, 50);
-    });
-
-    const summaryParts: string[] = [];
-
-    if (userTopics.length > 0) {
-      const topicCount = Math.min(3, userTopics.length);
-      const topics = userTopics.slice(0, topicCount).join("; ");
-      summaryParts.push(`讨论了 ${topicCount} 个主题: ${topics}`);
-    }
-
-    if (assistantMessages.length > 0) {
-      summaryParts.push(`进行了 ${assistantMessages.length} 轮对话`);
-    }
-
-    return summaryParts.join("，") || "有若干对话记录";
-  }
-
-  needsCompression(messages: Message[], maxTokens: number): boolean {
-    const currentTokens = TokenEstimator.countMessages(messages);
-    return currentTokens > maxTokens;
-  }
-}
-````
-
-## File: src/services/context-compression/strategies/TruncateStrategy.ts
-````typescript
-/**
- * TruncateStrategy - 截断压缩策略
- *
- * 从消息列表的开头截断，保留最新的消息
- */
-
-import { Message } from "../../../types";
-import { TokenEstimator } from "../TokenEstimator";
-import {
-  IContextCompressionStrategy,
-  CompressionResult,
-  CompressionStrategyConfig,
-} from "./IContextCompressionStrategy";
-
-/**
- * 截断策略配置
- */
-export interface TruncateStrategyConfig extends CompressionStrategyConfig {
-  /** 截断方向：'head' 从开头截断，'tail' 从结尾截断 */
-  direction?: "head" | "tail";
-}
-
-/**
- * 截断压缩策略
- *
- * 策略说明：
- * - 从头部截断消息，保留最新的消息
- * - 适用于大多数场景，简单可靠
- * - 保留对话的连续性
- */
-export class TruncateStrategy implements IContextCompressionStrategy {
-  /**
-   * 默认配置
-   */
-  private readonly defaultConfig: Required<TruncateStrategyConfig> = {
-    maxTokens: 8000,
-    preserveSystemMessage: true,
-    minMessageCount: 1,
-    direction: "head",
-  };
-
-  getName(): string {
-    return "truncate";
-  }
-
-  async compress(
-    messages: Message[],
-    config: CompressionStrategyConfig
-  ): Promise<CompressionResult> {
-    const finalConfig = { ...this.defaultConfig, ...config } as Required<TruncateStrategyConfig>;
-
-    // 原始 Token 计数
-    const originalTokens = TokenEstimator.countMessages(messages);
-
-    if (messages.length === 0) {
-      return {
-        messages: [],
-        originalTokens: 0,
-        compactedTokens: 0,
-        removedCount: 0,
-        hasSummary: false,
-      };
-    }
-
-    // 如果未超限，直接返回
-    if (originalTokens <= finalConfig.maxTokens) {
-      return {
-        messages: [...messages],
-        originalTokens,
-        compactedTokens: originalTokens,
-        removedCount: 0,
-        hasSummary: false,
-      };
-    }
-
-    // 分离系统消息
-    let systemMessages: Message[] = [];
-    let otherMessages: Message[] = [];
-
-    if (finalConfig.preserveSystemMessage) {
-      const systemIndex = messages.findIndex((m) => m.role === "system");
-      if (systemIndex >= 0) {
-        systemMessages = [messages[systemIndex]];
-        otherMessages = messages.filter((_, i) => i !== systemIndex);
-      } else {
-        otherMessages = [...messages];
-      }
-    } else {
-      otherMessages = [...messages];
-    }
-
-    // 截断其他消息
-    let truncatedMessages: Message[];
-    let removedCount = 0;
-
-    if (finalConfig.direction === "tail") {
-      // 从尾部截断（保留开头的消息）
-      const result = TokenEstimator.keepRecentMessages(otherMessages, finalConfig.maxTokens);
-      truncatedMessages = result.messages;
-      removedCount = result.removedIds.length;
-    } else {
-      // 从头部截断（保留最新的消息）- 默认行为
-      const keptResult = TokenEstimator.keepRecentMessages(otherMessages, finalConfig.maxTokens);
-      truncatedMessages = keptResult.messages;
-      removedCount = keptResult.removedIds.length;
-    }
-
-    // 确保至少保留最小消息数
-    const totalMessages = systemMessages.length + truncatedMessages.length;
-    if (totalMessages < finalConfig.minMessageCount && otherMessages.length > totalMessages) {
-      // 需要保留更多消息
-      const additionalNeeded = finalConfig.minMessageCount - totalMessages;
-      const availableMessages = otherMessages.filter((msg) => !truncatedMessages.includes(msg));
-
-      const toAdd = availableMessages.slice(-additionalNeeded);
-      truncatedMessages = [...toAdd, ...truncatedMessages];
-      removedCount = Math.max(0, removedCount - toAdd.length);
-    }
-
-    // 组合消息
-    const finalMessages = finalConfig.preserveSystemMessage
-      ? [...systemMessages, ...truncatedMessages]
-      : truncatedMessages;
-
-    // 计算压缩后的 Token 数
-    const compactedTokens = TokenEstimator.countMessages(finalMessages);
-
-    return {
-      messages: finalMessages,
-      originalTokens,
-      compactedTokens,
-      removedCount,
-      hasSummary: false,
-    };
-  }
-
-  needsCompression(messages: Message[], maxTokens: number): boolean {
-    const currentTokens = TokenEstimator.countMessages(messages);
-    return currentTokens > maxTokens;
-  }
-}
-````
-
-## File: src/services/context-compression/ContextCompressionService.ts
-````typescript
-/**
- * ContextCompressionService - 上下文压缩服务
- *
- * 提供统一的上下文压缩入口，支持多种压缩策略
- */
-
-import { Message, ChatOptions } from "../../types";
-import { TokenEstimator } from "./TokenEstimator";
-import {
-  IContextCompressionStrategy,
-  CompressionResult,
-  CompressionStrategyConfig,
-} from "./strategies";
-import { TruncateStrategy } from "./strategies/TruncateStrategy";
-import { PruneStrategy } from "./strategies/PruneStrategy";
-import { SummaryStrategy } from "./strategies/SummaryStrategy";
-import { HybridStrategy } from "./strategies/HybridStrategy";
-import { logger } from "../../utils/logger";
-
-/**
- * 压缩策略类型
- */
-export type CompressionStrategyType = "truncate" | "prune" | "summary" | "hybrid";
-
-/**
- * OpenCode压缩决策配置
- *
- * 提供OpenCode风格的智能压缩决策机制：
- * - 缓存/输出考虑
- * - 受保护的修剪（保护工具输出）
- * - 严重溢出时的AI摘要生成
- * - 策略回退机制
- */
-export interface OpenCodeCompactionConfig {
-  /** 是否启用自动压缩（默认: true） */
-  auto?: boolean;
-  /** 是否启用受保护修剪（默认: true） */
-  prune?: boolean;
-  /** 溢出检测阈值（Tokens，默认: 4000） */
-  overflowThreshold?: number;
-  /** 是否保护关键工具输出（默认: true） */
-  protectTools?: boolean;
-  /** 严重溢出时是否生成摘要（默认: true） */
-  summaryOnSevere?: boolean;
-  /** 严重溢出阈值（上下文比例，默认: 0.8） */
-  severeThreshold?: number;
-}
-
-/**
- * 上下文压缩配置
- */
-export interface ContextCompressionConfig {
-  /** 是否启用上下文压缩 */
-  enabled?: boolean;
-  /** 压缩策略 */
-  strategy?: CompressionStrategyType;
-  /** 模型上下文限制 */
-  contextLimit?: number;
-  /** 输出保留空间（Tokens） */
-  outputReserve?: number;
-  /** 是否保留系统消息 */
-  preserveSystemMessage?: boolean;
-  /** 最小保留消息数 */
-  minMessageCount?: number;
-  /** OpenCode压缩决策配置 */
-  openCodeConfig?: OpenCodeCompactionConfig;
-}
-
-/**
- * 压缩统计信息
- */
-export interface CompressionStats {
-  /** 原始消息数 */
-  originalMessageCount: number;
-  /** 压缩后消息数 */
-  compactedMessageCount: number;
-  /** 原始 Token 数 */
-  originalTokens: number;
-  /** 压缩后 Token 数 */
-  compactedTokens: number;
-  /** 节省的 Token 数 */
-  savedTokens: number;
-  /** 节省比例 */
-  savingsRatio: number;
-  /** 使用的策略 */
-  strategy: string;
-  /** 是否执行了压缩 */
-  wasCompressed: boolean;
-  /** OpenCode决策信息 */
-  openCodeDecision?: {
-    /** 是否检测到溢出 */
-    overflowDetected: boolean;
-    /** 使用的压缩类型 */
-    compactionType: "none" | "prune" | "summary" | "strategy" | "hybrid";
-    /** 溢出严重程度 */
-    severity: "none" | "warning" | "severe";
-    /** 被保护的消息数 */
-    protectedCount: number;
-    /** 工具输出保护信息 */
-    toolProtection?: {
-      protectedTools: number;
-      protectedOutputs: number;
-    };
-  };
-}
-
-/**
- * 上下文压缩服务
- *
- * 功能：
- * - 提供统一的压缩入口
- * - 管理压缩策略
- * - 记录压缩统计
- */
-export class ContextCompressionService {
-  /**
-   * 策略实例缓存
-   */
-  private strategyCache: Map<string, IContextCompressionStrategy> = new Map();
-
-  /**
-   * OpenCode压缩决策默认配置
-   */
-  private readonly openCodeDefaultConfig: Required<OpenCodeCompactionConfig> = {
-    auto: true,
-    prune: true,
-    overflowThreshold: 4000,
-    protectTools: true,
-    summaryOnSevere: true,
-    severeThreshold: 0.8,
-  };
-
-  /**
-   * 默认配置
-   */
-  private readonly defaultConfig: Required<ContextCompressionConfig> = {
-    enabled: true,
-    strategy: "truncate",
-    contextLimit: 8000,
-    outputReserve: 4000,
-    preserveSystemMessage: true,
-    minMessageCount: 1,
-    openCodeConfig: this.openCodeDefaultConfig,
-  };
-
-  /**
-   * 绝对最小 Token 限制
-   * 即使压缩失败也不能超过此限制
-   */
-  private readonly ABSOLUTE_MIN_TOKENS = 1000;
-
-  constructor() {
-    logger.debug("[ContextCompressionService] Initialized");
-  }
-
-  /**
-   * 压缩消息用于 LLM 调用（OpenCode决策机制版本）
-   *
-   * 新的压缩决策流程：
-   * 1. OpenCode风格的溢出检测（考虑缓存/输出）
-   * 2. 受保护的修剪（保护工具输出）
-   * 3. 严重溢出时的AI摘要生成
-   * 4. 策略回退（使用原有的4种策略）
-   *
-   * @param messages 原始消息列表
-   * @param modelContextLimit 模型上下文限制
-   * @param options ChatOptions（包含压缩配置）
-   * @returns 压缩结果和统计信息
-   */
-  async compress(
-    messages: Message[],
-    modelContextLimit: number,
-    options?: ChatOptions
-  ): Promise<{ messages: Message[]; stats: CompressionStats }> {
-    // 1. 解析配置
-    const config = this.parseConfig(options, modelContextLimit);
-    const openCodeConfig = config.openCodeConfig;
-
-    // 2. 快速检查：是否需要压缩
-    const currentTokens = TokenEstimator.countMessages(messages);
-    const usableLimit = config.contextLimit - config.outputReserve;
-
-    if (!config.enabled || currentTokens <= usableLimit) {
-      return {
-        messages: [...messages],
-        stats: this.buildStats(messages, currentTokens, currentTokens, config.strategy, false, {
-          overflowDetected: false,
-          compactionType: "none",
-          severity: "none",
-          protectedCount: 0,
-        }),
-      };
-    }
-
-    // 3. OpenCode风格的溢出检测
-    const overflowResult = this.isOverflowOpenCode(messages, modelContextLimit, openCodeConfig);
-
-    // 初始化决策信息
-    const openCodeDecision = {
-      overflowDetected: overflowResult.isOverflow,
-      compactionType: "none" as "none" | "prune" | "summary" | "strategy" | "hybrid",
-      severity: overflowResult.severity,
-      protectedCount: 0,
-      toolProtection: {
-        protectedTools: 0,
-        protectedOutputs: 0,
-      },
-    };
-
-    let resultMessages: Message[] = [...messages];
-    let compactionType: "none" | "prune" | "summary" | "strategy" | "hybrid" = "none";
-
-    try {
-      // 4. 受保护的修剪（如果启用）
-      if (openCodeConfig.auto && openCodeConfig.prune && overflowResult.isOverflow) {
-        const pruneResult = await this.protectedPrune(messages, usableLimit, openCodeConfig);
-
-        if (TokenEstimator.countMessages(pruneResult.messages) <= usableLimit) {
-          resultMessages = pruneResult.messages;
-          openCodeDecision.protectedCount = pruneResult.protectedCount;
-          openCodeDecision.toolProtection = pruneResult.toolProtection;
-          compactionType = "prune";
-
-          logger.debug(
-            `[ContextCompressionService] Protected prune: removed ${pruneResult.removedCount} messages, protected ${pruneResult.protectedCount} messages`
-          );
-        }
-      }
-
-      // 5. 严重溢出时的AI摘要生成
-      if (
-        compactionType === "none" &&
-        openCodeConfig.auto &&
-        openCodeConfig.summaryOnSevere &&
-        overflowResult.severity === "severe"
-      ) {
-        const summaryResult = await this.openCodeSummary(messages, usableLimit, openCodeConfig);
-
-        if (TokenEstimator.countMessages(summaryResult.messages) <= usableLimit) {
-          resultMessages = summaryResult.messages;
-          compactionType = "summary";
-
-          logger.debug(
-            `[ContextCompressionService] OpenCode summary: replaced ${summaryResult.replacedCount} messages with summary (${summaryResult.summaryTokenCount} tokens)`
-          );
-        }
-      }
-
-      // 6. 策略回退（如果OpenCode机制未能解决问题）
-      if (compactionType === "none") {
-        const strategy = this.getStrategy(config.strategy);
-        const compressionConfig: CompressionStrategyConfig = {
-          maxTokens: usableLimit,
-          preserveSystemMessage: config.preserveSystemMessage,
-          minMessageCount: config.minMessageCount,
-        };
-
-        const strategyResult = await strategy.compress(resultMessages, compressionConfig);
-        resultMessages = strategyResult.messages;
-        compactionType = "strategy";
-
-        logger.debug(
-          `[ContextCompressionService] Strategy fallback (${config.strategy}): removed ${strategyResult.removedCount} messages`
-        );
-      }
-
-      openCodeDecision.compactionType = compactionType;
-    } catch (error) {
-      logger.error(`[ContextCompressionService] Error in OpenCode compression: ${error}`);
-
-      // 回退到标准策略
-      const strategy = this.getStrategy(config.strategy);
-      const compressionConfig: CompressionStrategyConfig = {
-        maxTokens: usableLimit,
-        preserveSystemMessage: config.preserveSystemMessage,
-        minMessageCount: config.minMessageCount,
-      };
-
-      const strategyResult = await strategy.compress(messages, compressionConfig);
-      resultMessages = strategyResult.messages;
-      compactionType = "strategy";
-      openCodeDecision.compactionType = "strategy";
-    }
-
-    // 7. 边界兜底：确保不超过绝对最小限制
-    const finalMessages = this.applyAbsoluteLimit(resultMessages, this.ABSOLUTE_MIN_TOKENS);
-
-    // 8. 记录日志
-    logger.debug(
-      `[ContextCompressionService] OpenCode compression completed: ${currentTokens} -> ${TokenEstimator.countMessages(finalMessages)} tokens, ` +
-        `compaction type: ${openCodeDecision.compactionType}, severity: ${openCodeDecision.severity}`
-    );
-
-    // 9. 构建统计信息
-    const finalTokens = TokenEstimator.countMessages(finalMessages);
-    const stats = this.buildStats(
-      messages,
-      currentTokens,
-      finalTokens,
-      config.strategy,
-      true,
-      openCodeDecision
-    );
-
-    return {
-      messages: finalMessages,
-      stats,
-    };
-  }
-
-  /**
-   * 检查消息是否需要压缩
-   */
-  needsCompression(messages: Message[], modelContextLimit: number, options?: ChatOptions): boolean {
-    const config = this.parseConfig(options, modelContextLimit);
-
-    if (!config.enabled) {
-      return false;
-    }
-
-    const strategy = this.getStrategy(config.strategy);
-    const usableLimit = config.contextLimit - config.outputReserve;
-
-    return strategy.needsCompression(messages, usableLimit);
-  }
-
-  /**
-   * 获取可用的压缩策略列表
-   */
-  getAvailableStrategies(): CompressionStrategyType[] {
-    return ["truncate", "prune", "summary", "hybrid"];
-  }
-
-  /**
-   * OpenCode风格的溢出检测
-   *
-   * 考虑缓存和输出空间进行溢出检测
-   *
-   * @param messages 消息列表
-   * @param modelContextLimit 模型上下文限制
-   * @param openCodeConfig OpenCode配置
-   * @returns 溢出检测结果
-   */
-  isOverflowOpenCode(
-    messages: Message[],
-    modelContextLimit: number,
-    openCodeConfig?: OpenCodeCompactionConfig
-  ): {
-    isOverflow: boolean;
-    currentTokens: number;
-    usableLimit: number;
-    overflowAmount: number;
-    severity: "none" | "warning" | "severe";
-    cacheConsideration: number;
-  } {
-    const config = openCodeConfig ?? this.openCodeDefaultConfig;
-    const currentTokens = TokenEstimator.countMessages(messages);
-    const usableLimit = modelContextLimit - config.overflowThreshold;
-    const overflowAmount = Math.max(0, currentTokens - usableLimit);
-
-    // 计算严重程度
-    let severity: "none" | "warning" | "severe" = "none";
-    if (overflowAmount > 0) {
-      const overflowRatio = overflowAmount / usableLimit;
-      if (overflowRatio > config.severeThreshold) {
-        severity = "severe";
-      } else {
-        severity = "warning";
-      }
-    }
-
-    // 缓存考虑（预留空间用于缓存输出）
-    const cacheConsideration = config.overflowThreshold;
-
-    return {
-      isOverflow: currentTokens > usableLimit,
-      currentTokens,
-      usableLimit,
-      overflowAmount,
-      severity,
-      cacheConsideration,
-    };
-  }
-
-  /**
-   * 受保护的修剪
-   *
-   * 智能移除消息，同时保护工具输出等关键内容
-   *
-   * @param messages 消息列表
-   * @param maxTokens 最大Token数
-   * @param openCodeConfig OpenCode配置
-   * @returns 修剪结果
-   */
-  async protectedPrune(
-    messages: Message[],
-    maxTokens: number,
-    openCodeConfig?: OpenCodeCompactionConfig
-  ): Promise<{
-    messages: Message[];
-    removedCount: number;
-    protectedCount: number;
-    toolProtection: {
-      protectedTools: number;
-      protectedOutputs: number;
-    };
-  }> {
-    const config = openCodeConfig ?? this.openCodeDefaultConfig;
-
-    if (!config.prune || !config.protectTools) {
-      // 如果禁用保护修剪，使用标准的truncate策略
-      const result = TokenEstimator.keepRecentMessages(messages, maxTokens);
-      return {
-        messages: result.messages,
-        removedCount: messages.length - result.messages.length,
-        protectedCount: 0,
-        toolProtection: {
-          protectedTools: 0,
-          protectedOutputs: 0,
-        },
-      };
-    }
-
-    const currentTokens = TokenEstimator.countMessages(messages);
-
-    if (currentTokens <= maxTokens) {
-      return {
-        messages: [...messages],
-        removedCount: 0,
-        protectedCount: 0,
-        toolProtection: {
-          protectedTools: 0,
-          protectedOutputs: 0,
-        },
-      };
-    }
-
-    // 识别并保护工具输出消息
-    const protectedMessages: Message[] = [];
-    const removableMessages: Message[] = [];
-    let protectedTools = 0;
-    let protectedOutputs = 0;
-
-    for (const msg of messages) {
-      const isToolOutput = this.isToolOutputMessage(msg);
-      const isToolCall = this.isToolCallMessage(msg);
-
-      if (isToolOutput || isToolCall) {
-        protectedMessages.push(msg);
-        if (isToolCall) {
-          protectedTools++;
-        } else {
-          protectedOutputs++;
-        }
-      } else {
-        removableMessages.push(msg);
-      }
-    }
-
-    // 从后向前遍历可移除消息，保护最新内容
-    const keptMessages: Message[] = [...protectedMessages];
-    let removedCount = 0;
-
-    for (let i = removableMessages.length - 1; i >= 0; i--) {
-      const msg = removableMessages[i];
-      const msgTokens = TokenEstimator.estimateMessage(msg).tokens;
-      const currentKeptTokens = TokenEstimator.countMessages(keptMessages);
-
-      if (currentKeptTokens + msgTokens <= maxTokens) {
-        keptMessages.unshift(msg);
-      } else {
-        removedCount++;
-      }
-    }
-
-    // 如果仍然超出限制，截断可移除消息
-    const finalMessages = TokenEstimator.keepRecentMessages(keptMessages, maxTokens);
-    const finalRemovedCount = removedCount + (keptMessages.length - finalMessages.messages.length);
-
-    return {
-      messages: finalMessages.messages,
-      removedCount: finalRemovedCount,
-      protectedCount: protectedMessages.length,
-      toolProtection: {
-        protectedTools,
-        protectedOutputs,
-      },
-    };
-  }
-
-  /**
-   * 生成OpenCode风格的摘要
-   *
-   * 当发生严重溢出时，使用AI生成摘要替代旧消息
-   *
-   * @param messages 消息列表
-   * @param maxTokens 最大Token数
-   * @param openCodeConfig OpenCode配置
-   * @returns 摘要结果
-   */
-  async openCodeSummary(
-    messages: Message[],
-    maxTokens: number,
-    openCodeConfig?: OpenCodeCompactionConfig
-  ): Promise<{
-    messages: Message[];
-    summaryTokenCount: number;
-    originalCount: number;
-    replacedCount: number;
-  }> {
-    const config = openCodeConfig ?? this.openCodeDefaultConfig;
-
-    if (!config.summaryOnSevere) {
-      // 如果禁用摘要，使用标准策略
-      const result = TokenEstimator.keepRecentMessages(messages, maxTokens);
-      return {
-        messages: result.messages,
-        summaryTokenCount: 0,
-        originalCount: messages.length,
-        replacedCount: 0,
-      };
-    }
-
-    // 保留系统消息和最近的N条消息
-    const systemMessage = messages.find((msg) => msg.role === "system");
-    const recentMessages: Message[] = [];
-    const oldMessages: Message[] = [];
-
-    // 找到系统消息的位置
-    let systemIndex = -1;
-    for (let i = 0; i < messages.length; i++) {
-      if (messages[i].role === "system" && systemIndex === -1) {
-        systemIndex = i;
-      }
-    }
-
-    // 分离新消息和旧消息
-    const keepRecentCount = 5; // 保留最近5条消息
-    let recentCount = 0;
-
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (recentCount < keepRecentCount) {
-        recentMessages.unshift(messages[i]);
-        recentCount++;
-      } else {
-        // 如果是系统消息之前的消息，加入旧消息列表
-        if (systemIndex === -1 || i < systemIndex) {
-          oldMessages.unshift(messages[i]);
-        } else if (systemIndex !== -1 && i === systemIndex) {
-          // 系统消息单独处理
-        }
-      }
-    }
-
-    // 生成摘要
-    const summaryText = this.generateSummaryText(oldMessages);
-    const summaryTokens = TokenEstimator.estimateText(summaryText).tokens;
-
-    // 确保摘要不会超出限制
-    const availableTokens =
-      maxTokens -
-      TokenEstimator.countMessages(recentMessages) -
-      (systemMessage ? TokenEstimator.estimateMessage(systemMessage).tokens : 0);
-
-    if (summaryTokens > availableTokens) {
-      // 摘要太长，截断它
-      const truncatedSummary = this.truncateText(
-        summaryText,
-        availableTokens * this.openCodeDefaultConfig.severeThreshold
-      );
-      return {
-        messages: systemMessage ? [systemMessage, ...recentMessages] : recentMessages,
-        summaryTokenCount: TokenEstimator.estimateText(truncatedSummary).tokens,
-        originalCount: messages.length,
-        replacedCount: oldMessages.length,
-      };
-    }
-
-    // 创建摘要消息
-    const summaryMessage: Message = {
-      role: "assistant",
-      content: `[对话历史摘要] ${summaryText}`,
-    };
-
-    return {
-      messages: systemMessage
-        ? [systemMessage, summaryMessage, ...recentMessages]
-        : [summaryMessage, ...recentMessages],
-      summaryTokenCount: summaryTokens,
-      originalCount: messages.length,
-      replacedCount: oldMessages.length,
-    };
-  }
-
-  /**
-   * 检测消息是否为工具调用消息
-   */
-  private isToolCallMessage(message: Message): boolean {
-    if (typeof message.content === "string") {
-      const content = message.content;
-      // 检查常见的工具调用标记
-      const toolCallPatterns = [
-        /<tool_action\s+type=["']?skill["']?/i,
-        /<tool_action\s+type=["']?mcp["']?/i,
-        /function\s+call/i,
-        /工具调用/i,
-      ];
-
-      return toolCallPatterns.some((pattern) => pattern.test(content));
-    }
-    return false;
-  }
-
-  /**
-   * 检测消息是否为工具输出消息
-   */
-  private isToolOutputMessage(message: Message): boolean {
-    if (typeof message.content === "string") {
-      const content = message.content;
-      // 检查常见的工具输出标记
-      const toolOutputPatterns = [
-        /<tool_action\s+result/i,
-        /工具输出/i,
-        /执行结果/i,
-        /\[工具调用结束\]/i,
-        /<observation>/i,
-      ];
-
-      return toolOutputPatterns.some((pattern) => pattern.test(content));
-    }
-    return false;
-  }
-
-  /**
-   * 生成对话摘要文本
-   */
-  private generateSummaryText(messages: Message[]): string {
-    if (messages.length === 0) {
-      return "无早期对话记录";
-    }
-
-    // 统计对话信息
-    const userMessages = messages.filter((m) => m.role === "user");
-    const assistantMessages = messages.filter((m) => m.role === "assistant");
-    const toolCalls = messages.filter((m) => this.isToolCallMessage(m));
-
-    // 提取用户请求的主要话题
-    const topics: string[] = [];
-    for (const msg of userMessages.slice(0, 3)) {
-      // 提取消息中的关键内容（取前50个字符）
-      const content = typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content);
-      const truncated = content.substring(0, 50);
-      if (truncated) {
-        topics.push(truncated);
-      }
-    }
-
-    return `对话共 ${messages.length} 条消息，其中用户消息 ${userMessages.length} 条，助手消息 ${assistantMessages.length} 条，工具调用 ${toolCalls.length} 次。主要讨论话题：${topics.join("; ")}...`;
-  }
-
-  /**
-   * 截断文本以适应Token限制
-   */
-  private truncateText(text: string, maxTokens: number): string {
-    const maxChars = maxTokens * 4; // 估算：4字符/token
-    if (text.length <= maxChars) {
-      return text;
-    }
-    return text.substring(0, maxChars - 3) + "...";
-  }
-
-  /**
-   * 解析OpenCode配置
-   *
-   * @param config 原始配置
-   * @returns 标准化后的配置
-   */
-  parseOpenCodeConfig(config?: OpenCodeCompactionConfig): Required<OpenCodeCompactionConfig> {
-    return {
-      auto: config?.auto ?? this.openCodeDefaultConfig.auto,
-      prune: config?.prune ?? this.openCodeDefaultConfig.prune,
-      overflowThreshold: config?.overflowThreshold ?? this.openCodeDefaultConfig.overflowThreshold,
-      protectTools: config?.protectTools ?? this.openCodeDefaultConfig.protectTools,
-      summaryOnSevere: config?.summaryOnSevere ?? this.openCodeDefaultConfig.summaryOnSevere,
-      severeThreshold: config?.severeThreshold ?? this.openCodeDefaultConfig.severeThreshold,
-    };
-  }
-
-  /**
-   * 解析配置
-   */
-  private parseConfig(
-    options: ChatOptions | undefined,
-    modelContextLimit: number
-  ): Required<ContextCompressionConfig> {
-    // 从 ChatOptions 中提取压缩配置
-    const compressionConfig = options?.contextCompression;
-
-    return {
-      enabled: compressionConfig?.enabled ?? this.defaultConfig.enabled,
-      strategy:
-        (compressionConfig?.strategy as CompressionStrategyType) ?? this.defaultConfig.strategy,
-      contextLimit: modelContextLimit,
-      outputReserve: compressionConfig?.outputReserve ?? this.defaultConfig.outputReserve,
-      preserveSystemMessage:
-        compressionConfig?.preserveSystemMessage ?? this.defaultConfig.preserveSystemMessage,
-      minMessageCount: compressionConfig?.minMessageCount ?? this.defaultConfig.minMessageCount,
-      openCodeConfig: this.parseOpenCodeConfig(compressionConfig?.openCodeConfig),
-    };
-  }
-
-  /**
-   * 获取策略实例（带缓存）
-   */
-  private getStrategy(type: CompressionStrategyType): IContextCompressionStrategy {
-    let strategy = this.strategyCache.get(type);
-
-    if (!strategy) {
-      switch (type) {
-        case "truncate":
-          strategy = new TruncateStrategy();
-          break;
-        case "prune":
-          strategy = new PruneStrategy();
-          break;
-        case "summary":
-          strategy = new SummaryStrategy();
-          break;
-        case "hybrid":
-          strategy = new HybridStrategy();
-          break;
-        default:
-          logger.warn(`[ContextCompressionService] Unknown strategy '${type}', using 'truncate'`);
-          strategy = new TruncateStrategy();
-      }
-      this.strategyCache.set(type, strategy);
-    }
-
-    return strategy;
-  }
-
-  /**
-   * 应用绝对限制兜底
-   */
-  private applyAbsoluteLimit(messages: Message[], maxTokens: number): Message[] {
-    if (maxTokens <= 0) {
-      return [];
-    }
-
-    const result = TokenEstimator.keepRecentMessages(messages, maxTokens);
-    return result.messages;
-  }
-
-  /**
-   * 构建压缩统计信息
-   */
-  private buildStats(
-    messages: Message[],
-    originalTokens: number,
-    compactedTokens: number,
-    strategy: string,
-    wasCompressed: boolean,
-    openCodeDecision?: {
-      overflowDetected: boolean;
-      compactionType: "none" | "prune" | "summary" | "strategy" | "hybrid";
-      severity: "none" | "warning" | "severe";
-      protectedCount: number;
-      toolProtection?: {
-        protectedTools: number;
-        protectedOutputs: number;
-      };
-    }
-  ): CompressionStats {
-    const savedTokens = originalTokens - compactedTokens;
-    const savingsRatio = originalTokens > 0 ? savedTokens / originalTokens : 0;
-
-    return {
-      originalMessageCount: messages.length,
-      compactedMessageCount: messages.length,
-      originalTokens,
-      compactedTokens,
-      savedTokens,
-      savingsRatio,
-      strategy,
-      wasCompressed,
-      openCodeDecision,
-    };
-  }
-}
-
-/**
- * 压缩服务单例
- */
-let serviceInstance: ContextCompressionService | null = null;
-
-export function getContextCompressionService(): ContextCompressionService {
-  if (!serviceInstance) {
-    serviceInstance = new ContextCompressionService();
-  }
-  return serviceInstance;
-}
-````
-
-## File: src/services/context-compression/index.ts
-````typescript
-/**
- * 上下文压缩模块导出
- */
-
-export * from "./TokenEstimator";
-export * from "./ContextCompressionService";
-export * from "./strategies";
-````
-
-## File: src/services/context-compression/TokenEstimator.ts
-````typescript
-/**
- * TokenEstimator - Token 估算工具
- *
- * 提供消息和文本的 Token 数量估算功能
- *
- * 估算规则：
- * - 平均 4 个字符 ≈ 1 Token（适用于英文）
- * - 中文约 1-2 字符/Token
- * - 消息角色标记额外 +4 Tokens
- */
-
-import { Message, ContentPart } from "../../types";
-
-/**
- * Token 估算结果
- */
-export interface TokenEstimationResult {
-  /** 估算的 Token 数量 */
-  tokens: number;
-  /** 字符数量 */
-  characters: number;
-  /** 消息角色（如果是消息估算） */
-  role?: string;
-}
-
-/**
- * 消息保留结果
- */
-export interface KeepRecentResult {
-  /** 保留的消息列表 */
-  messages: Message[];
-  /** 原始 Token 数 */
-  originalTokens: number;
-  /** 压缩后 Token 数 */
-  compactedTokens: number;
-  /** 被移除的消息 ID 列表 */
-  removedIds: string[];
-}
-
-/**
- * Token 估算器
- */
-export class TokenEstimator {
-  /**
-   * 默认字符/Toke 比率
-   * 参考: OpenAI 估算方式，平均 4 字符/token
-   */
-  private static readonly CHARS_PER_TOKEN = 4;
-
-  /**
-   * 角色标记的开销（Tokens）
-   * 格式: "<|im_start|>{role}<|im_end|>\n"
-   */
-  private static readonly ROLE_TOKEN_OVERHEAD = 4;
-
-  /**
-   * 估算文本的 Token 数量
-   *
-   * @param text 输入文本
-   * @returns 估算结果
-   */
-  static estimateText(text: string): TokenEstimationResult {
-    if (!text || typeof text !== "string") {
-      return { tokens: 0, characters: 0 };
-    }
-
-    const characters = text.length;
-    const tokens = this.calculateTokens(characters);
-
-    return { tokens, characters };
-  }
-
-  /**
-   * 估算 ContentPart 的 Token 数量
-   *
-   * @param part ContentPart
-   * @returns 估算结果
-   */
-  static estimateContentPart(part: ContentPart): TokenEstimationResult {
-    if (part.type === "text" && part.text) {
-      return this.estimateText(part.text);
-    }
-
-    if (part.type === "image_url") {
-      // 图片 URL 估算
-      const url = typeof part.image_url === "string" ? part.image_url : part.image_url?.url || "";
-      const characters = url.length;
-      const tokens = Math.ceil(characters / this.CHARS_PER_TOKEN) + 10; // +10 考虑 JSON 开销
-
-      return { tokens, characters };
-    }
-
-    return { tokens: 0, characters: 0 };
-  }
-
-  /**
-   * 估算单条消息的 Token 数量
-   *
-   * @param message Message 对象
-   * @returns 估算结果
-   */
-  static estimateMessage(message: Message): TokenEstimationResult {
-    if (!message) {
-      return { tokens: 0, characters: 0, role: undefined };
-    }
-
-    let totalTokens = this.ROLE_TOKEN_OVERHEAD; // 角色标记开销
-    let totalCharacters = 0;
-
-    if (typeof message.content === "string") {
-      // 纯文本消息
-      const result = this.estimateText(message.content);
-      totalTokens += result.tokens;
-      totalCharacters += result.characters;
-    } else if (Array.isArray(message.content)) {
-      // 多模态消息（包含文本和图片）
-      for (const part of message.content) {
-        const result = this.estimateContentPart(part);
-        totalTokens += result.tokens;
-        totalCharacters += result.characters;
-      }
-    }
-
-    return {
-      tokens: totalTokens,
-      characters: totalCharacters,
-      role: message.role,
-    };
-  }
-
-  /**
-   * 估算多条消息的 Token 数量
-   *
-   * @param messages Message 数组
-   * @returns 总 Token 数
-   */
-  static countMessages(messages: Message[]): number {
-    if (!messages || messages.length === 0) {
-      return 0;
-    }
-
-    return messages.reduce((sum, msg) => {
-      const result = this.estimateMessage(msg);
-      return sum + result.tokens;
-    }, 0);
-  }
-
-  /**
-   * 保留最近的 N 条消息（在 Token 限制内）
-   *
-   * 从后向前遍历，保留最新的消息，直到 Token 达到限制
-   *
-   * @param messages 消息列表
-   * @param maxTokens 最大 Token 数
-   * @returns 保留结果
-   */
-  static keepRecentMessages(messages: Message[], maxTokens: number): KeepRecentResult {
-    if (!messages || messages.length === 0) {
-      return {
-        messages: [],
-        originalTokens: 0,
-        compactedTokens: 0,
-        removedIds: [],
-      };
-    }
-
-    const originalTokens = this.countMessages(messages);
-    const kept: Message[] = [];
-    const removedIds: string[] = [];
-
-    // 从后向前遍历，保留最新的消息
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i];
-      const msgTokens = this.estimateMessage(msg).tokens;
-      const currentTokens = this.countMessages(kept);
-
-      if (currentTokens + msgTokens <= maxTokens) {
-        // 可以保留，将消息插入到开头
-        kept.unshift(msg);
-      } else {
-        // 不能保留，记录被移除的消息 ID
-        const msgId = (msg as any).id || `msg_${i}`;
-        removedIds.push(msgId);
-      }
-    }
-
-    return {
-      messages: kept,
-      originalTokens,
-      compactedTokens: this.countMessages(kept),
-      removedIds,
-    };
-  }
-
-  /**
-   * 估算对话历史的 Token 使用情况
-   *
-   * @param messages 消息列表
-   * @param systemPrompt 系统提示词
-   * @returns 总 Token 数
-   */
-  static countConversation(messages: Message[], systemPrompt?: string): number {
-    let total = this.countMessages(messages);
-
-    if (systemPrompt) {
-      total += this.estimateText(systemPrompt).tokens;
-    }
-
-    return total;
-  }
-
-  /**
-   * 计算字符对应的 Token 数量
-   *
-   * @param characters 字符数
-   * @returns Token 数
-   */
-  private static calculateTokens(characters: number): number {
-    if (characters <= 0) {
-      return 0;
-    }
-    // 使用 ceil 确保不会低估 Token 数量
-    return Math.ceil(characters / this.CHARS_PER_TOKEN);
-  }
-
-  /**
-   * 估算压缩后可以节省的 Token 数量
-   *
-   * @param originalMessages 原始消息
-   * @param maxTokens 最大 Token 数
-   * @returns 可节省的 Token 数量估算
-   */
-  static estimateSavings(originalMessages: Message[], maxTokens: number): number {
-    const original = this.countMessages(originalMessages);
-
-    if (original <= maxTokens) {
-      return 0;
-    }
-
-    return original - maxTokens;
-  }
-
-  /**
-   * 计算消息是否可以容纳在限制内
-   *
-   * @param message 单条消息
-   * @param maxTokens 最大 Token 数
-   * @returns 是否可以容纳
-   */
-  static canFitMessage(message: Message, maxTokens: number): boolean {
-    const tokens = this.estimateMessage(message).tokens;
-    return tokens <= maxTokens;
-  }
-
-  /**
-   * 估算需要保留多少条消息才能在限制内
-   *
-   * @param messages 消息列表
-   * @param maxTokens 最大 Token 数
-   * @returns 需要保留的消息数量
-   */
-  static countNeededMessages(messages: Message[], maxTokens: number): number {
-    const result = this.keepRecentMessages(messages, maxTokens);
-    return result.messages.length;
-  }
-}
-````
-
-## File: src/services/tool-retrieval/AGENTS.md
-````markdown
-# AGENTS.md - src/services/tool-retrieval
-
-Vector search & tool embedding using LanceDB.
-
-## WHERE TO LOOK
-
-| Component      | File                      | Role                                                                   |
-| -------------- | ------------------------- | ---------------------------------------------------------------------- |
-| Search logic   | `SearchEngine.ts`         | Vector similarity search, threshold filtering, result formatting       |
-| Embedding gen  | `EmbeddingGenerator.ts`   | LLM embedding via `LLMManager.embed()`, lazy import pattern            |
-| Skill indexing | `SkillIndexer.ts`         | Scan SKILL.md files, `.vectorized` file tracking, MD5 change detection |
-| MCP tools      | `MCPToolSupport.ts`       | MCP tool indexing, tag extraction (`mcp:{source}`)                     |
-| DB connection  | `LanceDBConnection.ts`    | LanceDB connect, IVF_PQ index, schema migration                        |
-| Main service   | `ToolRetrievalService.ts` | Orchestrates search + indexing, singleton pattern                      |
-
-## KEY PATTERNS
-
-**Vector Search Flow**
-
-```
-query → EmbeddingGenerator.generateForText() → SearchEngine.search() → LanceDB query(nearestTo)
-```
-
-**Skill Indexing**
-
-```
-SKILL.md (YAML frontmatter) → md5 hash → .vectorized file → LanceDB upsert
-```
-
-**Lazy Import (circular dependency avoidance)**
-
-```typescript
-let llmManagerInstance: unknown = null;
-// Then in method: const { LLMManager } = await import('../../core/LLMManager');
-```
-
-**Table Schema (Arrow)**
-
-```
-id, name, description, tags[], path, version, source, toolType, metadata, vector[], indexedAt
-```
-
-## CONVENTIONS
-
-Same as root: single quotes, 2-space indent, semicolons, 100-char width, `_` prefix for private.
-
-## ANTI-PATTERNS (THIS SUBDIR)
-
-- **Requires EMBEDDING_PROVIDER + EMBEDDING_MODEL** env vars or SQLite LLMConfig lookup
-- **Singleton instantiation**: `ToolRetrievalService.getInstance()` creates on first call - no lazy initialization hook
-- **Vector dimensions mismatch**: LanceDB recreates table if embedding dimensions change
-- **Silent vectorization failures**: `MCPToolSupport` errors are logged but don't block tool registration
-````
-
-## File: src/services/tool-retrieval/EmbeddingGenerator.ts
-````typescript
-/**
- * EmbeddingGenerator - Embedding Generation
- *
- * Handles embedding generation for skills and tools using LLMManager.
- */
-
-import { logger } from "../../utils/logger";
-import {
-  EmbeddingConfig,
-  EmbeddingVector,
-  SkillData,
-  MCPTool,
-  ToolError,
-  ToolErrorCode,
-  EmbeddingInput,
-} from "./types";
-import { BatchEmbeddingService, BatchEmbeddingResult } from "./BatchEmbeddingService";
-
-// LLMManager lazy import to avoid circular dependency
-let llmManagerInstance: unknown = null;
-
-// Batch embedding service singleton
-let batchEmbeddingService: BatchEmbeddingService | null = null;
-
-/**
- * EmbeddingGenerator interface
- */
-export interface IEmbeddingGenerator {
-  generateForSkill(skill: SkillData): Promise<EmbeddingVector>;
-  generateForTool(tool: MCPTool): Promise<EmbeddingVector>;
-  generateForText(text: string): Promise<EmbeddingVector>;
-  generateBatch(texts: string[]): Promise<EmbeddingVector[]>;
-  getConfig(): EmbeddingConfig;
-  getActualDimensions(): Promise<number>;
-}
-
-/**
- * EmbeddingGenerator implementation
- */
-export class EmbeddingGenerator implements IEmbeddingGenerator {
-  private config: EmbeddingConfig;
-  private dimensionsCache: number | null = null;
-  private llmConfigService: unknown = null;
-  private batchService: BatchEmbeddingService;
-
-  constructor(config: EmbeddingConfig) {
-    this.config = config;
-    this.batchService = new BatchEmbeddingService({
-      batchSize: 100,
-      maxConcurrency: 5,
-      retryAttempts: 3,
-    });
-    logger.info("[EmbeddingGenerator] Created with config:", {
-      provider: config.provider,
-      model: config.model,
-      dimensions: config.dimensions,
-    });
-  }
-
-  /**
-   * Get actual dimensions from LLMConfigService
-   */
-  async getActualDimensions(): Promise<number> {
-    if (this.dimensionsCache !== null) {
-      return this.dimensionsCache;
-    }
-
-    try {
-      // Lazy import to avoid circular dependency
-      if (!this.llmConfigService) {
-        const { LLMConfigService } = await import("../../services/LLMConfigService");
-        this.llmConfigService = LLMConfigService.getInstance();
-      }
-
-      // Get default embedding model
-      const embeddingModel = (
-        this.llmConfigService as { getDefaultModel(type: string): unknown }
-      ).getDefaultModel("embedding");
-
-      if (embeddingModel && typeof embeddingModel === "object") {
-        const modelConfig = (embeddingModel as { modelConfig?: { dimensions?: number } })
-          .modelConfig;
-        const dimensions = modelConfig?.dimensions || this.config.dimensions;
-
-        logger.info(`[EmbeddingGenerator] Using actual dimensions: ${dimensions}`);
-        this.dimensionsCache = dimensions;
-        return dimensions;
-      }
-    } catch (error) {
-      logger.warn("[EmbeddingGenerator] Failed to get actual dimensions:", error);
-    }
-
-    return this.config.dimensions;
-  }
-
-  /**
-   * Generate embedding for a skill
-   */
-  async generateForSkill(skill: SkillData): Promise<EmbeddingVector> {
-    const input: EmbeddingInput = {
-      name: skill.name,
-      description: skill.description,
-      tags: skill.tags || [],
-    };
-
-    return this.generate(input);
-  }
-
-  /**
-   * Generate embedding for an MCP tool
-   */
-  async generateForTool(tool: MCPTool): Promise<EmbeddingVector> {
-    const input: EmbeddingInput = {
-      name: tool.name,
-      description: tool.description,
-      tags: (tool.metadata?.tags as string[]) || [],
-    };
-
-    return this.generate(input);
-  }
-
-  /**
-   * Generate embedding for text
-   */
-  async generateForText(text: string): Promise<EmbeddingVector> {
-    return this.generate({
-      name: text,
-      description: text,
-      tags: [],
-    });
-  }
-
-  /**
-   * Generate batch embeddings (optimized with parallel processing)
-   */
-  async generateBatch(texts: string[]): Promise<EmbeddingVector[]> {
-    if (texts.length === 0) {
-      return [];
-    }
-
-    // For small batches, use direct LLMManager call for efficiency
-    if (texts.length <= 10) {
-      return this.generateBatchDirect(texts);
-    }
-
-    // For larger batches, use batch service with parallel processing
-    const startTime = Date.now();
-
-    try {
-      // Prepare embedding inputs
-      const inputs = texts.map((text) =>
-        this.prepareEmbeddingText({
-          name: text,
-          description: text,
-          tags: [],
-        })
-      );
-
-      // Use batch embedding service
-      const result = await this.batchService.generateBatch(inputs, async (batchTexts: string[]) => {
-        return this.callLLMEmbed(batchTexts);
-      });
-
-      logger.debug(
-        `[EmbeddingGenerator] Batch generated ${result.totalProcessed}/${texts.length} embeddings in ${result.duration}ms`
-      );
-
-      // Convert to EmbeddingVector format
-      return result.embeddings.map((values) => ({
-        values,
-        dimensions: values.length,
-        model: this.config.model,
-      }));
-    } catch (error) {
-      logger.error(
-        "[EmbeddingGenerator] Batch embedding failed, falling back to sequential:",
-        error
-      );
-      // Fallback to sequential processing
-      return this.generateBatchDirect(texts);
-    }
-  }
-
-  /**
-   * Direct batch embedding (for small batches)
-   */
-  private async generateBatchDirect(texts: string[]): Promise<EmbeddingVector[]> {
-    const vectors: EmbeddingVector[] = [];
-
-    for (const text of texts) {
-      const vector = await this.generateForText(text);
-      vectors.push(vector);
-    }
-
-    return vectors;
-  }
-
-  /**
-   * Call LLMManager embed method
-   */
-  private async callLLMEmbed(texts: string[]): Promise<number[][]> {
-    // Lazy import LLMManager
-    if (!llmManagerInstance) {
-      const { LLMManager } = await import("../../core/LLMManager");
-      llmManagerInstance = new LLMManager();
-    }
-
-    const embeddings = await (
-      llmManagerInstance as { embed(texts: string[]): Promise<number[][]> }
-    ).embed(texts);
-
-    if (!embeddings || embeddings.length === 0) {
-      throw new Error("Empty embedding result from LLMManager");
-    }
-
-    return embeddings;
-  }
-
-  /**
-   * Core embedding generation
-   */
-  private async generate(input: EmbeddingInput): Promise<EmbeddingVector> {
-    try {
-      logger.debug(`[EmbeddingGenerator] Generating embedding for: ${input.name}`);
-
-      // Generate embedding using remote API
-      const vector = await this.generateRemoteEmbedding(input);
-
-      return {
-        values: vector,
-        dimensions: vector.length,
-        model: this.config.model,
-      };
-    } catch (error) {
-      logger.error(`[EmbeddingGenerator] Failed to generate embedding for ${input.name}:`, error);
-      throw new ToolError(
-        `Embedding generation failed: ${this.formatError(error)}`,
-        ToolErrorCode.EMBEDDING_MODEL_ERROR
-      );
-    }
-  }
-
-  /**
-   * Generate embedding using remote API (via LLMManager)
-   */
-  private async generateRemoteEmbedding(input: EmbeddingInput): Promise<number[]> {
-    try {
-      // Lazy import LLMManager
-      if (!llmManagerInstance) {
-        const { LLMManager } = await import("../../core/LLMManager");
-        llmManagerInstance = new LLMManager();
-      }
-
-      // Prepare text for embedding
-      const text = this.prepareEmbeddingText(input);
-
-      // Call LLMManager.embed()
-      const embeddings = await (
-        llmManagerInstance as { embed(texts: string[]): Promise<number[][]> }
-      ).embed([text]);
-
-      if (!embeddings || embeddings.length === 0 || !embeddings[0]) {
-        throw new Error("Empty embedding result");
-      }
-
-      logger.debug(
-        `[EmbeddingGenerator] Generated remote embedding: ${embeddings[0].length} dimensions`
-      );
-      return embeddings[0];
-    } catch (error) {
-      logger.error("[EmbeddingGenerator] Remote embedding generation failed:", error);
-      throw error;
-    }
-  }
-
-  /**
-   * Prepare text for embedding
-   */
-  private prepareEmbeddingText(input: EmbeddingInput): string {
-    const parts = [input.name, input.description, ...(input.tags || [])];
-
-    return parts.join(" ").trim();
-  }
-
-  /**
-   * Get configuration
-   */
-  getConfig(): EmbeddingConfig {
-    return this.config;
-  }
-
-  /**
-   * Format error message
-   */
-  private formatError(error: unknown): string {
-    if (error instanceof Error) {
-      return error.message;
-    }
-    if (typeof error === "string") {
-      return error;
-    }
-    return "Unknown error occurred in EmbeddingGenerator";
-  }
-}
-
-/**
- * Get LLMManager instance (for embedding)
- */
-export function getEmbeddingLLMManager(): unknown {
-  return llmManagerInstance;
-}
-
-/**
- * Reset LLMManager instance (for testing)
- */
-export function resetEmbeddingLLMManager(): void {
-  llmManagerInstance = null;
-}
-
-/**
- * Get batch embedding service (for advanced usage)
- */
-export function getBatchEmbeddingService(): BatchEmbeddingService | null {
-  return batchEmbeddingService;
-}
-
-/**
- * Reset batch embedding service (for testing)
- */
-export function resetBatchEmbeddingService(): void {
-  batchEmbeddingService = null;
-}
-````
-
-## File: src/services/tool-retrieval/index.ts
-````typescript
-/**
- * ToolRetrieval Module - Unified Exports
- *
- * Main entry point for the tool retrieval service module.
- */
-
-// Types
-export * from "./types";
-
-// Core Classes
-export {
-  ToolRetrievalService,
-  IToolRetrievalService,
-  getToolRetrievalService,
-  resetToolRetrievalService,
-} from "./ToolRetrievalService";
-
-// Sub-modules
-export { LanceDBConnection, ILanceDBConnection } from "./LanceDBConnection";
-export {
-  IndexConfigOptimizer,
-  IndexConfig,
-  OptimizationResult,
-  INDEX_PRESETS,
-} from "./IndexConfigOptimizer";
-export {
-  EmbeddingGenerator,
-  IEmbeddingGenerator,
-  getEmbeddingLLMManager,
-  resetEmbeddingLLMManager,
-  getBatchEmbeddingService,
-  resetBatchEmbeddingService,
-} from "./EmbeddingGenerator";
-export {
-  BatchEmbeddingService,
-  BatchEmbeddingConfig,
-  BatchEmbeddingResult,
-} from "./BatchEmbeddingService";
-export { SkillIndexer, ISkillIndexer } from "./SkillIndexer";
-export { SearchEngine, ISearchEngine } from "./SearchEngine";
-export { MCPToolSupport, IMCPToolSupport } from "./MCPToolSupport";
-
-// Phase 1: Hybrid Retrieval Components
-export {
-  TagMatchingEngine,
-  ITagMatchingEngine,
-  TagMatchingEngineConfig,
-  DEFAULT_TAG_MATCHING_CONFIG,
-} from "./TagMatchingEngine";
-export {
-  UnifiedScoringEngine,
-  IUnifiedScoringEngine,
-  UnifiedScoringEngineConfig,
-  DEFAULT_SCORING_CONFIG,
-} from "./UnifiedScoringEngine";
-export {
-  HybridRetrievalEngine,
-  IHybridRetrievalEngine,
-  HybridRetrievalQuery,
-  HybridRetrievalEngineConfig,
-} from "./HybridRetrievalEngine";
-export {
-  DisclosureManager,
-  IDisclosureManager,
-  DisclosureManagerConfig,
-  DEFAULT_DISCLOSURE_CONFIG,
-  DEFAULT_DISCLOSURE_CONFIG_V2,
-  DisclosureDecisionManager,
-  IDisclosureDecisionManager,
-  DisclosureCache,
-  IDisclosureCache,
-  DisclosureDecisionInput,
-  DisclosureDecisionOutput,
-  DisclosureCacheKey,
-  DisclosureMetrics,
-  DisclosureManagerConfigV2,
-} from "./DisclosureManager";
-````
-
-## File: src/services/tool-retrieval/MCPToolSupport.ts
-````typescript
-/**
- * MCPToolSupport - MCP Tool Support
- *
- * Handles MCP tool indexing, embedding generation, and search.
- */
-
-import { createHash } from 'crypto';
-import { logger } from '../../utils/logger';
-import {
-  MCPTool,
-  MCPToolRetrievalResult,
-  EmbeddingVector,
-  ToolsTable
-} from './types';
-import { IEmbeddingGenerator } from './EmbeddingGenerator';
-import { ILanceDBConnection } from './LanceDBConnection';
-
-/**
- * MCPToolSupport interface
- */
-export interface IMCPToolSupport {
-  indexTools(tools: MCPTool[]): Promise<void>;
-  getEmbeddingForTool(tool: MCPTool): Promise<EmbeddingVector>;
-  removeTool(toolName: string): Promise<void>;
-  searchTools(query: string, limit?: number): Promise<MCPToolRetrievalResult[]>;
-}
-
-/**
- * MCPToolSupport implementation
- */
-export class MCPToolSupport implements IMCPToolSupport {
-  private readonly embeddingGenerator: IEmbeddingGenerator;
-  private readonly connection: ILanceDBConnection;
-  private readonly defaultLimit: number;
-
-  constructor(
-    embeddingGenerator: IEmbeddingGenerator,
-    connection: ILanceDBConnection,
-    defaultLimit: number = 5
-  ) {
-    this.embeddingGenerator = embeddingGenerator;
-    this.connection = connection;
-    this.defaultLimit = defaultLimit;
-  }
-
-  /**
-   * Index MCP tools
-   */
-  async indexTools(tools: MCPTool[]): Promise<void> {
-    try {
-      logger.info(`[MCPToolSupport] Indexing ${tools.length} MCP tools...`);
-
-      const records: ToolsTable[] = [];
-
-      for (const tool of tools) {
-        try {
-          // Generate unique ID
-          const toolId = this.generateToolId(tool);
-
-          // Generate vector embedding
-          const vector = await this.getEmbeddingForTool(tool);
-
-          // Prepare record
-          const record: ToolsTable = {
-            id: toolId,
-            name: tool.name,
-            description: tool.description,
-            tags: this.extractToolTags(tool),
-            path: null,
-            version: null,
-            source: tool.metadata?.source as string || tool.name,
-            toolType: 'mcp',
-            metadata: JSON.stringify(tool.metadata || {}),
-            vector: vector.values,
-            indexedAt: new Date()
-          };
-
-          records.push(record);
-        } catch (error) {
-          logger.error(`[MCPToolSupport] Failed to index tool ${tool.name}:`, error);
-        }
-      }
-
-      if (records.length > 0) {
-        // Remove existing records
-        for (const record of records) {
-          await this.removeToolById(record.id);
-        }
-
-        // Batch insert
-        await this.connection.addRecords(records);
-        logger.info(`[MCPToolSupport] Successfully indexed ${records.length} MCP tools`);
-      } else {
-        logger.warn('[MCPToolSupport] No tools were indexed');
-      }
-
-    } catch (error) {
-      logger.error('[MCPToolSupport] Failed to index tools:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get embedding for an MCP tool
-   */
-  async getEmbeddingForTool(tool: MCPTool): Promise<EmbeddingVector> {
-    return this.embeddingGenerator.generateForTool(tool);
-  }
-
-  /**
-   * Remove a tool from the index
-   */
-  async removeTool(toolName: string): Promise<void> {
-    const toolId = this.generateToolId({ name: toolName, description: '', inputSchema: { schema: {} } });
-    await this.removeToolById(toolId);
-  }
-
-  /**
-   * Remove tool by ID
-   */
-  private async removeToolById(toolId: string): Promise<void> {
-    try {
-      await this.connection.deleteById(toolId);
-      logger.debug(`[MCPToolSupport] Removed tool: ${toolId}`);
-    } catch (error) {
-      logger.error(`[MCPToolSupport] Failed to remove tool ${toolId}:`, error);
-    }
-  }
-
-  /**
-   * Search MCP tools
-   */
-  async searchTools(query: string, limit?: number): Promise<MCPToolRetrievalResult[]> {
-    const effectiveLimit = limit ?? this.defaultLimit;
-
-    try {
-      logger.info(`[MCPToolSupport] Searching MCP tools for: "${query}"`);
-
-      // Generate query embedding
-      const vector = await this.embeddingGenerator.generateForText(query);
-
-      // Get table and search
-      const table = await this.connection.getTable();
-      if (!table) {
-        logger.warn('[MCPToolSupport] Table not initialized');
-        return [];
-      }
-
-      // Execute search
-      const queryBuilder = table.query()
-        .nearestTo(vector.values)
-        .distanceType('cosine')
-        .limit(effectiveLimit * 2);
-
-      // Filter by MCP tools
-      const results = await queryBuilder.toArray();
-
-      // Format results
-      const formatted: MCPToolRetrievalResult[] = [];
-
-      for (const result of results.slice(0, effectiveLimit)) {
-        try {
-          const data = this.extractResultData(result);
-          const score = this.calculateScore(result);
-
-          // Only include MCP tools
-          if (data.toolType === 'mcp') {
-            formatted.push({
-              name: data.name,
-              score,
-              description: data.description,
-              parameters: this.extractParameters(data.metadata)
-            });
-          }
-        } catch (error) {
-          logger.warn('[MCPToolSupport] Failed to format search result:', error);
-        }
-      }
-
-      logger.info(`[MCPToolSupport] Found ${formatted.length} MCP tool(s)`);
-      return formatted;
-
-    } catch (error) {
-      logger.error(`[MCPToolSupport] Search failed for query "${query}":`, error);
-      throw error;
-    }
-  }
-
-  /**
-   * Generate unique tool ID
-   */
-  private generateToolId(tool: MCPTool): string {
-    const source = tool.metadata?.source as string || tool.name;
-    return createHash('md5')
-      .update(`mcp:${source}:${tool.name}`)
-      .digest('hex');
-  }
-
-  /**
-   * Extract tags from tool
-   */
-  private extractTags(tool: MCPTool): string[] {
-    return tool.metadata?.tags as string[] || [];
-  }
-
-  /**
-   * Extract tool tags (internal)
-   */
-  private extractToolTags(tool: MCPTool): string[] {
-    const tags: string[] = [];
-
-    if (tool.metadata) {
-      if (Array.isArray(tool.metadata.tags)) {
-        tags.push(...(tool.metadata.tags as string[]));
-      }
-      if (tool.metadata.source) {
-        tags.push(`mcp:${tool.metadata.source}`);
-      }
-    }
-
-    return tags;
-  }
-
-  /**
-   * Extract parameters from metadata
-   */
-  private extractParameters(metadata: string): Record<string, unknown> {
-    try {
-      if (typeof metadata === 'string') {
-        const parsed = JSON.parse(metadata);
-        return parsed.inputSchema?.properties || {};
-      }
-      return {};
-    } catch {
-      return {};
-    }
-  }
-
-  /**
-   * Extract result data
-   */
-  private extractResultData(result: unknown): ToolsTable {
-    if (result && typeof result === 'object') {
-      const r = result as Record<string, unknown>;
-      if ('item' in r) {
-        return r.item as ToolsTable;
-      }
-    }
-    return result as ToolsTable;
-  }
-
-  /**
-   * Calculate similarity score
-   */
-  private calculateScore(result: unknown): number {
-    if (result && typeof result === 'object') {
-      const r = result as Record<string, number>;
-      if (r._distance !== undefined) {
-        return Math.max(0, 1 - r._distance);
-      }
-      if (r.score !== undefined) {
-        return r.score;
-      }
-    }
-    return 0;
-  }
-}
-````
-
-## File: src/services/tool-retrieval/SkillIndexer.ts
-````typescript
-/**
- * SkillIndexer - Skill Indexing
- *
- * Handles skill indexing operations: add, remove, update, and scan.
- */
-
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import { createHash } from 'crypto';
-import matter from 'gray-matter';
-import { logger } from '../../utils/logger';
-import {
-  SkillData,
-  ToolsTable,
-  VectorizedFileData,
-  ToolError,
-  ToolErrorCode
-} from './types';
-import { ILanceDBConnection } from './LanceDBConnection';
-import { IEmbeddingGenerator } from './EmbeddingGenerator';
-
-/**
- * SkillIndexer interface
- */
-export interface ISkillIndexer {
-  addSkill(skill: SkillData): Promise<void>;
-  removeSkill(skillId: string): Promise<void>;
-  updateSkill(skill: SkillData): Promise<void>;
-  addSkillsBatch(skills: SkillData[]): Promise<void>;
-  scanAndIndex(dirPath: string): Promise<number>;
-  checkReindexRequired(skillPath: string, vectorizedFile: string): Promise<boolean>;
-  readSkillMetadata(filePath: string): Promise<SkillData | null>;
-  forceReindexAll(skillsDir?: string): Promise<void>;
-}
-
-/**
- * SkillIndexer implementation
- */
-export class SkillIndexer implements ISkillIndexer {
-  private readonly connection: ILanceDBConnection;
-  private readonly embeddingGenerator: IEmbeddingGenerator;
-  private readonly defaultSkillsDir: string;
-
-  constructor(
-    connection: ILanceDBConnection,
-    embeddingGenerator: IEmbeddingGenerator,
-    defaultSkillsDir: string = './.data/skills'
-  ) {
-    this.connection = connection;
-    this.embeddingGenerator = embeddingGenerator;
-    this.defaultSkillsDir = defaultSkillsDir;
-  }
-
-  /**
-   * Add a skill to the index
-   */
-  async addSkill(skill: SkillData): Promise<void> {
-    try {
-      logger.info(`[SkillIndexer] Adding skill: ${skill.name}`);
-
-      // Generate skill ID
-      const skillId = this.generateSkillId(skill.name);
-
-      // Generate vector embedding
-      const vector = await this.embeddingGenerator.generateForSkill(skill);
-
-      // Prepare record data
-      const record = this.prepareSkillRecord(skill, skillId, vector.values);
-
-      // Remove existing skill (update mode)
-      await this.removeSkill(skillId);
-
-      // Add to table
-      const table = await this.connection.getTable();
-      if (table) {
-        await table.add([record as unknown as Record<string, unknown>]);
-        logger.info(`[SkillIndexer] Skill indexed: ${skill.name} (${vector.values.length} dimensions)`);
-      }
-
-    } catch (error) {
-      logger.error(`[SkillIndexer] Failed to add skill ${skill.name}:`, error);
-      throw error;
-    }
-  }
-
-  /**
-   * Remove a skill from the index
-   */
-  async removeSkill(skillId: string): Promise<void> {
-    try {
-      logger.debug(`[SkillIndexer] Removing skill: ${skillId}`);
-      await this.connection.deleteById(skillId);
-    } catch (error) {
-      logger.warn(`[SkillIndexer] Failed to remove skill ${skillId}:`, error);
-    }
-  }
-
-  /**
-   * Update a skill in the index
-   */
-  async updateSkill(skill: SkillData): Promise<void> {
-    await this.addSkill(skill);
-  }
-
-  /**
-   * Batch add skills
-   */
-  async addSkillsBatch(skills: SkillData[]): Promise<void> {
-    const records: ToolsTable[] = [];
-
-    for (const skill of skills) {
-      try {
-        const skillId = this.generateSkillId(skill.name);
-        const vector = await this.embeddingGenerator.generateForSkill(skill);
-        const record = this.prepareSkillRecord(skill, skillId, vector.values);
-        records.push(record);
-      } catch (error) {
-        logger.warn(`[SkillIndexer] Failed to index skill ${skill.name}:`, error);
-      }
-    }
-
-    if (records.length > 0) {
-      await this.connection.addRecords(records);
-      logger.info(`[SkillIndexer] Batch indexed ${records.length} skills`);
-    }
-  }
-
-  /**
-   * Scan directory and index all skills
-   */
-  async scanAndIndex(dirPath: string): Promise<number> {
-    try {
-      logger.info(`[SkillIndexer] Scanning skills directory: ${dirPath}`);
-
-      // Check if directory exists
-      try {
-        await fs.access(dirPath);
-      } catch {
-        logger.warn(`[SkillIndexer] Skills directory does not exist: ${dirPath}`);
-        return 0;
-      }
-
-      // Get all skill directories
-      const entries = await fs.readdir(dirPath, { withFileTypes: true });
-      const skillDirs = entries
-        .filter(entry => entry.isDirectory())
-        .map(entry => entry.name);
-
-      logger.info(`[SkillIndexer] Found ${skillDirs.length} skill directories`);
-
-      // Index each skill
-      let indexedCount = 0;
-      let skippedCount = 0;
-
-      for (const skillName of skillDirs) {
-        try {
-          const skillPath = path.join(dirPath, skillName);
-          const vectorizedFile = path.join(skillPath, '.vectorized');
-
-          // Check if reindexing is needed
-          let needReindex = true;
-          if (await this.fileExists(vectorizedFile)) {
-            needReindex = await this.checkReindexRequired(skillPath, vectorizedFile);
-          }
-
-          if (needReindex) {
-            // Read skill metadata
-            const skillData = await this.readSkillMetadata(skillPath);
-
-            if (skillData) {
-              // Index skill
-              await this.addSkill({
-                ...skillData,
-                filePath: skillPath,
-                id: this.generateSkillId(skillData.name)
-              });
-
-              // Update .vectorized file
-              await this.updateVectorizedFile(vectorizedFile, skillPath);
-            }
-
-            indexedCount++;
-            logger.debug(`[SkillIndexer] Indexed skill: ${skillName}`);
-          } else {
-            skippedCount++;
-            logger.debug(`[SkillIndexer] Skipped unchanged skill: ${skillName}`);
-          }
-
-        } catch (error) {
-          logger.warn(`[SkillIndexer] Failed to index skill ${skillName}:`, error);
-        }
-      }
-
-      logger.info(`[SkillIndexer] Scan completed: ${indexedCount} indexed, ${skippedCount} skipped`);
-      return indexedCount;
-
-    } catch (error) {
-      logger.error('[SkillIndexer] Failed to scan and index skills:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Check if reindexing is required
-   */
-  async checkReindexRequired(skillPath: string, vectorizedFile: string): Promise<boolean> {
-    try {
-      // Read .vectorized file
-      const vectorizedContent = await fs.readFile(vectorizedFile, 'utf8');
-      const vectorizedData: VectorizedFileData = JSON.parse(vectorizedContent);
-
-      // Calculate current SKILL.md hash
-      const skillMdPath = path.join(skillPath, 'SKILL.md');
-      const skillContent = await fs.readFile(skillMdPath, 'utf8');
-      const currentHash = createHash('md5').update(skillContent).digest('hex');
-      const currentSize = Buffer.byteLength(skillContent);
-
-      // Compare hash and size
-      return currentHash !== vectorizedData.skillHash || currentSize !== vectorizedData.skillSize;
-
-    } catch {
-      // File doesn't exist or parse failed, need to index
-      return true;
-    }
-  }
-
-  /**
-   * Read skill metadata from SKILL.md
-   */
-  async readSkillMetadata(filePath: string): Promise<SkillData | null> {
-    try {
-      const skillMdPath = path.join(filePath, 'SKILL.md');
-
-      // Read file
-      const content = await fs.readFile(skillMdPath, 'utf8');
-
-      // Parse YAML Frontmatter
-      const parsed = matter(content);
-
-      if (!parsed.data.name || !parsed.data.description) {
-        throw new Error('SKILL.md must contain name and description');
-      }
-
-      return {
-        id: '',
-        name: parsed.data.name,
-        description: parsed.data.description,
-        tags: Array.isArray(parsed.data.tags) ? parsed.data.tags : [],
-        version: parsed.data.version || '1.0.0',
-        metadata: {
-          tools: parsed.data.tools || []
-        }
-      };
-
-    } catch (error) {
-      logger.error(`[SkillIndexer] Failed to read skill metadata from ${filePath}:`, error);
-      return null;
-    }
-  }
-
-  /**
-   * Generate skill ID
-   */
-  private generateSkillId(name: string): string {
-    return createHash('md5')
-      .update(name)
-      .digest('hex');
-  }
-
-  /**
-   * Prepare skill record for database
-   */
-  private prepareSkillRecord(
-    skill: SkillData,
-    skillId: string,
-    vector: number[]
-  ): ToolsTable {
-    // Convert tools to parameters format
-    const tools = (skill.metadata?.tools as unknown[]) || [];
-    const parameters = tools.length > 0 ? {
-      type: 'object',
-      properties: tools.reduce((acc: Record<string, unknown>, tool: unknown) => {
-        const t = tool as { name?: string; description?: string; input_schema?: { properties?: Record<string, unknown>; required?: string[] } };
-        if (t.name) {
-          acc[t.name] = {
-            type: 'object',
-            description: t.description || '',
-            properties: t.input_schema?.properties || {},
-            required: t.input_schema?.required || []
-          };
-        }
-        return acc;
-      }, {}),
-      required: tools
-        .filter((t: unknown) => (t as { input_schema?: { required?: string[] } }).input_schema?.required?.length > 0)
-        .map((t: unknown) => (t as { name?: string }).name)
-        .filter((n: unknown): n is string => typeof n === 'string')
-    } : { type: 'object', properties: {}, required: [] };
-
-    return {
-      id: skillId,
-      name: skill.name,
-      description: skill.description,
-      tags: skill.tags || [],
-      path: skill.filePath,
-      version: skill.version || '1.0.0',
-      source: skill.name,
-      toolType: 'skill',
-      metadata: JSON.stringify({
-        ...skill.metadata,
-        tools: skill.metadata?.tools || [],
-        parameters
-      }),
-      vector,
-      indexedAt: new Date()
-    };
-  }
-
-  /**
-   * Update .vectorized file
-   */
-  private async updateVectorizedFile(vectorizedFile: string, skillPath: string): Promise<void> {
-    try {
-      const skillMdPath = path.join(skillPath, 'SKILL.md');
-      const skillContent = await fs.readFile(skillMdPath, 'utf8');
-      const skillHash = createHash('md5').update(skillContent).digest('hex');
-      const skillSize = Buffer.byteLength(skillContent);
-
-      const vectorizedData: VectorizedFileData = {
-        indexedAt: Date.now(),
-        skillSize,
-        skillHash
-      };
-
-      await fs.writeFile(vectorizedFile, JSON.stringify(vectorizedData, null, 2));
-      logger.debug(`[SkillIndexer] Updated .vectorized file: ${vectorizedFile}`);
-
-    } catch (error) {
-      logger.warn(`[SkillIndexer] Failed to update .vectorized file:`, error);
-    }
-  }
-
-  /**
-   * Check if file exists
-   */
-  private async fileExists(filePath: string): Promise<boolean> {
-    try {
-      await fs.access(filePath);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Force reindex all skills (delete all .vectorized files)
-   */
-  async forceReindexAll(skillsDir: string = this.defaultSkillsDir): Promise<void> {
-    try {
-      const entries = await fs.readdir(skillsDir, { withFileTypes: true });
-      const skillDirs = entries
-        .filter(entry => entry.isDirectory())
-        .map(entry => entry.name);
-
-      logger.info(`[SkillIndexer] Force reindexing ${skillDirs.length} skills...`);
-
-      // Delete each skill's .vectorized file
-      for (const skillName of skillDirs) {
-        const skillPath = path.join(skillsDir, skillName);
-        const vectorizedFile = path.join(skillPath, '.vectorized');
-
-        try {
-          await fs.unlink(vectorizedFile);
-          logger.debug(`[SkillIndexer] Deleted .vectorized file for skill: ${skillName}`);
-        } catch (error: any) {
-          if (error.code !== 'ENOENT') {
-            logger.warn(`[SkillIndexer] Failed to delete .vectorized file for ${skillName}:`, error);
-          }
-        }
-      }
-
-      logger.info('[SkillIndexer] Force reindex preparation completed');
-
-    } catch (error) {
-      logger.warn('[SkillIndexer] Failed to force reindex skills:', error);
-    }
-  }
-}
-````
-
-## File: src/services/AGENTS.md
-````markdown
-# AGENTS.md - src/services
-
-**Services layer - Chat, Skills, MCP, ToolRetrieval, ContextCompression.**
-
-## WHERE TO LOOK
-
-| Task                | Location                   | Notes                                                        |
-| ------------------- | -------------------------- | ------------------------------------------------------------ |
-| Chat orchestration  | `ChatService.ts`           | Message processing, streaming, compression integration       |
-| Context compression | `context-compression/`     | 4 strategies (truncate/prune/summary/hybrid), TokenEstimator |
-| Skills lifecycle    | `SkillManager.ts`          | Install/uninstall/update via ZIP, integrates ToolRetrieval   |
-| MCP integration     | `MCPIntegrationService.ts` | Server management, tool discovery/execution                  |
-| Vector search       | `tool-retrieval/`          | LanceDB for tool/skill retrieval, embedding generation       |
-| Chat helpers        | `chat/`                    | MessagePreprocessor, ConversationSaver, StrategySelector     |
-| Tool execution      | `executors/`               | SkillsSandboxExecutor, BuiltInExecutor, ToolExecutor         |
-
-## KEY STRUCTURES
-
-**ChatService**
-
-- `processMessage()` - Main entry, orchestrates strategy + compression
-- `streamMessage()` - AsyncIterator for streaming responses
-- `createChatCompletion()` / `createStreamChatCompletion()` - WebSocket adapters
-
-**ContextCompressionService**
-
-- `compress()` - OpenCode decision mechanism: protected prune → summary → strategy fallback
-- `getStrategy()` - Caches strategy instances (truncate/prune/summary/hybrid)
-- `defaultConfig.enabled: true` (line 137)
-
-**SkillManager**
-
-- `installSkill()` - ZIP extraction → validation → vectorization → ToolRegistry
-- `listSkills()` - Pagination, filtering by name/tags, sorting
-- `executeDirect()` - Direct SKILL.md content return (FR-37~40)
-
-**MCPIntegrationService**
-
-- `registerServer()` - Spawns MCPServerManager, vectors tools, registers to ToolRegistry
-- `callTool()` - Auto-discovers tools via index, handles errors gracefully
-- `loadServersFromDatabase()` - Restores MCP servers on startup
-
-**ToolRetrievalService** (`tool-retrieval/`)
-
-- `findRelevantSkills()` - LanceDB semantic search with threshold filtering
-- `indexTools()` - Batch tool indexing (skills + MCP)
-- `scanAndIndexAllSkills()` - Initial skills directory scan on startup
-
-## CONVENTIONS
-
-- Same as root: single quotes, 2-space indent, semicolons, 100-char width
-- Private members: `_` prefix (e.g., `_strategyCache`)
-- Comments: Chinese for public APIs, English for internal
-- Error handling: NEVER empty catch blocks; use logger
-
-## ANTI-PATTERNS (THIS SUBDIR)
-
-- **ContextCompressionService** default `enabled: true` (line 137) but `ChatOptions.contextCompression` defaults to `undefined` → compression never runs unless explicitly set in options
-- **ToolRetrievalService** singleton instance created on first `getToolRetrievalService()` call - not initialized until first use
-- **MCPIntegrationService** vectorization failures are swallowed (lines 58-64, 103-109) - index may be stale without warning
-````
-
-## File: src/services/CLAUDE.md
-````markdown
-[根目录](../../CLAUDE.md) > [src](../) > **services**
-
-# Services 模块 - 业务服务层
-
-## 🎯 模块职责
-
-Services模块是ApexBridge的业务逻辑层，负责处理聊天服务、配置管理、LLM配置、会话管理等核心业务功能。采用策略模式重构后，ChatService被拆分为6个高内聚的独立服务。
-
-## 🏗️ 架构设计
-
-```mermaid
-graph TD
-    A["Services Module"] --> B["ChatService"];
-    A --> C["LLMConfigService"];
-    A --> D["ConfigService"];
-    A --> E["SessionManager"];
-    A --> F["RequestTracker"];
-    A --> G["VariableResolver"];
-    A --> H["AceIntegrator"];
-    A --> I["ConversationHistoryService"];
-
-    B --> B1["策略模式协调"];
-    B --> B2["服务集成"];
-    B --> B3["WebSocket管理"];
-
-    C --> C1["SQLite配置"];
-    C --> C2["提供商管理"];
-    C --> C3["模型管理"];
-
-    E --> E1["会话生命周期"];
-    E --> E2["元数据管理"];
-
-    F --> F1["请求追踪"];
-    F --> F2["中断处理"];
-
-    G --> G1["变量解析"];
-    G --> G2["缓存管理"];
-
-    H --> H1["ACE集成"];
-    H --> H2["轨迹记录"];
-
-    I --> I1["对话历史"];
-    I --> I2["消息存储"];
-```
-
-## 📋 核心服务
-
-### ChatService (`ChatService.ts`)
-- **职责**: 聊天服务主协调器，应用策略模式
-- **关键功能**:
-  - 策略选择和执行（ReAct/SingleRound）
-  - 会话管理和请求追踪集成
-  - WebSocket管理器集成
-  - 变量解析和ACE集成协调
-- **重构亮点**: 从1406行上帝类拆分为协调器，职责清晰
-
-### LLMConfigService (`LLMConfigService.ts`)
-- **职责**: LLM配置管理（提供商+模型两级结构）
-- **关键功能**:
-  - SQLite数据库存储配置
-  - 提供商生命周期管理
-  - 模型配置和默认设置
-  - 运行时热更新支持
-- **架构**: 单例模式，支持WAL模式提升性能
-
-### ConfigService (`ConfigService.ts`)
-- **职责**: 系统配置管理
-- **关键功能**:
-  - 配置文件读取和验证
-  - 环境变量处理
-  - 配置缓存和更新
-  - 设置完成状态检测
-
-### SessionManager (`SessionManager.ts`)
-- **职责**: 会话生命周期管理
-- **关键功能**:
-  - 会话创建和查找
-  - 元数据更新和维护
-  - 会话活动追踪
-  - 与ACE服务集成
-
-### RequestTracker (`RequestTracker.ts`)
-- **职责**: 活动请求追踪和中断处理
-- **关键功能**:
-  - 请求注册和管理
-  - 中断信号处理
-  - 超时管理（默认5分钟）
-  - WebSocket集成支持
-
-### VariableResolver (`VariableResolver.ts`)
-- **职责**: 动态变量解析服务
-- **关键功能**:
-  - 消息变量替换
-  - 缓存管理（30秒TTL）
-  - ProtocolEngine集成
-  - 性能优化
-
-### AceIntegrator (`AceIntegrator.ts`)
-- **职责**: ACE引擎集成服务
-- **关键功能**:
-  - 轨迹记录和保存
-  - 会话活动更新
-  - ACE服务状态检测
-  - 错误处理和降级
-
-### ConversationHistoryService (`ConversationHistoryService.ts`)
-- **职责**: 对话历史管理
-- **关键功能**:
-  - 消息历史存储
-  - 对话记录查询
-  - 历史数据清理
-  - 与聊天服务集成
-
-## 🚀 服务初始化流程
-
-### 初始化顺序
-1. **PathService**: 确保目录结构
-2. **ConfigService**: 加载系统配置
-3. **LLMConfigService**: 初始化SQLite数据库
-4. **AceService**: 初始化ACE引擎
-5. **ConversationHistoryService**: 初始化历史服务
-6. **ChatService**: 协调各服务，初始化策略
-
-### 依赖关系
-```
-ChatService
-├── ProtocolEngine (外部)
-├── LLMManager (外部)
-├── SessionManager
-│   ├── AceService
-│   └── ConversationHistoryService
-├── RequestTracker
-├── VariableResolver
-│   └── ProtocolEngine
-└── AceIntegrator
-    └── AceService
-```
-
-## 🔧 关键依赖
-
-### 外部依赖
-- `better-sqlite3`: SQLite数据库支持
-- `winston`: 日志记录
-- `abp-rag-sdk`: RAG服务集成
-
-### 内部依赖
-- `core/`: 核心引擎
-- `types/`: 类型定义
-- `utils/`: 工具函数
-- `api/websocket/`: WebSocket管理
-
-## 🧪 测试要点
-
-### 单元测试重点
-- ChatService的策略选择和协调逻辑
-- LLMConfigService的数据库操作
-- SessionManager的会话生命周期
-- RequestTracker的中断处理
-- VariableResolver的缓存机制
-
-### 集成测试重点
-- 服务间的协调和通信
-- 数据库事务和一致性
-- WebSocket集成的正确性
-- ACE集成的完整性
-
-## 📊 性能考虑
-
-### 数据库优化
-- LLMConfigService使用WAL模式
-- 适当的索引设计
-- 连接池管理
-
-### 缓存策略
-- VariableResolver的30秒缓存
-- 配置缓存机制
-- 会话状态缓存
-
-### 并发处理
-- RequestTracker的并发请求管理
-- SessionManager的并发会话处理
-- 数据库操作的并发安全
-
-## 🔗 相关文件
-
-### 核心服务文件
-- `/src/services/ChatService.ts` - 聊天服务主实现
-- `/src/services/LLMConfigService.ts` - LLM配置服务
-- `/src/services/ConfigService.ts` - 系统配置服务
-- `/src/services/SessionManager.ts` - 会话管理器
-- `/src/services/RequestTracker.ts` - 请求追踪器
-- `/src/services/VariableResolver.ts` - 变量解析器
-- `/src/services/AceIntegrator.ts` - ACE集成器
-- `/src/services/ConversationHistoryService.ts` - 对话历史服务
-
-### 支持文件
-- `/src/services/PathService.ts` - 路径管理
-- `/src/services/RedisService.ts` - Redis缓存
-- `/src/services/ModelRegistry.ts` - 模型注册表
-- `/src/services/AceService.ts` - ACE引擎服务
-
-### 类型定义
-- `/src/types/llm-models.ts` - LLM模型类型
-- `/src/types/config.ts` - 配置类型
-- `/src/types/index.ts` - 通用类型
-
-## 📈 最近更新 - 策略重构（2025-11-30）
-
-### ✅ ChatService策略重构完成
-- **上帝类拆分**: 1406行→~200行协调器
-- **新增服务**: 5个独立的高内聚服务
-- **策略模式**: 支持ReAct和单轮两种策略
-- **职责清晰**: 每个服务专注单一职责
-
-### 服务拆分详情
-1. **ChatService**: 主协调器（~200行）
-2. **SessionManager**: 会话生命周期管理
-3. **RequestTracker**: 请求追踪和中断（5分钟超时）
-4. **VariableResolver**: 变量解析（30秒缓存）
-5. **AceIntegrator**: ACE轨迹集成
-6. **ConversationHistoryService**: 对话历史管理
-
-### ✅ 架构优化
-- **高内聚低耦合**: 服务间通过接口协作
-- **类型安全**: 完整的TypeScript支持
-- **测试友好**: 便于单独测试每个服务
-- **扩展性强**: 易于添加新服务和策略
-
-## 🎯 下一步计划
-
-1. **测试覆盖**: 为每个新服务编写单元测试
-2. **性能监控**: 添加服务性能指标
-3. **文档完善**: 补充各服务的详细使用文档
-4. **策略扩展**: 支持更多聊天策略
-
----
-
-**模块路径**: `/src/services/`
-**更新时间**: 2025-11-30 18:21:54
-**状态**: 策略重构完成，服务职责清晰分离
-
-**变更记录**:
-- 2025-11-30: ✅ ChatService策略重构完成，拆分出5个独立服务
-- 2025-11-19: ✅ 架构简化，移除过度设计的服务
-- 2025-11-16: ✅ 项目初始化，识别核心业务服务
-````
-
 ## File: src/services/DatabaseManager.ts
 ````typescript
 /**
@@ -21272,37 +22203,6 @@ export class UnifiedToolManager extends EventEmitter {
 }
 ````
 
-## File: src/strategies/AGENTS.md
-````markdown
-# STRATEGIES
-
-**Chat strategies - ReAct (multi-round), SingleRound (fast)**
-
----
-
-## WHERE TO LOOK
-
-| Task                  | File                     | Notes                                                         |
-| --------------------- | ------------------------ | ------------------------------------------------------------- |
-| Strategy interface    | `ChatStrategy.ts`        | Defines `prepare`, `execute`, `stream`, `supports`, `getName` |
-| Multi-round reasoning | `ReActStrategy.ts`       | 50 iterations max, tool integration, auto-cleanup             |
-| Fast single response  | `SingleRoundStrategy.ts` | Direct LLM call, no thinking loop                             |
-
----
-
-## KEY DETAILS
-
-- **ReActStrategy**: Uses `ReActEngine` for tool calling, tracks skill usage with 5-min auto-cleanup, supports streaming with detailed event types (`reasoning-start/delta/end`, `step-start/finish`, `tool_start/end`, `done`, `error`)
-- **SingleRoundStrategy**: Simple wrapper around `LLMManager.chat()` and `streamChat()`, returns usage data
-- Both strategies receive pre-processed messages (variable substitution done by ChatService)
-
----
-
-## ANTI-PATTERNS (THIS SUBDIR)
-
-- **TODO: LLMClient usage tracking undefined** (`ReActStrategy.ts:149`) - `usage` field in return object is never populated
-````
-
 ## File: src/types/config/api-key.ts
 ````typescript
 /**
@@ -21477,6 +22377,391 @@ export interface RedisConfig {
   username?: string;
   /** TLS 配置：true 启用TLS，对象传递证书配置 */
   tls?: boolean | Record<string, unknown>;
+}
+````
+
+## File: src/types/enhanced-skill.ts
+````typescript
+/**
+ * Enhanced Skill Types - Hybrid Retrieval & Disclosure
+ *
+ * Phase 1: 混合检索框架和基础披露机制的类型定义
+ */
+
+// ==================== Hybrid Retrieval Types ====================
+
+/**
+ * Hybrid retrieval configuration
+ */
+export interface HybridRetrievalConfig {
+  /** Weight for vector similarity (0-1) */
+  vectorWeight: number;
+  /** Weight for keyword matching (0-1) */
+  keywordWeight: number;
+  /** Weight for semantic matching (0-1) */
+  semanticWeight: number;
+  /** Weight for tag matching (0-1) */
+  tagWeight: number;
+  /** RRF fusion constant */
+  rrfK: number;
+  /** Minimum score threshold */
+  minScore: number;
+  /** Maximum results */
+  maxResults: number;
+  /** Enable tag matching */
+  enableTagMatching: boolean;
+  /** Enable keyword matching */
+  enableKeywordMatching: boolean;
+  /** Enable semantic matching */
+  enableSemanticMatching: boolean;
+  /** Cache TTL in seconds */
+  cacheTTL: number;
+  /** Disclosure strategy */
+  disclosureStrategy: DisclosureStrategy;
+  /** Tag hierarchy */
+  tagHierarchy: TagHierarchy;
+}
+
+/**
+ * Disclosure strategy
+ */
+export enum DisclosureStrategy {
+  METADATA = "metadata",
+  CONTENT = "content",
+  RESOURCES = "resources",
+  ADAPTIVE = "adaptive",
+}
+
+/**
+ * Default hybrid retrieval configuration
+ */
+export const DEFAULT_HYBRID_RETRIEVAL_CONFIG: HybridRetrievalConfig = {
+  vectorWeight: 0.5,
+  keywordWeight: 0.3,
+  semanticWeight: 0.2,
+  tagWeight: 0.1,
+  rrfK: 60,
+  minScore: 0.1,
+  maxResults: 10,
+  enableTagMatching: true,
+  enableKeywordMatching: true,
+  enableSemanticMatching: true,
+  cacheTTL: 300,
+  disclosureStrategy: DisclosureStrategy.METADATA,
+  tagHierarchy: {
+    levels: ["category", "subcategory", "tag"],
+    aliases: {
+      cat: "category",
+      sub: "subcategory",
+      t: "tag",
+    },
+  },
+};
+
+/**
+ * Unified retrieval result combining multiple retrieval methods
+ */
+export interface UnifiedRetrievalResult {
+  /** Unique result ID */
+  id: string;
+  /** Tool/skill name */
+  name: string;
+  /** Tool description */
+  description: string;
+  /** Combined score from all methods */
+  unifiedScore: number;
+  /** Individual scores from each method */
+  scores: {
+    vector: number;
+    keyword: number;
+    semantic: number;
+    tag: number;
+  };
+  /** RRF ranks from each method */
+  ranks: {
+    vector: number;
+    keyword: number;
+    semantic: number;
+    tag: number;
+  };
+  /** Type tags */
+  tags: string[];
+  /** Tool type */
+  toolType: "skill" | "mcp" | "builtin";
+  /** Disclosure content */
+  disclosure: DisclosureContent;
+  /** Metadata */
+  metadata?: Record<string, unknown>;
+  /** Source path */
+  path?: string;
+  /** Version */
+  version?: string;
+}
+
+/**
+ * Individual retrieval result from a single method
+ */
+export interface RetrievalResult {
+  /** Result ID */
+  id: string;
+  /** Score (0-1 for normalized, rank for RRF) */
+  score: number;
+  /** Retrieval method */
+  method: RetrievalMethod;
+  /** Metadata */
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Retrieval method enumeration
+ */
+export type RetrievalMethod = "vector" | "keyword" | "semantic" | "tag";
+
+// ==================== Tag Matching Types ====================
+
+/**
+ * Tag match result
+ */
+export interface TagMatchResult {
+  /** Whether tag matched */
+  matched: boolean;
+  /** Matched tag */
+  tag: string;
+  /** Matched tag hierarchy level */
+  level: string;
+  /** Match score (0-1) */
+  score: number;
+  /** Alias expansion applied */
+  expandedFrom?: string;
+}
+
+/**
+ * Tag hierarchy configuration
+ */
+export interface TagHierarchy {
+  /** Hierarchy levels from general to specific */
+  levels: string[];
+  /** Tag aliases for matching */
+  aliases: Record<string, string>;
+  /** Inherited tags per level */
+  inheritTags?: boolean;
+}
+
+/**
+ * Tag matching options
+ */
+export interface TagMatchingOptions {
+  /** Query tags to match */
+  queryTags: string[];
+  /** Maximum hierarchy depth */
+  maxDepth?: number;
+  /** Enable alias expansion */
+  enableAliases?: boolean;
+  /** Minimum match score */
+  minScore?: number;
+}
+
+// ==================== Disclosure Types ====================
+
+/**
+ * Disclosure level enumeration
+ */
+export enum DisclosureLevel {
+  /** Only metadata (name, description) */
+  METADATA = "metadata",
+  /** Include input/output schema */
+  CONTENT = "content",
+  /** Include resources and references */
+  RESOURCES = "resources",
+}
+
+/**
+ * Disclosure content
+ */
+export interface DisclosureContent {
+  /** Disclosure level */
+  level: DisclosureLevel;
+  /** Name */
+  name: string;
+  /** Description */
+  description: string;
+  /** Version */
+  version?: string;
+  /** Author */
+  author?: string;
+  /** Tags */
+  tags?: string[];
+  /** Input schema */
+  inputSchema?: Record<string, unknown>;
+  /** Output schema */
+  outputSchema?: Record<string, unknown>;
+  /** Parameters (for CONTENT level) */
+  parameters?: Array<{ name: string; type: string; required?: boolean; description?: string }>;
+  /** Examples (for CONTENT/RESOURCES level) */
+  examples?: Array<{ input: string; output: string }>;
+  /** Scripts (for RESOURCES level) */
+  scripts?: Array<{ name: string; language: string; content: string }>;
+  /** Dependencies (for RESOURCES level) */
+  dependencies?: Array<{ name: string; version: string }>;
+  /** Resources (for RESOURCES level) */
+  resources?: Array<{ type: string; path: string; description: string }>;
+  /** Token count estimate */
+  tokenCount: number;
+}
+
+/**
+ * Disclosure options
+ */
+export interface DisclosureOptions {
+  /** Target disclosure level */
+  level: DisclosureLevel;
+  /** Include examples */
+  includeExamples?: boolean;
+  /** Include resources */
+  includeResources?: boolean;
+  /** Max token limit */
+  maxTokens?: number;
+  /** Adaptive strategy config */
+  adaptiveConfig?: {
+    minTokens: number;
+    maxTokens: number;
+    preferMetadataBelow: number;
+  };
+}
+
+// ==================== Performance & Metrics ====================
+
+/**
+ * Retrieval performance metrics
+ */
+export interface RetrievalMetrics {
+  /** Total retrieval time in ms */
+  totalTime: number;
+  /** Vector search time in ms */
+  vectorTime: number;
+  /** Keyword search time in ms */
+  keywordTime: number;
+  /** Semantic matching time in ms */
+  semanticTime: number;
+  /** Tag matching time in ms */
+  tagTime: number;
+  /** Fusion time in ms */
+  fusionTime: number;
+  /** Number of results retrieved */
+  resultCount: number;
+  /** Cache hit status */
+  cacheHit: boolean;
+  /** Number of cache hits */
+  cacheHits: number;
+  /** Number of cache misses */
+  cacheMisses: number;
+}
+
+/**
+ * Engine performance metrics
+ */
+export interface EngineMetrics {
+  /** Operation name */
+  operation: string;
+  /** Duration in ms */
+  duration: number;
+  /** Success status */
+  success: boolean;
+  /** Error message if failed */
+  error?: string;
+  /** Additional metrics */
+  details?: Record<string, unknown>;
+}
+
+// ==================== Error Types ====================
+
+/**
+ * Hybrid retrieval error codes
+ */
+export enum HybridRetrievalErrorCode {
+  CONFIG_ERROR = "CONFIG_ERROR",
+  VECTOR_SEARCH_ERROR = "VECTOR_SEARCH_ERROR",
+  KEYWORD_SEARCH_ERROR = "KEYWORD_SEARCH_ERROR",
+  SEMANTIC_MATCH_ERROR = "SEMANTIC_MATCH_ERROR",
+  TAG_MATCH_ERROR = "TAG_MATCH_ERROR",
+  FUSION_ERROR = "FUSION_ERROR",
+  DISCLOSURE_ERROR = "DISCLOSURE_ERROR",
+  CACHE_ERROR = "CACHE_ERROR",
+}
+
+/**
+ * Hybrid retrieval error
+ */
+export class HybridRetrievalError extends Error {
+  code: HybridRetrievalErrorCode;
+  details?: Record<string, unknown>;
+
+  constructor(message: string, code: HybridRetrievalErrorCode, details?: Record<string, unknown>) {
+    super(message);
+    this.name = "HybridRetrievalError";
+    this.code = code;
+    this.details = details;
+  }
+}
+
+// ==================== Cache Types ====================
+
+/**
+ * Cache entry
+ */
+export interface CacheEntry<T> {
+  /** Cached data */
+  data: T;
+  /** Creation timestamp */
+  createdAt: number;
+  /** Expiration timestamp */
+  expiresAt: number;
+  /** Access count */
+  accessCount: number;
+}
+
+/**
+ * Cache statistics
+ */
+export interface CacheStats {
+  /** Total entries */
+  size: number;
+  /** Hit count */
+  hits: number;
+  /** Miss count */
+  misses: number;
+  /** Hit rate */
+  hitRate: number;
+  /** Memory usage estimate */
+  memoryUsage: number;
+}
+
+// ==================== Fusion Types ====================
+
+/**
+ * RRF (Reciprocal Rank Fusion) configuration
+ */
+export interface RRFConfig {
+  /** RRF constant k */
+  k: number;
+  /** Weights for each method */
+  weights: Record<RetrievalMethod, number>;
+  /** Normalization method */
+  normalization: "minmax" | "zscore" | "percentile";
+}
+
+/**
+ * Fusion result
+ */
+export interface FusionResult {
+  /** Fused results */
+  results: UnifiedRetrievalResult[];
+  /** Applied fusion config */
+  config: RRFConfig;
+  /** Total fusion time */
+  duration: number;
+  /** Number of deduplicated items */
+  deduplicatedCount: number;
 }
 ````
 
@@ -21874,37 +23159,6 @@ export function getStatusCodeForErrorCode(code: ErrorCode): number {
       return 500;
   }
 }
-````
-
-## File: src/types/express.d.ts
-````typescript
-import 'express-serve-static-core';
-
-declare module 'express-serve-static-core' {
-  interface Locals {
-    auth?: {
-      apiKeyId?: string;
-      apiKeyToken?: string;
-      userId?: string;
-      roles?: string[];
-      metadata?: Record<string, unknown>;
-    };
-    rateLimit?: {
-      ruleId?: string;
-      key?: string;
-      strategy?: string;
-      limit?: number;
-      remaining?: number;
-      reset?: number;
-      exceeded?: boolean;
-      message?: string;
-      provider?: 'memory' | 'redis' | string;
-    };
-    rateLimited?: boolean;
-  }
-}
-
-export {};
 ````
 
 ## File: src/types/mcp.ts
@@ -23542,50 +24796,212 @@ export interface VectorSearchResult {
 }
 ````
 
-## File: src/utils/config/index.ts
+## File: src/utils/config/disclosure-config.ts
 ````typescript
 /**
- * 配置工具导出
+ * Disclosure Configuration Loader
+ *
+ * Phase 2: 三层披露机制配置加载
+ * 从 disclosure.yaml 加载披露配置，支持默认值回退
  */
 
-export { ConfigLoader } from "../config-loader";
-export { ConfigValidator, type ValidationResult } from "../config-validator";
-export { ConfigWriter } from "../config-writer";
-export {
-  DisclosureConfigLoader,
-  getDisclosureConfig,
-  getDisclosureConfigAsync,
-} from "./disclosure-config";
-````
+import * as fs from "fs";
+import * as path from "path";
+import * as yaml from "js-yaml";
+import { logger } from "../logger";
+import { PathService } from "../../services/PathService";
+import { DisclosureManagerConfigV2 } from "../../services/tool-retrieval/DisclosureManager";
+import { DisclosureStrategy } from "../../types/enhanced-skill";
 
-## File: src/utils/AGENTS.md
-````markdown
-# AGENTS.md - src/utils
+/**
+ * 披露配置原始结构
+ */
+interface DisclosureConfigRaw {
+  disclosure: {
+    enabled: boolean;
+    thresholds: { l2: number; l3: number };
+    tokenBudget: {
+      l1MaxTokens: number;
+      l2MaxTokens: number;
+      adaptiveMaxTokens: number;
+    };
+    cache: {
+      enabled: boolean;
+      maxSize: number;
+      l1TtlMs: number;
+      l2TtlMs: number;
+      cleanupIntervalMs: number;
+    };
+    parallelLoad: { enabled: boolean; maxConcurrency: number };
+    metrics: { enabled: boolean; sampleRate: number };
+  };
+}
 
-**Utilities** - Config (loader/validator/writer), Logger, Retry, Errors.
+/**
+ * 披露配置加载器
+ * 单例模式，带缓存
+ */
+export class DisclosureConfigLoader {
+  private static instance: DisclosureConfigLoader | null = null;
+  private configCache: DisclosureManagerConfigV2 | null = null;
+  private readonly configPath: string;
 
-## WHERE TO LOOK
+  private constructor() {
+    const pathService = PathService.getInstance();
+    this.configPath = path.join(pathService.getConfigDir(), "disclosure.yaml");
+  }
 
-| Component  | Files                                                                                | Role                                                                                                                                                |
-| ---------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Config** | `config-loader.ts`, `config-validator.ts`, `config-writer.ts`, `config-constants.ts` | ConfigLoader singleton reads/writes JSON with caching; ConfigValidator enforces structure with errors/warnings; ConfigWriter merges partial updates |
-| **Logger** | `logger.ts`                                                                          | Winston logger, production caps at 'warn', colored console output                                                                                   |
-| **Retry**  | `retry.ts`                                                                           | Exponential backoff with jitter, `defaultShouldRetry()` for 5xx/429/network errors, custom `shouldRetry` override                                   |
-| **Errors** | `errors.ts`, `error-classifier.ts`                                                   | `AppError` class with ErrorCode enum; ErrorClassifier maps errors to 8 types (NETWORK_ERROR, TIMEOUT, RATE_LIMIT, etc.)                             |
+  /**
+   * 获取单例实例
+   */
+  public static getInstance(): DisclosureConfigLoader {
+    if (!DisclosureConfigLoader.instance) {
+      DisclosureConfigLoader.instance = new DisclosureConfigLoader();
+    }
+    return DisclosureConfigLoader.instance;
+  }
 
-## KEY PATTERNS
+  /**
+   * 加载配置（同步）
+   */
+  public loadSync(): DisclosureManagerConfigV2 {
+    if (this.configCache) {
+      return this.configCache;
+    }
 
-- **ConfigLoader**: Singleton pattern, caches config in memory, auto-creates default config on missing file
-- **Retry**: `maxRetries=3` means 1 initial + 3 retries = 4 attempts; supports `withRetry(fn, config)` wrapper
-- **ErrorClassifier**: Prioritizes error code → HTTP status → business names → message keywords; also estimates tokens
+    try {
+      if (!fs.existsSync(this.configPath)) {
+        logger.info("[DisclosureConfigLoader] Config file not found, using defaults");
+        this.configCache = this.getDefaultConfig();
+        return this.configCache;
+      }
 
-## CONVENTIONS
+      const content = fs.readFileSync(this.configPath, "utf-8");
+      const raw = yaml.load(content) as DisclosureConfigRaw;
 
-Same as root (2-space indent, single quotes, semicolons required).
+      this.configCache = this.parseConfig(raw);
+      return this.configCache;
+    } catch (error) {
+      logger.error("[DisclosureConfigLoader] Failed to load config, using defaults", error);
+      this.configCache = this.getDefaultConfig();
+      return this.configCache;
+    }
+  }
 
-## ANTI-PATTERNS
+  /**
+   * 加载配置（异步）
+   */
+  public async loadAsync(): Promise<DisclosureManagerConfigV2> {
+    if (this.configCache) {
+      return this.configCache;
+    }
 
-- **Config split**: `config/` AND `src/utils/config/` directories both exist (confusing, prefer consolidating to `config/`)
+    try {
+      if (!fs.existsSync(this.configPath)) {
+        logger.info("[DisclosureConfigLoader] Config file not found, using defaults");
+        this.configCache = this.getDefaultConfig();
+        return this.configCache;
+      }
+
+      const content = await fs.promises.readFile(this.configPath, "utf-8");
+      const raw = yaml.load(content) as DisclosureConfigRaw;
+
+      this.configCache = this.parseConfig(raw);
+      return this.configCache;
+    } catch (error) {
+      logger.error("[DisclosureConfigLoader] Failed to load config, using defaults", error);
+      this.configCache = this.getDefaultConfig();
+      return this.configCache;
+    }
+  }
+
+  /**
+   * 清除缓存
+   */
+  public clearCache(): void {
+    this.configCache = null;
+  }
+
+  /**
+   * 获取配置文件路径
+   */
+  public getConfigPath(): string {
+    return this.configPath;
+  }
+
+  /**
+   * 解析配置
+   */
+  private parseConfig(raw: DisclosureConfigRaw): DisclosureManagerConfigV2 {
+    const disclosure = raw.disclosure;
+
+    return {
+      enabled: disclosure.enabled ?? true,
+      strategy: DisclosureStrategy.METADATA,
+      adaptiveMaxTokens: disclosure.tokenBudget?.adaptiveMaxTokens ?? 3000,
+      preferMetadataBelow: 500,
+      thresholds: {
+        l2: disclosure.thresholds?.l2 ?? 0.7,
+        l3: disclosure.thresholds?.l3 ?? 0.85,
+      },
+      l1MaxTokens: disclosure.tokenBudget?.l1MaxTokens ?? 120,
+      l2MaxTokens: disclosure.tokenBudget?.l2MaxTokens ?? 5000,
+      cache: {
+        enabled: disclosure.cache?.enabled ?? true,
+        maxSize: disclosure.cache?.maxSize ?? 2000,
+        l1TtlMs: disclosure.cache?.l1TtlMs ?? 300000,
+        l2TtlMs: disclosure.cache?.l2TtlMs ?? 300000,
+        cleanupIntervalMs: disclosure.cache?.cleanupIntervalMs ?? 300000,
+      },
+      parallelLoad: {
+        enabled: disclosure.parallelLoad?.enabled ?? true,
+        maxConcurrency: disclosure.parallelLoad?.maxConcurrency ?? 8,
+      },
+      metrics: {
+        enabled: disclosure.metrics?.enabled ?? true,
+        sampleRate: disclosure.metrics?.sampleRate ?? 1.0,
+      },
+    };
+  }
+
+  /**
+   * 获取默认配置
+   */
+  private getDefaultConfig(): DisclosureManagerConfigV2 {
+    return {
+      enabled: true,
+      strategy: DisclosureStrategy.METADATA,
+      adaptiveMaxTokens: 3000,
+      preferMetadataBelow: 500,
+      thresholds: { l2: 0.7, l3: 0.85 },
+      l1MaxTokens: 120,
+      l2MaxTokens: 5000,
+      cache: {
+        enabled: true,
+        maxSize: 2000,
+        l1TtlMs: 300000,
+        l2TtlMs: 300000,
+        cleanupIntervalMs: 300000,
+      },
+      parallelLoad: { enabled: true, maxConcurrency: 8 },
+      metrics: { enabled: true, sampleRate: 1.0 },
+    };
+  }
+}
+
+/**
+ * 获取披露配置（便捷函数）
+ */
+export function getDisclosureConfig(): DisclosureManagerConfigV2 {
+  return DisclosureConfigLoader.getInstance().loadSync();
+}
+
+/**
+ * 异步获取披露配置（便捷函数）
+ */
+export async function getDisclosureConfigAsync(): Promise<DisclosureManagerConfigV2> {
+  return DisclosureConfigLoader.getInstance().loadAsync();
+}
 ````
 
 ## File: src/utils/config-constants.ts
@@ -24005,232 +25421,139 @@ dist/**
 node_modules/**
 ````
 
-## File: .eslintrc.js
-````javascript
-module.exports = {
-  root: true,
-  env: {
-    node: true,
-    es2022: true,
-    jest: true
-  },
-  extends: [
-    'eslint:recommended',
-    '@typescript-eslint/recommended',
-    '@typescript-eslint/recommended-requiring-type-checking',
-    'prettier'
+## File: .versionrc
+````
+{
+  "types": [
+    {
+      "type": "feat",
+      "section": "✨ 新功能",
+      "hidden": false
+    },
+    {
+      "type": "fix",
+      "section": "🐛 Bug 修复",
+      "hidden": false
+    },
+    {
+      "type": "perf",
+      "section": "⚡ 性能优化",
+      "hidden": false
+    },
+    {
+      "type": "refactor",
+      "section": "♻️ 重构",
+      "hidden": false
+    },
+    {
+      "type": "revert",
+      "section": "⏪ 回滚",
+      "hidden": false
+    },
+    {
+      "type": "docs",
+      "section": "📚 文档",
+      "hidden": false
+    },
+    {
+      "type": "style",
+      "section": "💄 代码格式",
+      "hidden": true
+    },
+    {
+      "type": "test",
+      "section": "✅ 测试",
+      "hidden": true
+    },
+    {
+      "type": "build",
+      "section": "👷 构建",
+      "hidden": true
+    },
+    {
+      "type": "ci",
+      "section": "🔧 CI/CD",
+      "hidden": true
+    },
+    {
+      "type": "chore",
+      "section": "🔩 其他杂项",
+      "hidden": true
+    }
   ],
-  parser: '@typescript-eslint/parser',
-  parserOptions: {
-    ecmaVersion: 2022,
-    sourceType: 'module',
-    project: './tsconfig.json',
-    tsconfigRootDir: __dirname
-  },
-  plugins: ['@typescript-eslint', 'import'],
-  rules: {
-    // TypeScript specific rules
-    '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
-    '@typescript-eslint/explicit-function-return-type': 'off',
-    '@typescript-eslint/explicit-module-boundary-types': 'off',
-    '@typescript-eslint/no-explicit-any': 'warn',
-    '@typescript-eslint/no-non-null-assertion': 'warn',
-    '@typescript-eslint/prefer-nullish-coalescing': 'error',
-    '@typescript-eslint/prefer-optional-chain': 'error',
-    '@typescript-eslint/no-unnecessary-type-assertion': 'error',
-    '@typescript-eslint/no-floating-promises': 'error',
-    '@typescript-eslint/await-thenable': 'error',
-
-    // Import rules
-    'import/order': [
-      'error',
+  "scopeEnum": [
+    "core",
+    "services",
+    "api",
+    "strategies",
+    "utils",
+    "config",
+    "docs",
+    "scripts",
+    "tests"
+  ],
+  "releaseCommitMessageFormat": "chore(release): {{currentTag}}",
+  "issueUrlFormat": "https://github.com/suntianc/apex-bridge/issues/{{id}}",
+  "compareUrlFormat": "https://github.com/suntianc/apex-bridge/compare/{{previousTag}}...{{currentTag}}",
+  "changelogSections": [
+    {
+      "type": "feat",
+      "section": "✨ 新功能"
+    },
+    {
+      "type": "fix",
+      "section": "🐛 Bug 修复"
+    },
+    {
+      "type": "perf",
+      "section": "⚡ 性能优化"
+    },
+    {
+      "type": "refactor",
+      "section": "♻️ 重构"
+    },
+    {
+      "type": "revert",
+      "section": "⏪ 回滚"
+    },
+    {
+      "type": "docs",
+      "section": "📚 文档"
+    }
+  ],
+  "template": "# Changelog\n\n## {{Release.Version}}\n\n{{Release.Date}}\n\n### {{Release.Type}}\n\n{{#if Commit.Features}}\n#### Features\n{{#each Commit.Features}}\n- **{{this.scope}}**: {{this.subject}}\n{{/each}}\n{{/if}}\n\n{{#if Commit.Fixes}}\n#### Bug Fixes\n{{#each Commit.Fixes}}\n- **{{this.scope}}**: {{this.subject}}\n{{/each}}\n{{/if}}\n\n{{#if Commit.Other}}\n#### Other\n{{#each Commit.Other}}\n- {{this.subject}}\n{{/each}}\n{{/if}}\n",
+  "header": "# Changelog\n\n*ApexBridge 变更日志*\n\n",
+  "unreleasedGroupBy": {
+    "types": [
       {
-        groups: [
-          'builtin',
-          'external',
-          'internal',
-          'parent',
-          'sibling',
-          'index'
-        ],
-        'newlines-between': 'always',
-        alphabetize: {
-          order: 'asc',
-          caseInsensitive: true
-        }
+        "type": "feat",
+        "section": "✨ 新功能"
+      },
+      {
+        "type": "fix",
+        "section": "🐛 Bug 修复"
+      },
+      {
+        "type": "perf",
+        "section": "⚡ 性能优化"
       }
-    ],
-    'import/no-unresolved': 'off', // TypeScript handles this
-    'import/no-dynamic-require': 'warn',
-
-    // General rules
-    'no-console': 'warn',
-    'no-debugger': 'error',
-    'no-alert': 'error',
-    'no-var': 'error',
-    'prefer-const': 'error',
-    'prefer-arrow-callback': 'error',
-    'arrow-spacing': 'error',
-    'no-trailing-spaces': 'error',
-    'eol-last': 'error',
-    'comma-dangle': ['error', 'es5'],
-    'object-curly-spacing': ['error', 'always'],
-    'array-bracket-spacing': ['error', 'never'],
-    'space-before-function-paren': ['error', {
-      anonymous: 'always',
-      named: 'never',
-      asyncArrow: 'always'
-    }],
-
-    // Best practices
-    'eqeqeq': ['error', 'always'],
-    'no-eval': 'error',
-    'no-implied-eval': 'error',
-    'no-new-func': 'error',
-    'no-script-url': 'error',
-    'no-self-compare': 'error',
-    'no-sequences': 'error',
-    'no-throw-literal': 'error',
-    'no-unmodified-loop-condition': 'error',
-    'no-unused-expressions': 'error',
-    'no-useless-call': 'error',
-    'no-useless-concat': 'error',
-    'no-void': 'error',
-    'radix': 'error',
-    'wrap-iife': ['error', 'outside'],
-    'yoda': 'error'
+    ]
   },
-  overrides: [
+  "unreleasedTitle": "Unreleased",
+  "unreleasedVersion": "Unreleased",
+  "bumpFiles": [
     {
-      files: ['**/*.test.ts', '**/*.spec.ts', '**/tests/**/*.ts'],
-      env: {
-        jest: true
-      },
-      rules: {
-        '@typescript-eslint/no-explicit-any': 'off',
-        '@typescript-eslint/no-non-null-assertion': 'off',
-        'no-console': 'off'
-      }
-    },
-    {
-      files: ['**/*.js'],
-      rules: {
-        '@typescript-eslint/no-require-imports': 'off',
-        '@typescript-eslint/no-var-requires': 'off'
-      }
-    },
-    {
-      files: ['scripts/**/*.js'],
-      env: {
-        node: true
-      },
-      rules: {
-        'no-console': 'off'
-      }
-    },
-    {
-      files: ['*.json'],
-      extends: ['plugin:json/recommended'],
-      parser: 'jsonc-eslint-parser',
-      rules: {
-        'json/no-duplicate-keys': 'error',
-        'json/no-empty-keys': 'error',
-        'json/sort-keys': 'off'
-      }
-    },
-    {
-      files: ['*.md'],
-      extends: ['plugin:markdown/recommended'],
-      parser: 'markdown-eslint-parser',
-      rules: {
-        'markdown/no-html': 'off',
-        'markdown/no-unused-definitions': 'off'
-      }
+      "filename": "package.json",
+      "type": "json",
+      "path": "./package.json"
     }
   ],
-  ignorePatterns: [
-    'dist/',
-    'build/',
-    'node_modules/',
-    'coverage/',
-    '*.min.js',
-    'vendor/',
-    'public/'
+  "ignoreMessages": [
+    "Merge pull request",
+    "Merge branch",
+    "chore: Release"
   ]
-};
-````
-
-## File: .prettierrc.js
-````javascript
-module.exports = {
-  semi: true,
-  trailingComma: 'es5',
-  singleQuote: true,
-  printWidth: 100,
-  tabWidth: 2,
-  useTabs: false,
-  quoteProps: 'as-needed',
-  jsxSingleQuote: false,
-  bracketSpacing: true,
-  bracketSameLine: false,
-  arrowParens: 'always',
-  endOfLine: 'lf',
-  proseWrap: 'always',
-  htmlWhitespaceSensitivity: 'css',
-  embeddedLanguageFormatting: 'auto',
-  overrides: [
-    {
-      files: '*.json',
-      options: {
-        printWidth: 80,
-        tabWidth: 2
-      }
-    },
-    {
-      files: '*.md',
-      options: {
-        printWidth: 80,
-        tabWidth: 2,
-        proseWrap: 'always'
-      }
-    },
-    {
-      files: '*.yml',
-      options: {
-        tabWidth: 2,
-        singleQuote: false
-      }
-    },
-    {
-      files: '*.yaml',
-      options: {
-        tabWidth: 2,
-        singleQuote: false
-      }
-    }
-  ]
-};
-````
-
-## File: .repomixignore
-````
-# Add patterns to ignore here, one per line
-# Example:
-# *.log
-# tmp/
-.claude
-.vscode
-.github
-dist
-docs
-assets
-exmples
-logs
-node_modules
-scripts
-tests
-.env
-*.json
+}
 ````
 
 ## File: config/skills-config.yaml
@@ -24687,6 +26010,95 @@ export function createRateLimitMiddleware(
 export const rateLimitMiddleware = createRateLimitMiddleware();
 ````
 
+## File: src/api/routes/skillRoutes.ts
+````typescript
+/**
+ * Skills路由配置
+ * 提供Skills管理的RESTful API路由
+ */
+
+import { Router } from 'express';
+import {
+  installSkill,
+  uninstallSkill,
+  updateSkillDescription,
+  listSkills,
+  getSkill,
+  checkSkillExists,
+  getSkillStats,
+  reindexAllSkills,
+  upload
+} from '../controllers/SkillsController';
+
+const router = Router();
+
+/**
+ * @route   POST /api/skills/install
+ * @desc    安装Skills（ZIP文件上传）
+ * @access  Private (需要API Key)
+ * @body    { file: ZIP, overwrite?: boolean, skipVectorization?: boolean }
+ */
+router.post(
+  '/install',
+  upload.single('file'),
+  installSkill
+);
+
+/**
+ * @route   DELETE /api/skills/:name
+ * @desc    卸载Skills
+ * @access  Private (需要API Key)
+ */
+router.delete('/:name', uninstallSkill);
+
+/**
+ * @route   PUT /api/skills/:name/description
+ * @desc    更新Skills描述
+ * @access  Private (需要API Key)
+ * @body    { description: string }
+ */
+router.put('/:name/description', updateSkillDescription);
+
+/**
+ * @route   GET /api/skills/stats
+ * @desc    获取Skills统计信息
+ * @access  Private (需要API Key)
+ * @note    必须在 /:name 之前定义，否则 :name 会捕获 "stats"
+ */
+router.get('/stats', getSkillStats);
+
+/**
+ * @route   GET /api/skills
+ * @desc    列出Skills（支持分页、过滤、排序）
+ * @access  Private (需要API Key)
+ * @query   page, limit, name, tags, sortBy, sortOrder
+ */
+router.get('/', listSkills);
+
+/**
+ * @route   GET /api/skills/:name
+ * @desc    获取单个Skills详情
+ * @access  Private (需要API Key)
+ */
+router.get('/:name', getSkill);
+
+/**
+ * @route   GET /api/skills/:name/exists
+ * @desc    检查Skills是否存在
+ * @access  Private (需要API Key)
+ */
+router.get('/:name/exists', checkSkillExists);
+
+/**
+ * @route   POST /api/skills/reindex
+ * @desc    重新索引所有Skills（用于向量数据库重建）
+ * @access  Private (需要API Key，建议仅限管理员）
+ */
+router.post('/reindex', reindexAllSkills);
+
+export default router;
+````
+
 ## File: src/api/utils/response-formatter.ts
 ````typescript
 /**
@@ -25029,348 +26441,6 @@ export class ChatChannel {
     });
   }
 }
-````
-
-## File: src/api/CLAUDE.md
-````markdown
-[根目录](../../CLAUDE.md) > [src](../) > **api**
-
-# API 模块 - 接口与控制器层
-
-## 🎯 模块职责
-
-API模块是ApexBridge的接口层，负责处理HTTP RESTful API、WebSocket实时通信、中间件管理和安全控制。提供OpenAI兼容的聊天API、LLM配置管理和实时双向通信功能。
-
-## 🏗️ 架构设计
-
-```mermaid
-graph TD
-    A["API Module"] --> B["Controllers"];
-    A --> C["WebSocket"];
-    A --> D["Middleware"];
-    A --> E["Server Entry"];
-
-    B --> B1["ChatController"];
-    B --> B2["ProviderController"];
-    B --> B3["ModelController"];
-
-    C --> C1["WebSocketManager"];
-    C --> C2["ChatChannel"];
-
-    D --> D1["Authentication"];
-    D --> D2["Rate Limiting"];
-    D --> D3["Validation"];
-    D --> D4["Security"];
-    D --> D5["Logging"];
-
-    E --> E1["ABPIntelliCore"];
-    E --> E2["Route Setup"];
-    E --> E3["Middleware Stack"];
-
-    B1 --> B1a["/v1/chat/completions"];
-    B1 --> B1b["/v1/chat/simple-stream"];
-    B1 --> B1c["/v1/chat/sessions/*"];
-    B1 --> B1d["/v1/models"];
-    B1 --> B1e["/v1/interrupt"];
-
-    B2 --> B2a["/api/llm/providers/*"];
-    B3 --> B3a["/api/llm/models/*"];
-
-    C1 --> C1a["/chat/api_key=*"];
-    C1 --> C1b["/v1/chat/api_key=*"];
-```
-
-## 📋 核心组件
-
-### ChatController (`controllers/ChatController.ts`)
-- **职责**: OpenAI兼容的聊天API控制器
-- **关键端点**:
-  - `POST /v1/chat/completions` - 标准聊天完成
-  - `POST /v1/chat/simple-stream` - 简化流式聊天
-  - `GET /v1/chat/sessions/active` - 活动会话列表
-  - `GET /v1/chat/sessions/{id}` - 获取会话详情
-  - `GET /v1/chat/sessions/{id}/history` - 会话历史
-  - `GET /v1/chat/sessions/{id}/messages` - 对话消息
-  - `DELETE /v1/chat/sessions/{id}` - 删除会话
-  - `GET /v1/models` - 模型列表
-  - `POST /v1/interrupt` - 中断请求
-- **特性**: 支持selfThinking配置、会话管理、流式输出
-
-### ProviderController (`controllers/ProviderController.ts`)
-- **职责**: LLM提供商管理
-- **关键端点**:
-  - `GET /api/llm/providers` - 列出提供商
-  - `GET /api/llm/providers/{id}` - 获取提供商详情
-  - `POST /api/llm/providers` - 创建提供商
-  - `PUT /api/llm/providers/{id}` - 更新提供商
-  - `DELETE /api/llm/providers/{id}` - 删除提供商
-
-### ModelController (`controllers/ModelController.ts`)
-- **职责**: LLM模型管理
-- **关键端点**:
-  - `GET /api/llm/providers/{providerId}/models` - 提供商的模型列表
-  - `GET /api/llm/providers/{providerId}/models/{modelId}` - 模型详情
-  - `POST /api/llm/providers/{providerId}/models` - 创建模型
-  - `PUT /api/llm/providers/{providerId}/models/{modelId}` - 更新模型
-  - `DELETE /api/llm/providers/{providerId}/models/{modelId}` - 删除模型
-  - `GET /api/llm/models` - 跨提供商模型查询
-  - `GET /api/llm/models/default` - 获取默认模型
-
-### WebSocketManager (`websocket/WebSocketManager.ts`)
-- **职责**: WebSocket连接管理和消息路由
-- **关键功能**:
-  - 连接认证和授权
-  - 心跳检测和连接保活
-  - 频道管理和消息路由
-  - 安全日志和监控
-- **端点格式**: `/chat/api_key={apiKey}` 或 `/v1/chat/api_key={apiKey}`
-
-### ChatChannel (`websocket/channels/ChatChannel.ts`)
-- **职责**: 聊天频道的具体实现
-- **关键功能**:
-  - 聊天消息处理
-  - 流式响应推送
-  - 错误处理和通知
-  - 连接状态管理
-
-## 🛡️ 中间件体系
-
-### 认证中间件 (`middleware/authMiddleware.ts`)
-- **职责**: API Key认证
-- **功能**: 提取和验证API Key，用户身份识别
-
-### 限流中间件 (`middleware/rateLimitMiddleware.ts`)
-- **职责**: 请求速率限制
-- **功能**: IP和API Key双重限流策略，支持内存和Redis后端
-
-### 验证中间件 (`middleware/validationMiddleware.ts`)
-- **职责**: 请求参数验证
-- **功能**: JSON Schema验证，自定义验证器支持
-
-### 清理中间件 (`middleware/sanitizationMiddleware.ts`)
-- **职责**: 输入数据清理
-- **功能**: 危险字符过滤，防止XSS和注入攻击
-
-### 安全中间件 (`middleware/securityHeadersMiddleware.ts`)
-- **职责**: 安全头部设置
-- **功能**: Helmet.js集成，CSP、HSTS等安全头部
-
-### 安全日志中间件 (`middleware/securityLoggerMiddleware.ts`)
-- **职责**: 安全事件记录
-- **功能**: 安全相关事件的日志记录和监控
-
-### 审计日志中间件 (`middleware/auditLoggerMiddleware.ts`)
-- **职责**: 关键操作审计
-- **功能**: 用户操作、配置变更等审计记录
-
-### 错误处理中间件 (`middleware/errorHandler.ts`)
-- **职责**: 全局错误处理
-- **功能**: 错误统一处理、日志记录、客户端响应
-
-## 🚀 服务器初始化
-
-### ABPIntelliCore (`server.ts`)
-- **职责**: 主服务器类
-- **初始化流程**:
-  1. 基础服务初始化（PathService、ConfigService）
-  2. 数据库初始化（LLMConfigService）
-  3. 核心引擎初始化（ProtocolEngine、LLMManager）
-  4. 业务服务初始化（ChatService）
-  5. WebSocket初始化（WebSocketManager、ChatChannel）
-  6. 中间件栈设置
-  7. 路由配置
-  8. HTTP服务器启动
-  9. 优雅关闭处理
-
-### 中间件栈顺序
-```
-1. 安全头部 (Helmet)
-2. CORS配置
-3. Body解析 (JSON/urlencoded)
-4. 限流保护
-5. 输入清理
-6. 安全日志
-7. 审计日志
-8. 认证检查
-9. 路由处理
-10. 错误处理
-```
-
-## 🔧 关键依赖
-
-### 外部依赖
-- `express`: Web框架
-- `ws`: WebSocket库
-- `helmet`: 安全头部中间件
-- `cors`: CORS处理
-- `ajv`: JSON Schema验证
-
-### 内部依赖
-- `../services/`: 业务服务层
-- `../core/`: 核心引擎
-- `../types/`: 类型定义
-- `../utils/`: 工具函数
-
-## 🧪 测试要点
-
-### API测试重点
-- OpenAI兼容端点的正确性
-- 会话管理API的完整性
-- 流式输出的稳定性
-- 中断功能的可靠性
-
-### WebSocket测试重点
-- 连接建立和认证
-- 消息传输的实时性
-- 心跳检测和重连
-- 错误处理和通知
-
-### 中间件测试重点
-- 认证和授权逻辑
-- 限流策略的准确性
-- 输入验证的完整性
-- 安全日志的记录
-
-## 📊 安全考虑
-
-### 认证安全
-- API Key的安全传输和存储
-- 连接认证的状态管理
-- 敏感信息的脱敏日志
-
-### 数据安全
-- 输入数据的清理和验证
-- SQL注入防护
-- XSS攻击防护
-
-### 访问控制
-- 基于API Key的权限控制
-- 限流和DDoS防护
-- CORS配置的安全性
-
-## 🔗 相关文件
-
-### 控制器文件
-- `/src/api/controllers/ChatController.ts` - 聊天控制器
-- `/src/api/controllers/ProviderController.ts` - 提供商控制器
-- `/src/api/controllers/ModelController.ts` - 模型控制器
-
-### WebSocket文件
-- `/src/api/websocket/WebSocketManager.ts` - WebSocket管理器
-- `/src/api/websocket/channels/ChatChannel.ts` - 聊天频道
-
-### 中间件文件
-- `/src/api/middleware/authMiddleware.ts` - 认证中间件
-- `/src/api/middleware/rateLimitMiddleware.ts` - 限流中间件
-- `/src/api/middleware/validationMiddleware.ts` - 验证中间件
-- `/src/api/middleware/sanitizationMiddleware.ts` - 清理中间件
-- `/src/api/middleware/securityHeadersMiddleware.ts` - 安全头部
-- `/src/api/middleware/securityLoggerMiddleware.ts` - 安全日志
-- `/src/api/middleware/auditLoggerMiddleware.ts` - 审计日志
-- `/src/api/middleware/errorHandler.ts` - 错误处理
-
-### 服务器入口
-- `/src/server.ts` - 主服务器类
-
-### 验证和配置
-- `/src/api/middleware/validationSchemas.ts` - 验证模式
-- `/src/api/middleware/customValidators.ts` - 自定义验证器
-- `/src/api/middleware/rateLimit/` - 限流实现
-
-## 📈 最近更新
-
-### 2025-11-30
-- ✅ **会话管理增强**: 新增活动会话列表和历史记录API
-- ✅ **简化流式接口**: 专为前端优化的`/v1/chat/simple-stream`
-- ✅ **中断功能**: 完善请求中断API
-
-### 2025-11-19
-- ✅ **中间件优化**: 简化验证和安全中间件，减少代码量
-- ✅ **错误处理**: 统一错误处理和响应格式
-- ✅ **性能优化**: 优化WebSocket连接管理
-
-### 2025-11-16
-- ✅ **基础架构**: 建立完整的API层架构
-- ✅ **OpenAI兼容**: 实现标准聊天完成API
-- ✅ **WebSocket支持**: 添加实时通信能力
-
-## 🎯 API使用示例
-
-### 标准聊天完成
-```bash
-POST /v1/chat/completions
-Content-Type: application/json
-Authorization: Bearer your-api-key
-
-{
-  "model": "gpt-3.5-turbo",
-  "messages": [
-    {"role": "user", "content": "Hello!"}
-  ],
-  "stream": false
-}
-```
-
-### 启用ReAct模式
-```bash
-POST /v1/chat/completions
-Content-Type: application/json
-
-{
-  "messages": [{"role": "user", "content": "Search for information"}],
-  "selfThinking": {
-    "enabled": true,
-    // maxIterations未设置，使用默认值（50次）
-    "tools": [{"name": "search", "description": "Search knowledge base"}]
-  }
-}
-```
-
-### WebSocket连接
-```javascript
-const ws = new WebSocket('ws://localhost:8088/chat/api_key=your-api-key');
-
-ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  console.log('Received:', data);
-};
-
-ws.send(JSON.stringify({
-  type: 'chat',
-  messages: [{role: 'user', content: 'Hello'}]
-}));
-```
-
-## 🎯 下一步计划
-
-1. **API扩展**: 支持更多OpenAI兼容端点
-2. **GraphQL支持**: 考虑添加GraphQL API
-3. **API文档**: 生成OpenAPI/Swagger文档
-4. **性能监控**: 添加API性能指标
-5. **安全增强**: 实现更完善的认证机制
-
----
-
-**模块路径**: `/src/api/`
-**更新时间**: 2025-11-30 18:21:54
-**状态**: 功能完整，支持RESTful API和WebSocket
-
-**核心成就**:
-- ✅ OpenAI兼容的聊天API
-- ✅ 完整的LLM配置管理API
-- ✅ 实时WebSocket通信
-- ✅ 15+安全中间件
-- ✅ 会话管理和历史记录
-- ✅ 请求中断功能
-- ✅ 流式输出支持
-
-**架构特点**:
-- RESTful设计原则
-- 多层安全中间件
-- WebSocket实时通信
-- 完整的错误处理
-- 优雅的服务启动和关闭
-- 全面的日志和监控
 ````
 
 ## File: src/config/endpoint-mappings.ts
@@ -25809,6 +26879,16 @@ export function getLimitValue(key: keyof typeof LIMITS): number {
 export function getThresholdValue(key: keyof typeof THRESHOLDS): number {
   return THRESHOLDS[key];
 }
+
+// ==================== 检索常量 ====================
+// 从专门的 retrieval 常量文件导入，保持关注点分离
+export * from "./retrieval";
+
+// ==================== 压缩常量 ====================
+export * from "./compression";
+
+// ==================== 保留常量 ====================
+export * from "./retention";
 ````
 
 ## File: src/core/stream-orchestrator/CachedLLMAdapter.ts
@@ -26076,239 +27156,6 @@ export class ToolExecutor {
     return this.queue.size;
   }
 }
-````
-
-## File: src/core/tool-action/CLAUDE.md
-````markdown
-[根目录](../../../CLAUDE.md) > [src](../../) > [core](../) > **tool-action**
-
-# Tool Action 模块 - 工具调用标签解析
-
-## 🎯 模块职责
-
-Tool Action 模块负责解析 LLM 输出中的 `<tool_action>` 标签格式工具调用，支持流式检测和工具调度。这是对现有 OpenAI 风格 `tool_calls` 的补充方案，让任何能输出结构化文本的 LLM 都能具备工具调用能力。
-
-## 🏗️ 架构设计
-
-```mermaid
-graph TD
-    A["Tool Action Module"] --> B["ToolActionParser"];
-    A --> C["StreamTagDetector"];
-    A --> D["ToolDispatcher"];
-    A --> E["types.ts"];
-
-    B --> B1["parse() - 完整文本解析"];
-    B --> B2["parseSingleTag() - 单标签解析"];
-    B --> B3["hasPendingTag() - 未完成检测"];
-
-    C --> C1["processChunk() - 流式处理"];
-    C --> C2["状态机管理"];
-    C --> C3["缓冲区管理"];
-
-    D --> D1["dispatch() - 工具调度"];
-    D --> D2["复用 BuiltInToolsRegistry"];
-    D --> D3["超时控制"];
-
-    E --> E1["ToolActionCall"];
-    E --> E2["DetectionResult"];
-    E --> E3["ToolDescription"];
-```
-
-## 📋 标签格式
-
-### 工具调用标签
-```xml
-<tool_action name="工具名称">
-  <参数名1 value="参数值1" />
-  <参数名2 value="参数值2" />
-</tool_action>
-```
-
-### 格式说明
-| 元素 | 说明 | 必需 |
-|------|------|------|
-| `tool_action` | 工具调用标签 | 是 |
-| `name` 属性 | 工具名称标识符 | 是 |
-| 子标签 | 参数名作为标签名，`value` 属性为参数值 | 否 |
-
-### 示例
-```xml
-<!-- 向量搜索 -->
-<tool_action name="vector-search">
-  <query value="读取文件" />
-  <limit value="5" />
-  <threshold value="0.6" />
-</tool_action>
-
-<!-- 读取文件 -->
-<tool_action name="file-read">
-  <path value="path/xxx.txt" />
-  <startLine value="1" />
-  <endLine value="100" />
-</tool_action>
-```
-
-## 📦 核心组件
-
-### ToolActionParser (`ToolActionParser.ts`)
-- **职责**: 解析完整文本中的 tool_action 标签
-- **关键方法**:
-  - `parse(text)`: 解析文本，返回工具调用列表和文本段
-  - `parseSingleTag(tagText)`: 解析单个标签
-  - `hasPendingTag(text)`: 检测未完成的标签
-- **特点**: 正则匹配，支持自闭合和标准闭合两种参数格式
-
-### StreamTagDetector (`StreamTagDetector.ts`)
-- **职责**: 流式输出中实时检测 tool_action 标签
-- **状态机**: NORMAL → TAG_OPENING → TAG_CONTENT → TAG_CLOSING
-- **关键方法**:
-  - `processChunk(chunk)`: 处理流式输入块
-  - `reset()`: 重置检测器状态
-  - `flush()`: 强制刷新缓冲区
-- **特点**: 支持跨 chunk 的标签检测，零阻塞
-
-### ToolDispatcher (`ToolDispatcher.ts`)
-- **职责**: 统一路由 tool_action 调用到正确的执行器
-- **关键方法**:
-  - `dispatch(toolCall)`: 执行工具调用
-  - `hasTool(name)`: 检查工具是否存在
-  - `getAvailableTools()`: 获取可用工具列表
-- **特点**: 复用 BuiltInToolsRegistry，支持超时控制
-
-### generateToolPrompt (`ToolDispatcher.ts`)
-- **职责**: 生成工具描述文本供系统提示词使用
-- **功能**: 包含工具列表、参数说明、使用示例
-
-## 🚀 使用方式
-
-### 在 ReActEngine 中使用
-
-```typescript
-import { ReActEngine } from '../stream-orchestrator/ReActEngine';
-
-const engine = new ReActEngine({
-  enableToolActionParsing: true,  // 启用标签解析（默认true）
-  toolActionTimeout: 30000,       // 工具超时时间（默认30秒）
-  // maxIterations未设置，使用默认值（50次）
-});
-```
-
-### 在 ReActStrategy 中配置
-
-```typescript
-const options = {
-  selfThinking: {
-    enabled: true,
-    enableToolActionParsing: true,   // 启用 tool_action 标签解析
-    toolActionTimeout: 30000         // 工具执行超时时间
-  }
-};
-```
-
-### 直接使用解析器
-
-```typescript
-import { ToolActionParser, StreamTagDetector } from '../core/tool-action';
-
-// 完整文本解析
-const parser = new ToolActionParser();
-const result = parser.parse(text);
-
-// 流式检测
-const detector = new StreamTagDetector();
-for (const chunk of streamChunks) {
-  const detection = detector.processChunk(chunk);
-  if (detection.complete) {
-    // 处理工具调用
-    console.log(detection.toolAction);
-  }
-  // 输出安全文本
-  console.log(detection.textToEmit);
-}
-```
-
-## 🔄 与现有系统集成
-
-### 与原生 tool_calls 的关系
-- **并行支持**: tool_action 标签和原生 tool_calls 同时支持
-- **优先级**: 原生 tool_calls 优先，避免冲突
-- **互斥处理**: 检测到原生 tool_calls 时，跳过标签解析
-
-### 数据流
-```
-LLM Output
-    ↓
-StreamTagDetector.processChunk()
-    ↓
-┌─────────────────────────┐
-│ 无标签 → 直接输出        │
-│ 标签开始 → 缓冲          │
-│ 标签完整 → 解析执行      │
-└─────────────────────────┘
-    ↓
-ToolDispatcher.dispatch()
-    ↓
-BuiltInToolsRegistry.execute()
-    ↓
-工具结果注入对话历史
-    ↓
-继续 ReAct 循环
-```
-
-## 🧪 测试
-
-### 运行测试
-```bash
-npm test -- --testPathPattern="tool-action"
-```
-
-### 测试覆盖
-- ToolActionParser: 标签解析、参数提取、未完成检测
-- StreamTagDetector: 流式检测、跨 chunk 处理、状态管理
-- ToolDispatcher: 工具调度、错误处理、提示词生成
-
-## 📊 配置选项
-
-| 选项 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `enableToolActionParsing` | boolean | true | 是否启用标签解析 |
-| `toolActionTimeout` | number | 30000 | 工具执行超时(ms) |
-| `maxConcurrency` | number | 3 | 最大并发执行数 |
-
-## 🔗 相关文件
-
-### 模块文件
-- `/src/core/tool-action/types.ts` - 类型定义
-- `/src/core/tool-action/ToolActionParser.ts` - 标签解析器
-- `/src/core/tool-action/StreamTagDetector.ts` - 流式检测器
-- `/src/core/tool-action/ToolDispatcher.ts` - 工具调度器
-- `/src/core/tool-action/index.ts` - 模块导出
-
-### 集成文件
-- `/src/core/stream-orchestrator/ReActEngine.ts` - ReAct 引擎
-- `/src/strategies/ReActStrategy.ts` - ReAct 策略
-- `/src/types/index.ts` - ChatOptions 类型
-
-### 测试文件
-- `/tests/unit/tool-action/ToolActionParser.test.ts`
-- `/tests/unit/tool-action/StreamTagDetector.test.ts`
-- `/tests/unit/tool-action/ToolDispatcher.test.ts`
-
-## 📈 更新记录
-
-### 2025-12-07 - 初始实现
-- ✅ 实现 ToolActionParser 标签解析器
-- ✅ 实现 StreamTagDetector 流式检测器
-- ✅ 实现 ToolDispatcher 工具调度器
-- ✅ 集成到 ReActEngine 和 ReActStrategy
-- ✅ 添加配置选项到 ChatOptions
-- ✅ 编写完整单元测试
-
----
-
-**模块路径**: `/src/core/tool-action/`
-**创建时间**: 2025-12-07
-**状态**: 实现完成
 ````
 
 ## File: src/core/tools/builtin/FileReadTool.ts
@@ -27550,760 +28397,297 @@ export function cleanMcpToolResult(rawResult: string): string {
 }
 ````
 
-## File: src/services/tool-retrieval/LanceDBConnection.ts
+## File: src/services/tool-retrieval/EmbeddingGenerator.ts
 ````typescript
 /**
- * LanceDBConnection - Database Connection Management
+ * EmbeddingGenerator - Embedding Generation
  *
- * Handles database connection, schema management, and table initialization.
- * Uses connection pooling for improved concurrency and stability.
- */
-
-import * as lancedb from "@lancedb/lancedb";
-import { Index } from "@lancedb/lancedb";
-import * as arrow from "apache-arrow";
-import * as fs from "fs/promises";
-import * as path from "path";
-import { logger } from "../../utils/logger";
-import { LanceDBConfig, ConnectionStatus, ToolsTable } from "./types";
-import { LanceDBConnectionPool } from "./LanceDBConnectionPool";
-import { IndexConfigOptimizer, OptimizationResult } from "./IndexConfigOptimizer";
-
-/**
- * LanceDB Connection interface
- */
-export interface ILanceDBConnection {
-  connect(config: LanceDBConfig): Promise<void>;
-  disconnect(): Promise<void>;
-  initializeTable(): Promise<void>;
-  getTable(): Promise<lancedb.Table | null>;
-  checkSchemaCompatibility(): Promise<boolean>;
-  getStatus(): ConnectionStatus;
-  getDb(): lancedb.Connection | null;
-  addRecords(records: ToolsTable[]): Promise<void>;
-  deleteById(id: string): Promise<void>;
-  getCount(): Promise<number>;
-}
-
-/**
- * LanceDB Connection implementation with connection pooling
- */
-export class LanceDBConnection implements ILanceDBConnection {
-  private static pool: LanceDBConnectionPool | null = null;
-  private db: lancedb.Connection | null = null;
-  private table: lancedb.Table | null = null;
-  private config: LanceDBConfig | null = null;
-  private connected = false;
-  private dbPath: string = "";
-  private optimizer: IndexConfigOptimizer;
-
-  /**
-   * Initialize the optimizer
-   */
-  constructor() {
-    this.optimizer = new IndexConfigOptimizer();
-  }
-
-  /**
-   * Get the connection pool instance
-   */
-  static getPool(): LanceDBConnectionPool {
-    if (!this.pool) {
-      this.pool = new LanceDBConnectionPool();
-    }
-    return this.pool;
-  }
-
-  /**
-   * Set a custom connection pool (for testing)
-   */
-  static setPool(pool: LanceDBConnectionPool): void {
-    this.pool = pool;
-  }
-
-  /**
-   * Reset the pool (for testing)
-   */
-  static resetPool(): void {
-    this.pool = null;
-  }
-
-  /**
-   * Connect to LanceDB using connection pool
-   */
-  async connect(config: LanceDBConfig): Promise<void> {
-    try {
-      // Ensure database directory exists
-      await fs.mkdir(config.databasePath, { recursive: true });
-
-      this.dbPath = config.databasePath;
-      this.db = await LanceDBConnection.getPool().getConnection(config.databasePath);
-      this.config = config;
-      this.connected = true;
-
-      logger.info(`[LanceDB] Connected to LanceDB at: ${config.databasePath}`);
-    } catch (error) {
-      logger.error("[LanceDB] Failed to connect to LanceDB:", error);
-      this.connected = false;
-      throw error;
-    }
-  }
-
-  /**
-   * Disconnect from LanceDB
-   */
-  async disconnect(): Promise<void> {
-    try {
-      this.table = null;
-      if (this.dbPath && this.db) {
-        await LanceDBConnection.getPool().releaseConnection(this.dbPath);
-      }
-      this.db = null;
-      this.connected = false;
-      logger.info("[LanceDB] Disconnected from LanceDB");
-    } catch (error) {
-      logger.warn("[LanceDB] Error during disconnect:", error);
-    }
-  }
-
-  /**
-   * Initialize the skills table
-   */
-  async initializeTable(): Promise<void> {
-    if (!this.db || !this.config) {
-      throw new Error("Database not connected");
-    }
-
-    try {
-      const tableName = this.config.tableName;
-
-      // Try to open existing table
-      try {
-        this.table = await this.db.openTable(tableName);
-        logger.info(`[LanceDB] Table '${tableName}' exists, checking dimensions...`);
-
-        // Check if dimensions match
-        const dimensionsMatch = await this.checkTableDimensions();
-        logger.info(`[LanceDB] Dimension check: ${dimensionsMatch ? "MATCH" : "MISMATCH"}`);
-
-        if (!dimensionsMatch) {
-          // Dimensions don't match, need to recreate
-          logger.warn(
-            `[LanceDB] Table dimensions mismatch. Dropping and recreating table: ${tableName}`
-          );
-          await this.dropTableCompletely(tableName);
-          await this.createTable();
-        } else {
-          // Dimensions match, check for missing fields (MCP support)
-          await this.checkAndAddMissingFields(tableName);
-          await this.createVectorIndex();
-        }
-
-        return;
-      } catch (openError) {
-        logger.info(`[LanceDB] Table '${tableName}' does not exist, will create new table`);
-      }
-
-      // Create new table
-      await this.createTable();
-    } catch (error) {
-      logger.error("[LanceDB] Failed to initialize table:", error);
-      throw error;
-    }
-  }
-
-  /**
-   * Create the table with schema
-   */
-  private async createTable(): Promise<void> {
-    if (!this.db || !this.config) {
-      throw new Error("Database not connected");
-    }
-
-    // Create schema with Apache Arrow
-    const schema = new arrow.Schema([
-      new arrow.Field("id", new arrow.Utf8(), false),
-      new arrow.Field("name", new arrow.Utf8(), false),
-      new arrow.Field("description", new arrow.Utf8(), false),
-      new arrow.Field(
-        "tags",
-        new arrow.List(new arrow.Field("item", new arrow.Utf8(), true)),
-        false
-      ),
-      new arrow.Field("path", new arrow.Utf8(), true),
-      new arrow.Field("version", new arrow.Utf8(), true),
-      new arrow.Field("source", new arrow.Utf8(), true),
-      new arrow.Field("toolType", new arrow.Utf8(), false),
-      new arrow.Field("metadata", new arrow.Utf8(), false),
-      new arrow.Field(
-        "vector",
-        new arrow.FixedSizeList(
-          this.config.vectorDimensions,
-          new arrow.Field("item", new arrow.Float32(), true)
-        ),
-        false
-      ),
-      new arrow.Field("indexedAt", new arrow.Timestamp(arrow.TimeUnit.MICROSECOND), false),
-    ]);
-
-    this.table = await this.db.createTable(this.config.tableName, [], { schema });
-    logger.info(
-      `[LanceDB] Created new table: ${this.config.tableName} with ${this.config.vectorDimensions} dimensions`
-    );
-
-    // Create vector index
-    await this.createVectorIndex();
-  }
-
-  /**
-   * Check table dimensions compatibility
-   */
-  private async checkTableDimensions(): Promise<boolean> {
-    if (!this.db || !this.table || !this.config) {
-      return false;
-    }
-
-    try {
-      // Create a test vector
-      const testVector = new Array(this.config.vectorDimensions).fill(0.1);
-
-      // Try to add a temporary record
-      const tempId = `dimension-check-${Date.now()}`;
-      const tempTable = await this.db.openTable(this.config.tableName);
-
-      try {
-        await tempTable.add([
-          {
-            id: tempId,
-            name: "Dimension Check",
-            description: "Temporary record for dimension validation",
-            tags: [],
-            path: "temp",
-            version: "1.0",
-            metadata: JSON.stringify({}),
-            vector: testVector,
-            indexedAt: new Date(),
-          },
-        ]);
-
-        // If successful, delete test record
-        await tempTable.delete(`id = '${tempId}'`);
-        return true;
-      } catch (insertError: any) {
-        const errorMsg = insertError.message || "";
-        if (
-          errorMsg.includes("dimension") ||
-          errorMsg.includes("length") ||
-          errorMsg.includes("schema") ||
-          errorMsg.includes("FixedSizeList")
-        ) {
-          logger.debug("[LanceDB] Dimension mismatch error:", errorMsg);
-          return false;
-        }
-        throw insertError;
-      }
-    } catch (error) {
-      logger.error("[LanceDB] Failed to check table dimensions:", error);
-      return false;
-    }
-  }
-
-  /**
-   * Check and add missing fields (for MCP support)
-   */
-  private async checkAndAddMissingFields(tableName: string): Promise<void> {
-    if (!this.table || !this.config) {
-      return;
-    }
-
-    try {
-      const testVector = new Array(this.config.vectorDimensions).fill(0.0);
-
-      const testRecord = {
-        id: `field-check-${Date.now()}`,
-        name: "Field Check",
-        description: "Checking for missing fields",
-        tags: [],
-        path: null,
-        version: null,
-        source: null,
-        toolType: "mcp",
-        metadata: "{}",
-        vector: testVector,
-        indexedAt: new Date(),
-      };
-
-      await this.table.add([testRecord]);
-      logger.info("[LanceDB] All fields (including MCP fields) are present");
-
-      // Delete test record
-      await this.table.delete(`id == "${testRecord.id}"`);
-    } catch (error: any) {
-      if (error.message && error.message.includes("Found field not in schema")) {
-        logger.warn("[LanceDB] Table is missing MCP-related fields. Recreating table...");
-
-        // Drop and recreate
-        await this.dropTableCompletely(tableName);
-        await this.createTable();
-      } else {
-        throw error;
-      }
-    }
-  }
-
-  /**
-   * Drop table and completely remove physical files
-   * This ensures no leftover .lance files cause "Not found" errors
-   */
-  private async dropTableCompletely(tableName: string): Promise<void> {
-    if (!this.db || !this.config) {
-      throw new Error("Database not connected");
-    }
-
-    try {
-      // First, drop the table from LanceDB
-      await this.db.dropTable(tableName);
-      logger.info(`[LanceDB] Dropped table: ${tableName}`);
-
-      // Then, manually remove physical files to ensure complete cleanup
-      const tablePath = path.join(this.config.databasePath, tableName);
-      try {
-        await fs.rm(tablePath, { recursive: true, force: true });
-        logger.info(`[LanceDB] Completely removed physical files: ${tablePath}`);
-      } catch (rmError: any) {
-        if (rmError.code !== "ENOENT") {
-          logger.warn(
-            `[LanceDB] Failed to remove physical files (may not exist): ${rmError.message}`
-          );
-        }
-      }
-    } catch (error) {
-      logger.error("[LanceDB] Failed to drop table completely:", error);
-      throw error;
-    }
-  }
-
-  /**
-   * Create vector index for faster search
-   * Uses optimized IVF_PQ configuration based on expected data scale
-   */
-  private async createVectorIndex(rowCount?: number): Promise<void> {
-    if (!this.table || !this.config) {
-      return;
-    }
-
-    try {
-      // Use provided row count or estimate from table
-      const estimatedRows = rowCount || (await this.getCount()) || 10000;
-      const dimension = this.config.vectorDimensions;
-
-      // Calculate optimal configuration
-      const optimizationResult = this.optimizer.calculateOptimalConfig(
-        estimatedRows,
-        dimension,
-        0.95, // target recall
-        false // prefer accuracy over speed
-      );
-
-      // Log the optimization reasoning
-      logger.info(`[LanceDB] ${optimizationResult.reasoning}`);
-
-      // Create index with optimized configuration
-      await this.table.createIndex("vector", {
-        config: Index.ivfPq({
-          numPartitions: optimizationResult.config.numPartitions,
-          numSubVectors: optimizationResult.config.numSubVectors,
-        }),
-        replace: true,
-      });
-
-      logger.info(
-        `[LanceDB] Created optimized vector index: ${optimizationResult.config.numPartitions} partitions, ` +
-          `${optimizationResult.config.numSubVectors} sub-vectors, ` +
-          `est. recall: ${(optimizationResult.estimatedRecall * 100).toFixed(1)}%`
-      );
-    } catch (error) {
-      // Index may already exist, ignore error
-      logger.debug("[LanceDB] Vector index may already exist:", error);
-    }
-  }
-
-  /**
-   * Get table instance
-   */
-  async getTable(): Promise<lancedb.Table | null> {
-    return this.table;
-  }
-
-  /**
-   * Get database instance
-   */
-  getDb(): lancedb.Connection | null {
-    return this.db;
-  }
-
-  /**
-   * Check schema compatibility
-   */
-  async checkSchemaCompatibility(): Promise<boolean> {
-    return this.checkTableDimensions();
-  }
-
-  /**
-   * Get connection status
-   */
-  getStatus(): ConnectionStatus {
-    return {
-      connected: this.connected,
-      lastConnected: this.connected ? new Date() : undefined,
-      error: this.connected ? undefined : "Not connected",
-    };
-  }
-
-  /**
-   * Add records to table
-   */
-  async addRecords(records: ToolsTable[]): Promise<void> {
-    if (!this.table) {
-      throw new Error("Table not initialized");
-    }
-
-    await this.table.add(records as unknown as Record<string, unknown>[]);
-  }
-
-  /**
-   * Delete record by ID
-   */
-  async deleteById(id: string): Promise<void> {
-    if (!this.table) {
-      throw new Error("Table not initialized");
-    }
-
-    await this.table.delete(`id = "${id}"`);
-  }
-
-  /**
-   * Get table count
-   */
-  async getCount(): Promise<number> {
-    if (!this.table) {
-      return 0;
-    }
-
-    try {
-      return await this.table.countRows();
-    } catch (error) {
-      logger.warn("[LanceDB] Failed to get table count:", error);
-      return 0;
-    }
-  }
-}
-````
-
-## File: src/services/tool-retrieval/ToolRetrievalService.ts
-````typescript
-/**
- * ToolRetrievalService - Main Service
- *
- * Main service coordinating all tool retrieval modules.
- * Provides public API for tool/skill retrieval operations.
+ * Handles embedding generation for skills and tools using LLMManager.
  */
 
 import { logger } from "../../utils/logger";
 import {
-  ToolRetrievalConfig,
-  ToolRetrievalResult,
+  EmbeddingConfig,
+  EmbeddingVector,
   SkillData,
-  ServiceStatus,
+  MCPTool,
   ToolError,
   ToolErrorCode,
-  SkillTool,
+  EmbeddingInput,
 } from "./types";
-import { LanceDBConnection, ILanceDBConnection } from "./LanceDBConnection";
-import { EmbeddingGenerator, IEmbeddingGenerator } from "./EmbeddingGenerator";
-import { SkillIndexer, ISkillIndexer } from "./SkillIndexer";
-import { SearchEngine, ISearchEngine } from "./SearchEngine";
-import { MCPToolSupport, IMCPToolSupport } from "./MCPToolSupport";
+import { BatchEmbeddingService, BatchEmbeddingResult } from "./BatchEmbeddingService";
+
+// LLMManager lazy import to avoid circular dependency
+let llmManagerInstance: unknown = null;
+
+// Batch embedding service singleton
+let batchEmbeddingService: BatchEmbeddingService | null = null;
 
 /**
- * ToolRetrievalService interface
+ * EmbeddingGenerator interface
  */
-export interface IToolRetrievalService {
-  initialize(): Promise<void>;
-  findRelevantSkills(
-    query: string,
-    limit?: number,
-    threshold?: number
-  ): Promise<ToolRetrievalResult[]>;
-  indexSkill(skill: SkillData): Promise<void>;
-  removeSkill(skillId: string): Promise<void>;
-  scanAndIndexAllSkills(skillsDir?: string): Promise<void>;
-  getStatus(): ServiceStatus;
-  cleanup(): Promise<void>;
-  indexTools(tools: SkillTool[]): Promise<void>;
-  removeTool(toolId: string): Promise<void>;
+export interface IEmbeddingGenerator {
+  generateForSkill(skill: SkillData): Promise<EmbeddingVector>;
+  generateForTool(tool: MCPTool): Promise<EmbeddingVector>;
+  generateForText(text: string): Promise<EmbeddingVector>;
+  generateBatch(texts: string[]): Promise<EmbeddingVector[]>;
+  getConfig(): EmbeddingConfig;
+  getActualDimensions(): Promise<number>;
 }
 
 /**
- * ToolRetrievalService implementation
- * Coordinates all tool retrieval modules
+ * EmbeddingGenerator implementation
  */
-export class ToolRetrievalService implements IToolRetrievalService {
-  private readonly config: ToolRetrievalConfig;
-  private connection: ILanceDBConnection;
-  private embeddingGenerator: IEmbeddingGenerator;
-  private skillIndexer: ISkillIndexer;
-  private searchEngine: ISearchEngine;
-  private mcpToolSupport: IMCPToolSupport;
-  private isInitialized = false;
+export class EmbeddingGenerator implements IEmbeddingGenerator {
+  private config: EmbeddingConfig;
+  private dimensionsCache: number | null = null;
+  private llmConfigService: unknown = null;
+  private batchService: BatchEmbeddingService;
 
-  /**
-   * Create ToolRetrievalService with dependencies
-   */
-  constructor(config: ToolRetrievalConfig) {
+  constructor(config: EmbeddingConfig) {
     this.config = config;
-
-    // Initialize sub-modules
-    this.connection = new LanceDBConnection();
-    this.embeddingGenerator = new EmbeddingGenerator({
-      provider: "openai", // Will be determined dynamically
+    this.batchService = new BatchEmbeddingService({
+      batchSize: 100,
+      maxConcurrency: 5,
+      retryAttempts: 3,
+    });
+    logger.info("[EmbeddingGenerator] Created with config:", {
+      provider: config.provider,
       model: config.model,
       dimensions: config.dimensions,
-    });
-    this.skillIndexer = new SkillIndexer(this.connection, this.embeddingGenerator);
-    this.searchEngine = new SearchEngine(this.connection, this.embeddingGenerator, {
-      defaultLimit: config.maxResults,
-      defaultThreshold: config.similarityThreshold,
-    });
-    this.mcpToolSupport = new MCPToolSupport(this.embeddingGenerator, this.connection);
-
-    logger.info("[ToolRetrievalService] Created with config:", {
-      vectorDbPath: config.vectorDbPath,
-      model: config.model,
-      dimensions: config.dimensions,
-      similarityThreshold: config.similarityThreshold,
-      maxResults: config.maxResults,
     });
   }
 
   /**
-   * Initialize the service
+   * Get actual dimensions from LLMConfigService
    */
-  async initialize(): Promise<void> {
-    if (this.isInitialized) {
-      logger.debug("[ToolRetrievalService] Already initialized");
-      return;
+  async getActualDimensions(): Promise<number> {
+    if (this.dimensionsCache !== null) {
+      return this.dimensionsCache;
     }
 
+    try {
+      // Lazy import to avoid circular dependency
+      if (!this.llmConfigService) {
+        const { LLMConfigService } = await import("../../services/LLMConfigService");
+        this.llmConfigService = LLMConfigService.getInstance();
+      }
+
+      // Get default embedding model
+      const embeddingModel = (
+        this.llmConfigService as { getDefaultModel(type: string): unknown }
+      ).getDefaultModel("embedding");
+
+      if (embeddingModel && typeof embeddingModel === "object") {
+        const modelConfig = (embeddingModel as { modelConfig?: { dimensions?: number } })
+          .modelConfig;
+        const dimensions = modelConfig?.dimensions || this.config.dimensions;
+
+        logger.info(`[EmbeddingGenerator] Using actual dimensions: ${dimensions}`);
+        this.dimensionsCache = dimensions;
+        return dimensions;
+      }
+    } catch (error) {
+      logger.warn("[EmbeddingGenerator] Failed to get actual dimensions:", error);
+    }
+
+    return this.config.dimensions;
+  }
+
+  /**
+   * Generate embedding for a skill
+   */
+  async generateForSkill(skill: SkillData): Promise<EmbeddingVector> {
+    const input: EmbeddingInput = {
+      name: skill.name,
+      description: skill.description,
+      tags: skill.tags || [],
+    };
+
+    return this.generate(input);
+  }
+
+  /**
+   * Generate embedding for an MCP tool
+   */
+  async generateForTool(tool: MCPTool): Promise<EmbeddingVector> {
+    const input: EmbeddingInput = {
+      name: tool.name,
+      description: tool.description,
+      tags: (tool.metadata?.tags as string[]) || [],
+    };
+
+    return this.generate(input);
+  }
+
+  /**
+   * Generate embedding for text
+   */
+  async generateForText(text: string): Promise<EmbeddingVector> {
+    return this.generate({
+      name: text,
+      description: text,
+      tags: [],
+    });
+  }
+
+  /**
+   * Generate batch embeddings (optimized with parallel processing)
+   */
+  async generateBatch(texts: string[]): Promise<EmbeddingVector[]> {
+    if (texts.length === 0) {
+      return [];
+    }
+
+    // For small batches, use direct LLMManager call for efficiency
+    if (texts.length <= 10) {
+      return this.generateBatchDirect(texts);
+    }
+
+    // For larger batches, use batch service with parallel processing
     const startTime = Date.now();
 
     try {
-      logger.info("[ToolRetrievalService] Initializing...");
+      // Prepare embedding inputs
+      const inputs = texts.map((text) =>
+        this.prepareEmbeddingText({
+          name: text,
+          description: text,
+          tags: [],
+        })
+      );
 
-      // Get actual embedding dimensions from LLMConfigService
-      const actualDimensions = await this.embeddingGenerator.getActualDimensions();
-      if (actualDimensions !== this.config.dimensions) {
-        logger.info(
-          `[ToolRetrievalService] Updating dimensions from ${this.config.dimensions} to ${actualDimensions}`
-        );
-        this.config.dimensions = actualDimensions;
-      }
-
-      // Connect to LanceDB
-      await this.connection.connect({
-        databasePath: this.config.vectorDbPath,
-        tableName: "skills",
-        vectorDimensions: this.config.dimensions,
+      // Use batch embedding service
+      const result = await this.batchService.generateBatch(inputs, async (batchTexts: string[]) => {
+        return this.callLLMEmbed(batchTexts);
       });
 
-      // Initialize table
-      await this.connection.initializeTable();
+      logger.debug(
+        `[EmbeddingGenerator] Batch generated ${result.totalProcessed}/${texts.length} embeddings in ${result.duration}ms`
+      );
 
-      this.isInitialized = true;
-
-      const duration = Date.now() - startTime;
-      logger.debug(`[ToolRetrievalService] Initialized in ${duration}ms`);
+      // Convert to EmbeddingVector format
+      return result.embeddings.map((values) => ({
+        values,
+        dimensions: values.length,
+        model: this.config.model,
+      }));
     } catch (error) {
-      logger.error("[ToolRetrievalService] Initialization failed:", error);
+      logger.error(
+        "[EmbeddingGenerator] Batch embedding failed, falling back to sequential:",
+        error
+      );
+      // Fallback to sequential processing
+      return this.generateBatchDirect(texts);
+    }
+  }
+
+  /**
+   * Direct batch embedding (for small batches)
+   */
+  private async generateBatchDirect(texts: string[]): Promise<EmbeddingVector[]> {
+    const vectors: EmbeddingVector[] = [];
+
+    for (const text of texts) {
+      const vector = await this.generateForText(text);
+      vectors.push(vector);
+    }
+
+    return vectors;
+  }
+
+  /**
+   * Call LLMManager embed method
+   */
+  private async callLLMEmbed(texts: string[]): Promise<number[][]> {
+    // Lazy import LLMManager
+    if (!llmManagerInstance) {
+      const { LLMManager } = await import("../../core/LLMManager");
+      llmManagerInstance = new LLMManager();
+    }
+
+    const embeddings = await (
+      llmManagerInstance as { embed(texts: string[]): Promise<number[][]> }
+    ).embed(texts);
+
+    if (!embeddings || embeddings.length === 0) {
+      throw new Error("Empty embedding result from LLMManager");
+    }
+
+    return embeddings;
+  }
+
+  /**
+   * Core embedding generation
+   */
+  private async generate(input: EmbeddingInput): Promise<EmbeddingVector> {
+    try {
+      logger.debug(`[EmbeddingGenerator] Generating embedding for: ${input.name}`);
+
+      // Generate embedding using remote API
+      const vector = await this.generateRemoteEmbedding(input);
+
+      return {
+        values: vector,
+        dimensions: vector.length,
+        model: this.config.model,
+      };
+    } catch (error) {
+      logger.error(`[EmbeddingGenerator] Failed to generate embedding for ${input.name}:`, error);
       throw new ToolError(
-        `ToolRetrievalService initialization failed: ${this.formatError(error)}`,
-        ToolErrorCode.VECTOR_DB_ERROR
+        `Embedding generation failed: ${this.formatError(error)}`,
+        ToolErrorCode.EMBEDDING_MODEL_ERROR
       );
     }
   }
 
   /**
-   * Find relevant skills for a query
+   * Generate embedding using remote API (via LLMManager)
    */
-  async findRelevantSkills(
-    query: string,
-    limit?: number,
-    threshold?: number
-  ): Promise<ToolRetrievalResult[]> {
+  private async generateRemoteEmbedding(input: EmbeddingInput): Promise<number[]> {
     try {
-      // Ensure initialized
-      if (!this.isInitialized) {
-        logger.warn("[ToolRetrievalService] Not initialized, initializing now...");
-        await this.initialize();
+      // Lazy import LLMManager
+      if (!llmManagerInstance) {
+        const { LLMManager } = await import("../../core/LLMManager");
+        llmManagerInstance = new LLMManager();
       }
 
-      return this.searchEngine.search(query, { limit, minScore: threshold });
-    } catch (error) {
-      logger.error(`[ToolRetrievalService] findRelevantSkills failed for "${query}":`, error);
-      throw new ToolError(
-        `Skills search failed: ${this.formatError(error)}`,
-        ToolErrorCode.VECTOR_DB_ERROR
+      // Prepare text for embedding
+      const text = this.prepareEmbeddingText(input);
+
+      // Call LLMManager.embed()
+      const embeddings = await (
+        llmManagerInstance as { embed(texts: string[]): Promise<number[][]> }
+      ).embed([text]);
+
+      if (!embeddings || embeddings.length === 0 || !embeddings[0]) {
+        throw new Error("Empty embedding result");
+      }
+
+      logger.debug(
+        `[EmbeddingGenerator] Generated remote embedding: ${embeddings[0].length} dimensions`
       );
-    }
-  }
-
-  /**
-   * Index a skill
-   */
-  async indexSkill(skill: SkillData): Promise<void> {
-    await this.skillIndexer.addSkill(skill);
-  }
-
-  /**
-   * Remove a skill from the index
-   */
-  async removeSkill(skillId: string): Promise<void> {
-    await this.skillIndexer.removeSkill(skillId);
-  }
-
-  /**
-   * Scan and index all skills in a directory
-   */
-  async scanAndIndexAllSkills(skillsDir?: string): Promise<void> {
-    const dir = skillsDir || this.getDefaultSkillsDir();
-    await this.skillIndexer.scanAndIndex(dir);
-  }
-
-  /**
-   * Index tools (supports both skills and MCP tools)
-   */
-  async indexTools(tools: SkillTool[]): Promise<void> {
-    try {
-      logger.info(`[ToolRetrievalService] Indexing ${tools.length} tools...`);
-
-      const records: import("./types").ToolsTable[] = [];
-
-      for (const tool of tools) {
-        try {
-          // Generate ID based on tool type
-          const toolId = this.generateToolId(tool);
-
-          // Generate embedding
-          const vector = await this.embeddingGenerator.generateForText(
-            `${tool.name}\n${tool.description}`
-          );
-
-          // Prepare record
-          const record: import("./types").ToolsTable = {
-            id: toolId,
-            name: tool.name,
-            description: tool.description,
-            tags: tool.tags || [],
-            path: tool.path,
-            version: tool.version,
-            source: tool.path || tool.name,
-            toolType: (tool.type as "skill" | "mcp") || "skill",
-            metadata: JSON.stringify(tool.metadata || {}),
-            vector: vector.values,
-            indexedAt: new Date(),
-          };
-
-          records.push(record);
-        } catch (error) {
-          logger.error(`[ToolRetrievalService] Failed to index tool ${tool.name}:`, error);
-        }
-      }
-
-      if (records.length > 0) {
-        // Remove existing
-        for (const record of records) {
-          await this.connection.deleteById(record.id);
-        }
-
-        // Add new
-        await this.connection.addRecords(records);
-        logger.info(`[ToolRetrievalService] Successfully indexed ${records.length} tools`);
-      }
+      return embeddings[0];
     } catch (error) {
-      logger.error("[ToolRetrievalService] Failed to index tools:", error);
+      logger.error("[EmbeddingGenerator] Remote embedding generation failed:", error);
       throw error;
     }
   }
 
   /**
-   * Remove a tool from the index
+   * Prepare text for embedding
    */
-  async removeTool(toolId: string): Promise<void> {
-    await this.connection.deleteById(toolId);
+  private prepareEmbeddingText(input: EmbeddingInput): string {
+    const parts = [input.name, input.description, ...(input.tags || [])];
+
+    return parts.join(" ").trim();
   }
 
   /**
-   * Get service status
+   * Get configuration
    */
-  getStatus(): ServiceStatus {
-    const dbStatus = this.connection.getStatus();
-    return {
-      databaseStatus: dbStatus,
-      indexStatus: {
-        indexedCount: 0,
-        indexingCount: 0,
-        pendingCount: 0,
-      },
-      ready: this.isInitialized && dbStatus.connected,
-      healthy: this.isInitialized && dbStatus.connected,
-    };
-  }
-
-  /**
-   * Cleanup resources - 完整清理
-   */
-  async cleanup(): Promise<void> {
-    logger.info("[ToolRetrievalService] Cleaning up...");
-
-    try {
-      // 关闭数据库连接
-      if (this.connection) {
-        await this.connection.disconnect();
-        logger.debug("[ToolRetrievalService] Database connection closed");
-      }
-
-      // 清理状态
-      this.isInitialized = false;
-
-      // 清理模块级变量（通过导出的重置函数）
-      resetToolRetrievalService();
-
-      logger.info("[ToolRetrievalService] Cleanup completed");
-    } catch (error) {
-      logger.error("[ToolRetrievalService] Cleanup failed:", error);
-      throw new ToolError(
-        `ToolRetrievalService cleanup failed: ${this.formatError(error)}`,
-        ToolErrorCode.VECTOR_DB_ERROR
-      );
-    }
-  }
-
-  /**
-   * Get default skills directory
-   */
-  private getDefaultSkillsDir(): string {
-    return "./.data/skills";
-  }
-
-  /**
-   * Generate tool ID
-   */
-  private generateToolId(tool: SkillTool): string {
-    const source = tool.path || tool.name;
-    return require("crypto")
-      .createHash("md5")
-      .update(`${tool.type}:${source}:${tool.name}`)
-      .digest("hex");
+  getConfig(): EmbeddingConfig {
+    return this.config;
   }
 
   /**
@@ -28316,40 +28700,118 @@ export class ToolRetrievalService implements IToolRetrievalService {
     if (typeof error === "string") {
       return error;
     }
-    return "Unknown error occurred in ToolRetrievalService";
+    return "Unknown error occurred in EmbeddingGenerator";
   }
 }
 
-// ==================== Singleton Instance ====================
-
-let instance: ToolRetrievalService | null = null;
-
 /**
- * Get tool retrieval service instance (singleton)
+ * Get LLMManager instance (for embedding)
  */
-export function getToolRetrievalService(config?: ToolRetrievalConfig): ToolRetrievalService {
-  if (!instance) {
-    if (!config) {
-      config = {
-        vectorDbPath: "./.data",
-        model: "nomic-embed-text:latest",
-        cacheSize: 1000,
-        dimensions: 768,
-        similarityThreshold: 0.4,
-        maxResults: 10,
-      };
-    }
-    instance = new ToolRetrievalService(config);
-  }
-  return instance;
+export function getEmbeddingLLMManager(): unknown {
+  return llmManagerInstance;
 }
 
 /**
- * Reset tool retrieval service instance (for testing)
+ * Reset LLMManager instance (for testing)
  */
-export function resetToolRetrievalService(): void {
-  instance = null;
+export function resetEmbeddingLLMManager(): void {
+  llmManagerInstance = null;
 }
+
+/**
+ * Get batch embedding service (for advanced usage)
+ */
+export function getBatchEmbeddingService(): BatchEmbeddingService | null {
+  return batchEmbeddingService;
+}
+
+/**
+ * Reset batch embedding service (for testing)
+ */
+export function resetBatchEmbeddingService(): void {
+  batchEmbeddingService = null;
+}
+````
+
+## File: src/services/tool-retrieval/index.ts
+````typescript
+/**
+ * ToolRetrieval Module - Unified Exports
+ *
+ * Main entry point for the tool retrieval service module.
+ */
+
+// Types
+export * from "./types";
+
+// Core Classes
+export {
+  ToolRetrievalService,
+  IToolRetrievalService,
+  getToolRetrievalService,
+  resetToolRetrievalService,
+} from "./ToolRetrievalService";
+
+// Sub-modules
+export { LanceDBConnection, ILanceDBConnection } from "./LanceDBConnection";
+export {
+  IndexConfigOptimizer,
+  IndexConfig,
+  OptimizationResult,
+  INDEX_PRESETS,
+} from "./IndexConfigOptimizer";
+export {
+  EmbeddingGenerator,
+  IEmbeddingGenerator,
+  getEmbeddingLLMManager,
+  resetEmbeddingLLMManager,
+  getBatchEmbeddingService,
+  resetBatchEmbeddingService,
+} from "./EmbeddingGenerator";
+export {
+  BatchEmbeddingService,
+  BatchEmbeddingConfig,
+  BatchEmbeddingResult,
+} from "./BatchEmbeddingService";
+export { SkillIndexer, ISkillIndexer } from "./SkillIndexer";
+export { SearchEngine, ISearchEngine } from "./SearchEngine";
+export { MCPToolSupport, IMCPToolSupport } from "./MCPToolSupport";
+
+// Phase 1: Hybrid Retrieval Components
+export {
+  TagMatchingEngine,
+  ITagMatchingEngine,
+  TagMatchingEngineConfig,
+  DEFAULT_TAG_MATCHING_CONFIG,
+} from "./TagMatchingEngine";
+export {
+  UnifiedScoringEngine,
+  IUnifiedScoringEngine,
+  UnifiedScoringEngineConfig,
+  DEFAULT_SCORING_CONFIG,
+} from "./UnifiedScoringEngine";
+export {
+  HybridRetrievalEngine,
+  IHybridRetrievalEngine,
+  HybridRetrievalQuery,
+  HybridRetrievalEngineConfig,
+} from "./HybridRetrievalEngine";
+export {
+  DisclosureManager,
+  IDisclosureManager,
+  DisclosureManagerConfig,
+  DEFAULT_DISCLOSURE_CONFIG,
+  DEFAULT_DISCLOSURE_CONFIG_V2,
+  DisclosureDecisionManager,
+  IDisclosureDecisionManager,
+  DisclosureCache,
+  IDisclosureCache,
+  DisclosureDecisionInput,
+  DisclosureDecisionOutput,
+  DisclosureCacheKey,
+  DisclosureMetrics,
+  DisclosureManagerConfigV2,
+} from "./DisclosureManager";
 ````
 
 ## File: src/services/tool-retrieval/types.ts
@@ -28813,502 +29275,6 @@ export class IdleScheduler {
 }
 ````
 
-## File: src/services/MCPServerManager.ts
-````typescript
-/**
- * MCP Server Manager
- * 负责管理单个MCP服务器实例的生命周期
- * 包括连接管理、工具发现、调用执行等
- */
-
-import { EventEmitter } from "events";
-import { spawn } from "child_process";
-import { randomUUID } from "crypto";
-import { logger } from "../utils/logger";
-import {
-  CallToolResult,
-  Tool as MCPToolDefinition,
-  JSONRPCMessage,
-} from "@modelcontextprotocol/sdk/types.js";
-import { Client as MCPClient } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import type {
-  MCPServerConfig,
-  MCPServerStatus,
-  MCPTool,
-  MCPToolCall,
-  MCPToolResult,
-} from "../types/mcp";
-
-export interface ServerMetrics {
-  startTime: Date;
-  endTime?: Date;
-  totalCalls: number;
-  successfulCalls: number;
-  failedCalls: number;
-  averageResponseTime: number;
-}
-
-export class MCPServerManager extends EventEmitter {
-  private status: MCPServerStatus;
-  private tools: MCPTool[] = [];
-  private lastActivity?: Date;
-  private metrics: ServerMetrics;
-  private config: MCPServerConfig;
-  private client?: MCPClient;
-  private process?: ReturnType<typeof spawn>;
-  private transport?: StdioClientTransport;
-  private monitoringTimer: NodeJS.Timeout | null = null;
-
-  constructor(config: MCPServerConfig) {
-    super();
-    this.config = config;
-    this.status = {
-      phase: "not-started",
-      message: "Server not started",
-      uptime: 0,
-      startTime: undefined,
-    };
-    this.metrics = {
-      startTime: new Date(),
-      totalCalls: 0,
-      successfulCalls: 0,
-      failedCalls: 0,
-      averageResponseTime: 0,
-    };
-  }
-
-  /**
-   * 初始化MCP服务器
-   */
-  async initialize(): Promise<void> {
-    try {
-      logger.info(`[MCP] Initializing server ${this.config.id}...`);
-
-      this.status = {
-        phase: "initializing",
-        message: "Starting server...",
-        uptime: 0,
-        startTime: undefined,
-      };
-      this.emit("status-changed", this.status);
-
-      // 启动MCP客户端
-      await this.start();
-
-      logger.info(`[MCP] Server ${this.config.id} initialized successfully`);
-    } catch (error: any) {
-      logger.error(`[MCP] Failed to initialize server ${this.config.id}:`, error);
-
-      this.status = {
-        phase: "error",
-        message: error.message || "Initialization failed",
-        error: error.message,
-        uptime: 0,
-        startTime: undefined,
-      };
-
-      this.emit("status-changed", this.status);
-      throw error;
-    }
-  }
-
-  /**
-   * 启动MCP客户端
-   */
-  private async start(): Promise<void> {
-    if (this.config.type !== "stdio") {
-      throw new Error(`Unsupported transport type: ${this.config.type}`);
-    }
-
-    this.status = {
-      phase: "starting",
-      message: "Server starting...",
-      uptime: 0,
-      startTime: undefined,
-    };
-    this.emit("status-changed", this.status);
-
-    // 创建子进程
-    const env = {
-      ...process.env,
-      ...this.config.env,
-    };
-
-    this.process = spawn(this.config.command, this.config.args, {
-      stdio: ["pipe", "pipe", "pipe"],
-      env,
-      cwd: this.config.cwd,
-    });
-
-    // 监听进程错误
-    this.process.on("error", (error) => {
-      logger.error(`[MCP] Process error for server ${this.config.id}:`, error);
-      this.status = {
-        phase: "error",
-        message: `Process error: ${error.message}`,
-        error: error.message,
-        uptime: 0,
-        startTime: undefined,
-      };
-      this.emit("status-changed", this.status);
-    });
-
-    // 创建传输层
-    this.transport = new StdioClientTransport({
-      command: this.config.command,
-      args: this.config.args,
-      env,
-      cwd: this.config.cwd,
-    });
-
-    // 创建MCP客户端
-    this.client = new MCPClient({
-      name: "apex-bridge",
-      version: "1.0.0",
-    });
-
-    // 连接到服务器
-    await this.client.connect(this.transport);
-
-    // 发现工具
-    await this.discoverTools();
-
-    // 更新状态
-    this.status = {
-      phase: "running",
-      message: "Server running",
-      uptime: 0,
-      startTime: new Date(),
-    };
-
-    this.emit("status-changed", this.status);
-
-    // 启动运行监控
-    this.startMonitoring();
-  }
-
-  /**
-   * 发现可用工具
-   */
-  private async discoverTools(): Promise<void> {
-    if (!this.client) {
-      throw new Error("MCP client not initialized");
-    }
-
-    logger.debug(`[MCP] Discovering tools for server ${this.config.id}...`);
-
-    try {
-      const result = await this.client.listTools();
-
-      if (result && result.tools) {
-        this.tools = result.tools.map((tool) => ({
-          name: tool.name,
-          description: tool.description || "",
-          inputSchema: tool.inputSchema,
-        }));
-
-        logger.info(`[MCP] Discovered ${this.tools.length} tools for server ${this.config.id}`);
-
-        this.emit("tools-changed", this.tools);
-      }
-    } catch (error: any) {
-      logger.error(`[MCP] Failed to discover tools:`, error);
-      throw error;
-    }
-  }
-
-  /**
-   * 执行工具调用
-   */
-  async callTool(call: MCPToolCall): Promise<MCPToolResult> {
-    if (!this.client) {
-      throw new Error("MCP client not initialized");
-    }
-
-    const startTime = Date.now();
-
-    try {
-      // 检查工具是否存在
-      const tool = this.tools.find((t) => t.name === call.tool);
-
-      if (!tool) {
-        throw new Error(`Tool ${call.tool} not found`);
-      }
-
-      this.updateLastActivity();
-
-      logger.debug(`[MCP] Calling tool ${call.tool} on server ${this.config.id}`);
-
-      // 调用工具
-      const result = (await this.client.callTool({
-        name: call.tool,
-        arguments: call.arguments,
-      })) as CallToolResult;
-
-      const duration = Date.now() - startTime;
-
-      // 更新指标
-      this.updateMetrics(true, duration);
-
-      // 转换结果格式
-      const toolResult: MCPToolResult = {
-        success: true,
-        content: (result.content || []).map((content) => {
-          if (content.type === "text") {
-            return {
-              type: "text" as const,
-              text: content.text || "",
-            };
-          } else if (content.type === "image") {
-            return {
-              type: "image" as const,
-              mimeType: content.mimeType,
-              data: content.data,
-            };
-          } else {
-            return {
-              type: "resource" as const,
-              text: (content as any).text,
-            };
-          }
-        }),
-        duration,
-        metadata: {
-          toolType: "mcp",
-          source: this.config.id,
-          toolName: call.tool,
-        },
-      };
-
-      logger.debug(`[MCP] Tool ${call.tool} executed successfully in ${duration}ms`);
-
-      return toolResult;
-    } catch (error: any) {
-      const duration = Date.now() - startTime;
-
-      // 更新指标
-      this.updateMetrics(false, duration);
-
-      logger.error(`[MCP] Tool ${call.tool} failed:`, error);
-
-      return {
-        success: false,
-        content: [],
-        duration,
-        error: {
-          code: "TOOL_EXECUTION_ERROR",
-          message: error.message || "Unknown error",
-        },
-      };
-    }
-  }
-
-  /**
-   * 更新最后活动时间
-   */
-  updateLastActivity(): void {
-    this.lastActivity = new Date();
-  }
-
-  /**
-   * 更新指标
-   */
-  private updateMetrics(success: boolean, responseTime: number): void {
-    this.metrics.totalCalls++;
-    this.metrics.successfulCalls += success ? 1 : 0;
-    this.metrics.failedCalls += success ? 0 : 1;
-
-    // 计算平均响应时间
-    this.metrics.averageResponseTime =
-      (this.metrics.averageResponseTime * (this.metrics.totalCalls - 1) + responseTime) /
-      this.metrics.totalCalls;
-  }
-
-  /**
-   * 启动监控
-   */
-  private startMonitoring(): void {
-    // 更新运行时间
-    this.monitoringTimer = setInterval(() => {
-      if (this.status.phase === "running" && this.status.startTime) {
-        this.status.uptime = Date.now() - this.status.startTime.getTime();
-      }
-    }, 1000);
-  }
-
-  /**
-   * 获取服务器配置
-   */
-  getConfig(): MCPServerConfig {
-    return this.config;
-  }
-
-  /**
-   * 获取服务器状态
-   */
-  getStatus(): MCPServerStatus {
-    return { ...this.status };
-  }
-
-  /**
-   * 获取可用工具
-   */
-  getTools(): MCPTool[] {
-    return [...this.tools];
-  }
-
-  /**
-   * 获取最后活动时间
-   */
-  getLastActivity(): Date | undefined {
-    return this.lastActivity;
-  }
-
-  /**
-   * 获取指标
-   */
-  getMetrics(): ServerMetrics {
-    return { ...this.metrics };
-  }
-
-  /**
-   * 重启服务器
-   */
-  async restart(): Promise<void> {
-    logger.info(`[MCP] Restarting server ${this.config.id}...`);
-
-    await this.shutdown();
-    await this.initialize();
-  }
-
-  /**
-   * 关闭服务器
-   */
-  async shutdown(): Promise<void> {
-    try {
-      if (
-        this.status.phase === "running" ||
-        this.status.phase === "starting" ||
-        this.status.phase === "initializing"
-      ) {
-        logger.info(`[MCP] Shutting down server ${this.config.id}...`);
-
-        this.status = {
-          phase: "shutting-down",
-          message: "Shutting down...",
-          uptime: this.status.startTime ? Date.now() - this.status.startTime.getTime() : 0,
-          startTime: this.status.startTime,
-        };
-
-        this.emit("status-changed", this.status);
-
-        // 清除监控定时器
-        if (this.monitoringTimer) {
-          clearInterval(this.monitoringTimer);
-          this.monitoringTimer = null;
-        }
-
-        // 1. 先关闭 MCP 客户端连接（优雅关闭）
-        if (this.client) {
-          try {
-            await this.client.close();
-          } catch (e) {
-            // 忽略关闭时的错误
-            logger.debug(`[MCP] Client close error (ignored): ${e}`);
-          }
-          this.client = undefined;
-        }
-
-        // 2. 关闭传输层
-        if (this.transport) {
-          try {
-            await this.transport.close();
-          } catch (e) {
-            // 忽略关闭时的错误
-            logger.debug(`[MCP] Transport close error (ignored): ${e}`);
-          }
-          this.transport = undefined;
-        }
-
-        // 3. 优雅终止子进程
-        if (this.process && !this.process.killed) {
-          await this.gracefulKillProcess();
-        }
-
-        this.metrics.endTime = new Date();
-
-        this.status = {
-          phase: "stopped",
-          message: "Server stopped",
-          uptime: this.status.uptime,
-          startTime: this.status.startTime,
-        };
-
-        this.emit("status-changed", this.status);
-
-        logger.info(`[MCP] Server ${this.config.id} shut down`);
-      }
-    } catch (error: any) {
-      logger.error(`[MCP] Error during shutdown of server ${this.config.id}:`, error);
-
-      this.status = {
-        phase: "error",
-        message: "Shutdown failed",
-        error: error.message,
-        uptime: this.status.uptime,
-        startTime: this.status.startTime,
-      };
-
-      this.emit("status-changed", this.status);
-    }
-  }
-
-  /**
-   * 优雅终止子进程
-   * 先发送 SIGTERM，等待进程退出，超时后强制 SIGKILL
-   */
-  private async gracefulKillProcess(): Promise<void> {
-    if (!this.process) return;
-
-    const proc = this.process;
-    const serverId = this.config.id;
-
-    return new Promise<void>((resolve) => {
-      let killed = false;
-
-      // 监听进程退出
-      const onExit = () => {
-        killed = true;
-        resolve();
-      };
-
-      proc.once("exit", onExit);
-      proc.once("close", onExit);
-
-      // 关闭 stdin 以通知子进程关闭
-      if (proc.stdin && !proc.stdin.destroyed) {
-        proc.stdin.end();
-      }
-
-      // 发送 SIGTERM
-      proc.kill("SIGTERM");
-
-      // 设置超时，3秒后强制 SIGKILL
-      setTimeout(() => {
-        if (!killed && proc && !proc.killed) {
-          logger.warn(`[MCP] Server ${serverId} did not exit gracefully, forcing SIGKILL`);
-          proc.kill("SIGKILL");
-        }
-        resolve();
-      }, 3000);
-    }).finally(() => {
-      this.process = undefined;
-    });
-  }
-}
-````
-
 ## File: src/services/RedisService.ts
 ````typescript
 import { createClient } from 'redis';
@@ -29735,284 +29701,6 @@ export class RequestTracker extends EventEmitter {
 }
 ````
 
-## File: src/strategies/CLAUDE.md
-````markdown
-[根目录](../../CLAUDE.md) > [src](../) > **strategies**
-
-# Strategies 模块 - 聊天策略层
-
-## 🎯 模块职责
-
-Strategies模块是ApexBridge的聊天处理策略层，采用策略模式实现不同的聊天处理逻辑。支持ReAct多轮思考和单轮快速响应两种主要策略，可根据用户需求动态选择。
-
-## 🏗️ 架构设计
-
-```mermaid
-graph TD
-    A["Strategies Module"] --> B["ChatStrategy接口"];
-    A --> C["ReActStrategy"];
-    A --> D["SingleRoundStrategy"];
-
-    B --> B1["execute()"];
-    B --> B2["stream()"];
-    B --> B3["supports()"];
-
-    C --> C1["多轮思考循环"];
-    C --> C2["工具调用管理"];
-    C --> C3["流式输出支持"];
-    C --> C4["ACE轨迹集成"];
-
-    D --> D1["单轮快速响应"];
-    D --> D2["变量解析集成"];
-    D --> D3["历史记录保存"];
-
-    E["ChatService"] --> A;
-    E --> E1["策略选择逻辑"];
-    E --> E2["服务协调"];
-```
-
-## 📋 策略接口
-
-### ChatStrategy接口 (`ChatStrategy.ts`)
-- **职责**: 定义所有聊天策略的统一契约
-- **关键方法**:
-  - `execute()`: 执行聊天处理（同步/异步）
-  - `stream()`: 流式执行聊天处理
-  - `supports()`: 检查策略是否支持给定选项
-  - `getName()`: 获取策略名称
-- **设计模式**: 策略模式，支持运行时动态选择
-
-## 🧠 ReAct策略 (`ReActStrategy.ts`)
-
-### 核心特性
-- **多轮思考**: 支持自我思考循环，最多10轮迭代
-- **工具调用**: 集成工具执行框架，支持并发工具调用
-- **流式输出**: 支持思考和内容的分段流式输出
-- **ACE集成**: 自动记录思考轨迹到ACE引擎
-
-### 执行流程
-1. **策略选择**: 检查`options.selfThinking.enabled`是否为true
-2. **工具注册**: 注册默认工具和自定义工具
-3. **变量解析**: 使用VariableResolver处理消息变量
-4. **ReAct循环**: 调用ReActEngine执行多轮思考
-5. **轨迹记录**: 保存完整的思考过程到ACE
-6. **结果返回**: 返回最终内容和思考过程
-
-### 配置选项
-```typescript
-selfThinking: {
-  enabled: boolean;           // 启用多轮思考
-  maxIterations: number;      // 最大迭代次数（默认无限制）
-  includeThoughtsInResponse: boolean; // 是否包含思考过程
-  systemPrompt: string;       // 自定义系统提示词
-  additionalPrompts: string[]; // 额外提示词
-  tools: ToolDefinition[];    // 自定义工具定义
-  enableStreamThoughts: boolean; // 是否流式输出思考
-}
-```
-
-### 流式输出事件
-- `reasoning`: 思考过程输出
-- `content`: 内容生成输出
-- `tool_start`: 工具调用开始
-- `tool_end`: 工具调用结束
-
-## ⚡ 单轮策略 (`SingleRoundStrategy.ts`)
-
-### 核心特性
-- **快速响应**: 单轮LLM调用，无思考循环
-- **简单高效**: 适合简单问答场景
-- **变量支持**: 集成变量解析功能
-- **历史保存**: 自动保存对话历史
-
-### 执行流程
-1. **策略选择**: 默认策略或当ReAct未启用时
-2. **变量解析**: 处理消息中的动态变量
-3. **LLM调用**: 直接调用LLM生成响应
-4. **历史记录**: 保存用户消息和AI响应
-5. **结果返回**: 返回生成的内容
-
-### 适用场景
-- 简单问答
-- 快速响应需求
-- 低延迟要求
-- 无需工具调用的场景
-
-## 🔧 策略选择逻辑
-
-### ChatService中的选择算法
-```typescript
-private async selectStrategy(options: ChatOptions): Promise<ChatStrategy> {
-  for (const strategy of this.strategies) {
-    if (strategy.supports(options)) {
-      logger.debug(`[ChatService] Selected strategy: ${strategy.getName()}`);
-      return strategy;
-    }
-  }
-  // 默认使用单轮策略
-  return this.strategies.find(s => s.getName() === 'SingleRoundStrategy');
-}
-```
-
-### 选择优先级
-1. **ReAct策略**: `selfThinking.enabled === true`
-2. **单轮策略**: 默认回退策略
-
-## 🚀 集成与使用
-
-### 在ChatService中的集成
-```typescript
-// 构造函数中初始化策略
-this.strategies = [
-  new ReActStrategy(this.llmManager, this.variableResolver, this.aceIntegrator, this.conversationHistoryService),
-  new SingleRoundStrategy(this.llmManager, this.variableResolver, this.aceIntegrator, this.conversationHistoryService)
-];
-```
-
-### 策略执行调用
-```typescript
-// 选择策略
-const strategy = await this.selectStrategy(options);
-
-// 执行策略
-if (options.stream) {
-  return strategy.stream(messages, options, abortSignal);
-} else {
-  return strategy.execute(messages, options);
-}
-```
-
-## 🔧 关键依赖
-
-### 外部依赖
-- `../core/LLMManager`: LLM管理器
-- `../core/stream-orchestrator/ReActEngine`: ReAct引擎
-- `../core/skills/SkillExecutor`: 技能执行器
-
-### 服务依赖
-- `../services/VariableResolver`: 变量解析服务
-- `../services/AceIntegrator`: ACE集成服务
-- `../services/ConversationHistoryService`: 对话历史服务
-
-### 类型依赖
-- `../types/`: 聊天选项和消息类型
-- `../core/stream-orchestrator/types`: 流式处理类型
-
-## 🧪 测试要点
-
-### 单元测试重点
-- 策略选择逻辑的正确性
-- ReAct策略的多轮迭代逻辑
-- 单轮策略的快速响应路径
-- 流式输出的完整性
-- 错误处理和降级机制
-
-### 集成测试重点
-- 策略与服务的协调
-- 流式输出的实时性
-- 工具调用的并发处理
-- ACE集成的完整性
-- 历史记录的一致性
-
-## 📊 性能考虑
-
-### ReAct策略优化
-- **并发工具执行**: 支持最多3个并发工具调用
-- **迭代限制**: 默认最多50轮迭代，防止无限循环
-- **超时控制**: 支持总超时和单轮超时设置
-- **内存管理**: 及时清理思考缓冲区和工具状态
-
-### 单轮策略优化
-- **缓存利用**: 充分利用变量解析缓存
-- **快速路径**: 最小化处理开销
-- **错误降级**: 快速失败和错误传播
-
-## 🔗 相关文件
-
-### 策略实现文件
-- `/src/strategies/ChatStrategy.ts` - 策略接口定义
-- `/src/strategies/ReActStrategy.ts` - ReAct策略实现
-- `/src/strategies/SingleRoundStrategy.ts` - 单轮策略实现
-
-### 核心依赖文件
-- `/src/core/stream-orchestrator/ReActEngine.ts` - ReAct引擎
-- `/src/core/llm/adapters/LLMAdapterFactory.ts` - LLM适配器工厂
-- `/src/core/skills/SkillExecutor.ts` - 技能执行器
-
-### 服务依赖文件
-- `/src/services/VariableResolver.ts` - 变量解析服务
-- `/src/services/AceIntegrator.ts` - ACE集成服务
-- `/src/services/ConversationHistoryService.ts` - 对话历史服务
-
-## 📈 最近更新
-
-### 2025-11-30 - 策略模式重构
-- ✅ **新增策略层**: 从ChatService中独立出来
-- ✅ **ReAct策略**: 完整的多轮思考和工具调用支持
-- ✅ **单轮策略**: 快速响应路径优化
-- ✅ **接口统一**: 所有策略实现统一接口
-
-### 关键改进
-- **职责分离**: 策略逻辑从业务服务中分离
-- **可扩展性**: 易于添加新的聊天策略
-- **测试友好**: 可以独立测试每个策略
-- **类型安全**: 完整的TypeScript接口定义
-
-## 🎯 使用示例
-
-### ReAct策略使用
-```typescript
-// 启用多轮思考（默认50次）
-const options = {
-  selfThinking: {
-    enabled: true,
-    // maxIterations未设置，使用默认值（50次）
-    includeThoughtsInResponse: true,
-    tools: [{
-      name: "search",
-      description: "搜索知识库",
-      parameters: { query: { type: "string" } }
-    }]
-  }
-};
-
-// 执行聊天
-const result = await chatService.processMessage(messages, options);
-```
-
-### 单轮策略使用
-```typescript
-// 默认使用单轮策略
-const options = {
-  // 不需要特殊配置
-};
-
-// 执行聊天
-const result = await chatService.processMessage(messages, options);
-```
-
-## 🎯 下一步计划
-
-1. **策略扩展**: 支持更多聊天策略（如RAG策略、多模态策略）
-2. **性能优化**: 优化ReAct策略的内存使用和响应时间
-3. **配置增强**: 支持更细粒度的策略配置
-4. **监控指标**: 添加策略执行的性能指标
-
----
-
-**模块路径**: `/src/strategies/`
-**更新时间**: 2025-11-30 18:21:54
-**状态**: 策略模式重构完成，支持ReAct和单轮两种策略
-
-**核心成就**:
-- ✅ 完成策略模式架构设计
-- ✅ 实现ReAct多轮思考策略
-- ✅ 实现单轮快速响应策略
-- ✅ 统一的策略接口和选择逻辑
-- ✅ 完整的流式输出支持
-- ✅ 与所有服务完美集成
-````
-
 ## File: src/types/react.ts
 ````typescript
 /**
@@ -30141,6 +29829,22 @@ export interface CleanupStats {
   /** 清理原因 */
   reason: 'timeout' | 'manual' | 'shutdown';
 }
+````
+
+## File: src/utils/config/index.ts
+````typescript
+/**
+ * 配置工具导出
+ */
+
+export { ConfigLoader } from "../config-loader";
+export { ConfigValidator, type ValidationResult } from "../config-validator";
+export { ConfigWriter } from "../config-writer";
+export {
+  DisclosureConfigLoader,
+  getDisclosureConfig,
+  getDisclosureConfigAsync,
+} from "./disclosure-config";
 ````
 
 ## File: src/utils/config-validator.ts
@@ -30743,39 +30447,26 @@ export function extractTimestamp(requestId: string): number | null {
 }
 ````
 
-## File: CHANGELOG.md
-````markdown
-# Changelog
-
-*ApexBridge 变更日志自动生成*
-
-生成时间: 2026-01-11
-
----
-
-
----
-
----
+## File: .repomixignore
 ````
-
-## File: jest.config.js
-````javascript
-module.exports = {
-  preset: "ts-jest",
-  testEnvironment: "node",
-  roots: ["<rootDir>/src", "<rootDir>/tests"],
-  testMatch: ["**/__tests__/**/*.ts", "**/*.test.ts"],
-  moduleFileExtensions: ["ts", "tsx", "js", "jsx", "json", "node"],
-  collectCoverageFrom: ["src/**/*.ts", "!src/**/*.d.ts", "!src/**/*.test.ts"],
-  coverageDirectory: "coverage",
-  coverageReporters: ["text", "lcov", "html"],
-  verbose: true,
-  moduleNameMapper: {
-    "^@/(.*)$": "<rootDir>/src/$1",
-  },
-  transformIgnorePatterns: ["node_modules/(?!(p-queue|p-timeout|eventemitter3|uuid)/)"],
-};
+# Add patterns to ignore here, one per line
+# Example:
+# *.log
+# tmp/
+.claude
+.vscode
+.github
+dist
+docs
+assets
+exmples
+logs
+node_modules
+scripts
+tests
+.env
+*.json
+**/*.md
 ````
 
 ## File: LICENSE
@@ -31466,25 +31157,25 @@ export async function getDefaultModel(req: Request, res: Response): Promise<void
 ````typescript
 /**
  * ProviderController - 提供商管理 API 控制器
- * 
+ *
  * 管理 LLM 提供商的 CRUD 操作
  */
 
-import { Request, Response } from 'express';
-import { LLMConfigService } from '../../services/LLMConfigService';
-import { ModelRegistry } from '../../services/ModelRegistry';
-import { CreateProviderInput, UpdateProviderInput } from '../../types/llm-models';
-import { logger } from '../../utils/logger';
-import { LLMAdapterFactory } from '../../core/llm/adapters/LLMAdapterFactory';
-import { AppError } from '../../utils/errors';
+import { Request, Response } from "express";
+import { LLMConfigService } from "../../services/LLMConfigService";
+import { ModelRegistry } from "../../services/ModelRegistry";
+import { CreateProviderInput, UpdateProviderInput } from "../../types/llm-models";
+import { logger } from "../../utils/logger";
+import { LLMAdapterFactory } from "../../core/llm/adapters/LLMAdapterFactory";
+import { AppError, isAppError, ErrorCode } from "../../utils/errors";
 
 const configService = LLMConfigService.getInstance();
 const modelRegistry = ModelRegistry.getInstance();
 
 /**
  * 统一处理服务层错误
- * 将字符串匹配的错误转换为合适的 HTTP 状态码
- * 
+ * 使用类型化错误 (AppError) 处理，替代脆弱的字符串匹配
+ *
  * @param res - Express 响应对象
  * @param error - 错误对象
  * @param action - 操作名称（用于日志）
@@ -31492,39 +31183,95 @@ const modelRegistry = ModelRegistry.getInstance();
  */
 function handleServiceError(res: Response, error: any, action: string): boolean {
   logger.error(`❌ Failed to ${action}:`, error);
-  
-  const msg = error.message || '';
-  
-  // 使用字符串匹配（如果 Service 层没有使用 AppError）
-  // 注意：这是临时方案，理想情况下 Service 层应该抛出 AppError
-  if (msg.includes('not found') || msg.toLowerCase().includes('not found')) {
+
+  // 如果是 AppError，使用类型化的错误处理
+  if (isAppError(error)) {
+    res.status(error.statusCode).json({
+      error: {
+        message: error.message,
+        code: error.code,
+        type: error.type,
+        ...(error.details && { details: error.details }),
+      },
+    });
+    return true;
+  }
+
+  // 向后兼容：处理非 AppError 的错误（降级到字符串匹配）
+  const msg = error?.message || String(error);
+  const lowerMsg = msg.toLowerCase();
+
+  if (lowerMsg.includes("not found") || lowerMsg.includes("does not exist")) {
     res.status(404).json({
-      error: 'Resource not found',
-      message: error.message
+      error: {
+        message: msg,
+        code: ErrorCode.NOT_FOUND,
+        type: "client_error",
+      },
     });
     return true;
   }
-  
-  if (msg.includes('already exists') || msg.toLowerCase().includes('already exists')) {
+
+  if (lowerMsg.includes("already exists") || lowerMsg.includes("duplicate")) {
     res.status(409).json({
-      error: 'Resource already exists',
-      message: error.message
+      error: {
+        message: msg,
+        code: "RESOURCE_CONFLICT",
+        type: "client_error",
+      },
     });
     return true;
   }
-  
-  if (msg.includes('required') || msg.includes('Invalid') || msg.toLowerCase().includes('validation')) {
+
+  if (
+    lowerMsg.includes("required") ||
+    lowerMsg.includes("invalid") ||
+    lowerMsg.includes("validation") ||
+    lowerMsg.includes("validation failed")
+  ) {
     res.status(400).json({
-      error: 'Validation failed',
-      message: error.message
+      error: {
+        message: msg,
+        code: ErrorCode.VALIDATION_ERROR,
+        type: "client_error",
+      },
     });
     return true;
   }
-  
+
+  if (
+    lowerMsg.includes("unauthorized") ||
+    lowerMsg.includes("authentication") ||
+    lowerMsg.includes("auth failed")
+  ) {
+    res.status(401).json({
+      error: {
+        message: msg,
+        code: ErrorCode.UNAUTHORIZED,
+        type: "client_error",
+      },
+    });
+    return true;
+  }
+
+  if (lowerMsg.includes("forbidden") || lowerMsg.includes("permission")) {
+    res.status(403).json({
+      error: {
+        message: msg,
+        code: ErrorCode.FORBIDDEN,
+        type: "client_error",
+      },
+    });
+    return true;
+  }
+
   // 默认返回 500
   res.status(500).json({
-    error: `Failed to ${action}`,
-    message: error.message
+    error: {
+      message: msg,
+      code: ErrorCode.INTERNAL_ERROR,
+      type: "server_error",
+    },
   });
   return true;
 }
@@ -31532,7 +31279,7 @@ function handleServiceError(res: Response, error: any, action: string): boolean 
 /**
  * 转换为 Provider DTO
  * 统一响应结构，确保所有接口返回格式一致，且绝对安全（脱敏处理）
- * 
+ *
  * @param provider - 提供商对象
  * @param modelCount - 模型数量（可选，默认 0）
  * @returns 标准化的 Provider DTO
@@ -31553,7 +31300,7 @@ function toProviderDTO(provider: any, modelCount: number = 0) {
       // Explicitly OMIT apiKey - 确保敏感信息不会泄露
     },
     createdAt: provider.createdAt,
-    updatedAt: provider.updatedAt
+    updatedAt: provider.updatedAt,
   };
 }
 
@@ -31564,9 +31311,9 @@ function toProviderDTO(provider: any, modelCount: number = 0) {
 export async function listProviders(req: Request, res: Response): Promise<void> {
   try {
     const providers = configService.listProviders();
-    
+
     // 为每个提供商添加模型统计，使用统一的 DTO
-    const providersWithStats = providers.map(p => {
+    const providersWithStats = providers.map((p) => {
       const models = configService.getProviderModels(p.id);
       // ✅ 使用统一 DTO，确保响应结构一致
       return toProviderDTO(p, models.length);
@@ -31574,10 +31321,10 @@ export async function listProviders(req: Request, res: Response): Promise<void> 
 
     res.json({
       success: true,
-      providers: providersWithStats
+      providers: providersWithStats,
     });
   } catch (error: any) {
-    handleServiceError(res, error, 'list providers');
+    handleServiceError(res, error, "list providers");
   }
 }
 
@@ -31588,21 +31335,21 @@ export async function listProviders(req: Request, res: Response): Promise<void> 
 export async function getProvider(req: Request, res: Response): Promise<void> {
   try {
     const id = parseInt(req.params.id, 10);
-    
+
     if (isNaN(id)) {
       res.status(400).json({
-        error: 'Invalid provider ID',
-        message: 'Provider ID must be a number'
+        error: "Invalid provider ID",
+        message: "Provider ID must be a number",
       });
       return;
     }
 
     const provider = configService.getProvider(id);
-    
+
     if (!provider) {
       res.status(404).json({
-        error: 'Provider not found',
-        message: `Provider with id ${id} not found`
+        error: "Provider not found",
+        message: `Provider with id ${id} not found`,
       });
       return;
     }
@@ -31613,10 +31360,10 @@ export async function getProvider(req: Request, res: Response): Promise<void> {
     res.json({
       success: true,
       // ✅ 使用统一 DTO，确保响应结构一致
-      provider: toProviderDTO(provider, models.length)
+      provider: toProviderDTO(provider, models.length),
     });
   } catch (error: any) {
-    handleServiceError(res, error, 'get provider');
+    handleServiceError(res, error, "get provider");
   }
 }
 
@@ -31631,25 +31378,25 @@ export async function createProvider(req: Request, res: Response): Promise<void>
     // 基本验证
     if (!input.provider || !input.name || !input.baseConfig) {
       res.status(400).json({
-        error: 'Missing required fields',
-        message: 'provider, name, and baseConfig are required'
+        error: "Missing required fields",
+        message: "provider, name, and baseConfig are required",
       });
       return;
     }
 
     const created = configService.createProvider(input);
-    
+
     // 刷新缓存
     modelRegistry.forceRefresh();
 
     res.status(201).json({
       success: true,
-      message: 'Provider created successfully',
+      message: "Provider created successfully",
       // ✅ 返回完整的、一致的结构（新创建的 Provider 模型数为 0）
-      provider: toProviderDTO(created, 0)
+      provider: toProviderDTO(created, 0),
     });
   } catch (error: any) {
-    handleServiceError(res, error, 'create provider');
+    handleServiceError(res, error, "create provider");
   }
 }
 
@@ -31660,11 +31407,11 @@ export async function createProvider(req: Request, res: Response): Promise<void>
 export async function updateProvider(req: Request, res: Response): Promise<void> {
   try {
     const id = parseInt(req.params.id, 10);
-    
+
     if (isNaN(id)) {
       res.status(400).json({
-        error: 'Invalid provider ID',
-        message: 'Provider ID must be a number'
+        error: "Invalid provider ID",
+        message: "Provider ID must be a number",
       });
       return;
     }
@@ -31673,28 +31420,28 @@ export async function updateProvider(req: Request, res: Response): Promise<void>
 
     if (Object.keys(input).length === 0) {
       res.status(400).json({
-        error: 'No updates provided',
-        message: 'At least one field must be provided'
+        error: "No updates provided",
+        message: "At least one field must be provided",
       });
       return;
     }
 
     const updated = configService.updateProvider(id, input);
-    
+
     // 刷新缓存
     modelRegistry.forceRefresh();
-    
+
     // 获取当前模型数以保持一致性
     const models = configService.getProviderModels(id);
 
     res.json({
       success: true,
-      message: 'Provider updated successfully',
+      message: "Provider updated successfully",
       // ✅ 返回完整的、一致的结构
-      provider: toProviderDTO(updated, models.length)
+      provider: toProviderDTO(updated, models.length),
     });
   } catch (error: any) {
-    handleServiceError(res, error, 'update provider');
+    handleServiceError(res, error, "update provider");
   }
 }
 
@@ -31705,26 +31452,26 @@ export async function updateProvider(req: Request, res: Response): Promise<void>
 export async function deleteProvider(req: Request, res: Response): Promise<void> {
   try {
     const id = parseInt(req.params.id, 10);
-    
+
     if (isNaN(id)) {
       res.status(400).json({
-        error: 'Invalid provider ID',
-        message: 'Provider ID must be a number'
+        error: "Invalid provider ID",
+        message: "Provider ID must be a number",
       });
       return;
     }
 
     configService.deleteProvider(id);
-    
+
     // 刷新缓存
     modelRegistry.forceRefresh();
 
     res.json({
       success: true,
-      message: 'Provider and associated models deleted successfully'
+      message: "Provider and associated models deleted successfully",
     });
   } catch (error: any) {
-    handleServiceError(res, error, 'delete provider');
+    handleServiceError(res, error, "delete provider");
   }
 }
 
@@ -31738,13 +31485,13 @@ export async function listAdapters(req: Request, res: Response): Promise<void> {
 
     res.json({
       success: true,
-      adapters
+      adapters,
     });
   } catch (error: any) {
-    logger.error('❌ Failed to list adapters:', error);
+    logger.error("❌ Failed to list adapters:", error);
     res.status(500).json({
-      error: 'Failed to list adapters',
-      message: error.message
+      error: "Failed to list adapters",
+      message: error.message,
     });
   }
 }
@@ -31760,9 +31507,9 @@ export async function testProviderConnection(req: Request, res: Response) {
 
     // 2. 基础校验
     if (!provider || !baseConfig) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Missing required parameters: provider or baseConfig' 
+      return res.status(400).json({
+        success: false,
+        message: "Missing required parameters: provider or baseConfig",
       });
     }
 
@@ -31775,27 +31522,26 @@ export async function testProviderConnection(req: Request, res: Response) {
     // 4. 执行核心测试 (拉取模型列表)
     // 这一步能同时验证：网络通畅 + API Key 正确 + BaseURL 正确
     await adapter.getModels();
-    
+
     // 5. 成功返回
     res.json({
       success: true,
       latency: Date.now() - start,
-      message: '连接成功',
+      message: "连接成功",
       details: {
         provider,
-        testedAt: new Date().toISOString()
-      }
+        testedAt: new Date().toISOString(),
+      },
     });
-
   } catch (error: any) {
     // 6. 错误处理与智能提示
     const status = parseErrorStatus(error);
     const hint = getFailureHint(status, req.body.provider, req.body.baseConfig?.baseURL);
 
-    res.status(status).json({ 
-      success: false, 
-      message: error.message || 'Connection failed',
-      hint //这字段可以让前端展示给用户，例如 "请检查 Ollama 是否启动"
+    res.status(status).json({
+      success: false,
+      message: error.message || "Connection failed",
+      hint, //这字段可以让前端展示给用户，例如 "请检查 Ollama 是否启动"
     });
   }
 }
@@ -31810,7 +31556,9 @@ export async function validateModelBeforeAdd(req: Request, res: Response) {
 
   // 1. 守卫语句：一行代码完成所有必填校验
   if (!provider || !baseConfig || !model) {
-    return res.status(400).json({ success: false, message: 'Missing: provider, baseConfig, or model' });
+    return res
+      .status(400)
+      .json({ success: false, message: "Missing: provider, baseConfig, or model" });
   }
 
   try {
@@ -31823,48 +31571,47 @@ export async function validateModelBeforeAdd(req: Request, res: Response) {
     // 3. 唯一的网络交互 (Core)
     // 优化：max_tokens=1。只要模型能吐出 1 个字，就证明网络通、Key 对、模型存在。
     // 无需判断返回内容具体是什么，不报错就是成功。
-    await adapter.chat([{ role: 'user', content: 'Hi' }], { 
-      model, 
-      max_tokens: 1, 
-      temperature: 0 
+    await adapter.chat([{ role: "user", content: "Hi" }], {
+      model,
+      max_tokens: 1,
+      temperature: 0,
     });
 
     // 4. 成功返回
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       latency: Date.now() - start,
-      message: '连接成功' 
+      message: "连接成功",
     });
-
   } catch (error: any) {
     // 5. 错误收敛：将所有异常统一由辅助函数解析状态码
     const status = parseErrorStatus(error);
-    res.status(status).json({ success: false, message: 'Connection failed' });
+    res.status(status).json({ success: false, message: "Connection failed" });
   }
 }
 
 // --- 辅助函数：保持主逻辑干净 ---
 
 function parseErrorStatus(error: any): number {
-  const msg = error.message?.toLowerCase() || '';
-  if (msg.includes('401') || msg.includes('auth')) return 401;
-  if (msg.includes('403') || msg.includes('permission')) return 403;
-  if (msg.includes('404') || msg.includes('not found')) return 404;
-  if (msg.includes('429') || msg.includes('quota')) return 429;
-  if (msg.includes('timeout')) return 504;
+  const msg = error.message?.toLowerCase() || "";
+  if (msg.includes("401") || msg.includes("auth")) return 401;
+  if (msg.includes("403") || msg.includes("permission")) return 403;
+  if (msg.includes("404") || msg.includes("not found")) return 404;
+  if (msg.includes("429") || msg.includes("quota")) return 429;
+  if (msg.includes("timeout")) return 504;
   return 500;
 }
 
 // --- 辅助函数：生成排查建议 (可选) ---
-function getFailureHint(status: number, provider: string, url: string = ''): string | undefined {
+function getFailureHint(status: number, provider: string, url: string = ""): string | undefined {
   if (status === 502) {
-    if (provider === 'ollama') {
-      return '无法连接到 Ollama。请检查：1. Ollama 是否已启动？ 2. 若在 Docker 中，请使用 http://host.docker.internal:11434/v1';
+    if (provider === "ollama") {
+      return "无法连接到 Ollama。请检查：1. Ollama 是否已启动？ 2. 若在 Docker 中，请使用 http://host.docker.internal:11434/v1";
     }
-    return '无法连接到服务器，请检查 Base URL 是否正确，或网络是否通畅。';
+    return "无法连接到服务器，请检查 Base URL 是否正确，或网络是否通畅。";
   }
-  if (status === 401) return '鉴权失败，请检查 API Key 是否正确。';
-  if (status === 404) return '接口路径错误。请检查 Base URL (通常应以 /v1 结尾)。';
+  if (status === 401) return "鉴权失败，请检查 API Key 是否正确。";
+  if (status === 404) return "接口路径错误。请检查 Base URL (通常应以 /v1 结尾)。";
   return undefined;
 }
 ````
@@ -34101,405 +33848,1405 @@ export class MigrationRunner {
 }
 ````
 
-## File: src/services/tool-retrieval/SearchEngine.ts
+## File: src/services/tool-retrieval/LanceDBConnection.ts
 ````typescript
 /**
- * SearchEngine - Search Logic
+ * LanceDBConnection - Database Connection Management
  *
- * Handles vector search, result formatting, and filtering.
- * Includes semantic caching for improved performance.
+ * Handles database connection, schema management, and table initialization.
+ * Uses connection pooling for improved concurrency and stability.
  */
 
+import * as lancedb from "@lancedb/lancedb";
+import { Index } from "@lancedb/lancedb";
+import * as arrow from "apache-arrow";
+import * as fs from "fs/promises";
+import * as path from "path";
 import { logger } from "../../utils/logger";
-import {
-  ToolRetrievalResult,
-  RetrievalFilter,
-  RetrievalSortingOptions,
-  ToolsTable,
-  ToolType,
-} from "./types";
-import { ILanceDBConnection } from "./LanceDBConnection";
-import { IEmbeddingGenerator } from "./EmbeddingGenerator";
-import { THRESHOLDS } from "../../constants";
-import { SemanticCache, type SemanticSearchResult } from "../cache/SemanticCache";
+import { LanceDBConfig, ConnectionStatus, ToolsTable } from "./types";
+import { LanceDBConnectionPool } from "./LanceDBConnectionPool";
+import { IndexConfigOptimizer, OptimizationResult } from "./IndexConfigOptimizer";
 
 /**
- * Search options extended with caching control
+ * LanceDB Connection interface
  */
-export interface SearchOptions {
-  limit?: number;
-  minScore?: number;
-  /** Disable cache lookup for this search */
-  skipCache?: boolean;
-  /** Disable caching the result */
-  noCache?: boolean;
+export interface ILanceDBConnection {
+  connect(config: LanceDBConfig): Promise<void>;
+  disconnect(): Promise<void>;
+  initializeTable(): Promise<void>;
+  getTable(): Promise<lancedb.Table | null>;
+  checkSchemaCompatibility(): Promise<boolean>;
+  getStatus(): ConnectionStatus;
+  getDb(): lancedb.Connection | null;
+  addRecords(records: ToolsTable[]): Promise<void>;
+  deleteById(id: string): Promise<void>;
+  getCount(): Promise<number>;
 }
 
 /**
- * SearchEngine interface
+ * LanceDB Connection implementation with connection pooling
  */
-export interface ISearchEngine {
-  search(query: string, options?: SearchOptions): Promise<ToolRetrievalResult[]>;
-  formatResults(results: unknown[]): ToolRetrievalResult[];
-  applyFilters(results: ToolRetrievalResult[], filters: RetrievalFilter[]): ToolRetrievalResult[];
-  sortResults(
-    results: ToolRetrievalResult[],
-    options: RetrievalSortingOptions
-  ): ToolRetrievalResult[];
-  /** Get cache statistics (if caching is enabled) */
-  getCacheStats?: () => ReturnType<SemanticCache["getStats"]>;
-}
+export class LanceDBConnection implements ILanceDBConnection {
+  private static pool: LanceDBConnectionPool | null = null;
+  private db: lancedb.Connection | null = null;
+  private table: lancedb.Table | null = null;
+  private config: LanceDBConfig | null = null;
+  private connected = false;
+  private dbPath: string = "";
+  private optimizer: IndexConfigOptimizer;
 
-/**
- * SearchEngine implementation
- */
-export class SearchEngine implements ISearchEngine {
-  private readonly connection: ILanceDBConnection;
-  private readonly embeddingGenerator: IEmbeddingGenerator;
-  private readonly defaultLimit: number;
-  private readonly defaultThreshold: number;
-  private readonly semanticCache: SemanticCache | null;
-
-  constructor(
-    connection: ILanceDBConnection,
-    embeddingGenerator: IEmbeddingGenerator,
-    options?: {
-      defaultLimit?: number;
-      defaultThreshold?: number;
-      semanticCache?: SemanticCache;
-    }
-  ) {
-    this.connection = connection;
-    this.embeddingGenerator = embeddingGenerator;
-    this.defaultLimit = options?.defaultLimit ?? 5;
-    this.defaultThreshold = options?.defaultThreshold ?? THRESHOLDS.RELEVANT_SKILLS;
-    this.semanticCache = options?.semanticCache ?? null;
-
-    // Set up embedding service for cache if available
-    if (this.semanticCache) {
-      this.semanticCache.setEmbeddingService({
-        generateForText: (text: string) => this.embeddingGenerator.generateForText(text),
-      });
-    }
+  /**
+   * Initialize the optimizer
+   */
+  constructor() {
+    this.optimizer = new IndexConfigOptimizer();
   }
 
   /**
-   * Search for relevant skills (with optional caching)
+   * Get the connection pool instance
    */
-  async search(query: string, options?: SearchOptions): Promise<ToolRetrievalResult[]> {
-    const effectiveLimit = options?.limit ?? this.defaultLimit;
-    const effectiveThreshold = options?.minScore ?? this.defaultThreshold;
-
-    // Try semantic cache first
-    if (this.semanticCache && !options?.skipCache) {
-      const cachedResult = await this.semanticCache.findSimilar(query);
-      if (cachedResult) {
-        logger.info(
-          `[SearchEngine] Cache hit for query "${query.substring(0, 50)}..." (similarity: ${cachedResult.similarity.toFixed(4)})`
-        );
-        return cachedResult.cachedQuery.result as ToolRetrievalResult[];
-      }
+  static getPool(): LanceDBConnectionPool {
+    if (!this.pool) {
+      this.pool = new LanceDBConnectionPool();
     }
+    return this.pool;
+  }
 
+  /**
+   * Set a custom connection pool (for testing)
+   */
+  static setPool(pool: LanceDBConnectionPool): void {
+    this.pool = pool;
+  }
+
+  /**
+   * Reset the pool (for testing)
+   */
+  static resetPool(): void {
+    this.pool = null;
+  }
+
+  /**
+   * Connect to LanceDB using connection pool
+   */
+  async connect(config: LanceDBConfig): Promise<void> {
     try {
-      logger.info(
-        `[SearchEngine] Searching for: "${query}" (limit: ${effectiveLimit}, threshold: ${effectiveThreshold})`
-      );
+      // Ensure database directory exists
+      await fs.mkdir(config.databasePath, { recursive: true });
 
-      // Generate query vector
-      const queryVector = await this.embeddingGenerator.generateForText(query);
+      this.dbPath = config.databasePath;
+      this.db = await LanceDBConnection.getPool().getConnection(config.databasePath);
+      this.config = config;
+      this.connected = true;
 
-      // Get table
-      const table = await this.connection.getTable();
-      if (!table) {
-        logger.warn("[SearchEngine] Table not initialized");
-        return [];
-      }
-
-      // Execute vector search
-      const vectorQuery = table
-        .query()
-        .nearestTo(queryVector.values)
-        .distanceType("cosine")
-        .limit(effectiveLimit * 2);
-
-      const results = await vectorQuery.toArray();
-
-      // Format and filter results
-      const formattedResults = this.formatSearchResults(
-        results,
-        effectiveLimit,
-        effectiveThreshold
-      );
-
-      // Store the result in cache
-      if (this.semanticCache && !options?.noCache) {
-        await this.semanticCache.store(query, formattedResults);
-      }
-
-      logger.info(`[SearchEngine] Found ${formattedResults.length} relevant skill(s)`);
-      return formattedResults;
+      logger.info(`[LanceDB] Connected to LanceDB at: ${config.databasePath}`);
     } catch (error) {
-      logger.error(`[SearchEngine] Search failed for query "${query}":`, error);
+      logger.error("[LanceDB] Failed to connect to LanceDB:", error);
+      this.connected = false;
       throw error;
     }
   }
 
   /**
-   * Get cache statistics
+   * Disconnect from LanceDB
    */
-  getCacheStats() {
-    return this.semanticCache?.getStats();
+  async disconnect(): Promise<void> {
+    try {
+      this.table = null;
+      if (this.dbPath && this.db) {
+        await LanceDBConnection.getPool().releaseConnection(this.dbPath);
+      }
+      this.db = null;
+      this.connected = false;
+      logger.info("[LanceDB] Disconnected from LanceDB");
+    } catch (error) {
+      logger.warn("[LanceDB] Error during disconnect:", error);
+    }
   }
 
   /**
-   * Format search results
+   * Initialize the skills table
    */
-  formatResults(results: unknown[]): ToolRetrievalResult[] {
-    return this.formatSearchResults(results, this.defaultLimit, this.defaultThreshold);
-  }
+  async initializeTable(): Promise<void> {
+    if (!this.db || !this.config) {
+      throw new Error("Database not connected");
+    }
 
-  /**
-   * Format search results (internal)
-   */
-  private formatSearchResults(
-    results: unknown[],
-    limit: number,
-    threshold: number
-  ): ToolRetrievalResult[] {
-    const formatted: ToolRetrievalResult[] = [];
+    try {
+      const tableName = this.config.tableName;
 
-    // Handle LanceDB result format
-    const resultArray = Array.isArray(results) ? results : [results];
-
-    for (const result of resultArray.slice(0, limit)) {
+      // Try to open existing table
       try {
-        const data = this.extractResultData(result);
+        this.table = await this.db.openTable(tableName);
+        logger.info(`[LanceDB] Table '${tableName}' exists, checking dimensions...`);
 
-        // Calculate score
-        const score = this.calculateScore(result);
+        // Check if dimensions match
+        const dimensionsMatch = await this.checkTableDimensions();
+        logger.info(`[LanceDB] Dimension check: ${dimensionsMatch ? "MATCH" : "MISMATCH"}`);
 
-        // Apply threshold filter
-        if (score < threshold) {
-          logger.debug(
-            `[SearchEngine] Filtered out result with score ${score.toFixed(4)} < threshold ${threshold}`
+        if (!dimensionsMatch) {
+          // Dimensions don't match, need to recreate
+          logger.warn(
+            `[LanceDB] Table dimensions mismatch. Dropping and recreating table: ${tableName}`
           );
-          continue;
+          await this.dropTableCompletely(tableName);
+          await this.createTable();
+        } else {
+          // Dimensions match, check for missing fields (MCP support)
+          await this.checkAndAddMissingFields(tableName);
+          await this.createVectorIndex();
         }
 
-        // Parse metadata
-        const metadata = this.parseMetadata(data);
-
-        // Format result based on tool type
-        const tool = this.formatTool(data, metadata);
-
-        formatted.push({
-          id: data.id,
-          name: data.name,
-          description: data.description,
-          score,
-          toolType: data.toolType || "skill",
-          metadata: tool as Record<string, unknown>,
-          tags: data.tags || [],
-        });
-      } catch (error) {
-        logger.warn("[SearchEngine] Failed to format search result:", error);
+        return;
+      } catch (openError) {
+        logger.info(`[LanceDB] Table '${tableName}' does not exist, will create new table`);
       }
-    }
 
-    return formatted;
+      // Create new table
+      await this.createTable();
+    } catch (error) {
+      logger.error("[LanceDB] Failed to initialize table:", error);
+      throw error;
+    }
   }
 
   /**
-   * Extract result data from LanceDB response
+   * Create the table with schema
    */
-  private extractResultData(result: unknown): ToolsTable {
-    if (result && typeof result === "object") {
-      const r = result as Record<string, unknown>;
-      if ("item" in r) {
-        return r.item as ToolsTable;
-      }
+  private async createTable(): Promise<void> {
+    if (!this.db || !this.config) {
+      throw new Error("Database not connected");
     }
-    return result as ToolsTable;
+
+    // Create schema with Apache Arrow
+    const schema = new arrow.Schema([
+      new arrow.Field("id", new arrow.Utf8(), false),
+      new arrow.Field("name", new arrow.Utf8(), false),
+      new arrow.Field("description", new arrow.Utf8(), false),
+      new arrow.Field(
+        "tags",
+        new arrow.List(new arrow.Field("item", new arrow.Utf8(), true)),
+        false
+      ),
+      new arrow.Field("path", new arrow.Utf8(), true),
+      new arrow.Field("version", new arrow.Utf8(), true),
+      new arrow.Field("source", new arrow.Utf8(), true),
+      new arrow.Field("toolType", new arrow.Utf8(), false),
+      new arrow.Field("metadata", new arrow.Utf8(), false),
+      new arrow.Field(
+        "vector",
+        new arrow.FixedSizeList(
+          this.config.vectorDimensions,
+          new arrow.Field("item", new arrow.Float32(), true)
+        ),
+        false
+      ),
+      new arrow.Field("indexedAt", new arrow.Timestamp(arrow.TimeUnit.MICROSECOND), false),
+    ]);
+
+    this.table = await this.db.createTable(this.config.tableName, [], { schema });
+    logger.info(
+      `[LanceDB] Created new table: ${this.config.tableName} with ${this.config.vectorDimensions} dimensions`
+    );
+
+    // Create vector index
+    await this.createVectorIndex();
   }
 
   /**
-   * Calculate similarity score from result
+   * Check table dimensions compatibility
    */
-  private calculateScore(result: unknown): number {
-    if (result && typeof result === "object") {
-      const r = result as Record<string, number>;
-
-      if (r._distance !== undefined) {
-        // LanceDB returns cosine distance, convert to similarity
-        // Cosine distance range [0, 2], so similarity = 1 - distance
-        return Math.max(0, 1 - r._distance);
-      }
-      if (r.score !== undefined) {
-        return r.score;
-      }
-      if (r.similarity !== undefined) {
-        return r.similarity;
-      }
+  private async checkTableDimensions(): Promise<boolean> {
+    if (!this.db || !this.table || !this.config) {
+      return false;
     }
-    return 0;
-  }
 
-  /**
-   * Parse metadata JSON string
-   */
-  private parseMetadata(data: ToolsTable): Record<string, unknown> {
     try {
-      if (typeof data.metadata === "string") {
-        return JSON.parse(data.metadata);
+      // Create a test vector
+      const testVector = new Array(this.config.vectorDimensions).fill(0.1);
+
+      // Try to add a temporary record
+      const tempId = `dimension-check-${Date.now()}`;
+      const tempTable = await this.db.openTable(this.config.tableName);
+
+      try {
+        await tempTable.add([
+          {
+            id: tempId,
+            name: "Dimension Check",
+            description: "Temporary record for dimension validation",
+            tags: [],
+            path: "temp",
+            version: "1.0",
+            metadata: JSON.stringify({}),
+            vector: testVector,
+            indexedAt: new Date(),
+          },
+        ]);
+
+        // If successful, delete test record
+        await tempTable.delete(`id = '${tempId}'`);
+        return true;
+      } catch (insertError: any) {
+        const errorMsg = insertError.message || "";
+        if (
+          errorMsg.includes("dimension") ||
+          errorMsg.includes("length") ||
+          errorMsg.includes("schema") ||
+          errorMsg.includes("FixedSizeList")
+        ) {
+          logger.debug("[LanceDB] Dimension mismatch error:", errorMsg);
+          return false;
+        }
+        throw insertError;
       }
-      return data.metadata || {};
-    } catch {
-      logger.warn("[SearchEngine] Failed to parse metadata JSON");
-      return {};
+    } catch (error) {
+      logger.error("[LanceDB] Failed to check table dimensions:", error);
+      return false;
     }
   }
 
   /**
-   * Format tool based on type
+   * Check and add missing fields (for MCP support)
    */
-  private formatTool(data: ToolsTable, metadata: Record<string, unknown>): Record<string, unknown> {
-    if (data.toolType === "mcp") {
-      // MCP tool format
-      return {
-        name: data.name,
-        description: data.description,
-        type: "mcp" as const,
-        source: data.source,
-        tags: data.tags,
-        metadata: {
-          ...metadata,
-          version: data.version,
-          path: data.path,
-        },
-      };
+  private async checkAndAddMissingFields(tableName: string): Promise<void> {
+    if (!this.table || !this.config) {
+      return;
     }
 
-    if (data.toolType === "builtin") {
-      // Builtin tool format
-      return {
-        name: data.name,
-        description: data.description,
-        type: ToolType.BUILTIN,
-        tags: data.tags,
-        version: data.version,
-        path: data.path,
-        metadata: {
-          ...metadata,
-          builtin: true,
-        },
+    try {
+      const testVector = new Array(this.config.vectorDimensions).fill(0.0);
+
+      const testRecord = {
+        id: `field-check-${Date.now()}`,
+        name: "Field Check",
+        description: "Checking for missing fields",
+        tags: [],
+        path: null,
+        version: null,
+        source: null,
+        toolType: "mcp",
+        metadata: "{}",
+        vector: testVector,
+        indexedAt: new Date(),
       };
+
+      await this.table.add([testRecord]);
+      logger.info("[LanceDB] All fields (including MCP fields) are present");
+
+      // Delete test record
+      await this.table.delete(`id == "${testRecord.id}"`);
+    } catch (error: any) {
+      if (error.message && error.message.includes("Found field not in schema")) {
+        logger.warn("[LanceDB] Table is missing MCP-related fields. Recreating table...");
+
+        // Drop and recreate
+        await this.dropTableCompletely(tableName);
+        await this.createTable();
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * Drop table and completely remove physical files
+   * This ensures no leftover .lance files cause "Not found" errors
+   */
+  private async dropTableCompletely(tableName: string): Promise<void> {
+    if (!this.db || !this.config) {
+      throw new Error("Database not connected");
     }
 
-    // Skill tool format (default)
+    try {
+      // First, drop the table from LanceDB
+      await this.db.dropTable(tableName);
+      logger.info(`[LanceDB] Dropped table: ${tableName}`);
+
+      // Then, manually remove physical files to ensure complete cleanup
+      const tablePath = path.join(this.config.databasePath, tableName);
+      try {
+        await fs.rm(tablePath, { recursive: true, force: true });
+        logger.info(`[LanceDB] Completely removed physical files: ${tablePath}`);
+      } catch (rmError: any) {
+        if (rmError.code !== "ENOENT") {
+          logger.warn(
+            `[LanceDB] Failed to remove physical files (may not exist): ${rmError.message}`
+          );
+        }
+      }
+    } catch (error) {
+      logger.error("[LanceDB] Failed to drop table completely:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Create vector index for faster search
+   * Uses optimized IVF_PQ configuration based on expected data scale
+   */
+  private async createVectorIndex(rowCount?: number): Promise<void> {
+    if (!this.table || !this.config) {
+      return;
+    }
+
+    try {
+      // Use provided row count or estimate from table
+      const estimatedRows = rowCount || (await this.getCount()) || 10000;
+      const dimension = this.config.vectorDimensions;
+
+      // Calculate optimal configuration
+      const optimizationResult = this.optimizer.calculateOptimalConfig(
+        estimatedRows,
+        dimension,
+        0.95, // target recall
+        false // prefer accuracy over speed
+      );
+
+      // Log the optimization reasoning
+      logger.info(`[LanceDB] ${optimizationResult.reasoning}`);
+
+      // Create index with optimized configuration
+      await this.table.createIndex("vector", {
+        config: Index.ivfPq({
+          numPartitions: optimizationResult.config.numPartitions,
+          numSubVectors: optimizationResult.config.numSubVectors,
+        }),
+        replace: true,
+      });
+
+      logger.info(
+        `[LanceDB] Created optimized vector index: ${optimizationResult.config.numPartitions} partitions, ` +
+          `${optimizationResult.config.numSubVectors} sub-vectors, ` +
+          `est. recall: ${(optimizationResult.estimatedRecall * 100).toFixed(1)}%`
+      );
+    } catch (error) {
+      // Index may already exist, ignore error
+      logger.debug("[LanceDB] Vector index may already exist:", error);
+    }
+  }
+
+  /**
+   * Get table instance
+   */
+  async getTable(): Promise<lancedb.Table | null> {
+    return this.table;
+  }
+
+  /**
+   * Get database instance
+   */
+  getDb(): lancedb.Connection | null {
+    return this.db;
+  }
+
+  /**
+   * Check schema compatibility
+   */
+  async checkSchemaCompatibility(): Promise<boolean> {
+    return this.checkTableDimensions();
+  }
+
+  /**
+   * Get connection status
+   */
+  getStatus(): ConnectionStatus {
     return {
-      name: data.name,
-      description: data.description,
-      type: ToolType.SKILL,
-      tags: data.tags,
-      version: data.version,
-      path: data.path,
-      parameters: (metadata.parameters as Record<string, unknown>) || {
-        type: "object",
-        properties: {},
-        required: [],
-      },
-      enabled: true,
-      level: 1,
+      connected: this.connected,
+      lastConnected: this.connected ? new Date() : undefined,
+      error: this.connected ? undefined : "Not connected",
     };
   }
 
   /**
-   * Apply filters to results
+   * Add records to table
    */
-  applyFilters(results: ToolRetrievalResult[], filters: RetrievalFilter[]): ToolRetrievalResult[] {
-    if (!filters || filters.length === 0) {
+  async addRecords(records: ToolsTable[]): Promise<void> {
+    if (!this.table) {
+      throw new Error("Table not initialized");
+    }
+
+    await this.table.add(records as unknown as Record<string, unknown>[]);
+  }
+
+  /**
+   * Delete record by ID
+   */
+  async deleteById(id: string): Promise<void> {
+    if (!this.table) {
+      throw new Error("Table not initialized");
+    }
+
+    await this.table.delete(`id = "${id}"`);
+  }
+
+  /**
+   * Get table count
+   */
+  async getCount(): Promise<number> {
+    if (!this.table) {
+      return 0;
+    }
+
+    try {
+      return await this.table.countRows();
+    } catch (error) {
+      logger.warn("[LanceDB] Failed to get table count:", error);
+      return 0;
+    }
+  }
+}
+````
+
+## File: src/services/tool-retrieval/ToolRetrievalService.ts
+````typescript
+/**
+ * ToolRetrievalService - Main Service
+ *
+ * Main service coordinating all tool retrieval modules.
+ * Provides public API for tool/skill retrieval operations.
+ */
+
+import { logger } from "../../utils/logger";
+import {
+  ToolRetrievalConfig,
+  ToolRetrievalResult,
+  SkillData,
+  ServiceStatus,
+  ToolError,
+  ToolErrorCode,
+  SkillTool,
+} from "./types";
+import { LanceDBConnection, ILanceDBConnection } from "./LanceDBConnection";
+import { EmbeddingGenerator, IEmbeddingGenerator } from "./EmbeddingGenerator";
+import { SkillIndexer, ISkillIndexer } from "./SkillIndexer";
+import { SearchEngine, ISearchEngine } from "./SearchEngine";
+import { MCPToolSupport, IMCPToolSupport } from "./MCPToolSupport";
+
+/**
+ * ToolRetrievalService interface
+ */
+export interface IToolRetrievalService {
+  initialize(): Promise<void>;
+  findRelevantSkills(
+    query: string,
+    limit?: number,
+    threshold?: number
+  ): Promise<ToolRetrievalResult[]>;
+  indexSkill(skill: SkillData): Promise<void>;
+  removeSkill(skillId: string): Promise<void>;
+  scanAndIndexAllSkills(skillsDir?: string): Promise<void>;
+  getStatus(): ServiceStatus;
+  cleanup(): Promise<void>;
+  indexTools(tools: SkillTool[]): Promise<void>;
+  removeTool(toolId: string): Promise<void>;
+}
+
+/**
+ * ToolRetrievalService implementation
+ * Coordinates all tool retrieval modules
+ */
+export class ToolRetrievalService implements IToolRetrievalService {
+  private readonly config: ToolRetrievalConfig;
+  private connection: ILanceDBConnection;
+  private embeddingGenerator: IEmbeddingGenerator;
+  private skillIndexer: ISkillIndexer;
+  private searchEngine: ISearchEngine;
+  private mcpToolSupport: IMCPToolSupport;
+  private isInitialized = false;
+
+  /**
+   * Create ToolRetrievalService with dependencies
+   */
+  constructor(config: ToolRetrievalConfig) {
+    this.config = config;
+
+    // Initialize sub-modules
+    this.connection = new LanceDBConnection();
+    this.embeddingGenerator = new EmbeddingGenerator({
+      provider: "openai", // Will be determined dynamically
+      model: config.model,
+      dimensions: config.dimensions,
+    });
+    this.skillIndexer = new SkillIndexer(this.connection, this.embeddingGenerator);
+    this.searchEngine = new SearchEngine(this.connection, this.embeddingGenerator, {
+      defaultLimit: config.maxResults,
+      defaultThreshold: config.similarityThreshold,
+    });
+    this.mcpToolSupport = new MCPToolSupport(this.embeddingGenerator, this.connection);
+
+    logger.info("[ToolRetrievalService] Created with config:", {
+      vectorDbPath: config.vectorDbPath,
+      model: config.model,
+      dimensions: config.dimensions,
+      similarityThreshold: config.similarityThreshold,
+      maxResults: config.maxResults,
+    });
+  }
+
+  /**
+   * Initialize the service
+   */
+  async initialize(): Promise<void> {
+    if (this.isInitialized) {
+      logger.debug("[ToolRetrievalService] Already initialized");
+      return;
+    }
+
+    const startTime = Date.now();
+
+    try {
+      logger.info("[ToolRetrievalService] Initializing...");
+
+      // Get actual embedding dimensions from LLMConfigService
+      const actualDimensions = await this.embeddingGenerator.getActualDimensions();
+      if (actualDimensions !== this.config.dimensions) {
+        logger.info(
+          `[ToolRetrievalService] Updating dimensions from ${this.config.dimensions} to ${actualDimensions}`
+        );
+        this.config.dimensions = actualDimensions;
+      }
+
+      // Connect to LanceDB
+      await this.connection.connect({
+        databasePath: this.config.vectorDbPath,
+        tableName: "skills",
+        vectorDimensions: this.config.dimensions,
+      });
+
+      // Initialize table
+      await this.connection.initializeTable();
+
+      this.isInitialized = true;
+
+      const duration = Date.now() - startTime;
+      logger.debug(`[ToolRetrievalService] Initialized in ${duration}ms`);
+    } catch (error) {
+      logger.error("[ToolRetrievalService] Initialization failed:", error);
+      throw new ToolError(
+        `ToolRetrievalService initialization failed: ${this.formatError(error)}`,
+        ToolErrorCode.VECTOR_DB_ERROR
+      );
+    }
+  }
+
+  /**
+   * Find relevant skills for a query with graceful degradation
+   * Implements fallback strategy: vector search -> keyword search -> empty array
+   */
+  async findRelevantSkills(
+    query: string,
+    limit?: number,
+    threshold?: number
+  ): Promise<ToolRetrievalResult[]> {
+    const startTime = Date.now();
+    let fallbackTriggered = false;
+    let fallbackReason = "";
+
+    try {
+      // Ensure initialized
+      if (!this.isInitialized) {
+        logger.warn("[ToolRetrievalService] Not initialized, initializing now...");
+        await this.initialize();
+      }
+
+      // Try vector search (with internal fallback to keyword search)
+      const results = await this.searchEngine.search(query, { limit, minScore: threshold });
+
+      const duration = Date.now() - startTime;
+      logger.debug(`[ToolRetrievalService] Search completed in ${duration}ms`, {
+        query: query.substring(0, 50),
+        resultCount: results.length,
+      });
+
       return results;
-    }
+    } catch (error) {
+      fallbackTriggered = true;
 
-    return results.filter((result) => {
-      return filters.every((filter) => this.applyFilter(result, filter));
-    });
-  }
-
-  /**
-   * Apply single filter
-   */
-  private applyFilter(result: ToolRetrievalResult, filter: RetrievalFilter): boolean {
-    const value = (result.metadata as Record<string, unknown>)?.[filter.field];
-    return this.compareValues(value, filter.operator, filter.value);
-  }
-
-  /**
-   * Compare values based on operator
-   */
-  private compareValues(
-    actual: unknown,
-    operator: RetrievalFilter["operator"],
-    expected: unknown
-  ): boolean {
-    switch (operator) {
-      case "eq":
-        return actual === expected;
-      case "ne":
-        return actual !== expected;
-      case "gt":
-        return typeof actual === "number" && actual > (expected as number);
-      case "lt":
-        return typeof actual === "number" && actual < (expected as number);
-      case "contains":
-        return typeof actual === "string" && actual.includes(expected as string);
-      case "in":
-        return Array.isArray(expected) && expected.includes(actual);
-      default:
-        return true;
-    }
-  }
-
-  /**
-   * Sort results
-   */
-  sortResults(
-    results: ToolRetrievalResult[],
-    options: RetrievalSortingOptions
-  ): ToolRetrievalResult[] {
-    const sorted = [...results];
-
-    sorted.sort((a, b) => {
-      let aValue: number | string;
-      let bValue: number | string;
-
-      switch (options.field) {
-        case "score":
-          aValue = a.score;
-          bValue = b.score;
-          break;
-        case "relevance":
-          aValue = a.score;
-          bValue = b.score;
-          break;
-        case "popularity":
-          aValue = (a.metadata?.useCount as number) || 0;
-          bValue = (b.metadata?.useCount as number) || 0;
-          break;
-        default:
-          aValue = a.score;
-          bValue = b.score;
-      }
-
-      if (options.order === "asc") {
-        return aValue > bValue ? 1 : -1;
+      // Determine fallback reason
+      if (error instanceof ToolError && error.code === ToolErrorCode.VECTOR_DB_ERROR) {
+        fallbackReason = "vector_db_error";
+      } else if (this.formatError(error).includes("embedding")) {
+        fallbackReason = "embedding_failure";
       } else {
-        return aValue < bValue ? 1 : -1;
+        fallbackReason = "unknown_error";
       }
+
+      // Log fallback trigger
+      logger.warn(
+        `[ToolRetrievalService] Search fallback triggered for query "${query.substring(0, 50)}..."`,
+        {
+          errorType: error instanceof ToolError ? error.code : "UNKNOWN_ERROR",
+          fallbackReason,
+          query: query.substring(0, 100),
+          limit,
+          threshold,
+          duration: Date.now() - startTime,
+        }
+      );
+
+      // Try keyword search fallback
+      try {
+        const fallbackResults = await this.keywordSearchFallback(query, limit, threshold);
+
+        logger.info(
+          `[ToolRetrievalService] Fallback keyword search returned ${fallbackResults.length} results`,
+          {
+            originalQuery: query.substring(0, 50),
+            fallbackResultCount: fallbackResults.length,
+          }
+        );
+
+        return fallbackResults;
+      } catch (fallbackError) {
+        // All methods failed - return empty array as last resort
+        logger.error(
+          `[ToolRetrievalService] All search methods failed for query "${query.substring(0, 50)}..."`,
+          {
+            originalError: this.formatError(error),
+            fallbackError: this.formatError(fallbackError),
+            query: query.substring(0, 100),
+          }
+        );
+
+        // Return empty array instead of throwing - ensures service availability
+        return [];
+      }
+    }
+  }
+
+  /**
+   * Keyword search fallback implementation
+   * Used when vector search fails completely
+   */
+  private async keywordSearchFallback(
+    query: string,
+    limit?: number,
+    threshold?: number
+  ): Promise<ToolRetrievalResult[]> {
+    const effectiveLimit = limit || this.config.maxResults;
+    const effectiveThreshold = threshold || this.config.similarityThreshold;
+
+    try {
+      logger.info(`[ToolRetrievalService] Executing fallback keyword search for: "${query}"`);
+
+      // Get search terms from query
+      const searchTerms = query
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((t) => t.length > 0);
+
+      if (searchTerms.length === 0) {
+        return [];
+      }
+
+      // In a real implementation, this would query the database
+      // For now, return empty results to maintain service availability
+      logger.debug(
+        `[ToolRetrievalService] Fallback search completed with 0 results for query "${query.substring(0, 50)}"`
+      );
+      return [];
+    } catch (error) {
+      logger.error("[ToolRetrievalService] Keyword fallback search failed:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Index a skill
+   */
+  async indexSkill(skill: SkillData): Promise<void> {
+    await this.skillIndexer.addSkill(skill);
+  }
+
+  /**
+   * Remove a skill from the index
+   */
+  async removeSkill(skillId: string): Promise<void> {
+    await this.skillIndexer.removeSkill(skillId);
+  }
+
+  /**
+   * Scan and index all skills in a directory
+   */
+  async scanAndIndexAllSkills(skillsDir?: string): Promise<void> {
+    const dir = skillsDir || this.getDefaultSkillsDir();
+    await this.skillIndexer.scanAndIndex(dir);
+  }
+
+  /**
+   * Index tools (supports both skills and MCP tools)
+   */
+  async indexTools(tools: SkillTool[]): Promise<void> {
+    try {
+      logger.info(`[ToolRetrievalService] Indexing ${tools.length} tools...`);
+
+      const records: import("./types").ToolsTable[] = [];
+
+      for (const tool of tools) {
+        try {
+          // Generate ID based on tool type
+          const toolId = this.generateToolId(tool);
+
+          // Generate embedding
+          const vector = await this.embeddingGenerator.generateForText(
+            `${tool.name}\n${tool.description}`
+          );
+
+          // Prepare record
+          const record: import("./types").ToolsTable = {
+            id: toolId,
+            name: tool.name,
+            description: tool.description,
+            tags: tool.tags || [],
+            path: tool.path,
+            version: tool.version,
+            source: tool.path || tool.name,
+            toolType: (tool.type as "skill" | "mcp") || "skill",
+            metadata: JSON.stringify(tool.metadata || {}),
+            vector: vector.values,
+            indexedAt: new Date(),
+          };
+
+          records.push(record);
+        } catch (error) {
+          logger.error(`[ToolRetrievalService] Failed to index tool ${tool.name}:`, error);
+        }
+      }
+
+      if (records.length > 0) {
+        // Remove existing
+        for (const record of records) {
+          await this.connection.deleteById(record.id);
+        }
+
+        // Add new
+        await this.connection.addRecords(records);
+        logger.info(`[ToolRetrievalService] Successfully indexed ${records.length} tools`);
+      }
+    } catch (error) {
+      logger.error("[ToolRetrievalService] Failed to index tools:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Remove a tool from the index
+   */
+  async removeTool(toolId: string): Promise<void> {
+    await this.connection.deleteById(toolId);
+  }
+
+  /**
+   * Get service status
+   */
+  getStatus(): ServiceStatus {
+    const dbStatus = this.connection.getStatus();
+    return {
+      databaseStatus: dbStatus,
+      indexStatus: {
+        indexedCount: 0,
+        indexingCount: 0,
+        pendingCount: 0,
+      },
+      ready: this.isInitialized && dbStatus.connected,
+      healthy: this.isInitialized && dbStatus.connected,
+    };
+  }
+
+  /**
+   * Cleanup resources - 完整清理
+   */
+  async cleanup(): Promise<void> {
+    logger.info("[ToolRetrievalService] Cleaning up...");
+
+    try {
+      // 关闭数据库连接
+      if (this.connection) {
+        await this.connection.disconnect();
+        logger.debug("[ToolRetrievalService] Database connection closed");
+      }
+
+      // 清理状态
+      this.isInitialized = false;
+
+      // 清理模块级变量（通过导出的重置函数）
+      resetToolRetrievalService();
+
+      logger.info("[ToolRetrievalService] Cleanup completed");
+    } catch (error) {
+      logger.error("[ToolRetrievalService] Cleanup failed:", error);
+      throw new ToolError(
+        `ToolRetrievalService cleanup failed: ${this.formatError(error)}`,
+        ToolErrorCode.VECTOR_DB_ERROR
+      );
+    }
+  }
+
+  /**
+   * Get default skills directory
+   */
+  private getDefaultSkillsDir(): string {
+    return "./.data/skills";
+  }
+
+  /**
+   * Generate tool ID
+   */
+  private generateToolId(tool: SkillTool): string {
+    const source = tool.path || tool.name;
+    return require("crypto")
+      .createHash("md5")
+      .update(`${tool.type}:${source}:${tool.name}`)
+      .digest("hex");
+  }
+
+  /**
+   * Format error message
+   */
+  private formatError(error: unknown): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    if (typeof error === "string") {
+      return error;
+    }
+    return "Unknown error occurred in ToolRetrievalService";
+  }
+}
+
+// ==================== Singleton Instance ====================
+
+let instance: ToolRetrievalService | null = null;
+
+/**
+ * Get tool retrieval service instance (singleton)
+ */
+export function getToolRetrievalService(config?: ToolRetrievalConfig): ToolRetrievalService {
+  if (!instance) {
+    if (!config) {
+      config = {
+        vectorDbPath: "./.data",
+        model: "nomic-embed-text:latest",
+        cacheSize: 1000,
+        dimensions: 768,
+        similarityThreshold: 0.4,
+        maxResults: 10,
+      };
+    }
+    instance = new ToolRetrievalService(config);
+  }
+  return instance;
+}
+
+/**
+ * Reset tool retrieval service instance (for testing)
+ */
+export function resetToolRetrievalService(): void {
+  instance = null;
+}
+````
+
+## File: src/services/MCPServerManager.ts
+````typescript
+/**
+ * MCP Server Manager
+ * 负责管理单个MCP服务器实例的生命周期
+ * 包括连接管理、工具发现、调用执行等
+ */
+
+import { EventEmitter } from "events";
+import { spawn } from "child_process";
+import { randomUUID } from "crypto";
+import { logger } from "../utils/logger";
+import {
+  CallToolResult,
+  Tool as MCPToolDefinition,
+  JSONRPCMessage,
+} from "@modelcontextprotocol/sdk/types.js";
+import { Client as MCPClient } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import type {
+  MCPServerConfig,
+  MCPServerStatus,
+  MCPTool,
+  MCPToolCall,
+  MCPToolResult,
+} from "../types/mcp";
+
+export interface ServerMetrics {
+  startTime: Date;
+  endTime?: Date;
+  totalCalls: number;
+  successfulCalls: number;
+  failedCalls: number;
+  averageResponseTime: number;
+}
+
+export class MCPServerManager extends EventEmitter {
+  private status: MCPServerStatus;
+  private tools: MCPTool[] = [];
+  private lastActivity?: Date;
+  private metrics: ServerMetrics;
+  private config: MCPServerConfig;
+  private client?: MCPClient;
+  private process?: ReturnType<typeof spawn>;
+  private transport?: StdioClientTransport;
+  private monitoringTimer: NodeJS.Timeout | null = null;
+  private processErrorListener?: (error: Error) => void;
+
+  constructor(config: MCPServerConfig) {
+    super();
+    this.config = config;
+    this.status = {
+      phase: "not-started",
+      message: "Server not started",
+      uptime: 0,
+      startTime: undefined,
+    };
+    this.metrics = {
+      startTime: new Date(),
+      totalCalls: 0,
+      successfulCalls: 0,
+      failedCalls: 0,
+      averageResponseTime: 0,
+    };
+  }
+
+  /**
+   * 初始化MCP服务器
+   */
+  async initialize(): Promise<void> {
+    try {
+      logger.info(`[MCP] Initializing server ${this.config.id}...`);
+
+      this.status = {
+        phase: "initializing",
+        message: "Starting server...",
+        uptime: 0,
+        startTime: undefined,
+      };
+      this.emit("status-changed", this.status);
+
+      // 启动MCP客户端
+      await this.start();
+
+      logger.info(`[MCP] Server ${this.config.id} initialized successfully`);
+    } catch (error: any) {
+      logger.error(`[MCP] Failed to initialize server ${this.config.id}:`, error);
+
+      this.status = {
+        phase: "error",
+        message: error.message || "Initialization failed",
+        error: error.message,
+        uptime: 0,
+        startTime: undefined,
+      };
+
+      this.emit("status-changed", this.status);
+      throw error;
+    }
+  }
+
+  /**
+   * 启动MCP客户端
+   */
+  private async start(): Promise<void> {
+    if (this.config.type !== "stdio") {
+      throw new Error(`Unsupported transport type: ${this.config.type}`);
+    }
+
+    this.status = {
+      phase: "starting",
+      message: "Server starting...",
+      uptime: 0,
+      startTime: undefined,
+    };
+    this.emit("status-changed", this.status);
+
+    // 创建子进程
+    const env = {
+      ...process.env,
+      ...this.config.env,
+    };
+
+    this.process = spawn(this.config.command, this.config.args, {
+      stdio: ["pipe", "pipe", "pipe"],
+      env,
+      cwd: this.config.cwd,
     });
 
-    return sorted;
+    // 监听进程错误（保存引用以便在 shutdown 时移除）
+    this.processErrorListener = (error: Error) => {
+      logger.error(`[MCP] Process error for server ${this.config.id}:`, error);
+      this.status = {
+        phase: "error",
+        message: `Process error: ${error.message}`,
+        error: error.message,
+        uptime: 0,
+        startTime: undefined,
+      };
+      this.emit("status-changed", this.status);
+    };
+    this.process.on("error", this.processErrorListener);
+
+    // 创建传输层
+    this.transport = new StdioClientTransport({
+      command: this.config.command,
+      args: this.config.args,
+      env,
+      cwd: this.config.cwd,
+    });
+
+    // 创建MCP客户端
+    this.client = new MCPClient({
+      name: "apex-bridge",
+      version: "1.0.0",
+    });
+
+    // 连接到服务器
+    await this.client.connect(this.transport);
+
+    // 发现工具
+    await this.discoverTools();
+
+    // 更新状态
+    this.status = {
+      phase: "running",
+      message: "Server running",
+      uptime: 0,
+      startTime: new Date(),
+    };
+
+    this.emit("status-changed", this.status);
+
+    // 启动运行监控
+    this.startMonitoring();
+  }
+
+  /**
+   * 发现可用工具
+   */
+  private async discoverTools(): Promise<void> {
+    if (!this.client) {
+      throw new Error("MCP client not initialized");
+    }
+
+    logger.debug(`[MCP] Discovering tools for server ${this.config.id}...`);
+
+    try {
+      const result = await this.client.listTools();
+
+      if (result && result.tools) {
+        this.tools = result.tools.map((tool) => ({
+          name: tool.name,
+          description: tool.description || "",
+          inputSchema: tool.inputSchema,
+        }));
+
+        logger.info(`[MCP] Discovered ${this.tools.length} tools for server ${this.config.id}`);
+
+        this.emit("tools-changed", this.tools);
+      }
+    } catch (error: any) {
+      logger.error(`[MCP] Failed to discover tools:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * 执行工具调用
+   */
+  async callTool(call: MCPToolCall): Promise<MCPToolResult> {
+    if (!this.client) {
+      throw new Error("MCP client not initialized");
+    }
+
+    const startTime = Date.now();
+
+    try {
+      // 检查工具是否存在
+      const tool = this.tools.find((t) => t.name === call.tool);
+
+      if (!tool) {
+        throw new Error(`Tool ${call.tool} not found`);
+      }
+
+      this.updateLastActivity();
+
+      logger.debug(`[MCP] Calling tool ${call.tool} on server ${this.config.id}`);
+
+      // 调用工具
+      const result = (await this.client.callTool({
+        name: call.tool,
+        arguments: call.arguments,
+      })) as CallToolResult;
+
+      const duration = Date.now() - startTime;
+
+      // 更新指标
+      this.updateMetrics(true, duration);
+
+      // 转换结果格式
+      const toolResult: MCPToolResult = {
+        success: true,
+        content: (result.content || []).map((content) => {
+          if (content.type === "text") {
+            return {
+              type: "text" as const,
+              text: content.text || "",
+            };
+          } else if (content.type === "image") {
+            return {
+              type: "image" as const,
+              mimeType: content.mimeType,
+              data: content.data,
+            };
+          } else {
+            return {
+              type: "resource" as const,
+              text: (content as any).text,
+            };
+          }
+        }),
+        duration,
+        metadata: {
+          toolType: "mcp",
+          source: this.config.id,
+          toolName: call.tool,
+        },
+      };
+
+      logger.debug(`[MCP] Tool ${call.tool} executed successfully in ${duration}ms`);
+
+      return toolResult;
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+
+      // 更新指标
+      this.updateMetrics(false, duration);
+
+      logger.error(`[MCP] Tool ${call.tool} failed:`, error);
+
+      return {
+        success: false,
+        content: [],
+        duration,
+        error: {
+          code: "TOOL_EXECUTION_ERROR",
+          message: error.message || "Unknown error",
+        },
+      };
+    }
+  }
+
+  /**
+   * 更新最后活动时间
+   */
+  updateLastActivity(): void {
+    this.lastActivity = new Date();
+  }
+
+  /**
+   * 更新指标
+   */
+  private updateMetrics(success: boolean, responseTime: number): void {
+    this.metrics.totalCalls++;
+    this.metrics.successfulCalls += success ? 1 : 0;
+    this.metrics.failedCalls += success ? 0 : 1;
+
+    // 计算平均响应时间
+    this.metrics.averageResponseTime =
+      (this.metrics.averageResponseTime * (this.metrics.totalCalls - 1) + responseTime) /
+      this.metrics.totalCalls;
+  }
+
+  /**
+   * 启动监控
+   */
+  private startMonitoring(): void {
+    // 更新运行时间
+    this.monitoringTimer = setInterval(() => {
+      if (this.status.phase === "running" && this.status.startTime) {
+        this.status.uptime = Date.now() - this.status.startTime.getTime();
+      }
+    }, 1000);
+  }
+
+  /**
+   * 获取服务器配置
+   */
+  getConfig(): MCPServerConfig {
+    return this.config;
+  }
+
+  /**
+   * 获取服务器状态
+   */
+  getStatus(): MCPServerStatus {
+    return { ...this.status };
+  }
+
+  /**
+   * 获取可用工具
+   */
+  getTools(): MCPTool[] {
+    return [...this.tools];
+  }
+
+  /**
+   * 获取最后活动时间
+   */
+  getLastActivity(): Date | undefined {
+    return this.lastActivity;
+  }
+
+  /**
+   * 获取指标
+   */
+  getMetrics(): ServerMetrics {
+    return { ...this.metrics };
+  }
+
+  /**
+   * 重启服务器
+   */
+  async restart(): Promise<void> {
+    logger.info(`[MCP] Restarting server ${this.config.id}...`);
+
+    await this.shutdown();
+    await this.initialize();
+  }
+
+  /**
+   * 关闭服务器
+   */
+  async shutdown(): Promise<void> {
+    try {
+      if (
+        this.status.phase === "running" ||
+        this.status.phase === "starting" ||
+        this.status.phase === "initializing"
+      ) {
+        logger.info(`[MCP] Shutting down server ${this.config.id}...`);
+
+        this.status = {
+          phase: "shutting-down",
+          message: "Shutting down...",
+          uptime: this.status.startTime ? Date.now() - this.status.startTime.getTime() : 0,
+          startTime: this.status.startTime,
+        };
+
+        this.emit("status-changed", this.status);
+
+        // 清除监控定时器
+        if (this.monitoringTimer) {
+          clearInterval(this.monitoringTimer);
+          this.monitoringTimer = null;
+        }
+
+        // 1. 先关闭 MCP 客户端连接（优雅关闭）
+        if (this.client) {
+          try {
+            await this.client.close();
+          } catch (e) {
+            // 忽略关闭时的错误
+            logger.debug(`[MCP] Client close error (ignored): ${e}`);
+          }
+          this.client = undefined;
+        }
+
+        // 2. 关闭传输层
+        if (this.transport) {
+          try {
+            await this.transport.close();
+          } catch (e) {
+            // 忽略关闭时的错误
+            logger.debug(`[MCP] Transport close error (ignored): ${e}`);
+          }
+          this.transport = undefined;
+        }
+
+        // 3. 移除进程事件监听器
+        if (this.process && this.processErrorListener) {
+          this.process.removeListener("error", this.processErrorListener);
+          this.processErrorListener = undefined;
+        }
+
+        // 4. 优雅终止子进程
+        if (this.process && !this.process.killed) {
+          await this.gracefulKillProcess();
+        }
+
+        this.metrics.endTime = new Date();
+
+        this.status = {
+          phase: "stopped",
+          message: "Server stopped",
+          uptime: this.status.uptime,
+          startTime: this.status.startTime,
+        };
+
+        this.emit("status-changed", this.status);
+
+        logger.info(`[MCP] Server ${this.config.id} shut down`);
+      }
+    } catch (error: any) {
+      logger.error(`[MCP] Error during shutdown of server ${this.config.id}:`, error);
+
+      this.status = {
+        phase: "error",
+        message: "Shutdown failed",
+        error: error.message,
+        uptime: this.status.uptime,
+        startTime: this.status.startTime,
+      };
+
+      this.emit("status-changed", this.status);
+    }
+  }
+
+  /**
+   * 优雅终止子进程
+   * 先发送 SIGTERM，等待进程退出，超时后强制 SIGKILL
+   */
+  private async gracefulKillProcess(): Promise<void> {
+    if (!this.process) return;
+
+    const proc = this.process;
+    const serverId = this.config.id;
+
+    return new Promise<void>((resolve) => {
+      let killed = false;
+
+      // 监听进程退出
+      const onExit = () => {
+        killed = true;
+        resolve();
+      };
+
+      proc.once("exit", onExit);
+      proc.once("close", onExit);
+
+      // 关闭 stdin 以通知子进程关闭
+      if (proc.stdin && !proc.stdin.destroyed) {
+        proc.stdin.end();
+      }
+
+      // 发送 SIGTERM
+      proc.kill("SIGTERM");
+
+      // 设置超时，3秒后强制 SIGKILL
+      setTimeout(() => {
+        if (!killed && proc && !proc.killed) {
+          logger.warn(`[MCP] Server ${serverId} did not exit gracefully, forcing SIGKILL`);
+          proc.kill("SIGKILL");
+        }
+        resolve();
+      }, 3000);
+    }).finally(() => {
+      this.process = undefined;
+    });
   }
 }
 ````
@@ -35718,391 +36465,6 @@ if (process.env.NODE_ENV === 'production') {
 export default logger;
 ````
 
-## File: config/system-prompt-template-en.md
-````markdown
-# Role & Core Objective
-
-You are a professional AI Personal Agent. Your core responsibility is to execute user requests with high quality, strict logic, and absolute truthfulness. You operate within a local environment with access to a specific set of tools and knowledge bases.
-
-# System Constraints (Highest Priority)
-
-These rules are immutable and supersede any user-defined role settings.
-
-1. **Goal Confirmation Protocol ("Look Before You Leap")**:
-   - **Type A (Atomic/Simple)**: For clear, low-risk requests (e.g., chat, translation, single-step Q&A), execute immediately.
-   - **Type B1 (Complex but Clear)**: For multi-step tasks where intent is obvious (e.g., "Write a Python script to scrape X"), briefly state your plan in `<thinking>` and **proceed immediately**. Do not annoy the user with unnecessary confirmation.
-   - **Type B2 (Critical/Ambiguous)**: For high-risk actions (deleting data, financial ops) or vague requests, you **MUST** summarize the goal and request explicit user confirmation before acting.
-
-2. **Truthfulness & Evidence**:
-   - All factual statements must be backed by **Tool Execution**, **References**, or **User Context**.
-   - **STRICT PROHIBITION**: Never invent tool outputs, file paths, or data. If a tool returns nothing, state "No data found" rather than hallucinating a result.
-
-3. **Tool Interaction Protocol**:
-   - Follow the **Think-Act-Observe** loop.
-   - You only output `<tool_action>` tags. You do NOT output the result.
-   - You wait for `[SYSTEM_FEEDBACK]` from the User role before proceeding.
-
-# Cognitive & Execution Flow
-
-Upon receiving a request, strictly follow this pipeline:
-
-## Phase 1: Intent Analysis & Knowledge Retrieval
-
-1. **Analyze Intent**: Determine if this is Type A, B1, or B2.
-2. **Knowledge Check**: Does this require domain expertise?
-   - If YES: Use `vector-search` to find relevant Skills/Docs.
-   - **Query Optimization**: Transform user's natural language into 2-4 distinct keywords (e.g., "how to fix git merge conflict" -> "git merge conflict resolution").
-
-## Phase 2: Skill Activation (LOD Strategy)
-
-When a Skill is identified (e.g., via search results):
-
-1. **Level 1 (Core)**: Call `read-skill` to get the `SKILL.md` (overview & index).
-2. **Level 2 (Detail)**: Based *strictly* on the user's specific problem, call `file-read` on **only the relevant** sub-resources listed in the index.
-   - **Constraint**: Do NOT read all files. Read only what is necessary to solve the immediate problem.
-
-## Phase 3: Execution & Feedback
-
-1. **Think**: Plan the tool call.
-2. **Act**: Output the valid XML block.
-3. **Observe**: Analyze the `[SYSTEM_FEEDBACK]`.
-   - If success: Synthesize the answer.
-   - If empty/fail: **Self-Correct** (try a different keyword, check file path spelling) or inform the user.
-
-# Tool Call Schema (Strict Syntax)
-
-You must use the following XML structures exactly. Do not invent new attributes.
-
-### 1. Semantic Search (Knowledge Retrieval)
-
-Use this to find skills or documents when you are unsure where to look.
-
-```xml
-<tool_action name="vector-search">
-  <query value="keywords only" />
-</tool_action>
-```
-
-### 2. Read Scenario Skill (Level 1)
-
-Use this to load a Skill's core context and file index.
-
-```xml
-<tool_action name="read-skill">
-  <skillName value="exact-skill-name-from-search" />
-</tool_action>
-```
-
-### 3. Read Specific File (Level 2)
-
-Use this to read detailed guides, templates, or code examples found in a Skill's index.
-
-**Important**: When referencing relative paths within Skill documentation, you MUST use the `basePath` parameter to specify the Skill directory path!
-
-```xml
-<!-- Example 1: Read file with relative path in Skill directory -->
-<tool_action name="file-read">
-  <path value="docs/readme.md" />
-  <basePath value=".data/skills/my-skill" />
-</tool_action>
-
-<!-- Example 2: Read file with absolute path (no basePath needed) -->
-<tool_action name="file-read">
-  <path value="/absolute/path/to/file.md" />
-</tool_action>
-```
-
-### 4. Execute Functional Skill
-
-Use this to run active tools (calculators, validators, APIs).
-
-```xml
-<tool_action name="[SKILL_NAME]">
-  <tool_name value="[FUNCTION_NAME]" />
-  <[PARAM_NAME] value="[PARAM_VALUE]" />
-</tool_action>
-```
-
-# Semantic Search Guidelines (Optimization)
-
-When using `vector-search`, you must rewrite the user's prompt into a **Keyword Query**.
-
-- ❌ Bad: "How do I implement authentication using OAuth2 in my node app?"
-- ✅ Good: `oauth2 nodejs implementation`
-- ❌ Bad: "I'm looking for best practices for writing clean code"
-- ✅ Good: `clean code best practices`
-
-**Rule**: Remove stopwords (the, a, is), remove conversational filler (I want to, help me), and focus on **Technical Terms**.
-
-# Response Formatting Rules
-
-1. **Thinking Block**: Always start with `<thinking>`. Inside, include:
-   - **Intent**: What does the user want?
-   - **Strategy**: What tools will I use?
-   - **Self-Correction**: Check if the XML schema is correct before outputting.
-2. **Final Answer**:
-   - Use Markdown (Bold, Lists, Code Blocks).
-   - **Citation**: Explicitly state "According to [File Name]..." when using retrieved info.
-   - Do NOT show internal tool logs in the final response unless asked.
-
-# Few-Shot Examples
-
-## Example 1: Search -> Read -> Answer
-
-**User**: "I need to fix a merge conflict in Git."
-
-**Assistant**:
-<thinking>
-   User has a specific technical problem ("git merge conflict").
-   1. Search for git skills using keywords.
-   2. Query: "git merge conflict"
-</thinking>
-<tool_action name="vector-search">
-   <query value="git merge conflict" />
-</tool_action>
-
-**User**: 
-[SYSTEM_FEEDBACK] 
-<tool_output> 
-   Found skill: "git-commit-helper" with description "Version control workflows..." 
-</tool_output>
-
-**Assistant**:
-<thinking>
-   Found relevant skill "git-commit-helper". Now I need to read its core content to find the specific guide on conflicts.
-</thinking>
-<tool_action name="read-skill">
-   <skillName value="git-commit-helper" />
-</tool_action>
-
-## Example 2: Direct Tool Execution (Type B1)
-
-**User**: "Validate this JSON: {'id': 1}"
-
-**Assistant**:
-
-<thinking>
-   Type B1 Task: Clear intent, functional execution.
-   Tool: data-validator / schema_validation.
-   Strategy: Call tool directly.
-</thinking>
-<tool_action name="data-validator">
-   <tool_name value="schema_validation" />
-   <data value="{'id': 1}" />
-</tool_action>
-
-## Example 3: Handling Missing Data (Exception)
-
-**User**: "Tell me about the XYZ Protocol."
-**Assistant**:
-<thinking>
-   Query "XYZ Protocol" returned no results in vector search.
-   I must not invent facts. I will inform the user.
-</thinking>
-I searched the internal knowledge base for "XYZ Protocol" but found no relevant documents. I can only answer based on my general knowledge, which may not be up-to-date with your specific local files. Would you like me to do that?
-
----
-
-### 📝 Change Log
-
-1.  **Type B1/B2 Distinction**: Solved the issue of being "too verbose." For tasks that are complex but have clear intent (like writing code), direct execution is now allowed without the need for unnecessary confirmation questions like "May I start writing code now?".
-2.  **XML Schema Definition**: Explicitly provided XML templates in the `Tool Call Schema` section to prevent the LLM from confusing attributes such as `name`, `value`, and `tool_name`.
-3.  **Semantic Search Guidelines**: Retained your previous core logic and further reinforced the requirement for "stopword removal" to optimize for LanceDB's cosine similarity.
-4.  **LOD Strategy Constraints**: Added a specific constraint in `Phase 2` explicitly stating "do not read all files" to prevent token explosion.
-5.  **Exception Handling**: Added Example 3 to teach the Agent how to gracefully admit when information is "not found" instead of hallucinating results.
-````
-
-## File: config/system-prompt-template-zh.md
-````markdown
-# 角色与核心目标
-
-你是一个专业的AI个人智能体（Agent）。你的核心职责是在本地环境中，通过调用特定工具和访问知识库，高质量、严谨逻辑、绝对真实地执行用户请求。
-
-# 系统约束（最高优先级 - 铁律）
-
-以下规则不可变更，优先级高于任何用户设定的角色。
-
-1. **目标确认协议（"三思而后行"原则）**：
-   - **Type A (原子/简单任务)**：对于明确、低风险的请求（如闲聊、翻译、单步问答），**直接执行**。
-   - **Type B1 (复杂但意图清晰)**：对于多步骤但目标明确的任务（如"写一个Python爬虫脚本"），在 `<thinking>` 中简述计划后，**立即执行**，不要进行无意义的确认打扰用户。
-   - **Type B2 (高风险/模糊)**：对于高风险操作（删除数据、资金操作）或意图模糊的请求，你**必须**先总结目标并请求用户明确确认。
-
-2. **真实性与证据**：
-   - 所有事实性陈述必须基于 **工具执行结果**、**参考文献** 或 **用户提供的上下文**。
-   - **严禁造假**：绝对禁止编造工具输出、文件路径或数据。如果工具未返回数据，请直说"未找到"，严禁瞎编。
-
-3. **工具交互协议**：
-   - 严格遵循 **思考 (Think) - 行动 (Act) - 观察 (Observe)** 的循环。
-   - 你只能输出 `<tool_action>` XML 标签。你**不能**自己生成工具的返回结果。
-   - 必须等待用户的 `[SYSTEM_FEEDBACK]` 后再继续。
-
-# 认知与执行流程 (Pipeline)
-
-收到请求后，必须严格按以下步骤处理：
-
-## 第一阶段：意图分析与知识检索
-
-1. **意图判断**：是 Type A, B1 还是 B2？
-2. **知识检查**：是否需要领域专业知识？
-   - 如果需要：使用 `vector-search` 查找相关 Skill 或文档。
-   - **查询优化 (Query Optimization)**：必须将用户的自然语言重写为 **2-4 个核心关键词**（例如："怎么解决 git 合并冲突" -> "git merge conflict 解决"）。
-
-## 第二阶段：技能激活 (LOD 策略)
-
-当检索到相关 Skill（如通过搜索结果）时：
-
-1. **Level 1 (核心层)**：调用 `read-skill` 读取 `SKILL.md`（概览与索引）。
-2. **Level 2 (细节层)**：基于用户的具体问题，**仅调用** `file-read` 读取索引中**最相关**的子资源文件。
-   - **约束**：不要一次性读取所有文件。只读解决当下问题必须的文件。
-
-## 第三阶段：执行与反馈
-
-1. **思考**：规划工具调用。
-2. **行动**：输出符合 Schema 的 XML。
-3. **观察**：分析 `[SYSTEM_FEEDBACK]`。
-   - 成功：基于事实生成回答。
-   - 失败/为空：**自我修正**（尝试不同关键词、检查路径拼写）或如实告知用户。
-
-# 工具调用规范 (Strict XML Schema)
-
-必须严格遵守以下 XML 结构，禁止创造新的属性。
-
-### 1. 语义搜索 (知识检索)
-
-当你不知道去哪里找信息时使用。
-
-```xml
-<tool_action name="vector-search">
-  <query value="仅限关键词" />
-  </tool_action>
-```
-
-### 2. 读取场景 Skill (Level 1)
-
-用于加载 Skill 的核心上下文和文件索引。
-
-```xml
-<tool_action name="read-skill">
-  <skillName value="搜索结果中的准确skill名称" />
-</tool_action>
-```
-
-### 3. 读取具体文件 (Level 2)
-
-读取 Skill 索引中列出的详细指南、模板或代码示例。
-
-**重要提示**：当在Skill文档中引用相对路径时，必须使用 `basePath` 参数指定Skill目录路径！
-
-```xml
-<!-- 示例1：读取Skill目录下的相对路径文件 -->
-<tool_action name="file-read">
-  <path value="docs/readme.md" />
-  <basePath value=".data/skills/my-skill" />
-</tool_action>
-
-<!-- 示例2：读取绝对路径文件（无需basePath） -->
-<tool_action name="file-read">
-  <path value="/absolute/path/to/file.md" />
-</tool_action>
-```
-
-### 4. 执行功能型 Skill
-
-用于调用主动工具（计算器、验证器、API等）。
-
-```xml
-<tool_action name="[SKILL_NAME]">
-  <tool_name value="[FUNCTION_NAME]" />
-  <[PARAM_NAME] value="[PARAM_VALUE]" />
-  </tool_action>
-```
-
-# 语义搜索指南 (查询重写)
-
-使用 `vector-search` 时，必须将用户 Prompt 重写为**关键词查询**。
-
-  * ❌ 差: "我想知道如何在我的 node 应用中实现 oauth2 认证"
-  * ✅ 好: `oauth2 nodejs implementation`
-  * ❌ 差: "有没有关于编写整洁代码的最佳实践指南"
-  * ✅ 好: `clean code best practices`
-
-**原则**：移除停用词（的、是、我想要），移除口语废话，专注于 **技术术语**。
-
-# 回复格式要求
-
-1.  **思考块**：总是以 `<thinking>` 开头。内容包括：
-      * **意图**：用户想要什么？
-      * **策略**：我打算用什么工具？
-      * **自检**：即将输出的 XML 格式是否正确？
-2.  **最终回答**：
-      * 使用 Markdown (加粗、列表、代码块)。
-      * **引用来源**：引用检索到的信息时，明确标注 "根据 [文件名]..."。
-      * **不要** 在最终回复中展示内部工具日志，除非用户要求。
-
-# Few-Shot Examples (示例)
-
-## 示例 1: 搜索 -> 读取 -> 回答 (RAG流程)
-
-**User**: "我遇到个 git 合并冲突，怎么搞？"
-**Assistant**:
-<thinking>
-   用户遇到技术问题 ("git merge conflict")。
-   1.  需要搜索 git 相关技能。
-   2.  优化查询词: "git merge conflict"
-</thinking>
-<tool_action name="vector-search">
-   <query value="git merge conflict" />
-</tool_action>
-
-**User**: 
-[SYSTEM_FEEDBACK] 
-<tool_output> 
-   Found skill: "git-commit-helper" with description "Version control workflows..." 
-</tool_output>
-
-**Assistant**:
-<thinking>
-   找到了相关技能 "git-commit-helper"。现在我需要读取它的核心内容，查看是否有关于解决冲突的索引。
-</thinking>
-<tool_action name="read-skill">
-   <skillName value="git-commit-helper" />
-</tool_action>
-
-## 示例 2: 直接工具执行 (Type B1)
-
-**User**: "帮我验证下这个JSON对不对: {'id': 1}"
-**Assistant**:
-<thinking>
-   Type B1 任务：意图清晰，功能执行。
-   工具: data-validator / schema_validation。
-   策略: 直接调用工具。
-</thinking>
-<tool_action name="data-validator">
-   <tool_name value="schema_validation" />
-   <data value="{'id': 1}" />
-</tool_action>
-
-## 示例 3: 处理缺失数据 (异常处理)
-
-**User**: "给我讲讲 XYZ 协议的细节。"
-**Assistant**:
-<thinking>
-   向量搜索 "XYZ Protocol" 返回空结果。
-   铁律：不能编造。必须告知用户。
-</thinking>
-我在内部知识库中搜索了 "XYZ 协议"，但没有找到相关文档。我无法提供基于内部资料的详细解释。是否需要我基于通用知识尝试回答？（注：通用知识可能不包含您本地文件的最新信息）。
-
----
-
-### 📝 变更说明 (Change Log)
-
-1. **Type B1/B2 区分**：解决了“太啰嗦”的问题。对于写代码这种虽然复杂但意图明确的任务，允许直接干，不用非得问一句“我要开始写代码了，行吗？”。
-2. **XML Schema 定义**：在 `Tool Call Schema` 部分显式给出了 XML 模板，防止 LLM 混淆 `name`, `value`, `tool_name` 等属性。
-3. **Semantic Search Guidelines**：保留了你之前的精华，并进一步强化了“去停用词”的要求，配合 LanceDB 的余弦相似度。**
-4. **LOD 策略的克制**：在 `Phase 2` 中增加了Constraint，明确“不要读取所有文件”，防止 Token 爆炸。
-5. **异常处理**：在 Example 3 中教 Agent 如何优雅地承认“找不到”，而不是胡编乱造。
-````
-
 ## File: src/api/middleware/sanitizationMiddleware.ts
 ````typescript
 /**
@@ -36294,169 +36656,6 @@ export class ABPProtocolParser {
     this.config = { ...DEFAULT_CONFIG, ...config } as Required<ABPProtocolConfig>;
   }
 }
-````
-
-## File: src/database/README.md
-````markdown
-# Database Migration Guide
-
-This directory contains database migration scripts for the LLM providers system.
-
-## Overview
-
-The migration system manages schema changes for the LLM providers system, which includes:
-
-- Type vocabulary management
-- Type similarity matrix
-- Type evolution history tracking
-- Type assignments
-- Prompt templates
-
-## Files
-
-### Migration Scripts
-
-- `001_create_type_vocabulary.sql` - Creates the type vocabulary table
-- `002_create_type_similarity_matrix.sql` - Creates the type similarity matrix
-- `003_create_type_evolution_history.sql` - Creates the type evolution history table
-- `004_create_type_assignments.sql` - Creates type assignments table
-- `005_create_prompt_templates.sql` - Creates the prompt templates table
-
-### Core Files
-
-- `MigrationRunner.ts` - Core migration execution engine
-- `run-migrations.ts` - CLI script for running migrations
-
-## Usage
-
-### Run All Pending Migrations
-
-```bash
-npm run migrations
-```
-
-### Check Migration Status
-
-```bash
-npm run migrations -- --status
-```
-
-### Rollback Last Migration
-
-```bash
-npm run migrations -- --rollback
-```
-
-### Rollback Last N Migrations
-
-```bash
-npm run migrations -- --rollback=2
-```
-
-### Show Help
-
-```bash
-npm run migrations -- --help
-```
-
-## Programmatic Usage
-
-```typescript
-import { MigrationRunner } from "./src/database/MigrationRunner";
-import * as path from "path";
-
-// Initialize runner
-const runner = new MigrationRunner(".data/llm_providers.db");
-
-// Run migrations
-const results = await runner.run();
-
-// Check status
-const isUpToDate = runner.isUpToDate();
-const currentVersion = runner.getCurrentVersion();
-
-// Get migration history
-const history = runner.getMigrationHistory();
-
-// Rollback migrations
-const rollbackResults = runner.rollback(1);
-
-// Clean up
-runner.close();
-```
-
-## Migration Tracking
-
-All executed migrations are tracked in the `schema_migrations` table with:
-
-- Version number
-- Name
-- Execution timestamp
-- Duration
-- Checksum (for change detection)
-
-## Safety Features
-
-1. **Checksum Verification**: Prevents running migrations that have been modified
-2. **Transaction Safety**: Each migration runs in a transaction
-3. **Error Handling**: Automatic rollback on failure
-4. **Change Detection**: Warns if a migration was already run with different content
-
-## Database Schema
-
-### Type Vocabulary Table
-
-Stores all type tags with metadata and confidence scores.
-
-### Type Similarity Matrix
-
-Tracks similarity scores between type tags for clustering and merging.
-
-### Type Evolution History
-
-Maintains a complete audit trail of all changes to type tags.
-
-### Prompt Templates
-
-Reusable prompt templates associated with specific type tags.
-
-## Environment Variables
-
-- `DATABASE_PATH` - Path to the SQLite database file (default: `.data/llm_providers.db`)
-
-## Troubleshooting
-
-### Migration Already Executed Error
-
-If you see an error about a migration already being executed with different content:
-
-1. Check if the SQL file was modified
-2. Use rollback to revert the migration
-3. Re-run the migration
-
-### Database Locked Error
-
-If the database is locked:
-
-1. Ensure no other processes are using the database
-2. Check for stuck transactions
-3. Restart the application
-
-### Rollback Limitations
-
-The current rollback implementation simply removes migration records. For production, you should:
-
-1. Create explicit rollback scripts for each migration
-2. Test rollback procedures thoroughly
-3. Maintain database backups
-
-## Best Practices
-
-1. **Always backup** your database before running migrations
-2. **Test migrations** on a copy of production data
-3. **Review SQL** before executing migrations in production
-4. **Monitor execution** time for large migrations
-5. **Version control** all migration scripts
 ````
 
 ## File: src/database/run-migrations.ts
@@ -36952,6 +37151,527 @@ export function getToolExecutorManager(): ToolExecutorManager {
     toolExecutorManagerInstance = new ToolExecutorManager();
   }
   return toolExecutorManagerInstance;
+}
+````
+
+## File: src/services/tool-retrieval/SearchEngine.ts
+````typescript
+/**
+ * SearchEngine - Search Logic
+ *
+ * Handles vector search, result formatting, and filtering.
+ * Includes semantic caching for improved performance.
+ */
+
+import { logger } from "../../utils/logger";
+import {
+  ToolRetrievalResult,
+  RetrievalFilter,
+  RetrievalSortingOptions,
+  ToolsTable,
+  ToolType,
+} from "./types";
+import { ILanceDBConnection } from "./LanceDBConnection";
+import { IEmbeddingGenerator } from "./EmbeddingGenerator";
+import { THRESHOLDS } from "../../constants";
+import { SemanticCache, type SemanticSearchResult } from "../cache/SemanticCache";
+
+/**
+ * Search options extended with caching control
+ */
+export interface SearchOptions {
+  limit?: number;
+  minScore?: number;
+  /** Disable cache lookup for this search */
+  skipCache?: boolean;
+  /** Disable caching the result */
+  noCache?: boolean;
+}
+
+/**
+ * SearchEngine interface
+ */
+export interface ISearchEngine {
+  search(query: string, options?: SearchOptions): Promise<ToolRetrievalResult[]>;
+  formatResults(results: unknown[]): ToolRetrievalResult[];
+  applyFilters(results: ToolRetrievalResult[], filters: RetrievalFilter[]): ToolRetrievalResult[];
+  sortResults(
+    results: ToolRetrievalResult[],
+    options: RetrievalSortingOptions
+  ): ToolRetrievalResult[];
+  /** Get cache statistics (if caching is enabled) */
+  getCacheStats?: () => ReturnType<SemanticCache["getStats"]>;
+}
+
+/**
+ * SearchEngine implementation
+ */
+export class SearchEngine implements ISearchEngine {
+  private readonly connection: ILanceDBConnection;
+  private readonly embeddingGenerator: IEmbeddingGenerator;
+  private readonly defaultLimit: number;
+  private readonly defaultThreshold: number;
+  private readonly semanticCache: SemanticCache | null;
+
+  constructor(
+    connection: ILanceDBConnection,
+    embeddingGenerator: IEmbeddingGenerator,
+    options?: {
+      defaultLimit?: number;
+      defaultThreshold?: number;
+      semanticCache?: SemanticCache;
+    }
+  ) {
+    this.connection = connection;
+    this.embeddingGenerator = embeddingGenerator;
+    this.defaultLimit = options?.defaultLimit ?? 5;
+    this.defaultThreshold = options?.defaultThreshold ?? THRESHOLDS.RELEVANT_SKILLS;
+    this.semanticCache = options?.semanticCache ?? null;
+
+    // Set up embedding service for cache if available
+    if (this.semanticCache) {
+      this.semanticCache.setEmbeddingService({
+        generateForText: (text: string) => this.embeddingGenerator.generateForText(text),
+      });
+    }
+  }
+
+  /**
+   * Search for relevant skills (with optional caching and fallback)
+   */
+  async search(query: string, options?: SearchOptions): Promise<ToolRetrievalResult[]> {
+    const effectiveLimit = options?.limit ?? this.defaultLimit;
+    const effectiveThreshold = options?.minScore ?? this.defaultThreshold;
+
+    // Try semantic cache first
+    if (this.semanticCache && !options?.skipCache) {
+      const cachedResult = await this.semanticCache.findSimilar(query);
+      if (cachedResult) {
+        logger.info(
+          `[SearchEngine] Cache hit for query "${query.substring(0, 50)}..." (similarity: ${cachedResult.similarity.toFixed(4)})`
+        );
+        return cachedResult.cachedQuery.result as ToolRetrievalResult[];
+      }
+    }
+
+    try {
+      logger.info(
+        `[SearchEngine] Searching for: "${query}" (limit: ${effectiveLimit}, threshold: ${effectiveThreshold})`
+      );
+
+      // Generate query vector
+      const queryVector = await this.embeddingGenerator.generateForText(query);
+
+      // Get table
+      const table = await this.connection.getTable();
+      if (!table) {
+        logger.warn("[SearchEngine] Table not initialized, using fallback search");
+        return this.fallbackKeywordSearch(query, effectiveLimit, effectiveThreshold);
+      }
+
+      // Execute vector search
+      const vectorQuery = table
+        .query()
+        .nearestTo(queryVector.values)
+        .distanceType("cosine")
+        .limit(effectiveLimit * 2);
+
+      const results = await vectorQuery.toArray();
+
+      // Format and filter results
+      const formattedResults = this.formatSearchResults(
+        results,
+        effectiveLimit,
+        effectiveThreshold
+      );
+
+      // Store the result in cache
+      if (this.semanticCache && !options?.noCache) {
+        await this.semanticCache.store(query, formattedResults);
+      }
+
+      logger.info(`[SearchEngine] Found ${formattedResults.length} relevant skill(s)`);
+      return formattedResults;
+    } catch (error) {
+      logger.error(`[SearchEngine] Vector search failed for query "${query}":`, error);
+      logger.warn(`[SearchEngine] Falling back to keyword search for query "${query}"`);
+
+      // Fallback to keyword search
+      return this.fallbackKeywordSearch(query, effectiveLimit, effectiveThreshold);
+    }
+  }
+
+  /**
+   * Fallback keyword-based search when vector search fails
+   * @param query Search query
+   * @param limit Maximum results to return
+   * @param threshold Minimum score threshold
+   * @returns Tool retrieval results from keyword matching
+   */
+  private async fallbackKeywordSearch(
+    query: string,
+    limit: number,
+    threshold: number
+  ): Promise<ToolRetrievalResult[]> {
+    try {
+      logger.info(`[SearchEngine] Executing fallback keyword search for: "${query}"`);
+
+      // Get table for keyword matching
+      const table = await this.connection.getTable();
+      if (!table) {
+        logger.warn("[SearchEngine] Table not available for fallback search");
+        return [];
+      }
+
+      // Get all tools for keyword matching
+      const searchTerms = query
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((t) => t.length > 0);
+
+      // Use LanceDB query to get candidates (without vector search)
+      const allRecords = await table
+        .query()
+        .limit(limit * 3)
+        .toArray();
+
+      // Filter by keyword matching
+      const results: ToolRetrievalResult[] = [];
+
+      for (const record of allRecords) {
+        try {
+          const data = this.extractResultData(record);
+
+          // Calculate keyword match score
+          const searchableText =
+            `${data.name} ${data.description} ${(data.tags || []).join(" ")}`.toLowerCase();
+          const matchCount = searchTerms.filter((term) => searchableText.includes(term)).length;
+
+          if (matchCount === 0) {
+            continue;
+          }
+
+          // Calculate score based on match quality
+          const nameMatches = searchTerms.filter((term) =>
+            data.name.toLowerCase().includes(term)
+          ).length;
+          const score = (nameMatches * 0.6 + matchCount * 0.4) / searchTerms.length;
+
+          // Apply threshold filter
+          if (score < threshold) {
+            logger.debug(
+              `[SearchEngine] Fallback filtered out result "${data.name}" with score ${score.toFixed(4)} < threshold ${threshold}`
+            );
+            continue;
+          }
+
+          // Parse metadata
+          const metadata = this.parseMetadata(data);
+
+          // Format result
+          results.push({
+            id: data.id,
+            name: data.name,
+            description: data.description,
+            score: Math.min(score, 1),
+            toolType: data.toolType || "skill",
+            metadata: this.formatFallbackTool(data, metadata),
+            tags: data.tags || [],
+          });
+        } catch (formatError) {
+          logger.warn("[SearchEngine] Failed to format fallback result:", formatError);
+        }
+      }
+
+      // Sort by score and limit results
+      const sortedResults = results.sort((a, b) => b.score - a.score).slice(0, limit);
+
+      logger.info(`[SearchEngine] Fallback keyword search found ${sortedResults.length} result(s)`);
+      return sortedResults;
+    } catch (fallbackError) {
+      logger.error("[SearchEngine] Fallback keyword search also failed:", fallbackError);
+      // Return empty array as last resort - never throw from search
+      return [];
+    }
+  }
+
+  /**
+   * Format tool data for fallback results
+   */
+  private formatFallbackTool(
+    data: ToolsTable,
+    metadata: Record<string, unknown>
+  ): Record<string, unknown> {
+    return {
+      name: data.name,
+      description: data.description,
+      type: data.toolType || "skill",
+      source: data.source,
+      tags: data.tags,
+      metadata: {
+        ...metadata,
+        version: data.version,
+        path: data.path,
+      },
+    };
+  }
+
+  /**
+   * Get cache statistics
+   */
+  getCacheStats() {
+    return this.semanticCache?.getStats();
+  }
+
+  /**
+   * Format search results
+   */
+  formatResults(results: unknown[]): ToolRetrievalResult[] {
+    return this.formatSearchResults(results, this.defaultLimit, this.defaultThreshold);
+  }
+
+  /**
+   * Format search results (internal)
+   */
+  private formatSearchResults(
+    results: unknown[],
+    limit: number,
+    threshold: number
+  ): ToolRetrievalResult[] {
+    const formatted: ToolRetrievalResult[] = [];
+
+    // Handle LanceDB result format
+    const resultArray = Array.isArray(results) ? results : [results];
+
+    for (const result of resultArray.slice(0, limit)) {
+      try {
+        const data = this.extractResultData(result);
+
+        // Calculate score
+        const score = this.calculateScore(result);
+
+        // Apply threshold filter
+        if (score < threshold) {
+          logger.debug(
+            `[SearchEngine] Filtered out result with score ${score.toFixed(4)} < threshold ${threshold}`
+          );
+          continue;
+        }
+
+        // Parse metadata
+        const metadata = this.parseMetadata(data);
+
+        // Format result based on tool type
+        const tool = this.formatTool(data, metadata);
+
+        formatted.push({
+          id: data.id,
+          name: data.name,
+          description: data.description,
+          score,
+          toolType: data.toolType || "skill",
+          metadata: tool as Record<string, unknown>,
+          tags: data.tags || [],
+        });
+      } catch (error) {
+        logger.warn("[SearchEngine] Failed to format search result:", error);
+      }
+    }
+
+    return formatted;
+  }
+
+  /**
+   * Extract result data from LanceDB response
+   */
+  private extractResultData(result: unknown): ToolsTable {
+    if (result && typeof result === "object") {
+      const r = result as Record<string, unknown>;
+      if ("item" in r) {
+        return r.item as ToolsTable;
+      }
+    }
+    return result as ToolsTable;
+  }
+
+  /**
+   * Calculate similarity score from result
+   */
+  private calculateScore(result: unknown): number {
+    if (result && typeof result === "object") {
+      const r = result as Record<string, number>;
+
+      if (r._distance !== undefined) {
+        // LanceDB returns cosine distance, convert to similarity
+        // Cosine distance range [0, 2], so similarity = 1 - distance
+        return Math.max(0, 1 - r._distance);
+      }
+      if (r.score !== undefined) {
+        return r.score;
+      }
+      if (r.similarity !== undefined) {
+        return r.similarity;
+      }
+    }
+    return 0;
+  }
+
+  /**
+   * Parse metadata JSON string
+   */
+  private parseMetadata(data: ToolsTable): Record<string, unknown> {
+    try {
+      if (typeof data.metadata === "string") {
+        return JSON.parse(data.metadata);
+      }
+      return data.metadata || {};
+    } catch {
+      logger.warn("[SearchEngine] Failed to parse metadata JSON");
+      return {};
+    }
+  }
+
+  /**
+   * Format tool based on type
+   */
+  private formatTool(data: ToolsTable, metadata: Record<string, unknown>): Record<string, unknown> {
+    if (data.toolType === "mcp") {
+      // MCP tool format
+      return {
+        name: data.name,
+        description: data.description,
+        type: "mcp" as const,
+        source: data.source,
+        tags: data.tags,
+        metadata: {
+          ...metadata,
+          version: data.version,
+          path: data.path,
+        },
+      };
+    }
+
+    if (data.toolType === "builtin") {
+      // Builtin tool format
+      return {
+        name: data.name,
+        description: data.description,
+        type: ToolType.BUILTIN,
+        tags: data.tags,
+        version: data.version,
+        path: data.path,
+        metadata: {
+          ...metadata,
+          builtin: true,
+        },
+      };
+    }
+
+    // Skill tool format (default)
+    return {
+      name: data.name,
+      description: data.description,
+      type: ToolType.SKILL,
+      tags: data.tags,
+      version: data.version,
+      path: data.path,
+      parameters: (metadata.parameters as Record<string, unknown>) || {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+      enabled: true,
+      level: 1,
+    };
+  }
+
+  /**
+   * Apply filters to results
+   */
+  applyFilters(results: ToolRetrievalResult[], filters: RetrievalFilter[]): ToolRetrievalResult[] {
+    if (!filters || filters.length === 0) {
+      return results;
+    }
+
+    return results.filter((result) => {
+      return filters.every((filter) => this.applyFilter(result, filter));
+    });
+  }
+
+  /**
+   * Apply single filter
+   */
+  private applyFilter(result: ToolRetrievalResult, filter: RetrievalFilter): boolean {
+    const value = (result.metadata as Record<string, unknown>)?.[filter.field];
+    return this.compareValues(value, filter.operator, filter.value);
+  }
+
+  /**
+   * Compare values based on operator
+   */
+  private compareValues(
+    actual: unknown,
+    operator: RetrievalFilter["operator"],
+    expected: unknown
+  ): boolean {
+    switch (operator) {
+      case "eq":
+        return actual === expected;
+      case "ne":
+        return actual !== expected;
+      case "gt":
+        return typeof actual === "number" && actual > (expected as number);
+      case "lt":
+        return typeof actual === "number" && actual < (expected as number);
+      case "contains":
+        return typeof actual === "string" && actual.includes(expected as string);
+      case "in":
+        return Array.isArray(expected) && expected.includes(actual);
+      default:
+        return true;
+    }
+  }
+
+  /**
+   * Sort results
+   */
+  sortResults(
+    results: ToolRetrievalResult[],
+    options: RetrievalSortingOptions
+  ): ToolRetrievalResult[] {
+    const sorted = [...results];
+
+    sorted.sort((a, b) => {
+      let aValue: number | string;
+      let bValue: number | string;
+
+      switch (options.field) {
+        case "score":
+          aValue = a.score;
+          bValue = b.score;
+          break;
+        case "relevance":
+          aValue = a.score;
+          bValue = b.score;
+          break;
+        case "popularity":
+          aValue = (a.metadata?.useCount as number) || 0;
+          bValue = (b.metadata?.useCount as number) || 0;
+          break;
+        default:
+          aValue = a.score;
+          bValue = b.score;
+      }
+
+      if (options.order === "asc") {
+        return aValue > bValue ? 1 : -1;
+      } else {
+        return aValue < bValue ? 1 : -1;
+      }
+    });
+
+    return sorted;
+  }
 }
 ````
 
@@ -37451,6 +38171,13 @@ export class MCPIntegrationService extends EventEmitter {
   private serverManagers: Map<string, MCPServerManager> = new Map();
   private toolIndex: Map<string, { serverId: string; toolName: string }> = new Map();
   private configService: MCPConfigService;
+  private managerListeners: Map<
+    string,
+    {
+      statusChanged?: (status: MCPServerStatus) => void;
+      toolsChanged?: (tools: MCPTool[]) => void;
+    }
+  > = new Map();
 
   constructor() {
     super();
@@ -37473,12 +38200,16 @@ export class MCPIntegrationService extends EventEmitter {
       logger.info(`[MCP] Server ${data.serverId} tools updated: ${data.tools.length} tools`);
       this.updateToolIndex(data.serverId, data.tools);
       // Re-vectorize tools to update vector search index
-      // 注意：向量索引失败不应该影响服务器运行，只记录错误
+      // 向量化失败不影响服务器运行，但需要记录详细错误信息
       try {
         await this.vectorizeServerTools(data.serverId, data.tools);
       } catch (vectorError: any) {
-        logger.warn(`[MCP] Vectorization failed for server ${data.serverId}:`, vectorError.message);
-        // 不抛出异常，让服务器继续运行
+        logger.error(
+          `[MCP] Vectorization failed for server ${data.serverId}: ${vectorError.message}`,
+          vectorError.stack
+        );
+        // 工具已注册但无法通过语义搜索检索
+        // 服务器继续运行，但工具索引可能不完整
       }
     });
   }
@@ -37500,14 +38231,23 @@ export class MCPIntegrationService extends EventEmitter {
 
       const manager = new MCPServerManager(config);
 
-      // 设置事件监听
-      manager.on("status-changed", (status: MCPServerStatus) => {
-        this.emit("server-status-changed", { serverId, status });
-      });
+      // 设置事件监听并跟踪引用以便后续清理
+      const listeners: {
+        statusChanged?: (status: MCPServerStatus) => void;
+        toolsChanged?: (tools: MCPTool[]) => void;
+      } = {};
 
-      manager.on("tools-changed", (tools: MCPTool[]) => {
+      listeners.statusChanged = (status: MCPServerStatus) => {
+        this.emit("server-status-changed", { serverId, status });
+      };
+      listeners.toolsChanged = (tools: MCPTool[]) => {
         this.emit("tools-changed", { serverId, tools });
-      });
+      };
+
+      manager.on("status-changed", listeners.statusChanged);
+      manager.on("tools-changed", listeners.toolsChanged);
+
+      this.managerListeners.set(serverId, listeners);
 
       // 初始化服务器
       await manager.initialize();
@@ -37518,12 +38258,15 @@ export class MCPIntegrationService extends EventEmitter {
       this.configService.saveServer(config);
       logger.info(`[MCP] Server ${serverId} configuration saved to database`);
 
-      // 向量化工具（容错处理：向量索引失败不影响服务器注册）
+      // 向量化工具（容错处理：向量索引失败不影响服务器注册，但记录详细错误）
       try {
         await this.vectorizeServerTools(serverId, manager.getTools());
       } catch (vectorError: any) {
-        logger.warn(`[MCP] Vectorization failed for server ${serverId}:`, vectorError.message);
-        // 继续执行，不影响服务器注册
+        logger.error(
+          `[MCP] Vectorization failed for server ${serverId}: ${vectorError.message}`,
+          vectorError.stack
+        );
+        // 向量化失败不影响服务器注册，但工具将无法通过语义搜索检索
       }
 
       // 注册工具到 ToolRegistry（使用 {clientName}_{toolName} 格式）
@@ -37558,6 +38301,18 @@ export class MCPIntegrationService extends EventEmitter {
       if (!manager) {
         logger.warn(`[MCP] Server ${serverId} not found`);
         return false;
+      }
+
+      // 移除事件监听器
+      const listeners = this.managerListeners.get(serverId);
+      if (listeners) {
+        if (listeners.statusChanged) {
+          manager.removeListener("status-changed", listeners.statusChanged);
+        }
+        if (listeners.toolsChanged) {
+          manager.removeListener("tools-changed", listeners.toolsChanged);
+        }
+        this.managerListeners.delete(serverId);
       }
 
       // 删除向量化的工具
@@ -37968,14 +38723,36 @@ export class MCPIntegrationService extends EventEmitter {
   async shutdown(): Promise<void> {
     logger.info("[MCP] Shutting down integration service...");
 
-    // 关闭所有服务器
-    const shutdownPromises = Array.from(this.serverManagers.values()).map((manager) =>
-      manager.shutdown()
-    );
+    // 移除所有事件监听器
+    this.removeAllListeners();
+
+    // 关闭所有服务器并移除监听器
+    const shutdownPromises = Array.from(this.serverManagers.values()).map(async (manager) => {
+      // 获取服务器 ID 以便从 managerListeners 中移除
+      const serverId = Array.from(this.serverManagers.entries()).find(
+        ([, m]) => m === manager
+      )?.[0];
+
+      if (serverId) {
+        const listeners = this.managerListeners.get(serverId);
+        if (listeners) {
+          if (listeners.statusChanged) {
+            manager.removeListener("status-changed", listeners.statusChanged);
+          }
+          if (listeners.toolsChanged) {
+            manager.removeListener("tools-changed", listeners.toolsChanged);
+          }
+          this.managerListeners.delete(serverId);
+        }
+      }
+
+      await manager.shutdown();
+    });
 
     await Promise.all(shutdownPromises);
 
     this.serverManagers.clear();
+    this.managerListeners.clear();
     this.toolIndex.clear();
 
     logger.info("[MCP] Integration service shut down");
@@ -39204,262 +39981,6 @@ export function withRetry<T extends (...args: unknown[]) => Promise<unknown>>(
 }
 ````
 
-## File: AGENTS.md
-````markdown
-# PROJECT KNOWLEDGE BASE
-
-**Generated:** 2026-01-10
-**Project:** ApexBridge - AI Agent Framework
-**Stack:** TypeScript 5.0+ / Node.js 18+ / Express / SQLite / LanceDB
-
----
-
-## OVERVIEW
-
-ApexBridge is an enterprise-grade AI Agent framework with multi-model support (OpenAI, Claude, DeepSeek, Ollama), MCP protocol integration, and 4-layer context compression (Truncate/Prune/Summary/Hybrid). Entry point is `src/server.ts`, not `index.ts`.
-
----
-
-## STRUCTURE
-
-```
-./
-├── src/                      # Source code
-│   ├── core/                 # Core engines (Protocol, LLM, adapters)
-│   ├── services/             # Business services (Chat, Skills, MCP)
-│   ├── strategies/           # Chat strategies (ReAct, SingleRound)
-│   ├── api/                  # REST controllers + WebSocket
-│   └── utils/                # Utilities (config, logger, retry)
-├── config/                   # JSON config files
-├── tests/                    # Unit + integration tests
-├── scripts/                  # DB migration + validation scripts
-└── .data/                    # SQLite + LanceDB (hidden directory)
-```
-
----
-
-## WHERE TO LOOK
-
-| Task                | Location                                             | Notes                                        |
-| ------------------- | ---------------------------------------------------- | -------------------------------------------- |
-| Start server        | `src/server.ts`                                      | `npm run dev`                                |
-| Chat logic          | `src/services/ChatService.ts`                        | Core message processing                      |
-| Context compression | `src/services/context-compression/`                  | 4 strategies (truncate/prune/summary/hybrid) |
-| LLM adapters        | `src/core/llm/adapters/`                             | OpenAI, Claude, DeepSeek, Ollama             |
-| Tool retrieval      | `src/services/tool-retrieval/`                       | LanceDB vector search                        |
-| MCP integration     | `src/services/MCPIntegrationService.ts`              | MCP protocol client                          |
-| API routes          | `src/api/routes/`                                    | REST endpoints                               |
-| Config              | `config/admin-config.json` + `src/utils/config-*.ts` | JSON-based config                            |
-
----
-
-## CODE MAP
-
-| Symbol                      | Type  | Location                                                        | Role                  |
-| --------------------------- | ----- | --------------------------------------------------------------- | --------------------- |
-| `ApexBridgeServer`          | class | `src/server.ts`                                                 | Main server           |
-| `ChatService`               | class | `src/services/ChatService.ts`                                   | Chat orchestrator     |
-| `ProtocolEngine`            | class | `src/core/ProtocolEngine.ts`                                    | ABP protocol parser   |
-| `LLMManager`                | class | `src/core/LLMManager.ts`                                        | LLM adapter manager   |
-| `ReActStrategy`             | class | `src/strategies/ReActStrategy.ts`                               | Multi-round reasoning |
-| `ContextCompressionService` | class | `src/services/context-compression/ContextCompressionService.ts` | 4-layer compression   |
-
----
-
-## CONVENTIONS
-
-- **Quotes**: Single quotes (`'...'`) for TS, double for JSON
-- **Semicolons**: Required
-- **Indent**: 2 spaces (not 4)
-- **Line width**: 100 chars
-- **Private members**: `_` prefix (e.g., `_privateMethod`)
-- **Imports**: Alphabetical, use `@/` alias → `src/`
-- **Comments**: Chinese for public APIs, English for internal
-- **Type safety**: NO `as any`, `@ts-ignore`, `@ts-expect-error`
-- **Error handling**: NEVER empty catch blocks; use logger
-- **TS config**: `noImplicitAny: false`, `strictNullChecks: false` (non-strict)
-
----
-
-## ANTI-PATTERNS (THIS PROJECT)
-
-- **Empty catch blocks** → Forbidden, always log errors
-- `as any`, `@ts-ignore` → Forbidden, use explicit types
-- No `src/index.ts` → Entry is `src/server.ts`
-- Config in two places → `config/` AND `src/config/` (confusing)
-- `.data/` hidden directory → Contains SQLite + LanceDB
-
----
-
-## COMMANDS
-
-```bash
-# Build & Run
-npm run dev          # Dev server with nodemon
-npm run build        # Compile TypeScript → dist/
-npm run start        # Run compiled server
-
-# Testing
-npm run test              # Run all tests
-npm run test:coverage     # With coverage
-
-# Code Quality
-npm run lint         # ESLint
-npm run lint:fix     # Auto-fix
-npm run format       # Prettier
-npm run format:check # Check
-
-# Database
-npm run migrations   # Run migrations
-```
-
----
-
-## NOTES
-
-- Auto-start: Set `APEX_BRIDGE_AUTOSTART=false` to disable
-- Config is JSON-based (`config/admin-config.json`), NOT `.env`
-- `.env` only for system-level (API keys, port)
-- Context compression: 4 strategies, enabled via `contextCompression.enabled`
-- MCP servers stored in SQLite, tools indexed in LanceDB
-- Entry point is `src/server.ts` (not `index.ts`)
-- `opencode/` is a SEPARATE nested project (ignore for main development)
-````
-
-## File: eslint.config.js
-````javascript
-// ESLint v9 flat config
-import js from "@eslint/js";
-import tseslint from "typescript-eslint";
-import pluginImport from "eslint-plugin-import";
-import reactHooks from "eslint-plugin-react-hooks";
-
-export default [
-  js.configs.recommended,
-  {
-    files: ["**/*.ts", "**/*.tsx"],
-    languageOptions: {
-      ecmaVersion: 2021,
-      sourceType: "module",
-      parser: tseslint.parser,
-      globals: {
-        process: "readonly",
-        require: "readonly",
-        module: "readonly",
-        __dirname: "readonly",
-        __filename: "readonly",
-        console: "readonly",
-        setTimeout: "readonly",
-        setInterval: "readonly",
-        clearTimeout: "readonly",
-        clearInterval: "readonly",
-        Buffer: "readonly",
-        AbortController: "readonly",
-        AbortSignal: "readonly",
-      },
-    },
-    plugins: {
-      import: pluginImport,
-      "@typescript-eslint": tseslint.plugin,
-      "react-hooks": reactHooks,
-    },
-    rules: {
-      "import/no-unresolved": "off",
-      "no-useless-catch": "warn",
-      "no-unreachable": "off",
-      "no-undef": "off",
-      "no-unused-vars": "off",
-      // React hooks rules - disable exhaustive-deps for now to avoid plugin errors
-      "react-hooks/rules-of-hooks": "off",
-      "react-hooks/exhaustive-deps": "off",
-      // Disable typed rules that require type information for now
-      "@typescript-eslint/no-floating-promises": "off",
-      "@typescript-eslint/await-thenable": "off",
-      "@typescript-eslint/no-explicit-any": "warn",
-      "@typescript-eslint/no-unused-vars": [
-        "warn",
-        { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" },
-      ],
-      "@typescript-eslint/no-require-imports": "off",
-      "no-useless-escape": "off",
-    },
-  },
-  // JS files (do not apply TS-typed rules)
-  {
-    files: ["**/*.js"],
-    languageOptions: {
-      ecmaVersion: 2021,
-      sourceType: "module",
-      globals: {
-        process: "readonly",
-        require: "readonly",
-        module: "readonly",
-        __dirname: "readonly",
-        __filename: "readonly",
-        console: "readonly",
-        setTimeout: "readonly",
-        setInterval: "readonly",
-        clearTimeout: "readonly",
-        clearInterval: "readonly",
-        setImmediate: "readonly",
-        setObjectProperty: "readonly",
-      },
-    },
-    plugins: {
-      import: pluginImport,
-    },
-    rules: {
-      "import/no-unresolved": "off",
-      "no-useless-catch": "warn",
-      "no-unreachable": "off",
-      "no-unused-vars": [
-        "warn",
-        { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" },
-      ],
-    },
-  },
-  {
-    files: ["tests/*.{ts,tsx,js}", "tests/**/*.{ts,tsx,js}"],
-    rules: {
-      "@typescript-eslint/no-explicit-any": "off",
-      "@typescript-eslint/no-unused-vars": "off",
-      "@typescript-eslint/no-require-imports": "off",
-      "no-undef": "off",
-      "@typescript-eslint/no-non-null-asserted-optional-chain": "off",
-      "@typescript-eslint/ban-ts-comment": "off",
-      "no-import-assign": "off",
-      "no-unreachable": "off",
-      "no-unused-vars": "off",
-    },
-  },
-  {
-    rules: {
-      "@typescript-eslint/prefer-as-const": "off",
-    },
-  },
-  {
-    files: ["test-memory.js"],
-    rules: {
-      "no-undef": "off",
-    },
-  },
-  // Project-wide ignores (migrate from .eslintignore)
-  {
-    ignores: [
-      "dist/",
-      "build/",
-      "admin/dist/",
-      "node_modules/",
-      "coverage/",
-      "*.min.js",
-      "vendor/",
-      "public/",
-      "opencode/",
-    ],
-  },
-];
-````
-
 ## File: src/api/middleware/authMiddleware.ts
 ````typescript
 /**
@@ -39746,6 +40267,835 @@ export interface ToolDescription {
     description: string;
     required: boolean;
   }[];
+}
+````
+
+## File: src/services/ConversationHistoryService.ts
+````typescript
+/**
+ * ConversationHistoryService - 对话消息历史管理服务
+ * 负责存储、查询和删除对话消息历史
+ */
+
+import Database from "better-sqlite3";
+import * as fs from "fs";
+import * as path from "path";
+import { logger } from "../utils/logger";
+import { PathService } from "./PathService";
+import { Message } from "../types";
+
+export interface ConversationMessage {
+  id: number;
+  conversation_id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  created_at: number;
+  metadata?: string; // JSON string for additional metadata
+}
+
+/**
+ * 对话历史服务
+ */
+export class ConversationHistoryService {
+  private static instance: ConversationHistoryService;
+  private db: Database.Database;
+  private dbPath: string;
+
+  private constructor() {
+    const pathService = PathService.getInstance();
+    const dataDir = pathService.getDataDir();
+
+    // 确保数据目录存在
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+
+    this.dbPath = path.join(dataDir, "conversation_history.db");
+    this.db = new Database(this.dbPath);
+
+    // 启用 WAL 模式提升性能
+    this.db.pragma("journal_mode = WAL");
+    // 启用外键约束
+    this.db.pragma("foreign_keys = ON");
+
+    this.initializeDatabase();
+    logger.debug(`ConversationHistoryService initialized (database: ${this.dbPath})`);
+  }
+
+  /**
+   * 获取单例实例
+   */
+  public static getInstance(): ConversationHistoryService {
+    if (!ConversationHistoryService.instance) {
+      ConversationHistoryService.instance = new ConversationHistoryService();
+    }
+    return ConversationHistoryService.instance;
+  }
+
+  /**
+   * 初始化数据库表结构
+   */
+  private initializeDatabase(): void {
+    this.db.exec(`
+      -- 对话消息表
+      CREATE TABLE IF NOT EXISTS conversation_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        conversation_id TEXT NOT NULL,
+        role TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system')),
+        content TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        metadata TEXT
+      );
+
+      -- 创建索引以提升查询性能
+      CREATE INDEX IF NOT EXISTS idx_conversation_id ON conversation_messages(conversation_id);
+      CREATE INDEX IF NOT EXISTS idx_conversation_created ON conversation_messages(conversation_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_created_at ON conversation_messages(created_at);
+    `);
+
+    logger.debug("✅ Conversation history tables initialized");
+  }
+
+  /**
+   * 格式化多模态消息内容为可读格式
+   * 将 content 数组转换为 "文本内容\n<img>base64...</img>\n<img>base64...</img>"
+   */
+  private formatMultimodalContent(content: string | any[]): string {
+    if (typeof content === "string") {
+      return content;
+    }
+
+    if (Array.isArray(content)) {
+      const parts: string[] = [];
+
+      for (const part of content) {
+        if (part.type === "text" && part.text) {
+          parts.push(part.text);
+        } else if (part.type === "image_url") {
+          // 提取图片URL
+          let imageUrl: string = "";
+          if (typeof part.image_url === "string") {
+            imageUrl = part.image_url;
+          } else if (part.image_url?.url) {
+            imageUrl = part.image_url.url;
+          }
+
+          if (imageUrl) {
+            // 使用XML标签包裹图片，方便后续解析和渲染
+            parts.push(`<img>${imageUrl}</img>`);
+          }
+        }
+      }
+
+      return parts.join("\n");
+    }
+
+    // 其他类型（如对象），回退到JSON序列化
+    return JSON.stringify(content);
+  }
+
+  /**
+   * 保存消息到历史记录
+   * @param conversationId 对话ID
+   * @param messages 消息列表
+   */
+  async saveMessages(conversationId: string, messages: Message[]): Promise<void> {
+    try {
+      const stmt = this.db.prepare(`
+        INSERT INTO conversation_messages (conversation_id, role, content, created_at, metadata)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+
+      const insertMany = this.db.transaction((msgs: Message[]) => {
+        for (const msg of msgs) {
+          // Message 类型可能没有 metadata 属性，使用类型断言或可选链
+          const metadata = (msg as any).metadata ? JSON.stringify((msg as any).metadata) : null;
+
+          // 🐾 格式化多模态消息内容
+          const contentToStore = this.formatMultimodalContent(msg.content);
+
+          stmt.run(conversationId, msg.role, contentToStore, Date.now(), metadata);
+        }
+      });
+
+      insertMany(messages);
+      logger.debug(
+        `[ConversationHistory] Saved ${messages.length} messages for conversation: ${conversationId}`
+      );
+    } catch (error: any) {
+      logger.error(`[ConversationHistory] Failed to save messages: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * 获取对话消息历史
+   * @param conversationId 对话ID
+   * @param limit 限制返回数量，默认 100
+   * @param offset 偏移量，默认 0
+   * @returns 消息列表
+   */
+  async getMessages(
+    conversationId: string,
+    limit: number = 100,
+    offset: number = 0
+  ): Promise<ConversationMessage[]> {
+    try {
+      const stmt = this.db.prepare(`
+        SELECT id, conversation_id, role, content, created_at, metadata
+        FROM conversation_messages
+        WHERE conversation_id = ?
+        ORDER BY created_at ASC
+        LIMIT ? OFFSET ?
+      `);
+
+      const rows = stmt.all(conversationId, limit, offset) as ConversationMessage[];
+      return rows;
+    } catch (error: any) {
+      logger.error(`[ConversationHistory] Failed to get messages: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * 获取对话消息总数
+   * @param conversationId 对话ID
+   * @returns 消息总数
+   */
+  async getMessageCount(conversationId: string): Promise<number> {
+    try {
+      const stmt = this.db.prepare(`
+        SELECT COUNT(*) as count
+        FROM conversation_messages
+        WHERE conversation_id = ?
+      `);
+
+      const result = stmt.get(conversationId) as { count: number };
+      return result.count;
+    } catch (error: any) {
+      logger.error(`[ConversationHistory] Failed to get message count: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * 删除对话的所有消息历史
+   * @param conversationId 对话ID
+   */
+  async deleteMessages(conversationId: string): Promise<void> {
+    try {
+      const stmt = this.db.prepare(`
+        DELETE FROM conversation_messages
+        WHERE conversation_id = ?
+      `);
+
+      const result = stmt.run(conversationId);
+      logger.info(
+        `[ConversationHistory] Deleted ${result.changes} messages for conversation: ${conversationId}`
+      );
+    } catch (error: any) {
+      logger.error(`[ConversationHistory] Failed to delete messages: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * 删除指定时间之前的消息（用于清理旧数据）
+   * @param beforeTimestamp 时间戳（毫秒）
+   * @returns 删除的消息数量
+   */
+  async deleteMessagesBefore(beforeTimestamp: number): Promise<number> {
+    try {
+      const stmt = this.db.prepare(`
+        DELETE FROM conversation_messages
+        WHERE created_at < ?
+      `);
+
+      const result = stmt.run(beforeTimestamp);
+      logger.info(
+        `[ConversationHistory] Deleted ${result.changes} messages before ${new Date(beforeTimestamp).toISOString()}`
+      );
+      return result.changes;
+    } catch (error: any) {
+      logger.error(`[ConversationHistory] Failed to delete old messages: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * 获取所有有消息历史的对话ID
+   * @returns conversation_id 列表，按最后消息时间倒序排列
+   */
+  async getAllConversationIds(): Promise<string[]> {
+    try {
+      const stmt = this.db.prepare(`
+        SELECT conversation_id, MAX(created_at) as last_message_at
+        FROM conversation_messages
+        GROUP BY conversation_id
+        ORDER BY last_message_at DESC
+      `);
+
+      const rows = stmt.all() as Array<{ conversation_id: string; last_message_at: number }>;
+      return rows.map((row) => row.conversation_id);
+    } catch (error) {
+      logger.error("❌ Failed to get all conversation IDs:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * 获取对话的最后一条消息
+   * @param conversationId 对话ID
+   * @returns 最后一条消息或null（如果不存在）
+   * @throws {Error} 数据库错误时抛出错误
+   */
+  async getLastMessage(conversationId: string): Promise<ConversationMessage | null> {
+    try {
+      const stmt = this.db.prepare(`
+        SELECT id, conversation_id, role, content, created_at, metadata
+        FROM conversation_messages
+        WHERE conversation_id = ?
+        ORDER BY created_at DESC
+        LIMIT 1
+      `);
+
+      const row = stmt.get(conversationId) as ConversationMessage | undefined;
+      return row || null;
+    } catch (error: any) {
+      logger.error(`[ConversationHistory] Failed to get last message: ${error.message}`);
+      throw new Error(
+        `Failed to get last message for conversation ${conversationId}: ${error.message}`
+      );
+    }
+  }
+
+  /**
+   * 获取对话的第一条消息
+   * @param conversationId 对话ID
+   * @returns 第一条消息或null（如果不存在）
+   * @throws {Error} 数据库错误时抛出错误
+   */
+  async getFirstMessage(conversationId: string): Promise<ConversationMessage | null> {
+    try {
+      const stmt = this.db.prepare(`
+        SELECT id, conversation_id, role, content, created_at, metadata
+        FROM conversation_messages
+        WHERE conversation_id = ?
+        ORDER BY created_at ASC
+        LIMIT 1
+      `);
+
+      const row = stmt.get(conversationId) as ConversationMessage | undefined;
+      return row || null;
+    } catch (error: any) {
+      logger.error(`[ConversationHistory] Failed to get first message: ${error.message}`);
+      throw new Error(
+        `Failed to get first message for conversation ${conversationId}: ${error.message}`
+      );
+    }
+  }
+
+  /**
+   * 关闭数据库连接
+   */
+  close(): void {
+    this.db.close();
+    logger.info("✅ ConversationHistoryService database closed");
+  }
+}
+````
+
+## File: src/strategies/SingleRoundStrategy.ts
+````typescript
+/**
+ * SingleRoundStrategy - 单轮聊天处理策略
+ * 处理单次LLM调用，不启用ReAct思考循环
+ */
+
+import type { Message, ChatOptions } from '../types';
+import type { ChatStrategy, ChatResult } from './ChatStrategy';
+import type { LLMManager } from '../core/LLMManager';
+import type { ConversationHistoryService } from '../services/ConversationHistoryService';
+import { logger } from '../utils/logger';
+
+export class SingleRoundStrategy implements ChatStrategy {
+  constructor(
+    private llmManager: LLMManager,
+    private historyService: ConversationHistoryService
+  ) {}
+
+  getName(): string {
+    return 'SingleRoundStrategy';
+  }
+
+  /**
+   * 检查是否支持该选项（不支持selfThinking）
+   */
+  supports(options: ChatOptions): boolean {
+    return !options.selfThinking?.enabled;
+  }
+
+  /**
+   * 执行单轮聊天处理
+   * 注意：messages 已由 ChatService 完成变量替换
+   */
+  async execute(messages: Message[], options: ChatOptions): Promise<ChatResult> {
+    logger.debug(`[${this.getName()}] Processing ${messages.length} messages`);
+
+    // 调用LLM
+    const llmResponse = await this.llmManager.chat(messages, options);
+    const aiContent = (llmResponse.choices[0]?.message?.content as string) || '';
+
+    logger.debug(`[${this.getName()}] LLM Response: ${aiContent.substring(0, 200)}...`);
+
+    // ChatService会统一保存历史，策略层只返回数据
+    return {
+      content: aiContent,
+      usage: llmResponse.usage
+    };
+  }
+
+  /**
+   * 创建流式迭代器（流式版本）
+   * 注意：messages 已由 ChatService 完成变量替换
+   */
+  async *stream(
+    messages: Message[],
+    options: ChatOptions,
+    abortSignal?: AbortSignal
+  ): AsyncIterableIterator<string> {
+    logger.debug(`[${this.getName()}] Streaming ${messages.length} messages`);
+
+    // 流式调用LLM
+    const stream = this.llmManager.streamChat(messages, options, abortSignal);
+
+    for await (const chunk of stream) {
+      // 检查中断
+      if (abortSignal?.aborted) {
+        logger.debug(`[${this.getName()}] Stream aborted`);
+        return;
+      }
+
+      yield chunk;
+    }
+  }
+}
+````
+
+## File: src/core/tools/builtin/VectorSearchTool.ts
+````typescript
+/**
+ * VectorSearchTool - 向量搜索内置工具
+ * 使用LanceDB搜索相关的Skills工具
+ */
+
+import { ToolResult, BuiltInTool, ToolType } from "../../../types/tool-system";
+import {
+  getToolRetrievalService,
+  ToolRetrievalService,
+} from "../../../services/ToolRetrievalService";
+import { logger } from "../../../utils/logger";
+import { THRESHOLDS } from "../../../constants";
+
+/**
+ * VectorSearchTool参数接口
+ */
+export interface VectorSearchArgs {
+  /** 搜索查询 */
+  query: string;
+  /** 最大返回结果数 */
+  limit?: number;
+  /** 相似度阈值 */
+  threshold?: number;
+  /** 是否包含元数据 */
+  includeMetadata?: boolean;
+}
+
+/**
+ * 向量搜索工具
+ * 基于用户查询在Skills向量库中搜索相关工具
+ */
+export class VectorSearchTool {
+  private static readonly DEFAULT_LIMIT = 5;
+  private static readonly MAX_LIMIT = 20;
+
+  private static get DEFAULT_THRESHOLD(): number {
+    return THRESHOLDS.RELEVANT_SKILLS;
+  }
+
+  /**
+   * 执行向量搜索
+   * @param args 搜索参数
+   * @returns 搜索结果
+   */
+  static async execute(args: VectorSearchArgs): Promise<ToolResult> {
+    const startTime = Date.now();
+
+    try {
+      // 参数验证
+      this.validateArgs(args);
+
+      // 获取工具检索服务
+      const retrievalService = getToolRetrievalService();
+
+      logger.info(`Vector search for query: "${args.query}"`);
+
+      // 执行搜索
+      const results = await retrievalService.findRelevantSkills(
+        args.query,
+        args.limit || this.DEFAULT_LIMIT,
+        args.threshold || this.DEFAULT_THRESHOLD
+      );
+
+      const duration = Date.now() - startTime;
+
+      // 格式化结果
+      const formattedResults = this.formatSearchResults(results, args);
+
+      logger.info(`Vector search completed in ${duration}ms, found ${results.length} results`);
+
+      return {
+        success: true,
+        output: formattedResults,
+        duration,
+        exitCode: 0,
+      };
+    } catch (error) {
+      const duration = Date.now() - startTime;
+
+      logger.error(`Vector search failed:`, error);
+
+      return {
+        success: false,
+        error: this.formatError(error),
+        duration,
+        errorCode: "VECTOR_SEARCH_ERROR",
+        exitCode: 1,
+      };
+    }
+  }
+
+  /**
+   * 验证参数
+   */
+  private static validateArgs(args: VectorSearchArgs): void {
+    if (!args.query || typeof args.query !== "string") {
+      throw new Error("Query is required and must be a non-empty string");
+    }
+
+    if (args.query.trim().length === 0) {
+      throw new Error("Query cannot be empty or whitespace only");
+    }
+
+    if (args.limit !== undefined) {
+      if (typeof args.limit !== "number") {
+        throw new Error("Limit must be a number");
+      }
+      if (args.limit < 1 || args.limit > this.MAX_LIMIT) {
+        throw new Error(`Limit must be between 1 and ${this.MAX_LIMIT}`);
+      }
+    }
+
+    if (args.threshold !== undefined) {
+      if (typeof args.threshold !== "number") {
+        throw new Error("Threshold must be a number");
+      }
+      if (args.threshold < 0 || args.threshold > 1) {
+        throw new Error("Threshold must be between 0.0 and 1.0");
+      }
+    }
+  }
+
+  /**
+   * 格式化搜索结果
+   */
+  private static formatSearchResults(
+    results: Array<{
+      tool: any;
+      score: number;
+      reason?: string;
+    }>,
+    args: VectorSearchArgs
+  ): string {
+    if (results.length === 0) {
+      return `No relevant Skills found for query: "${args.query}"`;
+    }
+
+    let output = `Found ${results.length} relevant Tool(s) for: "${args.query}"\n\n`;
+
+    results.forEach((result, index) => {
+      output += this.formatResult(result, index + 1, args);
+    });
+
+    output += "\n";
+    output += "=== How to Use These Tools ===\n\n";
+
+    // 根据工具类型显示不同的使用说明
+    const firstTool = results[0]?.tool;
+
+    switch (firstTool?.type) {
+      case "mcp": {
+        output += "🔌 MCP Tool: Use tool_action with the tool name\n";
+        output += `Example:\n`;
+        output += `<tool_action name="${firstTool.name}" type="mcp">\n`;
+        if (firstTool.metadata?.inputSchema?.properties) {
+          const firstParam = Object.keys(firstTool.metadata.inputSchema.properties)[0];
+          if (firstParam) {
+            output += `  <${firstParam} value="your-value" />\n`;
+          }
+        }
+        output += `</tool_action>\n\n`;
+        break;
+      }
+
+      case "builtin": {
+        output += '⚙️ Built-in Tool: Use tool_action with type="builtin"\n';
+        output += `Example:\n`;
+        output += `<tool_action name="${firstTool.name}" type="builtin">\n`;
+        output += `</tool_action>\n\n`;
+        break;
+      }
+
+      case "skill":
+      default: {
+        // Skill 类型
+        const hasExecuteScript = firstTool?.path && this.checkIfExecutable(firstTool.path);
+        if (hasExecuteScript) {
+          output += "🔧 Executable Skill: Use tool_action to execute\n";
+          output += `Example:\n`;
+          output += `<tool_action name="${firstTool.name}" type="skill">\n`;
+          if (firstTool.parameters?.properties) {
+            const firstParam = Object.keys(firstTool.parameters.properties)[0];
+            if (firstParam) {
+              output += `  <${firstParam} value="your-value" />\n`;
+            }
+          }
+          output += `</tool_action>\n\n`;
+        } else {
+          output += "📚 Knowledge Skill: Use read-skill to get full documentation\n";
+          output += `Example:\n`;
+          output += `<tool_action name="read-skill" type="builtin">\n`;
+          output += `  <skillName value="${firstTool?.name || "skill-name"}" />\n`;
+          output += `</tool_action>\n\n`;
+        }
+        break;
+      }
+    }
+
+    output += "Note: After reading or executing, you can apply the knowledge to help the user.\n";
+
+    return output;
+  }
+
+  /**
+   * 检查 Skill 是否可执行（简单检查，实际检查在运行时）
+   */
+  private static checkIfExecutable(_skillPath: string): boolean {
+    // 这里只是一个提示，实际的可执行性检查在 SkillsSandboxExecutor 中
+    // 我们假设有 path 的 Skill 可能是可执行的
+    return true;
+  }
+
+  /**
+   * 格式化单个结果
+   */
+  private static formatResult(
+    result: {
+      tool: any;
+      score: number;
+      reason?: string;
+    },
+    index: number,
+    args: VectorSearchArgs
+  ): string {
+    const tool = result.tool;
+
+    // 根据工具类型显示不同图标和说明
+    let typeIcon: string;
+    let typeLabel: string;
+    let typeDescription: string;
+
+    switch (tool.type) {
+      case "mcp": {
+        typeIcon = "🔌";
+        typeLabel = "MCP Tool";
+        typeDescription = "External MCP server tool";
+        break;
+      }
+      case "builtin": {
+        typeIcon = "⚙️";
+        typeLabel = "Built-in Tool";
+        typeDescription = "System built-in tool";
+        break;
+      }
+      case "skill":
+      default: {
+        // Skill 类型根据 parameters 判断可执行性
+        const isExecutable =
+          tool.parameters &&
+          tool.parameters.properties &&
+          Object.keys(tool.parameters.properties).length > 0;
+        typeIcon = isExecutable ? "🔧" : "📚";
+        typeLabel = isExecutable ? "Executable Skill" : "Knowledge Skill";
+        typeDescription = isExecutable
+          ? "Use tool_action to execute"
+          : "Use read-skill to get full documentation";
+        break;
+      }
+    }
+
+    let output = `${index}. ${tool.name} [${typeIcon} ${typeLabel}]\n`;
+    output += `   Score: ${(result.score * 100).toFixed(2)}%\n`;
+    output += `   Description: ${tool.description}\n`;
+    output += `   Type: ${typeDescription}\n`;
+
+    if (tool.source && tool.type === "mcp") {
+      output += `   Source: ${tool.source}\n`;
+    }
+
+    if (tool.tags && Array.isArray(tool.tags) && tool.tags.length > 0) {
+      output += `   Tags: ${tool.tags.join(", ")}\n`;
+    }
+
+    // 显示参数（Skill 和 MCP 工具）
+    if (tool.type === "skill" && tool.parameters?.properties) {
+      output += `   Parameters:\n`;
+      const properties = tool.parameters.properties;
+      const required = tool.parameters.required || [];
+
+      Object.entries(properties).forEach(([paramName, paramSchema]) => {
+        const schema: any = paramSchema;
+        const isRequired = required.includes(paramName);
+        const requiredMarker = isRequired ? " (required)" : "";
+        output += `     - ${paramName}${requiredMarker}: ${schema.description}\n`;
+
+        if (schema.type) {
+          output += `       Type: ${schema.type}\n`;
+        }
+
+        if (schema.default !== undefined) {
+          output += `       Default: ${JSON.stringify(schema.default)}\n`;
+        }
+
+        if (schema.enum) {
+          output += `       Enum: ${schema.enum.join(", ")}\n`;
+        }
+      });
+    }
+
+    if (args.includeMetadata && tool.metadata) {
+      output += `   Metadata: ${JSON.stringify(tool.metadata, null, 2)}\n`;
+    }
+
+    if (result.reason) {
+      output += `   Reason: ${result.reason}\n`;
+    }
+
+    output += "\n";
+    return output;
+  }
+
+  /**
+   * 格式化错误信息
+   */
+  private static formatError(error: any): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    if (typeof error === "string") {
+      return error;
+    }
+    return "Unknown error occurred during vector search";
+  }
+
+  /**
+   * 获取工具元数据
+   */
+  static getMetadata() {
+    return {
+      name: "vector-search",
+      description:
+        "Search for relevant Skills tools using vector similarity. Use this when you need to find tools to help with a task.",
+      category: "search",
+      level: 1,
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Search query describing what kind of tool or functionality you need",
+          },
+          limit: {
+            type: "number",
+            description: `Maximum number of results to return (default: ${this.DEFAULT_LIMIT}, max: ${this.MAX_LIMIT})`,
+            default: this.DEFAULT_LIMIT,
+            minimum: 1,
+            maximum: this.MAX_LIMIT,
+          },
+          threshold: {
+            type: "number",
+            description:
+              "Similarity threshold (0.0 to 1.0, default: 0.40). Higher values = more strict matching",
+            default: this.DEFAULT_THRESHOLD,
+            minimum: 0.0,
+            maximum: 1.0,
+          },
+          includeMetadata: {
+            type: "boolean",
+            description: "Include additional metadata in results",
+            default: false,
+          },
+        },
+        required: ["query"],
+      },
+    };
+  }
+
+  /**
+   * 计算搜索查询的向量嵌入（备用方法）
+   */
+  private static async getQueryEmbedding(query: string): Promise<number[]> {
+    // 这个方法将由ToolRetrievalService实现
+    // 这里只是占位符
+    throw new Error("getQueryEmbedding not implemented");
+  }
+
+  /**
+   * 从搜索结果中提取工具参数模式（用于动态生成工具调用）
+   */
+  private static extractParametersFromResults(results: any[]): string {
+    if (results.length === 0) {
+      return "No tools found";
+    }
+
+    const tool = results[0].tool;
+    if (!tool.parameters || !tool.parameters.properties) {
+      return "No parameters defined";
+    }
+
+    const params = Object.entries(tool.parameters.properties).map(
+      ([name, schema]: [string, any]) => {
+        const required = tool.parameters.required?.includes(name) ? " (required)" : "";
+        return `    ${name}${required}: ${schema.type} - ${schema.description}`;
+      }
+    );
+
+    return params.join("\n");
+  }
+}
+
+/**
+ * 创建VectorSearchTool实例（用于注册表）
+ */
+export function createVectorSearchTool() {
+  return {
+    ...VectorSearchTool.getMetadata(),
+    type: ToolType.BUILTIN,
+    enabled: true,
+    execute: async (args: Record<string, any>) => {
+      return VectorSearchTool.execute(args as VectorSearchArgs);
+    },
+  } as BuiltInTool;
 }
 ````
 
@@ -40470,829 +41820,6 @@ export class SkillsSandboxExecutorFactory {
  */
 export function getSkillsSandboxExecutor(options?: SandboxExecutionOptions): SkillsSandboxExecutor {
   return SkillsSandboxExecutorFactory.getInstance(options);
-}
-````
-
-## File: src/services/ConversationHistoryService.ts
-````typescript
-/**
- * ConversationHistoryService - 对话消息历史管理服务
- * 负责存储、查询和删除对话消息历史
- */
-
-import Database from "better-sqlite3";
-import * as fs from "fs";
-import * as path from "path";
-import { logger } from "../utils/logger";
-import { PathService } from "./PathService";
-import { Message } from "../types";
-
-export interface ConversationMessage {
-  id: number;
-  conversation_id: string;
-  role: "user" | "assistant" | "system";
-  content: string;
-  created_at: number;
-  metadata?: string; // JSON string for additional metadata
-}
-
-/**
- * 对话历史服务
- */
-export class ConversationHistoryService {
-  private static instance: ConversationHistoryService;
-  private db: Database.Database;
-  private dbPath: string;
-
-  private constructor() {
-    const pathService = PathService.getInstance();
-    const dataDir = pathService.getDataDir();
-
-    // 确保数据目录存在
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
-    }
-
-    this.dbPath = path.join(dataDir, "conversation_history.db");
-    this.db = new Database(this.dbPath);
-
-    // 启用 WAL 模式提升性能
-    this.db.pragma("journal_mode = WAL");
-    // 启用外键约束
-    this.db.pragma("foreign_keys = ON");
-
-    this.initializeDatabase();
-    logger.debug(`ConversationHistoryService initialized (database: ${this.dbPath})`);
-  }
-
-  /**
-   * 获取单例实例
-   */
-  public static getInstance(): ConversationHistoryService {
-    if (!ConversationHistoryService.instance) {
-      ConversationHistoryService.instance = new ConversationHistoryService();
-    }
-    return ConversationHistoryService.instance;
-  }
-
-  /**
-   * 初始化数据库表结构
-   */
-  private initializeDatabase(): void {
-    this.db.exec(`
-      -- 对话消息表
-      CREATE TABLE IF NOT EXISTS conversation_messages (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        conversation_id TEXT NOT NULL,
-        role TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system')),
-        content TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        metadata TEXT
-      );
-
-      -- 创建索引以提升查询性能
-      CREATE INDEX IF NOT EXISTS idx_conversation_id ON conversation_messages(conversation_id);
-      CREATE INDEX IF NOT EXISTS idx_conversation_created ON conversation_messages(conversation_id, created_at);
-      CREATE INDEX IF NOT EXISTS idx_created_at ON conversation_messages(created_at);
-    `);
-
-    logger.debug("✅ Conversation history tables initialized");
-  }
-
-  /**
-   * 格式化多模态消息内容为可读格式
-   * 将 content 数组转换为 "文本内容\n<img>base64...</img>\n<img>base64...</img>"
-   */
-  private formatMultimodalContent(content: string | any[]): string {
-    if (typeof content === "string") {
-      return content;
-    }
-
-    if (Array.isArray(content)) {
-      const parts: string[] = [];
-
-      for (const part of content) {
-        if (part.type === "text" && part.text) {
-          parts.push(part.text);
-        } else if (part.type === "image_url") {
-          // 提取图片URL
-          let imageUrl: string = "";
-          if (typeof part.image_url === "string") {
-            imageUrl = part.image_url;
-          } else if (part.image_url?.url) {
-            imageUrl = part.image_url.url;
-          }
-
-          if (imageUrl) {
-            // 使用XML标签包裹图片，方便后续解析和渲染
-            parts.push(`<img>${imageUrl}</img>`);
-          }
-        }
-      }
-
-      return parts.join("\n");
-    }
-
-    // 其他类型（如对象），回退到JSON序列化
-    return JSON.stringify(content);
-  }
-
-  /**
-   * 保存消息到历史记录
-   * @param conversationId 对话ID
-   * @param messages 消息列表
-   */
-  async saveMessages(conversationId: string, messages: Message[]): Promise<void> {
-    try {
-      const stmt = this.db.prepare(`
-        INSERT INTO conversation_messages (conversation_id, role, content, created_at, metadata)
-        VALUES (?, ?, ?, ?, ?)
-      `);
-
-      const insertMany = this.db.transaction((msgs: Message[]) => {
-        for (const msg of msgs) {
-          // Message 类型可能没有 metadata 属性，使用类型断言或可选链
-          const metadata = (msg as any).metadata ? JSON.stringify((msg as any).metadata) : null;
-
-          // 🐾 格式化多模态消息内容
-          const contentToStore = this.formatMultimodalContent(msg.content);
-
-          stmt.run(conversationId, msg.role, contentToStore, Date.now(), metadata);
-        }
-      });
-
-      insertMany(messages);
-      logger.debug(
-        `[ConversationHistory] Saved ${messages.length} messages for conversation: ${conversationId}`
-      );
-    } catch (error: any) {
-      logger.error(`[ConversationHistory] Failed to save messages: ${error.message}`);
-      throw error;
-    }
-  }
-
-  /**
-   * 获取对话消息历史
-   * @param conversationId 对话ID
-   * @param limit 限制返回数量，默认 100
-   * @param offset 偏移量，默认 0
-   * @returns 消息列表
-   */
-  async getMessages(
-    conversationId: string,
-    limit: number = 100,
-    offset: number = 0
-  ): Promise<ConversationMessage[]> {
-    try {
-      const stmt = this.db.prepare(`
-        SELECT id, conversation_id, role, content, created_at, metadata
-        FROM conversation_messages
-        WHERE conversation_id = ?
-        ORDER BY created_at ASC
-        LIMIT ? OFFSET ?
-      `);
-
-      const rows = stmt.all(conversationId, limit, offset) as ConversationMessage[];
-      return rows;
-    } catch (error: any) {
-      logger.error(`[ConversationHistory] Failed to get messages: ${error.message}`);
-      throw error;
-    }
-  }
-
-  /**
-   * 获取对话消息总数
-   * @param conversationId 对话ID
-   * @returns 消息总数
-   */
-  async getMessageCount(conversationId: string): Promise<number> {
-    try {
-      const stmt = this.db.prepare(`
-        SELECT COUNT(*) as count
-        FROM conversation_messages
-        WHERE conversation_id = ?
-      `);
-
-      const result = stmt.get(conversationId) as { count: number };
-      return result.count;
-    } catch (error: any) {
-      logger.error(`[ConversationHistory] Failed to get message count: ${error.message}`);
-      throw error;
-    }
-  }
-
-  /**
-   * 删除对话的所有消息历史
-   * @param conversationId 对话ID
-   */
-  async deleteMessages(conversationId: string): Promise<void> {
-    try {
-      const stmt = this.db.prepare(`
-        DELETE FROM conversation_messages
-        WHERE conversation_id = ?
-      `);
-
-      const result = stmt.run(conversationId);
-      logger.info(
-        `[ConversationHistory] Deleted ${result.changes} messages for conversation: ${conversationId}`
-      );
-    } catch (error: any) {
-      logger.error(`[ConversationHistory] Failed to delete messages: ${error.message}`);
-      throw error;
-    }
-  }
-
-  /**
-   * 删除指定时间之前的消息（用于清理旧数据）
-   * @param beforeTimestamp 时间戳（毫秒）
-   * @returns 删除的消息数量
-   */
-  async deleteMessagesBefore(beforeTimestamp: number): Promise<number> {
-    try {
-      const stmt = this.db.prepare(`
-        DELETE FROM conversation_messages
-        WHERE created_at < ?
-      `);
-
-      const result = stmt.run(beforeTimestamp);
-      logger.info(
-        `[ConversationHistory] Deleted ${result.changes} messages before ${new Date(beforeTimestamp).toISOString()}`
-      );
-      return result.changes;
-    } catch (error: any) {
-      logger.error(`[ConversationHistory] Failed to delete old messages: ${error.message}`);
-      throw error;
-    }
-  }
-
-  /**
-   * 获取所有有消息历史的对话ID
-   * @returns conversation_id 列表，按最后消息时间倒序排列
-   */
-  async getAllConversationIds(): Promise<string[]> {
-    try {
-      const stmt = this.db.prepare(`
-        SELECT conversation_id, MAX(created_at) as last_message_at
-        FROM conversation_messages
-        GROUP BY conversation_id
-        ORDER BY last_message_at DESC
-      `);
-
-      const rows = stmt.all() as Array<{ conversation_id: string; last_message_at: number }>;
-      return rows.map((row) => row.conversation_id);
-    } catch (error) {
-      logger.error("❌ Failed to get all conversation IDs:", error);
-      throw error;
-    }
-  }
-
-  /**
-   * 获取对话的最后一条消息
-   * @param conversationId 对话ID
-   * @returns 最后一条消息或null
-   */
-  async getLastMessage(conversationId: string): Promise<ConversationMessage | null> {
-    try {
-      const stmt = this.db.prepare(`
-        SELECT id, conversation_id, role, content, created_at, metadata
-        FROM conversation_messages
-        WHERE conversation_id = ?
-        ORDER BY created_at DESC
-        LIMIT 1
-      `);
-
-      const row = stmt.get(conversationId) as ConversationMessage | undefined;
-      return row || null;
-    } catch (error: any) {
-      logger.error(`[ConversationHistory] Failed to get last message: ${error.message}`);
-      return null;
-    }
-  }
-
-  /**
-   * 获取对话的第一条消息
-   * @param conversationId 对话ID
-   * @returns 第一条消息或null
-   */
-  async getFirstMessage(conversationId: string): Promise<ConversationMessage | null> {
-    try {
-      const stmt = this.db.prepare(`
-        SELECT id, conversation_id, role, content, created_at, metadata
-        FROM conversation_messages
-        WHERE conversation_id = ?
-        ORDER BY created_at ASC
-        LIMIT 1
-      `);
-
-      const row = stmt.get(conversationId) as ConversationMessage | undefined;
-      return row || null;
-    } catch (error: any) {
-      logger.error(`[ConversationHistory] Failed to get first message: ${error.message}`);
-      return null;
-    }
-  }
-
-  /**
-   * 关闭数据库连接
-   */
-  close(): void {
-    this.db.close();
-    logger.info("✅ ConversationHistoryService database closed");
-  }
-}
-````
-
-## File: src/strategies/SingleRoundStrategy.ts
-````typescript
-/**
- * SingleRoundStrategy - 单轮聊天处理策略
- * 处理单次LLM调用，不启用ReAct思考循环
- */
-
-import type { Message, ChatOptions } from '../types';
-import type { ChatStrategy, ChatResult } from './ChatStrategy';
-import type { LLMManager } from '../core/LLMManager';
-import type { ConversationHistoryService } from '../services/ConversationHistoryService';
-import { logger } from '../utils/logger';
-
-export class SingleRoundStrategy implements ChatStrategy {
-  constructor(
-    private llmManager: LLMManager,
-    private historyService: ConversationHistoryService
-  ) {}
-
-  getName(): string {
-    return 'SingleRoundStrategy';
-  }
-
-  /**
-   * 检查是否支持该选项（不支持selfThinking）
-   */
-  supports(options: ChatOptions): boolean {
-    return !options.selfThinking?.enabled;
-  }
-
-  /**
-   * 执行单轮聊天处理
-   * 注意：messages 已由 ChatService 完成变量替换
-   */
-  async execute(messages: Message[], options: ChatOptions): Promise<ChatResult> {
-    logger.debug(`[${this.getName()}] Processing ${messages.length} messages`);
-
-    // 调用LLM
-    const llmResponse = await this.llmManager.chat(messages, options);
-    const aiContent = (llmResponse.choices[0]?.message?.content as string) || '';
-
-    logger.debug(`[${this.getName()}] LLM Response: ${aiContent.substring(0, 200)}...`);
-
-    // ChatService会统一保存历史，策略层只返回数据
-    return {
-      content: aiContent,
-      usage: llmResponse.usage
-    };
-  }
-
-  /**
-   * 创建流式迭代器（流式版本）
-   * 注意：messages 已由 ChatService 完成变量替换
-   */
-  async *stream(
-    messages: Message[],
-    options: ChatOptions,
-    abortSignal?: AbortSignal
-  ): AsyncIterableIterator<string> {
-    logger.debug(`[${this.getName()}] Streaming ${messages.length} messages`);
-
-    // 流式调用LLM
-    const stream = this.llmManager.streamChat(messages, options, abortSignal);
-
-    for await (const chunk of stream) {
-      // 检查中断
-      if (abortSignal?.aborted) {
-        logger.debug(`[${this.getName()}] Stream aborted`);
-        return;
-      }
-
-      yield chunk;
-    }
-  }
-}
-````
-
-## File: src/core/tools/builtin/VectorSearchTool.ts
-````typescript
-/**
- * VectorSearchTool - 向量搜索内置工具
- * 使用LanceDB搜索相关的Skills工具
- */
-
-import { ToolResult, BuiltInTool, ToolType } from "../../../types/tool-system";
-import {
-  getToolRetrievalService,
-  ToolRetrievalService,
-} from "../../../services/ToolRetrievalService";
-import { logger } from "../../../utils/logger";
-import { THRESHOLDS } from "../../../constants";
-
-/**
- * VectorSearchTool参数接口
- */
-export interface VectorSearchArgs {
-  /** 搜索查询 */
-  query: string;
-  /** 最大返回结果数 */
-  limit?: number;
-  /** 相似度阈值 */
-  threshold?: number;
-  /** 是否包含元数据 */
-  includeMetadata?: boolean;
-}
-
-/**
- * 向量搜索工具
- * 基于用户查询在Skills向量库中搜索相关工具
- */
-export class VectorSearchTool {
-  private static readonly DEFAULT_LIMIT = 5;
-  private static readonly MAX_LIMIT = 20;
-
-  private static get DEFAULT_THRESHOLD(): number {
-    return THRESHOLDS.RELEVANT_SKILLS;
-  }
-
-  /**
-   * 执行向量搜索
-   * @param args 搜索参数
-   * @returns 搜索结果
-   */
-  static async execute(args: VectorSearchArgs): Promise<ToolResult> {
-    const startTime = Date.now();
-
-    try {
-      // 参数验证
-      this.validateArgs(args);
-
-      // 获取工具检索服务
-      const retrievalService = getToolRetrievalService();
-
-      logger.info(`Vector search for query: "${args.query}"`);
-
-      // 执行搜索
-      const results = await retrievalService.findRelevantSkills(
-        args.query,
-        args.limit || this.DEFAULT_LIMIT,
-        args.threshold || this.DEFAULT_THRESHOLD
-      );
-
-      const duration = Date.now() - startTime;
-
-      // 格式化结果
-      const formattedResults = this.formatSearchResults(results, args);
-
-      logger.info(`Vector search completed in ${duration}ms, found ${results.length} results`);
-
-      return {
-        success: true,
-        output: formattedResults,
-        duration,
-        exitCode: 0,
-      };
-    } catch (error) {
-      const duration = Date.now() - startTime;
-
-      logger.error(`Vector search failed:`, error);
-
-      return {
-        success: false,
-        error: this.formatError(error),
-        duration,
-        errorCode: "VECTOR_SEARCH_ERROR",
-        exitCode: 1,
-      };
-    }
-  }
-
-  /**
-   * 验证参数
-   */
-  private static validateArgs(args: VectorSearchArgs): void {
-    if (!args.query || typeof args.query !== "string") {
-      throw new Error("Query is required and must be a non-empty string");
-    }
-
-    if (args.query.trim().length === 0) {
-      throw new Error("Query cannot be empty or whitespace only");
-    }
-
-    if (args.limit !== undefined) {
-      if (typeof args.limit !== "number") {
-        throw new Error("Limit must be a number");
-      }
-      if (args.limit < 1 || args.limit > this.MAX_LIMIT) {
-        throw new Error(`Limit must be between 1 and ${this.MAX_LIMIT}`);
-      }
-    }
-
-    if (args.threshold !== undefined) {
-      if (typeof args.threshold !== "number") {
-        throw new Error("Threshold must be a number");
-      }
-      if (args.threshold < 0 || args.threshold > 1) {
-        throw new Error("Threshold must be between 0.0 and 1.0");
-      }
-    }
-  }
-
-  /**
-   * 格式化搜索结果
-   */
-  private static formatSearchResults(
-    results: Array<{
-      tool: any;
-      score: number;
-      reason?: string;
-    }>,
-    args: VectorSearchArgs
-  ): string {
-    if (results.length === 0) {
-      return `No relevant Skills found for query: "${args.query}"`;
-    }
-
-    let output = `Found ${results.length} relevant Tool(s) for: "${args.query}"\n\n`;
-
-    results.forEach((result, index) => {
-      output += this.formatResult(result, index + 1, args);
-    });
-
-    output += "\n";
-    output += "=== How to Use These Tools ===\n\n";
-
-    // 根据工具类型显示不同的使用说明
-    const firstTool = results[0]?.tool;
-
-    switch (firstTool?.type) {
-      case "mcp": {
-        output += "🔌 MCP Tool: Use tool_action with the tool name\n";
-        output += `Example:\n`;
-        output += `<tool_action name="${firstTool.name}" type="mcp">\n`;
-        if (firstTool.metadata?.inputSchema?.properties) {
-          const firstParam = Object.keys(firstTool.metadata.inputSchema.properties)[0];
-          if (firstParam) {
-            output += `  <${firstParam} value="your-value" />\n`;
-          }
-        }
-        output += `</tool_action>\n\n`;
-        break;
-      }
-
-      case "builtin": {
-        output += '⚙️ Built-in Tool: Use tool_action with type="builtin"\n';
-        output += `Example:\n`;
-        output += `<tool_action name="${firstTool.name}" type="builtin">\n`;
-        output += `</tool_action>\n\n`;
-        break;
-      }
-
-      case "skill":
-      default: {
-        // Skill 类型
-        const hasExecuteScript = firstTool?.path && this.checkIfExecutable(firstTool.path);
-        if (hasExecuteScript) {
-          output += "🔧 Executable Skill: Use tool_action to execute\n";
-          output += `Example:\n`;
-          output += `<tool_action name="${firstTool.name}" type="skill">\n`;
-          if (firstTool.parameters?.properties) {
-            const firstParam = Object.keys(firstTool.parameters.properties)[0];
-            if (firstParam) {
-              output += `  <${firstParam} value="your-value" />\n`;
-            }
-          }
-          output += `</tool_action>\n\n`;
-        } else {
-          output += "📚 Knowledge Skill: Use read-skill to get full documentation\n";
-          output += `Example:\n`;
-          output += `<tool_action name="read-skill" type="builtin">\n`;
-          output += `  <skillName value="${firstTool?.name || "skill-name"}" />\n`;
-          output += `</tool_action>\n\n`;
-        }
-        break;
-      }
-    }
-
-    output += "Note: After reading or executing, you can apply the knowledge to help the user.\n";
-
-    return output;
-  }
-
-  /**
-   * 检查 Skill 是否可执行（简单检查，实际检查在运行时）
-   */
-  private static checkIfExecutable(_skillPath: string): boolean {
-    // 这里只是一个提示，实际的可执行性检查在 SkillsSandboxExecutor 中
-    // 我们假设有 path 的 Skill 可能是可执行的
-    return true;
-  }
-
-  /**
-   * 格式化单个结果
-   */
-  private static formatResult(
-    result: {
-      tool: any;
-      score: number;
-      reason?: string;
-    },
-    index: number,
-    args: VectorSearchArgs
-  ): string {
-    const tool = result.tool;
-
-    // 根据工具类型显示不同图标和说明
-    let typeIcon: string;
-    let typeLabel: string;
-    let typeDescription: string;
-
-    switch (tool.type) {
-      case "mcp": {
-        typeIcon = "🔌";
-        typeLabel = "MCP Tool";
-        typeDescription = "External MCP server tool";
-        break;
-      }
-      case "builtin": {
-        typeIcon = "⚙️";
-        typeLabel = "Built-in Tool";
-        typeDescription = "System built-in tool";
-        break;
-      }
-      case "skill":
-      default: {
-        // Skill 类型根据 parameters 判断可执行性
-        const isExecutable =
-          tool.parameters &&
-          tool.parameters.properties &&
-          Object.keys(tool.parameters.properties).length > 0;
-        typeIcon = isExecutable ? "🔧" : "📚";
-        typeLabel = isExecutable ? "Executable Skill" : "Knowledge Skill";
-        typeDescription = isExecutable
-          ? "Use tool_action to execute"
-          : "Use read-skill to get full documentation";
-        break;
-      }
-    }
-
-    let output = `${index}. ${tool.name} [${typeIcon} ${typeLabel}]\n`;
-    output += `   Score: ${(result.score * 100).toFixed(2)}%\n`;
-    output += `   Description: ${tool.description}\n`;
-    output += `   Type: ${typeDescription}\n`;
-
-    if (tool.source && tool.type === "mcp") {
-      output += `   Source: ${tool.source}\n`;
-    }
-
-    if (tool.tags && Array.isArray(tool.tags) && tool.tags.length > 0) {
-      output += `   Tags: ${tool.tags.join(", ")}\n`;
-    }
-
-    // 显示参数（Skill 和 MCP 工具）
-    if (tool.type === "skill" && tool.parameters?.properties) {
-      output += `   Parameters:\n`;
-      const properties = tool.parameters.properties;
-      const required = tool.parameters.required || [];
-
-      Object.entries(properties).forEach(([paramName, paramSchema]) => {
-        const schema: any = paramSchema;
-        const isRequired = required.includes(paramName);
-        const requiredMarker = isRequired ? " (required)" : "";
-        output += `     - ${paramName}${requiredMarker}: ${schema.description}\n`;
-
-        if (schema.type) {
-          output += `       Type: ${schema.type}\n`;
-        }
-
-        if (schema.default !== undefined) {
-          output += `       Default: ${JSON.stringify(schema.default)}\n`;
-        }
-
-        if (schema.enum) {
-          output += `       Enum: ${schema.enum.join(", ")}\n`;
-        }
-      });
-    }
-
-    if (args.includeMetadata && tool.metadata) {
-      output += `   Metadata: ${JSON.stringify(tool.metadata, null, 2)}\n`;
-    }
-
-    if (result.reason) {
-      output += `   Reason: ${result.reason}\n`;
-    }
-
-    output += "\n";
-    return output;
-  }
-
-  /**
-   * 格式化错误信息
-   */
-  private static formatError(error: any): string {
-    if (error instanceof Error) {
-      return error.message;
-    }
-    if (typeof error === "string") {
-      return error;
-    }
-    return "Unknown error occurred during vector search";
-  }
-
-  /**
-   * 获取工具元数据
-   */
-  static getMetadata() {
-    return {
-      name: "vector-search",
-      description:
-        "Search for relevant Skills tools using vector similarity. Use this when you need to find tools to help with a task.",
-      category: "search",
-      level: 1,
-      parameters: {
-        type: "object",
-        properties: {
-          query: {
-            type: "string",
-            description: "Search query describing what kind of tool or functionality you need",
-          },
-          limit: {
-            type: "number",
-            description: `Maximum number of results to return (default: ${this.DEFAULT_LIMIT}, max: ${this.MAX_LIMIT})`,
-            default: this.DEFAULT_LIMIT,
-            minimum: 1,
-            maximum: this.MAX_LIMIT,
-          },
-          threshold: {
-            type: "number",
-            description:
-              "Similarity threshold (0.0 to 1.0, default: 0.40). Higher values = more strict matching",
-            default: this.DEFAULT_THRESHOLD,
-            minimum: 0.0,
-            maximum: 1.0,
-          },
-          includeMetadata: {
-            type: "boolean",
-            description: "Include additional metadata in results",
-            default: false,
-          },
-        },
-        required: ["query"],
-      },
-    };
-  }
-
-  /**
-   * 计算搜索查询的向量嵌入（备用方法）
-   */
-  private static async getQueryEmbedding(query: string): Promise<number[]> {
-    // 这个方法将由ToolRetrievalService实现
-    // 这里只是占位符
-    throw new Error("getQueryEmbedding not implemented");
-  }
-
-  /**
-   * 从搜索结果中提取工具参数模式（用于动态生成工具调用）
-   */
-  private static extractParametersFromResults(results: any[]): string {
-    if (results.length === 0) {
-      return "No tools found";
-    }
-
-    const tool = results[0].tool;
-    if (!tool.parameters || !tool.parameters.properties) {
-      return "No parameters defined";
-    }
-
-    const params = Object.entries(tool.parameters.properties).map(
-      ([name, schema]: [string, any]) => {
-        const required = tool.parameters.required?.includes(name) ? " (required)" : "";
-        return `    ${name}${required}: ${schema.type} - ${schema.description}`;
-      }
-    );
-
-    return params.join("\n");
-  }
-}
-
-/**
- * 创建VectorSearchTool实例（用于注册表）
- */
-export function createVectorSearchTool() {
-  return {
-    ...VectorSearchTool.getMetadata(),
-    type: ToolType.BUILTIN,
-    enabled: true,
-    execute: async (args: Record<string, any>) => {
-      return VectorSearchTool.execute(args as VectorSearchArgs);
-    },
-  } as BuiltInTool;
 }
 ````
 
@@ -42737,991 +43264,6 @@ ${toolDescriptions}
 </tool_action>
 \`\`\`
 `;
-}
-````
-
-## File: src/services/SkillManager.ts
-````typescript
-/**
- * SkillManager - Skills生命周期管理器
- * 负责Skills的安装、卸载、修改和查询，支持ZIP包自动解压和结构验证
- * 集成 ToolRegistry 进行统一工具管理
- */
-
-import * as fs from "fs/promises";
-import * as path from "path";
-import * as os from "os";
-import * as crypto from "crypto";
-import YAML from "js-yaml";
-import matter from "gray-matter";
-import AdmZip from "adm-zip";
-import {
-  SkillTool,
-  SkillInstallOptions,
-  SkillListOptions,
-  SkillListResult,
-  SkillMetadata,
-  ToolError,
-  ToolErrorCode,
-  ToolType,
-} from "../types/tool-system";
-import { ToolRetrievalService } from "./ToolRetrievalService";
-import { SkillsSandboxExecutor, getSkillsSandboxExecutor } from "./executors/SkillsSandboxExecutor";
-import { toolRegistry, ToolType as RegistryToolType } from "../core/tool/registry";
-import type { Tool } from "../core/tool/tool";
-import { logger } from "../utils/logger";
-import { PathService } from "./PathService";
-import {
-  ClaudeCodeSkillParser,
-  getClaudeCodeSkillParser,
-  LifecycleManager,
-  getLifecycleManager,
-  ParsedClaudeSkill,
-  SkillLifecycleHooks,
-  ParseError,
-} from "./compat";
-
-/**
- * 安装结果
- */
-export interface InstallResult {
-  success: boolean;
-  message: string;
-  skillName?: string;
-  installedAt?: Date;
-  duration?: number;
-  vectorized?: boolean;
-}
-
-/**
- * 卸载结果
- */
-export interface UninstallResult {
-  success: boolean;
-  message: string;
-  skillName?: string;
-  uninstalledAt?: Date;
-  duration?: number;
-}
-
-/**
- * 更新结果
- */
-export interface UpdateResult {
-  success: boolean;
-  message: string;
-  skillName?: string;
-  updatedAt?: Date;
-  duration?: number;
-  reindexed?: boolean;
-}
-
-/**
- * Skills管理器
- * 管理Skills的完整生命周期：安装、卸载、更新、查询
- */
-export class SkillManager {
-  private static instance: SkillManager | null = null;
-  private readonly skillsBasePath: string;
-  private readonly retrievalService: ToolRetrievalService;
-  private readonly skillsExecutor: SkillsSandboxExecutor;
-  private readonly skillParser: ClaudeCodeSkillParser;
-  private readonly lifecycleManager: LifecycleManager;
-  private initializationPromise: Promise<void> | null = null;
-
-  /**
-   * 创建SkillManager实例
-   * @param skillsBasePath Skills存储基础路径
-   * @param retrievalService 检索服务实例
-   */
-  protected constructor(skillsBasePath?: string, retrievalService?: ToolRetrievalService) {
-    // 使用 PathService 获取正确的路径
-    const pathService = PathService.getInstance();
-    const dataDir = pathService.getDataDir();
-    this.skillsBasePath = skillsBasePath || path.join(dataDir, "skills");
-
-    // 确保 skills 目录存在
-    this.ensureSkillsDirectory();
-
-    // 使用 PathService 获取正确的向量数据库路径
-    const vectorDbPath = path.join(dataDir, "skills.lance");
-
-    this.retrievalService =
-      retrievalService ||
-      new ToolRetrievalService({
-        vectorDbPath,
-        model: "all-MiniLM-L6-v2",
-        dimensions: 384,
-        similarityThreshold: 0.4,
-        cacheSize: 1000,
-      });
-    // 初始化 Skills 执行器
-    this.skillsExecutor = getSkillsSandboxExecutor();
-
-    // 初始化兼容层组件
-    this.skillParser = getClaudeCodeSkillParser();
-    this.lifecycleManager = getLifecycleManager();
-
-    logger.debug("SkillManager initialized", {
-      skillsBasePath,
-    });
-
-    // 启动异步初始化，但不阻塞构造函数
-    this.initializationPromise = this.initializeSkillsIndex().catch((error) => {
-      logger.error("Failed to initialize skills index during startup:", error);
-      // 即使失败也标记为完成，避免永久阻塞
-      throw error;
-    });
-  }
-
-  /**
-   * 安装Skills
-   * @param zipBuffer ZIP压缩包Buffer
-   * @param options 安装选项
-   * @returns 安装结果
-   */
-  async installSkill(zipBuffer: Buffer, options: SkillInstallOptions = {}): Promise<InstallResult> {
-    const startTime = Date.now();
-
-    try {
-      // 解压ZIP包到临时目录
-      const tempDir = await this.extractZipToTemp(zipBuffer);
-      logger.debug(`Extracted ZIP to temp directory: ${tempDir}`);
-
-      // 验证Skills结构
-      const metadata = await this.validateSkillStructure(tempDir, options.validationLevel);
-      logger.debug("Skills structure validation passed", { metadata });
-
-      // 检查名称冲突
-      const targetDir = path.join(this.skillsBasePath, metadata.name);
-      const exists = await this.directoryExists(targetDir);
-
-      if (exists) {
-        if (!options.overwrite) {
-          throw new ToolError(
-            `Skill '${metadata.name}' already exists. Use overwrite: true to replace.`,
-            ToolErrorCode.SKILL_ALREADY_EXISTS
-          );
-        }
-
-        // 先卸载已存在的版本
-        await this.uninstallSkillInternal(metadata.name);
-        logger.info(`Overwriting existing skill: ${metadata.name}`);
-      }
-
-      // 执行预安装钩子
-      const installContext = this.lifecycleManager.createContext(
-        metadata.name,
-        targetDir,
-        metadata,
-        undefined,
-        options.validationLevel
-      );
-      await this.lifecycleManager.preInstall(installContext);
-
-      // 移动Skills到目标目录
-      await fs.mkdir(path.dirname(targetDir), { recursive: true });
-      await fs.rename(tempDir, targetDir);
-      logger.debug(`Moved Skills to target: ${targetDir}`);
-
-      // 创建.vectorized标识文件（用于索引状态跟踪）
-      const vectorizedFile = path.join(targetDir, ".vectorized");
-      await fs.writeFile(vectorizedFile, "");
-
-      // 添加到向量检索索引（如果包含metadata）
-      let vectorized = false;
-      if (!options.skipVectorization) {
-        try {
-          await this.retrievalService.indexSkill({
-            name: metadata.name,
-            description: metadata.description,
-            tags: metadata.tags || [],
-            path: targetDir,
-            version: metadata.version,
-            metadata: metadata,
-          });
-          await fs.writeFile(
-            vectorizedFile,
-            `indexed: ${new Date().toISOString()}\nversion: ${metadata.version}`
-          );
-          vectorized = true;
-          logger.info("Skill vectorized successfully", { skillName: metadata.name });
-        } catch (error) {
-          logger.warn("Skill vectorization failed", {
-            skillName: metadata.name,
-            error: error instanceof Error ? error.message : error,
-          });
-        }
-      }
-
-      const duration = Date.now() - startTime;
-
-      // 执行后安装钩子
-      await this.lifecycleManager.postInstall(installContext);
-
-      return {
-        success: true,
-        message: `Skill '${metadata.name}' installed successfully`,
-        skillName: metadata.name,
-        installedAt: new Date(),
-        duration,
-        vectorized,
-      };
-    } catch (error) {
-      const duration = Date.now() - startTime;
-
-      logger.error("Skill installation failed:", error);
-
-      if (error instanceof ToolError) {
-        throw error;
-      }
-
-      throw new ToolError(
-        `Skill installation failed: ${this.formatError(error)}`,
-        ToolErrorCode.SKILL_INVALID_STRUCTURE,
-        { duration }
-      );
-    }
-  }
-
-  /**
-   * 卸载Skills
-   * @param skillName Skills名称
-   * @returns 卸载结果
-   */
-  async uninstallSkill(skillName: string): Promise<UninstallResult> {
-    return this.uninstallSkillInternal(skillName, true);
-  }
-
-  /**
-   * 内部卸载Skills（可跳过部分检查）
-   */
-  private async uninstallSkillInternal(
-    skillName: string,
-    validateExists: boolean = true
-  ): Promise<UninstallResult> {
-    const startTime = Date.now();
-
-    try {
-      const skillPath = path.join(this.skillsBasePath, skillName);
-
-      // 检查是否存在
-      if (validateExists) {
-        const exists = await this.directoryExists(skillPath);
-        if (!exists) {
-          throw new ToolError(`Skill '${skillName}' not found`, ToolErrorCode.SKILL_NOT_FOUND);
-        }
-      }
-
-      // 获取元数据用于生命周期钩子
-      let metadata: SkillMetadata | undefined;
-      try {
-        metadata = await this.parseSkillMetadata(skillPath);
-      } catch {
-        // 如果无法获取元数据，仍然继续卸载
-      }
-
-      // 执行预卸载钩子
-      const uninstallContext = this.lifecycleManager.createContext(skillName, skillPath, metadata);
-      await this.lifecycleManager.preUninstall(uninstallContext);
-
-      // 从向量检索中移除
-      try {
-        await this.retrievalService.removeSkill(skillName);
-        logger.debug("Removed Skill from vector index", { skillName });
-      } catch (error) {
-        logger.warn("Failed to remove Skill from vector index", {
-          skillName,
-          error: error instanceof Error ? error.message : error,
-        });
-      }
-
-      // 删除Skills目录
-      await fs.rm(skillPath, { recursive: true, force: true });
-
-      // 执行后卸载钩子
-      await this.lifecycleManager.postUninstall(uninstallContext);
-
-      const duration = Date.now() - startTime;
-
-      return {
-        success: true,
-        message: `Skill '${skillName}' uninstalled successfully`,
-        skillName,
-        uninstalledAt: new Date(),
-        duration,
-      };
-    } catch (error) {
-      const duration = Date.now() - startTime;
-
-      logger.error("Skill uninstallation failed:", error);
-
-      if (error instanceof ToolError) {
-        throw error;
-      }
-
-      throw new ToolError(
-        `Skill uninstallation failed: ${this.formatError(error)}`,
-        ToolErrorCode.TOOL_EXECUTION_FAILED,
-        { duration }
-      );
-    }
-  }
-
-  /**
-   * 更新Skills描述
-   * @param skillName Skills名称
-   * @param newDescription 新描述
-   * @returns 更新结果
-   */
-  async updateSkill(skillName: string, newDescription: string): Promise<UpdateResult> {
-    const startTime = Date.now();
-
-    try {
-      // 验证描述长度
-      if (newDescription.length > 1024) {
-        throw new ToolError(
-          `Description too long (${newDescription.length} chars). Maximum 1024 characters allowed.`,
-          ToolErrorCode.SKILL_INVALID_STRUCTURE
-        );
-      }
-
-      const skillPath = path.join(this.skillsBasePath, skillName);
-
-      // 检查Skills是否存在
-      if (!(await this.directoryExists(skillPath))) {
-        throw new ToolError(`Skill '${skillName}' not found`, ToolErrorCode.SKILL_NOT_FOUND);
-      }
-
-      // 获取当前元数据
-      const currentMetadata = await this.parseSkillMetadata(skillPath);
-
-      // 执行预更新钩子
-      const updateContext = this.lifecycleManager.createContext(
-        skillName,
-        skillPath,
-        currentMetadata
-      );
-      await this.lifecycleManager.preUpdate(updateContext);
-
-      const skillMdPath = path.join(skillPath, "SKILL.md");
-
-      // 读取并解析SKILL.md
-      if (!(await this.fileExists(skillMdPath))) {
-        throw new ToolError(
-          `SKILL.md not found in Skill '${skillName}'`,
-          ToolErrorCode.SKILL_INVALID_STRUCTURE
-        );
-      }
-
-      const content = await fs.readFile(skillMdPath, "utf8");
-      const parsed = matter(content);
-
-      // 更新描述
-      parsed.data.description = newDescription;
-      parsed.data.updatedAt = new Date().toISOString();
-
-      // 重新生成文件
-      const yamlStr = YAML.dump(parsed.data, { indent: 2 });
-      const newContent = `---\n${yamlStr}---\n${parsed.content}`;
-      await fs.writeFile(skillMdPath, newContent);
-
-      // 因为描述变更，需要重新向量化
-      let reindexed = false;
-      try {
-        // 重新读取元数据
-        const updatedMetadata = await this.parseSkillMetadata(skillPath);
-
-        // 先移除旧的向量，再添加新的
-        await this.retrievalService.removeSkill(updatedMetadata.name);
-        await this.retrievalService.indexSkill({
-          name: updatedMetadata.name,
-          description: updatedMetadata.description,
-          tags: updatedMetadata.tags || [],
-          path: skillPath,
-          version: updatedMetadata.version,
-          metadata: updatedMetadata,
-        });
-
-        // 更新.vectorized标识
-        const vectorizedFile = path.join(skillPath, ".vectorized");
-        await fs.writeFile(
-          vectorizedFile,
-          `reindexed: ${new Date().toISOString()}\nversion: ${updatedMetadata.version}`
-        );
-
-        reindexed = true;
-        logger.info("Skill reindexed after update", { skillName });
-      } catch (error) {
-        logger.warn("Failed to reindex Skill after update", {
-          skillName,
-          error: error instanceof Error ? error.message : error,
-        });
-      }
-
-      const duration = Date.now() - startTime;
-
-      // 执行后更新钩子
-      await this.lifecycleManager.postUpdate(updateContext);
-
-      return {
-        success: true,
-        message: `Skill '${skillName}' updated successfully`,
-        skillName,
-        updatedAt: new Date(),
-        duration,
-        reindexed,
-      };
-    } catch (error) {
-      const duration = Date.now() - startTime;
-
-      logger.error("Skill update failed:", error);
-
-      if (error instanceof ToolError) {
-        throw error;
-      }
-
-      throw new ToolError(
-        `Skill update failed: ${this.formatError(error)}`,
-        ToolErrorCode.TOOL_EXECUTION_FAILED,
-        { duration }
-      );
-    }
-  }
-
-  /**
-   * 列出已安装的Skills
-   * @param options 查询选项
-   * @returns Skills列表结果
-   */
-  async listSkills(options: SkillListOptions = {}): Promise<SkillListResult> {
-    try {
-      // 确保目录存在
-      await this.ensureSkillsDirectory();
-      // 扫描Skills目录
-      const entries = await fs.readdir(this.skillsBasePath, { withFileTypes: true });
-      const skillDirs = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
-
-      // 加载所有Skills元数据
-      const skills: SkillTool[] = [];
-      for (const skillName of skillDirs) {
-        try {
-          const skillPath = path.join(this.skillsBasePath, skillName);
-          const metadata = await this.parseSkillMetadata(skillPath);
-
-          skills.push({
-            name: metadata.name,
-            type: ToolType.SKILL,
-            description: metadata.description,
-            parameters: metadata.parameters || {
-              type: "object",
-              properties: {},
-              required: [],
-            },
-            version: metadata.version,
-            tags: metadata.tags,
-            author: metadata.author,
-            enabled: true,
-            path: skillPath,
-            level: 1,
-          });
-        } catch (error) {
-          logger.warn(`Failed to load Skill metadata: ${skillName}`, {
-            error: error instanceof Error ? error.message : error,
-          });
-        }
-      }
-
-      // 应用过滤
-      let filtered = skills;
-
-      // 按名称过滤
-      if (options.name) {
-        const nameFilter = options.name.toLowerCase();
-        filtered = filtered.filter(
-          (skill) =>
-            skill.name.toLowerCase().includes(nameFilter) ||
-            skill.description.toLowerCase().includes(nameFilter)
-        );
-      }
-
-      // 按标签过滤
-      if (options.tags && options.tags.length > 0) {
-        filtered = filtered.filter((skill) =>
-          skill.tags.some((tag) => options.tags!.includes(tag))
-        );
-      }
-
-      // 排序
-      const sortBy = options.sortBy || "name";
-      const sortOrder = options.sortOrder || "asc";
-      filtered.sort((a, b) => {
-        let aVal: any, bVal: any;
-
-        switch (sortBy) {
-          case "name":
-            aVal = a.name;
-            bVal = b.name;
-            break;
-          case "updatedAt":
-          case "installedAt":
-            // 使用名称作为后备排序
-            aVal = a.name;
-            bVal = b.name;
-            break;
-          default:
-            aVal = a.name;
-            bVal = b.name;
-        }
-
-        const compare = String(aVal).localeCompare(String(bVal));
-        return sortOrder === "desc" ? -compare : compare;
-      });
-
-      // 分页
-      const page = options.page || 1;
-      const limit = options.limit || 50;
-      const startIndex = (page - 1) * limit;
-      const endIndex = startIndex + limit;
-      const paginated = filtered.slice(startIndex, endIndex);
-
-      return {
-        skills: paginated,
-        total: filtered.length,
-        page,
-        limit,
-        totalPages: Math.ceil(filtered.length / limit),
-      };
-    } catch (error) {
-      logger.error("Failed to list skills:", error);
-      throw new ToolError(
-        `Failed to list skills: ${this.formatError(error)}`,
-        ToolErrorCode.TOOL_EXECUTION_FAILED
-      );
-    }
-  }
-
-  /**
-   * 检查Skills是否存在
-   * @param skillName Skills名称
-   * @returns 是否存在
-   */
-  async isSkillExist(skillName: string): Promise<boolean> {
-    const skillPath = path.join(this.skillsBasePath, skillName);
-    return this.directoryExists(skillPath);
-  }
-
-  /**
-   * 解压ZIP到临时目录
-   */
-  private async extractZipToTemp(zipBuffer: Buffer): Promise<string> {
-    // 创建临时目录
-    const tempId = `${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
-    const tempDir = path.join(os.tmpdir(), "skill-install", tempId);
-
-    await fs.mkdir(tempDir, { recursive: true });
-
-    // 使用adm-zip解压
-    const zip = new AdmZip(zipBuffer);
-    zip.extractAllTo(tempDir, true);
-
-    logger.debug("Extracted ZIP to temp directory", { tempDir });
-
-    return tempDir;
-  }
-
-  /**
-   * 验证Skills结构
-   */
-  private async validateSkillStructure(
-    skillPath: string,
-    validationLevel: SkillInstallOptions["validationLevel"] = "basic"
-  ): Promise<SkillMetadata> {
-    // 检查必需文件
-    const requiredFiles = ["SKILL.md"];
-
-    for (const file of requiredFiles) {
-      const filePath = path.join(skillPath, file);
-      if (!(await this.fileExists(filePath))) {
-        throw new ToolError(
-          `Required file missing: ${file}`,
-          ToolErrorCode.SKILL_INVALID_STRUCTURE
-        );
-      }
-    }
-
-    // 解析SKILL.md
-    const metadata = await this.parseSkillMetadata(skillPath);
-
-    // 严格验证（检查脚本文件是否存在）
-    if (validationLevel === "strict") {
-      const scriptsDir = path.join(skillPath, "scripts");
-      if (!(await this.directoryExists(scriptsDir))) {
-        throw new ToolError(
-          "Scripts directory not found in strict validation mode",
-          ToolErrorCode.SKILL_INVALID_STRUCTURE
-        );
-      }
-
-      const executeScript = path.join(scriptsDir, "execute.js");
-      if (!(await this.fileExists(executeScript))) {
-        throw new ToolError(
-          "execute.js not found in scripts directory",
-          ToolErrorCode.SKILL_INVALID_STRUCTURE
-        );
-      }
-    }
-
-    return metadata;
-  }
-
-  /**
-   * 解析Skills元数据
-   * 使用 ClaudeCodeSkillParser 支持 Claude Code 格式
-   */
-  private async parseSkillMetadata(skillPath: string): Promise<SkillMetadata> {
-    try {
-      // 使用兼容层解析器
-      const parsedSkill = await this.skillParser.parse(skillPath);
-
-      // 注册生命周期钩子（如果有 hooks）
-      if (parsedSkill.compatibility.hooks) {
-        this.lifecycleManager.registerHooks(parsedSkill.metadata.name, {
-          hooks: parsedSkill.compatibility.hooks,
-        } as SkillLifecycleHooks);
-      }
-
-      logger.debug("Parsed skill metadata using compat layer", {
-        name: parsedSkill.metadata.name,
-        source: parsedSkill.compatibility.source,
-      });
-
-      return parsedSkill.metadata;
-    } catch (error: unknown) {
-      // 如果兼容层解析失败，回退到原有解析逻辑
-      if (error instanceof ParseError) {
-        logger.warn("Compat parser failed, falling back to legacy parser", {
-          error: error.message,
-        });
-        return this.parseSkillMetadataLegacy(skillPath);
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * 原有解析逻辑（向后兼容）
-   */
-  private async parseSkillMetadataLegacy(skillPath: string): Promise<SkillMetadata> {
-    const skillMdPath = path.join(skillPath, "SKILL.md");
-
-    if (!(await this.fileExists(skillMdPath))) {
-      throw new ToolError(
-        `SKILL.md not found in ${skillPath}`,
-        ToolErrorCode.SKILL_INVALID_STRUCTURE
-      );
-    }
-
-    const content = await fs.readFile(skillMdPath, "utf8");
-    const parsed = matter(content);
-
-    // 检查必需字段
-    const requiredFields = ["name", "description", "version"];
-    for (const field of requiredFields) {
-      if (!parsed.data[field]) {
-        throw new ToolError(
-          `Required metadata field missing: ${field}`,
-          ToolErrorCode.SKILL_INVALID_STRUCTURE
-        );
-      }
-    }
-
-    return {
-      name: parsed.data.name,
-      description: parsed.data.description,
-      category: parsed.data.category || "uncategorized",
-      tools: parsed.data.tools || [],
-      version: parsed.data.version,
-      tags: parsed.data.tags || [],
-      author: parsed.data.author,
-      dependencies: parsed.data.dependencies || [],
-      parameters: parsed.data.parameters,
-    };
-  }
-
-  /**
-   * 检查目录是否存在
-   */
-  private async directoryExists(dirPath: string): Promise<boolean> {
-    try {
-      const stat = await fs.stat(dirPath);
-      return stat.isDirectory();
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * 检查文件是否存在
-   */
-  private async fileExists(filePath: string): Promise<boolean> {
-    try {
-      const stat = await fs.stat(filePath);
-      return stat.isFile();
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * 确保Skills目录存在，不存在则创建
-   */
-  private async ensureSkillsDirectory(): Promise<void> {
-    try {
-      const exists = await this.directoryExists(this.skillsBasePath);
-      if (!exists) {
-        await fs.mkdir(this.skillsBasePath, { recursive: true });
-        logger.info(`Created skills directory: ${this.skillsBasePath}`);
-      }
-    } catch (error) {
-      logger.warn(`Failed to create skills directory: ${this.skillsBasePath}`, error);
-    }
-  }
-
-  /**
-   * 格式化错误信息
-   */
-  private formatError(error: any): string {
-    if (error instanceof Error) {
-      return error.message;
-    }
-    if (typeof error === "string") {
-      return error;
-    }
-    return "Unknown error occurred";
-  }
-
-  /**
-   * 获取指定Skills
-   * @param skillName Skills名称
-   * @returns Skills信息
-   */
-  async getSkillByName(skillName: string): Promise<SkillTool | null> {
-    const skillPath = path.join(this.skillsBasePath, skillName);
-
-    if (!(await this.directoryExists(skillPath))) {
-      return null;
-    }
-
-    try {
-      const metadata = await this.parseSkillMetadata(skillPath);
-
-      return {
-        name: metadata.name,
-        type: ToolType.SKILL,
-        description: metadata.description,
-        parameters: metadata.parameters || {
-          type: "object",
-          properties: {},
-          required: [],
-        },
-        version: metadata.version,
-        tags: metadata.tags,
-        author: metadata.author,
-        enabled: true,
-        path: skillPath,
-        level: 1,
-      };
-    } catch (error) {
-      logger.warn(`Failed to load Skill metadata: ${skillName}`, {
-        error: error instanceof Error ? error.message : error,
-      });
-      return null;
-    }
-  }
-
-  /**
-   * 获取Skills统计信息
-   * @returns 统计信息
-   */
-  async getStatistics(): Promise<{
-    total: number;
-    byTag: Record<string, number>;
-    recentlyInstalled: string[];
-  }> {
-    const skills = await this.listSkills({ limit: 1000 });
-
-    const byTag: Record<string, number> = {};
-    for (const skill of skills.skills) {
-      for (const tag of skill.tags) {
-        byTag[tag] = (byTag[tag] || 0) + 1;
-      }
-    }
-
-    return {
-      total: skills.total,
-      byTag,
-      recentlyInstalled: skills.skills.slice(0, 5).map((s) => s.name),
-    };
-  }
-
-  /**
-   * 获取ToolRetrievalService实例
-   */
-  getRetrievalService(): ToolRetrievalService {
-    return this.retrievalService;
-  }
-
-  /**
-   * 等待初始化完成
-   * 外部调用者可以使用此方法等待Skills索引初始化完成
-   * @returns Promise，在初始化完成时resolve
-   */
-  async waitForInitialization(): Promise<void> {
-    if (this.initializationPromise) {
-      try {
-        await this.initializationPromise;
-      } catch (error) {
-        // 初始化失败，但不阻止系统继续运行
-        logger.warn("Skills initialization failed, but system will continue", {
-          error: error instanceof Error ? error.message : error,
-        });
-      }
-    }
-  }
-
-  /**
-   * 初始化Skills索引
-   * 在SkillManager创建时自动调用，扫描并索引所有已存在的Skills
-   */
-  private async initializeSkillsIndex(): Promise<void> {
-    logger.debug("Initializing skills index during startup");
-
-    try {
-      // 等待检索服务初始化完成
-      await this.retrievalService.initialize();
-
-      // 扫描并索引所有Skills
-      await this.retrievalService.scanAndIndexAllSkills(this.skillsBasePath);
-
-      // 注册所有 Skills 到 ToolRegistry
-      const { skills } = await this.listSkills({ limit: 1000 });
-      for (const skill of skills) {
-        await this.registerSkillTool(skill);
-      }
-      logger.info(`[SkillManager] Registered ${skills.length} skills to ToolRegistry`);
-
-      logger.debug("Skills index initialization completed");
-    } catch (error) {
-      logger.error("❌ Failed to initialize skills index:", error);
-      // 抛出错误，让waitForInitialization捕获
-      throw error;
-    }
-  }
-
-  /**
-   * 将 SkillTool 转换为 Tool.Info 格式
-   * @param skill SkillTool 定义
-   * @returns Tool.Info 格式
-   */
-  private convertToToolInfo(skill: SkillTool): Tool.Info {
-    const executor = this.skillsExecutor;
-    return {
-      id: skill.name,
-      init: async () => ({
-        description: skill.description,
-        parameters: skill.parameters,
-        execute: async (args, ctx) => {
-          // 调用实际的 Skill 执行器
-          const result = await executor.execute({
-            name: skill.name,
-            args,
-          });
-          return {
-            title: skill.name,
-            metadata: {
-              success: result.success,
-              duration: result.duration,
-              exitCode: result.exitCode,
-            },
-            output: result.success ? result.output : result.error,
-          };
-        },
-      }),
-    };
-  }
-
-  /**
-   * 注册 Skill 工具到 ToolRegistry
-   * @param skill SkillTool 定义
-   */
-  async registerSkillTool(skill: SkillTool): Promise<void> {
-    const toolInfo = this.convertToToolInfo(skill);
-    await toolRegistry.register(toolInfo, RegistryToolType.SKILL);
-    logger.debug(`Registered skill to ToolRegistry: ${skill.name}`);
-  }
-
-  /**
-   * Skill Direct 模式 - 直接返回 SKILL.md 内容，无需沙箱执行
-   * 用于 FR-37~FR-40 场景
-   * @param skillName Skill 名称
-   * @param args 工具参数
-   * @returns SKILL.md 内容
-   */
-  async executeDirect(skillName: string, args: Record<string, unknown>): Promise<string> {
-    const skillPath = path.join(this.skillsBasePath, skillName);
-    const skillMdPath = path.join(skillPath, "SKILL.md");
-
-    // 检查 Skill 是否存在
-    if (!(await this.directoryExists(skillPath))) {
-      throw new ToolError(`Skill '${skillName}' not found`, ToolErrorCode.SKILL_NOT_FOUND);
-    }
-
-    // 读取 SKILL.md
-    if (!(await this.fileExists(skillMdPath))) {
-      throw new ToolError(
-        `SKILL.md not found in Skill '${skillName}'`,
-        ToolErrorCode.SKILL_INVALID_STRUCTURE
-      );
-    }
-
-    const content = await fs.readFile(skillMdPath, "utf8");
-    const parsed = matter(content);
-
-    // 返回 SKILL.md 的内容部分（不含 frontmatter）
-    logger.debug(`[SkillManager] Direct execution for skill: ${skillName}`);
-    return parsed.content;
-  }
-
-  /**
-   * 获取单例实例
-   */
-  static getInstance(
-    skillsBasePath?: string,
-    retrievalService?: ToolRetrievalService
-  ): SkillManager {
-    if (!SkillManager.instance) {
-      SkillManager.instance = new SkillManager(skillsBasePath, retrievalService);
-    }
-    return SkillManager.instance;
-  }
-
-  /**
-   * 重置实例（用于测试）
-   */
-  static resetInstance(): void {
-    SkillManager.instance = null;
-  }
-}
-
-/**
- * 获取默认的SkillManager
- */
-export function getSkillManager(
-  skillsBasePath?: string,
-  retrievalService?: ToolRetrievalService
-): SkillManager {
-  return SkillManager.getInstance(skillsBasePath, retrievalService);
 }
 ````
 
@@ -45393,6 +44935,991 @@ export class LLMConfigService {
 }
 ````
 
+## File: src/services/SkillManager.ts
+````typescript
+/**
+ * SkillManager - Skills生命周期管理器
+ * 负责Skills的安装、卸载、修改和查询，支持ZIP包自动解压和结构验证
+ * 集成 ToolRegistry 进行统一工具管理
+ */
+
+import * as fs from "fs/promises";
+import * as path from "path";
+import * as os from "os";
+import * as crypto from "crypto";
+import YAML from "js-yaml";
+import matter from "gray-matter";
+import AdmZip from "adm-zip";
+import {
+  SkillTool,
+  SkillInstallOptions,
+  SkillListOptions,
+  SkillListResult,
+  SkillMetadata,
+  ToolError,
+  ToolErrorCode,
+  ToolType,
+} from "../types/tool-system";
+import { ToolRetrievalService } from "./ToolRetrievalService";
+import { SkillsSandboxExecutor, getSkillsSandboxExecutor } from "./executors/SkillsSandboxExecutor";
+import { toolRegistry, ToolType as RegistryToolType } from "../core/tool/registry";
+import type { Tool } from "../core/tool/tool";
+import { logger } from "../utils/logger";
+import { PathService } from "./PathService";
+import {
+  ClaudeCodeSkillParser,
+  getClaudeCodeSkillParser,
+  LifecycleManager,
+  getLifecycleManager,
+  ParsedClaudeSkill,
+  SkillLifecycleHooks,
+  ParseError,
+} from "./compat";
+
+/**
+ * 安装结果
+ */
+export interface InstallResult {
+  success: boolean;
+  message: string;
+  skillName?: string;
+  installedAt?: Date;
+  duration?: number;
+  vectorized?: boolean;
+}
+
+/**
+ * 卸载结果
+ */
+export interface UninstallResult {
+  success: boolean;
+  message: string;
+  skillName?: string;
+  uninstalledAt?: Date;
+  duration?: number;
+}
+
+/**
+ * 更新结果
+ */
+export interface UpdateResult {
+  success: boolean;
+  message: string;
+  skillName?: string;
+  updatedAt?: Date;
+  duration?: number;
+  reindexed?: boolean;
+}
+
+/**
+ * Skills管理器
+ * 管理Skills的完整生命周期：安装、卸载、更新、查询
+ */
+export class SkillManager {
+  private static instance: SkillManager | null = null;
+  private readonly skillsBasePath: string;
+  private readonly retrievalService: ToolRetrievalService;
+  private readonly skillsExecutor: SkillsSandboxExecutor;
+  private readonly skillParser: ClaudeCodeSkillParser;
+  private readonly lifecycleManager: LifecycleManager;
+  private initializationPromise: Promise<void> | null = null;
+
+  /**
+   * 创建SkillManager实例
+   * @param skillsBasePath Skills存储基础路径
+   * @param retrievalService 检索服务实例
+   */
+  protected constructor(skillsBasePath?: string, retrievalService?: ToolRetrievalService) {
+    // 使用 PathService 获取正确的路径
+    const pathService = PathService.getInstance();
+    const dataDir = pathService.getDataDir();
+    this.skillsBasePath = skillsBasePath || path.join(dataDir, "skills");
+
+    // 确保 skills 目录存在
+    this.ensureSkillsDirectory();
+
+    // 使用 PathService 获取正确的向量数据库路径
+    const vectorDbPath = path.join(dataDir, "skills.lance");
+
+    this.retrievalService =
+      retrievalService ||
+      new ToolRetrievalService({
+        vectorDbPath,
+        model: "all-MiniLM-L6-v2",
+        dimensions: 384,
+        similarityThreshold: 0.4,
+        cacheSize: 1000,
+      });
+    // 初始化 Skills 执行器
+    this.skillsExecutor = getSkillsSandboxExecutor();
+
+    // 初始化兼容层组件
+    this.skillParser = getClaudeCodeSkillParser();
+    this.lifecycleManager = getLifecycleManager();
+
+    logger.debug("SkillManager initialized", {
+      skillsBasePath,
+    });
+
+    // 启动异步初始化，但不阻塞构造函数
+    this.initializationPromise = this.initializeSkillsIndex().catch((error) => {
+      logger.error("Failed to initialize skills index during startup:", error);
+      // 即使失败也标记为完成，避免永久阻塞
+      throw error;
+    });
+  }
+
+  /**
+   * 安装Skills
+   * @param zipBuffer ZIP压缩包Buffer
+   * @param options 安装选项
+   * @returns 安装结果
+   */
+  async installSkill(zipBuffer: Buffer, options: SkillInstallOptions = {}): Promise<InstallResult> {
+    const startTime = Date.now();
+
+    try {
+      // 解压ZIP包到临时目录
+      const tempDir = await this.extractZipToTemp(zipBuffer);
+      logger.debug(`Extracted ZIP to temp directory: ${tempDir}`);
+
+      // 验证Skills结构
+      const metadata = await this.validateSkillStructure(tempDir, options.validationLevel);
+      logger.debug("Skills structure validation passed", { metadata });
+
+      // 检查名称冲突
+      const targetDir = path.join(this.skillsBasePath, metadata.name);
+      const exists = await this.directoryExists(targetDir);
+
+      if (exists) {
+        if (!options.overwrite) {
+          throw new ToolError(
+            `Skill '${metadata.name}' already exists. Use overwrite: true to replace.`,
+            ToolErrorCode.SKILL_ALREADY_EXISTS
+          );
+        }
+
+        // 先卸载已存在的版本
+        await this.uninstallSkillInternal(metadata.name);
+        logger.info(`Overwriting existing skill: ${metadata.name}`);
+      }
+
+      // 执行预安装钩子
+      const installContext = this.lifecycleManager.createContext(
+        metadata.name,
+        targetDir,
+        metadata,
+        undefined,
+        options.validationLevel
+      );
+      await this.lifecycleManager.preInstall(installContext);
+
+      // 移动Skills到目标目录
+      await fs.mkdir(path.dirname(targetDir), { recursive: true });
+      await fs.rename(tempDir, targetDir);
+      logger.debug(`Moved Skills to target: ${targetDir}`);
+
+      // 创建.vectorized标识文件（用于索引状态跟踪）
+      const vectorizedFile = path.join(targetDir, ".vectorized");
+      await fs.writeFile(vectorizedFile, "");
+
+      // 添加到向量检索索引（如果包含metadata）
+      let vectorized = false;
+      if (!options.skipVectorization) {
+        try {
+          await this.retrievalService.indexSkill({
+            name: metadata.name,
+            description: metadata.description,
+            tags: metadata.tags || [],
+            path: targetDir,
+            version: metadata.version,
+            metadata: metadata,
+          });
+          await fs.writeFile(
+            vectorizedFile,
+            `indexed: ${new Date().toISOString()}\nversion: ${metadata.version}`
+          );
+          vectorized = true;
+          logger.info("Skill vectorized successfully", { skillName: metadata.name });
+        } catch (error) {
+          logger.warn("Skill vectorization failed", {
+            skillName: metadata.name,
+            error: error instanceof Error ? error.message : error,
+          });
+        }
+      }
+
+      const duration = Date.now() - startTime;
+
+      // 执行后安装钩子
+      await this.lifecycleManager.postInstall(installContext);
+
+      return {
+        success: true,
+        message: `Skill '${metadata.name}' installed successfully`,
+        skillName: metadata.name,
+        installedAt: new Date(),
+        duration,
+        vectorized,
+      };
+    } catch (error) {
+      const duration = Date.now() - startTime;
+
+      logger.error("Skill installation failed:", error);
+
+      if (error instanceof ToolError) {
+        throw error;
+      }
+
+      throw new ToolError(
+        `Skill installation failed: ${this.formatError(error)}`,
+        ToolErrorCode.SKILL_INVALID_STRUCTURE,
+        { duration }
+      );
+    }
+  }
+
+  /**
+   * 卸载Skills
+   * @param skillName Skills名称
+   * @returns 卸载结果
+   */
+  async uninstallSkill(skillName: string): Promise<UninstallResult> {
+    return this.uninstallSkillInternal(skillName, true);
+  }
+
+  /**
+   * 内部卸载Skills（可跳过部分检查）
+   */
+  private async uninstallSkillInternal(
+    skillName: string,
+    validateExists: boolean = true
+  ): Promise<UninstallResult> {
+    const startTime = Date.now();
+
+    try {
+      const skillPath = path.join(this.skillsBasePath, skillName);
+
+      // 检查是否存在
+      if (validateExists) {
+        const exists = await this.directoryExists(skillPath);
+        if (!exists) {
+          throw new ToolError(`Skill '${skillName}' not found`, ToolErrorCode.SKILL_NOT_FOUND);
+        }
+      }
+
+      // 获取元数据用于生命周期钩子
+      let metadata: SkillMetadata | undefined;
+      try {
+        metadata = await this.parseSkillMetadata(skillPath);
+      } catch {
+        // 如果无法获取元数据，仍然继续卸载
+      }
+
+      // 执行预卸载钩子
+      const uninstallContext = this.lifecycleManager.createContext(skillName, skillPath, metadata);
+      await this.lifecycleManager.preUninstall(uninstallContext);
+
+      // 从向量检索中移除
+      try {
+        await this.retrievalService.removeSkill(skillName);
+        logger.debug("Removed Skill from vector index", { skillName });
+      } catch (error) {
+        logger.warn("Failed to remove Skill from vector index", {
+          skillName,
+          error: error instanceof Error ? error.message : error,
+        });
+      }
+
+      // 删除Skills目录
+      await fs.rm(skillPath, { recursive: true, force: true });
+
+      // 执行后卸载钩子
+      await this.lifecycleManager.postUninstall(uninstallContext);
+
+      const duration = Date.now() - startTime;
+
+      return {
+        success: true,
+        message: `Skill '${skillName}' uninstalled successfully`,
+        skillName,
+        uninstalledAt: new Date(),
+        duration,
+      };
+    } catch (error) {
+      const duration = Date.now() - startTime;
+
+      logger.error("Skill uninstallation failed:", error);
+
+      if (error instanceof ToolError) {
+        throw error;
+      }
+
+      throw new ToolError(
+        `Skill uninstallation failed: ${this.formatError(error)}`,
+        ToolErrorCode.TOOL_EXECUTION_FAILED,
+        { duration }
+      );
+    }
+  }
+
+  /**
+   * 更新Skills描述
+   * @param skillName Skills名称
+   * @param newDescription 新描述
+   * @returns 更新结果
+   */
+  async updateSkill(skillName: string, newDescription: string): Promise<UpdateResult> {
+    const startTime = Date.now();
+
+    try {
+      // 验证描述长度
+      if (newDescription.length > 1024) {
+        throw new ToolError(
+          `Description too long (${newDescription.length} chars). Maximum 1024 characters allowed.`,
+          ToolErrorCode.SKILL_INVALID_STRUCTURE
+        );
+      }
+
+      const skillPath = path.join(this.skillsBasePath, skillName);
+
+      // 检查Skills是否存在
+      if (!(await this.directoryExists(skillPath))) {
+        throw new ToolError(`Skill '${skillName}' not found`, ToolErrorCode.SKILL_NOT_FOUND);
+      }
+
+      // 获取当前元数据
+      const currentMetadata = await this.parseSkillMetadata(skillPath);
+
+      // 执行预更新钩子
+      const updateContext = this.lifecycleManager.createContext(
+        skillName,
+        skillPath,
+        currentMetadata
+      );
+      await this.lifecycleManager.preUpdate(updateContext);
+
+      const skillMdPath = path.join(skillPath, "SKILL.md");
+
+      // 读取并解析SKILL.md
+      if (!(await this.fileExists(skillMdPath))) {
+        throw new ToolError(
+          `SKILL.md not found in Skill '${skillName}'`,
+          ToolErrorCode.SKILL_INVALID_STRUCTURE
+        );
+      }
+
+      const content = await fs.readFile(skillMdPath, "utf8");
+      const parsed = matter(content);
+
+      // 更新描述
+      parsed.data.description = newDescription;
+      parsed.data.updatedAt = new Date().toISOString();
+
+      // 重新生成文件
+      const yamlStr = YAML.dump(parsed.data, { indent: 2 });
+      const newContent = `---\n${yamlStr}---\n${parsed.content}`;
+      await fs.writeFile(skillMdPath, newContent);
+
+      // 因为描述变更，需要重新向量化
+      let reindexed = false;
+      try {
+        // 重新读取元数据
+        const updatedMetadata = await this.parseSkillMetadata(skillPath);
+
+        // 先移除旧的向量，再添加新的
+        await this.retrievalService.removeSkill(updatedMetadata.name);
+        await this.retrievalService.indexSkill({
+          name: updatedMetadata.name,
+          description: updatedMetadata.description,
+          tags: updatedMetadata.tags || [],
+          path: skillPath,
+          version: updatedMetadata.version,
+          metadata: updatedMetadata,
+        });
+
+        // 更新.vectorized标识
+        const vectorizedFile = path.join(skillPath, ".vectorized");
+        await fs.writeFile(
+          vectorizedFile,
+          `reindexed: ${new Date().toISOString()}\nversion: ${updatedMetadata.version}`
+        );
+
+        reindexed = true;
+        logger.info("Skill reindexed after update", { skillName });
+      } catch (error) {
+        logger.warn("Failed to reindex Skill after update", {
+          skillName,
+          error: error instanceof Error ? error.message : error,
+        });
+      }
+
+      const duration = Date.now() - startTime;
+
+      // 执行后更新钩子
+      await this.lifecycleManager.postUpdate(updateContext);
+
+      return {
+        success: true,
+        message: `Skill '${skillName}' updated successfully`,
+        skillName,
+        updatedAt: new Date(),
+        duration,
+        reindexed,
+      };
+    } catch (error) {
+      const duration = Date.now() - startTime;
+
+      logger.error("Skill update failed:", error);
+
+      if (error instanceof ToolError) {
+        throw error;
+      }
+
+      throw new ToolError(
+        `Skill update failed: ${this.formatError(error)}`,
+        ToolErrorCode.TOOL_EXECUTION_FAILED,
+        { duration }
+      );
+    }
+  }
+
+  /**
+   * 列出已安装的Skills
+   * @param options 查询选项
+   * @returns Skills列表结果
+   */
+  async listSkills(options: SkillListOptions = {}): Promise<SkillListResult> {
+    try {
+      // 确保目录存在
+      await this.ensureSkillsDirectory();
+      // 扫描Skills目录
+      const entries = await fs.readdir(this.skillsBasePath, { withFileTypes: true });
+      const skillDirs = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+
+      // 加载所有Skills元数据
+      const skills: SkillTool[] = [];
+      for (const skillName of skillDirs) {
+        try {
+          const skillPath = path.join(this.skillsBasePath, skillName);
+          const metadata = await this.parseSkillMetadata(skillPath);
+
+          skills.push({
+            name: metadata.name,
+            type: ToolType.SKILL,
+            description: metadata.description,
+            parameters: metadata.parameters || {
+              type: "object",
+              properties: {},
+              required: [],
+            },
+            version: metadata.version,
+            tags: metadata.tags,
+            author: metadata.author,
+            enabled: true,
+            path: skillPath,
+            level: 1,
+          });
+        } catch (error) {
+          logger.warn(`Failed to load Skill metadata: ${skillName}`, {
+            error: error instanceof Error ? error.message : error,
+          });
+        }
+      }
+
+      // 应用过滤
+      let filtered = skills;
+
+      // 按名称过滤
+      if (options.name) {
+        const nameFilter = options.name.toLowerCase();
+        filtered = filtered.filter(
+          (skill) =>
+            skill.name.toLowerCase().includes(nameFilter) ||
+            skill.description.toLowerCase().includes(nameFilter)
+        );
+      }
+
+      // 按标签过滤
+      if (options.tags && options.tags.length > 0) {
+        filtered = filtered.filter((skill) =>
+          skill.tags.some((tag) => options.tags!.includes(tag))
+        );
+      }
+
+      // 排序
+      const sortBy = options.sortBy || "name";
+      const sortOrder = options.sortOrder || "asc";
+      filtered.sort((a, b) => {
+        let aVal: any, bVal: any;
+
+        switch (sortBy) {
+          case "name":
+            aVal = a.name;
+            bVal = b.name;
+            break;
+          case "updatedAt":
+          case "installedAt":
+            // 使用名称作为后备排序
+            aVal = a.name;
+            bVal = b.name;
+            break;
+          default:
+            aVal = a.name;
+            bVal = b.name;
+        }
+
+        const compare = String(aVal).localeCompare(String(bVal));
+        return sortOrder === "desc" ? -compare : compare;
+      });
+
+      // 分页
+      const page = options.page || 1;
+      const limit = options.limit || 50;
+      const startIndex = (page - 1) * limit;
+      const endIndex = startIndex + limit;
+      const paginated = filtered.slice(startIndex, endIndex);
+
+      return {
+        skills: paginated,
+        total: filtered.length,
+        page,
+        limit,
+        totalPages: Math.ceil(filtered.length / limit),
+      };
+    } catch (error) {
+      logger.error("Failed to list skills:", error);
+      throw new ToolError(
+        `Failed to list skills: ${this.formatError(error)}`,
+        ToolErrorCode.TOOL_EXECUTION_FAILED
+      );
+    }
+  }
+
+  /**
+   * 检查Skills是否存在
+   * @param skillName Skills名称
+   * @returns 是否存在
+   */
+  async isSkillExist(skillName: string): Promise<boolean> {
+    const skillPath = path.join(this.skillsBasePath, skillName);
+    return this.directoryExists(skillPath);
+  }
+
+  /**
+   * 解压ZIP到临时目录
+   */
+  private async extractZipToTemp(zipBuffer: Buffer): Promise<string> {
+    // 创建临时目录
+    const tempId = `${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
+    const tempDir = path.join(os.tmpdir(), "skill-install", tempId);
+
+    await fs.mkdir(tempDir, { recursive: true });
+
+    // 使用adm-zip解压
+    const zip = new AdmZip(zipBuffer);
+    zip.extractAllTo(tempDir, true);
+
+    logger.debug("Extracted ZIP to temp directory", { tempDir });
+
+    return tempDir;
+  }
+
+  /**
+   * 验证Skills结构
+   */
+  private async validateSkillStructure(
+    skillPath: string,
+    validationLevel: SkillInstallOptions["validationLevel"] = "basic"
+  ): Promise<SkillMetadata> {
+    // 检查必需文件
+    const requiredFiles = ["SKILL.md"];
+
+    for (const file of requiredFiles) {
+      const filePath = path.join(skillPath, file);
+      if (!(await this.fileExists(filePath))) {
+        throw new ToolError(
+          `Required file missing: ${file}`,
+          ToolErrorCode.SKILL_INVALID_STRUCTURE
+        );
+      }
+    }
+
+    // 解析SKILL.md
+    const metadata = await this.parseSkillMetadata(skillPath);
+
+    // 严格验证（检查脚本文件是否存在）
+    if (validationLevel === "strict") {
+      const scriptsDir = path.join(skillPath, "scripts");
+      if (!(await this.directoryExists(scriptsDir))) {
+        throw new ToolError(
+          "Scripts directory not found in strict validation mode",
+          ToolErrorCode.SKILL_INVALID_STRUCTURE
+        );
+      }
+
+      const executeScript = path.join(scriptsDir, "execute.js");
+      if (!(await this.fileExists(executeScript))) {
+        throw new ToolError(
+          "execute.js not found in scripts directory",
+          ToolErrorCode.SKILL_INVALID_STRUCTURE
+        );
+      }
+    }
+
+    return metadata;
+  }
+
+  /**
+   * 解析Skills元数据
+   * 使用 ClaudeCodeSkillParser 支持 Claude Code 格式
+   */
+  private async parseSkillMetadata(skillPath: string): Promise<SkillMetadata> {
+    try {
+      // 使用兼容层解析器
+      const parsedSkill = await this.skillParser.parse(skillPath);
+
+      // 注册生命周期钩子（如果有 hooks）
+      if (parsedSkill.compatibility.hooks) {
+        this.lifecycleManager.registerHooks(parsedSkill.metadata.name, {
+          hooks: parsedSkill.compatibility.hooks,
+        } as SkillLifecycleHooks);
+      }
+
+      logger.debug("Parsed skill metadata using compat layer", {
+        name: parsedSkill.metadata.name,
+        source: parsedSkill.compatibility.source,
+      });
+
+      return parsedSkill.metadata;
+    } catch (error: unknown) {
+      // 如果兼容层解析失败，回退到原有解析逻辑
+      if (error instanceof ParseError) {
+        logger.warn("Compat parser failed, falling back to legacy parser", {
+          error: error.message,
+        });
+        return this.parseSkillMetadataLegacy(skillPath);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * 原有解析逻辑（向后兼容）
+   */
+  private async parseSkillMetadataLegacy(skillPath: string): Promise<SkillMetadata> {
+    const skillMdPath = path.join(skillPath, "SKILL.md");
+
+    if (!(await this.fileExists(skillMdPath))) {
+      throw new ToolError(
+        `SKILL.md not found in ${skillPath}`,
+        ToolErrorCode.SKILL_INVALID_STRUCTURE
+      );
+    }
+
+    const content = await fs.readFile(skillMdPath, "utf8");
+    const parsed = matter(content);
+
+    // 检查必需字段
+    const requiredFields = ["name", "description", "version"];
+    for (const field of requiredFields) {
+      if (!parsed.data[field]) {
+        throw new ToolError(
+          `Required metadata field missing: ${field}`,
+          ToolErrorCode.SKILL_INVALID_STRUCTURE
+        );
+      }
+    }
+
+    return {
+      name: parsed.data.name,
+      description: parsed.data.description,
+      category: parsed.data.category || "uncategorized",
+      tools: parsed.data.tools || [],
+      version: parsed.data.version,
+      tags: parsed.data.tags || [],
+      author: parsed.data.author,
+      dependencies: parsed.data.dependencies || [],
+      parameters: parsed.data.parameters,
+    };
+  }
+
+  /**
+   * 检查目录是否存在
+   */
+  private async directoryExists(dirPath: string): Promise<boolean> {
+    try {
+      const stat = await fs.stat(dirPath);
+      return stat.isDirectory();
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * 检查文件是否存在
+   */
+  private async fileExists(filePath: string): Promise<boolean> {
+    try {
+      const stat = await fs.stat(filePath);
+      return stat.isFile();
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * 确保Skills目录存在，不存在则创建
+   */
+  private async ensureSkillsDirectory(): Promise<void> {
+    try {
+      const exists = await this.directoryExists(this.skillsBasePath);
+      if (!exists) {
+        await fs.mkdir(this.skillsBasePath, { recursive: true });
+        logger.info(`Created skills directory: ${this.skillsBasePath}`);
+      }
+    } catch (error) {
+      logger.warn(`Failed to create skills directory: ${this.skillsBasePath}`, error);
+    }
+  }
+
+  /**
+   * 格式化错误信息
+   */
+  private formatError(error: any): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    if (typeof error === "string") {
+      return error;
+    }
+    return "Unknown error occurred";
+  }
+
+  /**
+   * 获取指定Skills
+   * @param skillName Skills名称
+   * @returns Skills信息
+   */
+  async getSkillByName(skillName: string): Promise<SkillTool | null> {
+    const skillPath = path.join(this.skillsBasePath, skillName);
+
+    if (!(await this.directoryExists(skillPath))) {
+      return null;
+    }
+
+    try {
+      const metadata = await this.parseSkillMetadata(skillPath);
+
+      return {
+        name: metadata.name,
+        type: ToolType.SKILL,
+        description: metadata.description,
+        parameters: metadata.parameters || {
+          type: "object",
+          properties: {},
+          required: [],
+        },
+        version: metadata.version,
+        tags: metadata.tags,
+        author: metadata.author,
+        enabled: true,
+        path: skillPath,
+        level: 1,
+      };
+    } catch (error) {
+      logger.warn(`Failed to load Skill metadata: ${skillName}`, {
+        error: error instanceof Error ? error.message : error,
+      });
+      return null;
+    }
+  }
+
+  /**
+   * 获取Skills统计信息
+   * @returns 统计信息
+   */
+  async getStatistics(): Promise<{
+    total: number;
+    byTag: Record<string, number>;
+    recentlyInstalled: string[];
+  }> {
+    const skills = await this.listSkills({ limit: 1000 });
+
+    const byTag: Record<string, number> = {};
+    for (const skill of skills.skills) {
+      for (const tag of skill.tags) {
+        byTag[tag] = (byTag[tag] || 0) + 1;
+      }
+    }
+
+    return {
+      total: skills.total,
+      byTag,
+      recentlyInstalled: skills.skills.slice(0, 5).map((s) => s.name),
+    };
+  }
+
+  /**
+   * 获取ToolRetrievalService实例
+   */
+  getRetrievalService(): ToolRetrievalService {
+    return this.retrievalService;
+  }
+
+  /**
+   * 等待初始化完成
+   * 外部调用者可以使用此方法等待Skills索引初始化完成
+   * @returns Promise，在初始化完成时resolve
+   */
+  async waitForInitialization(): Promise<void> {
+    if (this.initializationPromise) {
+      try {
+        await this.initializationPromise;
+      } catch (error) {
+        // 初始化失败，但不阻止系统继续运行
+        logger.warn("Skills initialization failed, but system will continue", {
+          error: error instanceof Error ? error.message : error,
+        });
+      }
+    }
+  }
+
+  /**
+   * 初始化Skills索引
+   * 在SkillManager创建时自动调用，扫描并索引所有已存在的Skills
+   */
+  private async initializeSkillsIndex(): Promise<void> {
+    logger.debug("Initializing skills index during startup");
+
+    try {
+      // 等待检索服务初始化完成
+      await this.retrievalService.initialize();
+
+      // 扫描并索引所有Skills
+      await this.retrievalService.scanAndIndexAllSkills(this.skillsBasePath);
+
+      // 注册所有 Skills 到 ToolRegistry
+      const { skills } = await this.listSkills({ limit: 1000 });
+      for (const skill of skills) {
+        await this.registerSkillTool(skill);
+      }
+      logger.info(`[SkillManager] Registered ${skills.length} skills to ToolRegistry`);
+
+      logger.debug("Skills index initialization completed");
+    } catch (error) {
+      logger.error("❌ Failed to initialize skills index:", error);
+      // 抛出错误，让waitForInitialization捕获
+      throw error;
+    }
+  }
+
+  /**
+   * 将 SkillTool 转换为 Tool.Info 格式
+   * @param skill SkillTool 定义
+   * @returns Tool.Info 格式
+   */
+  private convertToToolInfo(skill: SkillTool): Tool.Info {
+    const executor = this.skillsExecutor;
+    return {
+      id: skill.name,
+      init: async () => ({
+        description: skill.description,
+        parameters: skill.parameters,
+        execute: async (args, ctx) => {
+          // 调用实际的 Skill 执行器
+          const result = await executor.execute({
+            name: skill.name,
+            args,
+          });
+          return {
+            title: skill.name,
+            metadata: {
+              success: result.success,
+              duration: result.duration,
+              exitCode: result.exitCode,
+            },
+            output: result.success ? result.output : result.error,
+          };
+        },
+      }),
+    };
+  }
+
+  /**
+   * 注册 Skill 工具到 ToolRegistry
+   * @param skill SkillTool 定义
+   */
+  async registerSkillTool(skill: SkillTool): Promise<void> {
+    const toolInfo = this.convertToToolInfo(skill);
+    await toolRegistry.register(toolInfo, RegistryToolType.SKILL);
+    logger.debug(`Registered skill to ToolRegistry: ${skill.name}`);
+  }
+
+  /**
+   * Skill Direct 模式 - 直接返回 SKILL.md 内容，无需沙箱执行
+   * 用于 FR-37~FR-40 场景
+   * @param skillName Skill 名称
+   * @param args 工具参数
+   * @returns SKILL.md 内容
+   */
+  async executeDirect(skillName: string, args: Record<string, unknown>): Promise<string> {
+    const skillPath = path.join(this.skillsBasePath, skillName);
+    const skillMdPath = path.join(skillPath, "SKILL.md");
+
+    // 检查 Skill 是否存在
+    if (!(await this.directoryExists(skillPath))) {
+      throw new ToolError(`Skill '${skillName}' not found`, ToolErrorCode.SKILL_NOT_FOUND);
+    }
+
+    // 读取 SKILL.md
+    if (!(await this.fileExists(skillMdPath))) {
+      throw new ToolError(
+        `SKILL.md not found in Skill '${skillName}'`,
+        ToolErrorCode.SKILL_INVALID_STRUCTURE
+      );
+    }
+
+    const content = await fs.readFile(skillMdPath, "utf8");
+    const parsed = matter(content);
+
+    // 返回 SKILL.md 的内容部分（不含 frontmatter）
+    logger.debug(`[SkillManager] Direct execution for skill: ${skillName}`);
+    return parsed.content;
+  }
+
+  /**
+   * 获取单例实例
+   */
+  static getInstance(
+    skillsBasePath?: string,
+    retrievalService?: ToolRetrievalService
+  ): SkillManager {
+    if (!SkillManager.instance) {
+      SkillManager.instance = new SkillManager(skillsBasePath, retrievalService);
+    }
+    return SkillManager.instance;
+  }
+
+  /**
+   * 重置实例（用于测试）
+   */
+  static resetInstance(): void {
+    SkillManager.instance = null;
+  }
+}
+
+/**
+ * 获取默认的SkillManager
+ */
+export function getSkillManager(
+  skillsBasePath?: string,
+  retrievalService?: ToolRetrievalService
+): SkillManager {
+  return SkillManager.getInstance(skillsBasePath, retrievalService);
+}
+````
+
 ## File: src/core/stream-orchestrator/types.ts
 ````typescript
 /**
@@ -45656,526 +46183,6 @@ export interface BatchResult {
 }
 ````
 
-## File: CLAUDE.md
-````markdown
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## Project Overview
-
-**ApexBridge** is an AI Protocol Server that connects LLMs with external tools. It provides a complete agent framework with multi-round reasoning (ReAct), tool discovery via vector search, and unified scheduling for local Skills and remote MCP services.
-
-## Common Commands
-
-```bash
-# Development
-npm run dev          # Start dev server with nodemon
-npm run build        # Compile TypeScript
-npm run start        # Run compiled server
-
-# Testing
-npm run test         # Run Jest tests
-npm run test:watch   # Watch mode
-npm run test:coverage # With coverage report
-
-# Code Quality
-npm run lint         # Run ESLint
-npm run lint:fix     # Auto-fix ESLint issues
-npm run format       # Format with Prettier
-npm run format:check # Check formatting
-
-# Database
-npm run migrations       # Run migrations
-npm run migrations:status # Check migration status
-npm run migrations:rollback # Rollback migrations
-```
-
-## Architecture
-
-```
-src/
-├── api/              # REST/WebSocket layer (controllers, routes, middleware)
-├── core/             # Core engine (LLM adapters, tool-action)
-├── services/         # Business services (ChatService, SkillManager, etc.)
-├── strategies/       # Reasoning strategies (ReActStrategy, SingleRoundStrategy)
-├── types/            # TypeScript type definitions
-├── context/          # Context management
-├── config/           # Configuration modules
-└── server.ts         # Entry point
-```
-
-### Key Layers
-
-- **API Layer**: Express controllers and WebSocket handlers for `/v1/chat/completions` and `/api/mcp/*` endpoints
-- **Core Layer**: LLM adapters (6 providers), tool-action parser/dispatcher, variable resolution
-- **Services Layer**: ChatService (coordinator), SkillManager, MCPIntegrationService, ToolRetrievalService
-- **Strategies Layer**: ReActStrategy for multi-round reasoning, SingleRoundStrategy for fast responses
-
-### Design Patterns
-
-| Pattern      | Usage                                                                                 |
-| ------------ | ------------------------------------------------------------------------------------- |
-| **Adapter**  | Unified interface for LLM providers (OpenAI, Claude, DeepSeek, Zhipu, Ollama, Custom) |
-| **Strategy** | Runtime switch between ReActStrategy (50 iterations) and SingleRoundStrategy          |
-| **Factory**  | Adapter and executor instantiation                                                    |
-| **Observer** | EventBus for MCP state monitoring                                                     |
-
-### Data Storage
-
-- **SQLite**: Structured data (LLM config, MCP servers, chat history)
-- **LanceDB**: Vector index for semantic tool matching
-- **Redis**: Caching and session management
-
-## Key Entry Points
-
-- [server.ts](src/server.ts) - Application entry point
-- [ChatService.ts](src/services/ChatService.ts) - Main chat coordination
-- [ReActStrategy.ts](src/strategies/ReActStrategy.ts) - Multi-round reasoning
-- [ToolDispatcher.ts](src/core/tool-action/ToolDispatcher.ts) - Tool routing by type (skill/mcp/builtin)
-````
-
-## File: README.md
-````markdown
-<div align="center">
-  <img src="./assets/banner.png" alt="ApexBridge Banner" width="100%" />
-
-# ApexBridge
-
-**下一代轻量级 AI Agent 框架，MCP 协议集成专家**
-
-连接智能的桥梁 · 轻量级架构 · 多模型编排 · 技能扩展
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.0%2B-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
-[![MCP Ready](https://img.shields.io/badge/MCP-Ready-green.svg)](https://github.com/model-context-protocol)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
-
-[核心特性](#-核心特性) • [快速开始](#-快速开始) • [使用示例](#-使用示例) • [路线图](#-路线图) • [贡献指南](#-贡献指南)
-
-</div>
-
----
-
-## 📖 项目介绍
-
-**ApexBridge** 是一个高性能的 AI Agent 框架，旨在构建孤立的大语言模型（LLM）与现实行动之间的桥梁。专为速度和灵活性而设计，是多智能体系统的连接纽带。
-
-与笨重的传统框架不同，ApexBridge 专注于：
-
-- **轻量级架构**：高效的内存管理，适合本地部署和边缘设备。
-- **MCP 原生支持**：深度集成 **Model Context Protocol (MCP)**，标准化上下文共享和工具调用。
-- **模型无关编排**：无缝切换 OpenAI、Claude、DeepSeek、Ollama 等多种 LLM。
-- **智能上下文管理**：支持 4 层上下文压缩策略，长对话无忧。
-
-> "连接智能与执行的桥梁，开启自主代理新时代。"
-
----
-
-## ✨ 核心特性
-
-| 特性                  | 描述                                                                                                      |
-| :-------------------- | :-------------------------------------------------------------------------------------------------------- |
-| 🧠 **多模型支持**     | 统一接口支持 GPT-4、Claude 3.5、Llama 3、DeepSeek 等，根据任务复杂度动态切换模型。                        |
-| 🔌 **MCP 协议集成**   | 完全兼容 **Model Context Protocol**，实现代理间标准化上下文共享和工具使用。                               |
-| 🛠️ **技能系统**       | 模块化技能注册，支持通过 YAML 定义工具并动态绑定到代理。                                                  |
-| ⚡ **高性能执行**     | 核心逻辑针对低延迟进行优化，适合实时交互和边缘计算场景。                                                  |
-| 🔄 **智能上下文压缩** | 4 层压缩策略（Truncate/Prune/Summary/Hybrid），100 条消息可压缩至 ~4000 tokens，节省高达 44% 上下文空间。 |
-| 🌊 **流式响应**       | WebSocket 实时推送思考过程与结果，支持随时中断。                                                          |
-
----
-
-## 🏗️ 系统架构
-
-```mermaid
-graph TD
-    User[用户 / 客户端] -->|请求| API[ApexBridge 核心]
-
-    subgraph "ApexBridge 引擎"
-        API --> Router[模型路由器]
-        Router -->|简单任务| Local[本地 LLM]
-        Router -->|复杂任务| Cloud[云端 LLM]
-
-        Context[上下文管理器] <--> Router
-        Memory[(向量数据库)] <--> Context
-    end
-
-    subgraph "能力层"
-        Tools[技能注册表]
-        MCP[MCP 客户端]
-    end
-
-    Router --> Tools
-    Router --> MCP
-    MCP --> External[外部应用 / 数据源]
-```
-
-### 核心组件
-
-| 组件                          | 功能                                                 |
-| ----------------------------- | ---------------------------------------------------- |
-| **ChatService**               | 聊天协调器，处理消息流和压缩逻辑                     |
-| **LLMManager**                | 多模型适配器管理，支持 OpenAI/Claude/DeepSeek/Ollama |
-| **ContextCompressionService** | 4 层上下文压缩引擎                                   |
-| **ToolRetrievalService**      | 基于 LanceDB 的向量检索和工具匹配                    |
-| **SkillManager**              | 本地技能管理和索引                                   |
-| **MCPIntegrationService**     | MCP 协议客户端和服务端                               |
-
----
-
-## 🚀 快速开始
-
-### 环境要求
-
-- **Node.js**: 18.0+
-- **包管理器**: npm / yarn / pnpm
-- **API Keys**: OpenAI / Anthropic / DeepSeek 等（根据使用的模型）
-
-### 安装部署
-
-```bash
-# 克隆仓库
-git clone https://github.com/suntianc/apex-bridge.git
-cd apex-bridge
-
-# 安装依赖
-npm install
-
-# 启动开发服务器
-npm run dev
-
-# 生产构建
-npm run build
-npm start
-```
-
-### 环境配置
-
-在项目根目录创建 `.env` 文件：
-
-```ini
-# .env 配置示例
-NODE_ENV=development
-PORT=8088
-
-# LLM API 配置
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
-DEEPSEEK_API_KEY=...
-
-# Embedding 模型（用于向量搜索）
-EMBEDDING_PROVIDER=openai
-EMBEDDING_MODEL=text-embedding-3-small
-
-# 日志级别
-LOG_LEVEL=info
-```
-
----
-
-## 💻 使用示例
-
-### 1. 基础聊天请求
-
-```bash
-# 调用聊天完成接口（OpenAI 兼容）
-curl -X POST http://localhost:8088/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "messages": [
-      {"role": "system", "content": "你是一个专业助手"},
-      {"role": "user", "content": "请介绍一下 ApexBridge"}
-    ],
-    "model": "gpt-4",
-    "stream": false
-  }'
-```
-
-### 2. 启用上下文压缩
-
-```typescript
-// 启用智能上下文压缩
-const result = await chatService.processMessage(messages, {
-  model: "gpt-4",
-  contextCompression: {
-    enabled: true,
-    strategy: "hybrid", // truncate | prune | summary | hybrid
-    auto: true, // 自动检测溢出
-    preserveSystemMessage: true,
-  },
-});
-```
-
-### 3. 流式响应
-
-```bash
-# 启用流式输出
-curl -X POST http://localhost:8088/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "messages": [{"role": "user", "content": "写一个 Python 快速排序"}],
-    "model": "gpt-4",
-    "stream": true
-  }'
-```
-
----
-
-## 🗺️ 路线图
-
-| 版本 | 状态      | 特性                           |
-| ---- | --------- | ------------------------------ |
-| v1.0 | ✅ 已完成 | 核心架构、事件循环、多模型支持 |
-| v1.1 | ✅ 已完成 | MCP 协议完整实现、上下文压缩   |
-| v1.2 | 🔄 开发中 | WebSocket 分布式代理节点       |
-
----
-
-## 📁 项目结构
-
-```
-apex-bridge/
-├── src/
-│   ├── core/                    # 核心引擎
-│   │   ├── ProtocolEngine.ts    # ABP 协议解析
-│   │   ├── LLMManager.ts        # LLM 适配器管理
-│   │   └── llm/adapters/        # 6 个 LLM 适配器实现
-│   │
-│   ├── services/                # 业务服务
-│   │   ├── ChatService.ts       # 聊天协调器
-│   │   ├── ContextCompression/  # 上下文压缩（4 层策略）
-│   │   ├── ToolRetrievalService/ # 向量检索和工具匹配
-│   │   ├── SkillManager.ts      # 技能管理
-│   │   └── MCPIntegrationService.ts # MCP 集成
-│   │
-│   ├── strategies/              # 策略模式
-│   │   ├── ReActStrategy.ts     # 多轮思考策略
-│   │   └── SingleRoundStrategy.ts # 单轮快速响应
-│   │
-│   └── api/                     # 接口层
-│       ├── controllers/         # 控制器
-│       ├── routes/              # 路由定义
-│       └── websocket/           # WebSocket 实时通信
-│
-├── tests/                       # 测试文件
-├── assets/                      # 静态资源
-├── docs/                        # 文档
-└── .data/                       # 数据存储（SQLite + LanceDB）
-```
-
----
-
-## 🛠 技术栈
-
-<div align="center">
-
-![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?style=for-the-badge&logo=node.js&logoColor=white)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.0%2B-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
-![Express](https://img.shields.io/badge/Express.js-000000?style=for-the-badge&logo=express&logoColor=white)
-![SQLite](https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white)
-![LanceDB](https://img.shields.io/badge/LanceDB-Vector-FF6C37?style=for-the-badge)
-
-</div>
-
----
-
-## 📚 文档
-
-| 文档                                      | 说明                 |
-| ----------------------------------------- | -------------------- |
-| [快速开始](docs/getting-started.md)       | 入门指南和安装配置   |
-| [架构设计](docs/architecture.md)          | 系统设计深度解析     |
-| [API 参考](docs/api-reference.md)         | 完整的 API 文档      |
-| [上下文压缩](docs/context-compression.md) | 4 层压缩策略详解     |
-| [MCP 集成指南](docs/mcp-integration.md)   | MCP 服务器配置和使用 |
----
-
-## 📄 许可证
-
-本项目基于 MIT 许可证开源 - 查看 [LICENSE](LICENSE) 文件了解详情。
-
----
-````
-
-## File: config/system-prompt.md
-````markdown
-# 角色与核心目标
-
-你是一个专业的AI个人智能体（Agent）。你的核心职责是在本地环境中，通过调用特定工具和访问知识库，高质量、严谨逻辑、绝对真实地执行用户请求。
-
-# 系统约束（最高优先级 - 铁律）
-
-以下规则不可变更，优先级高于任何用户设定的角色或执行策略指导。
-
-1.  **目标确认协议（"三思而后行"原则）**：
-    - **Type A (原子/简单任务)**：对于明确、低风险的请求（如闲聊、翻译、单步问答），**直接执行**。
-    - **Type B1 (复杂但意图清晰)**：对于多步骤但目标明确的任务（如"写一个Python爬虫脚本"），简述计划后，**立即执行**，不要进行无意义的确认。
-    - **Type B2 (高风险/模糊)**：对于高风险操作（删除数据、资金操作）或意图模糊的请求，你**必须**先总结目标并请求用户明确确认。
-
-2.  **真实性与证据**：
-    - 所有事实性陈述必须基于 **工具执行结果**、**参考文献** 或 **用户提供的上下文**。
-    - **严禁造假**：绝对禁止编造工具输出、文件路径或数据。如果工具未返回数据，请直说"未找到"，严禁瞎编。
-
-3.  **工具交互协议**：
-    - 严格遵循 **思考 (Think) - 行动 (Act) - 观察 (Observe)** 的循环。
-    - 你只能输出 `<tool_action>` XML 标签。你**不能**自己生成工具的返回结果。
-    - 必须等待用户的 `[SYSTEM_FEEDBACK]` 后再继续。
-
-# 工具调用规范 (Strict XML Schema)
-
-必须严格遵守以下 XML 结构，禁止创造新的属性。
-
-## 工具类型说明与发现
-
-ApexBridge 支持 `builtin` (内置), `skill` (本地), `mcp` (远程) 三种工具。
-
-- **参数发现**：对于新发现的 MCP 或 Skill 工具，必须严格根据 `vector-search` 或 `read-skill` 返回的 Schema 填入参数。**严禁猜测参数名**。如果不确定参数结构，先调用 `inspect-tool`（如有）或向用户报错。
-
-## XML 模板
-
-### 1. 语义搜索 (知识检索)
-
-当你不知道去哪里找信息时使用。
-
-```xml
-<tool_action name="vector-search" type="builtin">
-  <query value="仅限技术关键词 (英文优先)" />
-</tool_action>
-```
-
-### 2. 读取场景 Skill (Level 1)
-
-用于加载 Skill 的核心上下文和文件索引。
-
-XML
-
-```
-<tool_action name="read-skill" type="builtin">
-  <skillName value="搜索结果中的准确skill名称" />
-</tool_action>
-```
-
-### 3. 读取具体文件 (Level 2)
-
-**关键约束**：如果 `read-skill` 的结果中包含了 `root_path`，在调用本工具时，必须将其填入 `basePath` 属性。
-
-XML
-
-```
-<tool_action name="file-read" type="builtin">
-  <path value="docs/readme.md" />
-  <basePath value=".data/skills/my-skill" />
-</tool_action>
-```
-
-### 4. 执行功能型 Skill / MCP 工具
-
-注意：`type` 属性必填。
-
-XML
-
-```
-<tool_action name="[SKILL_NAME]" type="skill">
-  <[PARAM_NAME] value="[PARAM_VALUE]" />
-</tool_action>
-
-<tool_action name="[MCP_TOOL_NAME]" type="mcp">
-  <[PARAM_NAME] value="[PARAM_VALUE]" />
-</tool_action>
-```
-
-# 认知与执行流程 (Pipeline)
-
-收到请求后，必须严格按以下步骤处理：
-
-## 第一阶段：意图分析与策略加载
-
-1.  **意图判断**：确定任务类型 (Type A, B1, B2)。
-2.  **策略选择**：根据任务类型选择执行策略。
-3.  **知识检查**：
-
-- 若需要外部知识 -> 生成 **Query Optimization**（2-4个核心关键词）。
-
-## 第二阶段：技能激活 (LOD 策略)
-
-1. **Level 1 (核心层)**：调用 `read-skill`。
-2. **Level 2 (细节层)**：**仅调用**解决当下问题必须的文件。禁止一次性读取所有文件。
-
-## 第三阶段：执行与反馈
-
-1. **思考**：规划工具调用，确保符合 Schema。
-2. **行动**：输出 XML。
-3. **观察与熔断**：
-   - 分析 `[SYSTEM_FEEDBACK]`。
-   - **死循环熔断**：如果连续 2 次搜索无结果或工具报错，**立即停止尝试**。向用户报告路径和错误，询问是否提供更多信息。
-
-# 语义搜索指南 (查询重写)
-
-原则：移除停用词，专注于 **技术术语**。
-
-- ✅ 好: `oauth2 nodejs implementation`
-- ✅ 好: `clean code best practices`
-
----
-
-# 回复格式要求与示例
-
-1. **最终回答**：
-   - 简述规划
-   - 使用 Markdown。
-   - 引用来源时明确标注 "根据 [文件名]..."。
-
-## 示例: 搜索 -> 读取 -> 回答 (RAG流程)
-
-User: "我遇到个 git 合并冲突，怎么搞？"
-
-Assistant:
-
-1. 搜索 git 相关技能。
-2. 查询词: "git merge conflict resolution"
-
-<tool_action name="vector-search">
-
-​ <query value="git merge conflict resolution" />
-
-</tool_action>
-
-**User**: [SYSTEM_FEEDBACK] <tool_output> Found skill: "git-helper" (root: .data/skills/git) </tool_output>
-
-Assistant:
-
-找到技能 "git-helper"。
-
-现在读取其索引。
-
-</thinking>
-
-<tool_action name="read-skill">
-
-​ <skillName value="git-helper" />
-
-</tool_action>
-
-**User**: [SYSTEM_FEEDBACK]
-
-<tool_output>
-
-​ Index: 1. basic.md, 2. conflict.md
-
-</tool_output>
-
-Assistant:
-
-<tool_action name="file-read">
-
-​ <path value="conflict.md" />
-
-​ <basePath value=".data/skills/git" />
-
-</tool_action>
-````
-
 ## File: src/core/llm/adapters/BaseAdapter.ts
 ````typescript
 /**
@@ -46187,6 +46194,7 @@ import axios, { AxiosInstance } from "axios";
 import { Message, ChatOptions, LLMResponse, LLMProviderConfig } from "../../../types";
 import { logger } from "../../../utils/logger";
 import { retry, RetryConfig } from "../../../utils/retry";
+import { logErrorResponse, createErrorMessage } from "../../../utils/error-serializer";
 
 /**
  * Axios 请求配置接口
@@ -46545,23 +46553,8 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
           throw error;
         }
 
-        logger.error(`❌ ${this.providerName} chat error:`, error.message);
-        if (error.response) {
-          logger.error(`   HTTP状态: ${error.response.status}`);
-          // 🐛 修复：安全序列化，避免循环引用
-          try {
-            if (error.response.data && typeof error.response.data === "object") {
-              // 只序列化 data 字段，避免序列化整个 response 对象
-              logger.error(`   错误详情: ${JSON.stringify(error.response.data, null, 2)}`);
-            } else {
-              logger.error(`   错误详情: ${error.response.data || "无详细信息"}`);
-            }
-          } catch (e) {
-            // 如果序列化失败，只记录错误消息
-            logger.error(`   错误详情: [无法序列化响应数据]`);
-          }
-        }
-        throw new Error(`${this.providerName} request failed: ${error.message}`);
+        logErrorResponse(this.providerName, error, "chat");
+        throw new Error(createErrorMessage(this.providerName, error));
       }
     }, retryConfig);
   }
@@ -46762,17 +46755,7 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
 
       throw new Error("Unexpected embedding response format");
     } catch (error: any) {
-      logger.error(`❌ ${this.providerName} embed error:`, error.message);
-      if (error.response) {
-        logger.error(`   HTTP状态: ${error.response.status}`);
-        try {
-          if (error.response.data && typeof error.response.data === "object") {
-            logger.error(`   错误详情: ${JSON.stringify(error.response.data, null, 2)}`);
-          }
-        } catch (e) {
-          // 序列化失败
-        }
-      }
+      logErrorResponse(this.providerName, error, "embed");
       throw new Error(`${this.providerName} embedding failed: ${error.message}`);
     }
   }
@@ -48281,6 +48264,12 @@ out/
 trash
 *.tsbuildinfo
 
+## TypeScript compiled files (prevent accidental compilation to src/)
+*.js
+*.js.map
+*.d.ts
+*.d.ts.map
+
 ## Environment variables
 .env
 .env.local
@@ -48488,6 +48477,7 @@ import type { SkillTool, BuiltInTool } from "../types/tool-system";
 import { logger } from "../utils/logger";
 import { extractTextFromMessage } from "../utils/message-utils";
 import { TIMEOUT, LIMITS, THRESHOLDS } from "../constants";
+import { SKILL_TIMEOUT_MS } from "../constants/retention";
 
 export class ReActStrategy implements ChatStrategy {
   private builtInRegistry: BuiltInToolsRegistry;
@@ -48500,7 +48490,7 @@ export class ReActStrategy implements ChatStrategy {
   // 自动注销机制：追踪动态注册Skills的最后访问时间
   private dynamicSkillsLastAccess: Map<string, number> = new Map();
   private cleanupTimer: NodeJS.Timeout | null = null;
-  private readonly SKILL_TIMEOUT_MS = 5 * 60 * 1000; // 5分钟
+  private readonly SKILL_TIMEOUT_MS = SKILL_TIMEOUT_MS;
 
   constructor(
     private llmManager: LLMManager,
@@ -49964,8 +49954,27 @@ export class ToolRetrievalService {
       // 调用 LLMManager.embed() - 会自动使用数据库配置的默认 embedding 模型
       const embeddings = await llmManagerInstance.embed([text]);
 
-      if (!embeddings || embeddings.length === 0 || !embeddings[0]) {
-        throw new Error("Empty embedding result");
+      // 验证嵌入结果完整性
+      if (!embeddings) {
+        logger.error("[ToolRetrievalService] Embedding result is null or undefined");
+        throw new Error("Embedding generation returned null or undefined");
+      }
+
+      if (!Array.isArray(embeddings)) {
+        logger.error("[ToolRetrievalService] Embedding result is not an array", {
+          type: typeof embeddings,
+        });
+        throw new Error("Embedding result is not an array");
+      }
+
+      if (embeddings.length === 0) {
+        logger.error("[ToolRetrievalService] Embedding result array is empty");
+        throw new Error("Empty embedding result array");
+      }
+
+      if (!embeddings[0] || !Array.isArray(embeddings[0])) {
+        logger.error("[ToolRetrievalService] First embedding is null or not an array");
+        throw new Error("First embedding is null or not an array");
       }
 
       logger.debug(`Generated remote embedding: ${embeddings[0].length} dimensions`);
@@ -50345,6 +50354,7 @@ export class ToolRetrievalService {
       // 索引每个Skills
       let indexedCount = 0;
       let skippedCount = 0;
+      const failedSkills: { name: string; error: string }[] = [];
 
       for (const skillName of skillDirs) {
         try {
@@ -50379,11 +50389,23 @@ export class ToolRetrievalService {
             logger.debug(`Skipping unchanged skill: ${skillName}`);
           }
         } catch (error) {
-          logger.warn(`Failed to index skill ${skillName}:`, error);
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          failedSkills.push({ name: skillName, error: errorMessage });
+          logger.error(`Failed to index skill ${skillName}:`, error);
         }
       }
 
-      logger.info(`Skills scanning completed: ${indexedCount} indexed, ${skippedCount} skipped`);
+      // 报告失败的技能
+      if (failedSkills.length > 0) {
+        logger.error(
+          `[ToolRetrievalService] ${failedSkills.length} skill(s) failed to index: ` +
+            failedSkills.map((s) => `${s.name}`).join(", ")
+        );
+      }
+
+      logger.info(
+        `Skills scanning completed: ${indexedCount} indexed, ${skippedCount} skipped, ${failedSkills.length} failed`
+      );
     } catch (error) {
       logger.error("Failed to scan and index skills:", error);
       throw error;
@@ -50745,6 +50767,48 @@ export class ChatController {
   }
 
   /**
+   * 提取多模态消息（包含图片URL的消息）
+   * @param messages 消息数组
+   * @returns 包含多模态内容的消息数组
+   */
+  private extractMultimodalMessages(messages: any[]): any[] {
+    return messages.filter(
+      (m: any) => Array.isArray(m.content) && m.content.some((p: any) => p.type === "image_url")
+    );
+  }
+
+  /**
+   * 记录多模态消息的调试信息
+   * @param messages 消息数组
+   */
+  private logMultimodalMessages(messages: any[]): void {
+    const multimodalMessages = this.extractMultimodalMessages(messages);
+    if (multimodalMessages.length === 0) {
+      return;
+    }
+
+    logger.debug(`[ChatController] Received ${multimodalMessages.length} multimodal messages`);
+
+    messages.forEach((msg: any, idx: number) => {
+      if (Array.isArray(msg.content)) {
+        logger.debug(
+          `[ChatController] Message[${idx}] has array content with ${msg.content.length} parts`
+        );
+        msg.content.forEach((part: any, pIdx: number) => {
+          if (part.type === "image_url") {
+            const url = typeof part.image_url === "string" ? part.image_url : part.image_url?.url;
+            if (url) {
+              logger.debug(
+                `[ChatController] Message[${idx}].content[${pIdx}]: image_url with ${url.length} chars, has ;base64,: ${url.includes(";base64,")}`
+              );
+            }
+          }
+        });
+      }
+    });
+  }
+
+  /**
    * POST /v1/chat/completions
    * OpenAI兼容的聊天API
    */
@@ -50754,30 +50818,7 @@ export class ChatController {
 
       // DEBUG: 检查原始请求中的消息格式
       if (body.messages && Array.isArray(body.messages)) {
-        const multimodalCount = body.messages.filter(
-          (m: any) => Array.isArray(m.content) && m.content.some((p: any) => p.type === "image_url")
-        ).length;
-        if (multimodalCount > 0) {
-          logger.debug(`[ChatController] Received ${multimodalCount} multimodal messages`);
-          body.messages.forEach((msg: any, idx: number) => {
-            if (Array.isArray(msg.content)) {
-              logger.debug(
-                `[ChatController] Message[${idx}] has array content with ${msg.content.length} parts`
-              );
-              msg.content.forEach((part: any, pIdx: number) => {
-                if (part.type === "image_url") {
-                  const url =
-                    typeof part.image_url === "string" ? part.image_url : part.image_url?.url;
-                  if (url) {
-                    logger.debug(
-                      `[ChatController] Message[${idx}].content[${pIdx}]: image_url with ${url.length} chars, has ;base64,: ${url.includes(";base64,")}`
-                    );
-                  }
-                }
-              });
-            }
-          });
-        }
+        this.logMultimodalMessages(body.messages);
       }
 
       const validation = parseChatRequest(body);
@@ -51589,6 +51630,338 @@ export class ChatController {
       }
     }
   }
+
+  /**
+   * 发送 SSE 事件数据
+   * @param res 响应对象
+   * @param data 要发送的数据
+   * @param eventType 事件类型（可选）
+   */
+  private sendSSEData(res: Response, data: object, eventType?: string): void {
+    if (eventType) {
+      res.write(`event: ${eventType}\n`);
+    }
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  }
+
+  /**
+   * 处理元数据块（requestId, interrupted 等）
+   * @param res 响应对象
+   * @param chunk 数据块
+   * @param responseId 响应ID
+   * @param actualModel 实际使用的模型
+   * @returns 是否成功处理
+   */
+  private async handleMetaChunk(
+    res: Response,
+    chunk: string,
+    responseId: string,
+    actualModel: string
+  ): Promise<boolean> {
+    const metaJson = chunk.substring(9);
+    try {
+      const metaData = JSON.parse(metaJson);
+
+      if (metaData.type === "requestId") {
+        this.sendSSEData(res, { requestId: metaData.value });
+        return true;
+      } else if (metaData.type === "interrupted") {
+        const interruptedChunk = {
+          id: responseId,
+          object: "chat.completion.chunk",
+          created: Math.floor(Date.now() / 1000),
+          model: actualModel,
+          choices: [
+            {
+              index: 0,
+              delta: { content: "" },
+              finish_reason: "stop",
+            },
+          ],
+        };
+        res.write(`data: ${JSON.stringify(interruptedChunk)}\n\n`);
+        res.write("data: [DONE]\n\n");
+        res.end();
+        logger.info(`Stream interrupted for request ${responseId}`);
+        return true;
+      }
+      return false;
+    } catch (parseError) {
+      logger.warn("[ChatController] Failed to parse meta chunk:", metaJson);
+      return false;
+    }
+  }
+
+  /**
+   * 处理思考过程事件
+   * @param res 响应对象
+   * @param chunk 数据块
+   * @param chunkIndex 块索引
+   * @param responseId 响应ID
+   * @param actualModel 实际使用的模型
+   * @param eventType 事件类型：start/content/end
+   * @returns 处理后的块索引
+   */
+  private handleThoughtEvent(
+    res: Response,
+    chunk: string,
+    chunkIndex: number,
+    responseId: string,
+    actualModel: string,
+    eventType: "start" | "content" | "end"
+  ): number {
+    try {
+      let data: any;
+      let eventName: string;
+
+      if (eventType === "start") {
+        const jsonStr = chunk.substring(18).trim();
+        data = JSON.parse(jsonStr);
+        eventName = "thought_start";
+        this.sendSSEData(
+          res,
+          {
+            iteration: data.iteration,
+            timestamp: data.timestamp,
+          },
+          eventName
+        );
+      } else if (eventType === "content") {
+        const jsonStr = chunk.substring(12).trim();
+        data = JSON.parse(jsonStr);
+        const sseData = {
+          id: responseId,
+          object: "chat.completion.chunk",
+          created: Math.floor(Date.now() / 1000),
+          model: actualModel,
+          choices: [
+            {
+              index: 0,
+              delta: {
+                content: data.content,
+                role: "assistant",
+              },
+              finish_reason: null,
+            },
+          ],
+          _type: "thought",
+          _iteration: data.iteration,
+        };
+        res.write(`data: ${JSON.stringify(sseData)}\n\n`);
+      } else if (eventType === "end") {
+        const jsonStr = chunk.substring(16).trim();
+        data = JSON.parse(jsonStr);
+        eventName = "thought_end";
+        this.sendSSEData(res, { iteration: data.iteration }, eventName);
+      }
+
+      return chunkIndex + 1;
+    } catch (e) {
+      logger.warn(`[ChatController] Failed to parse thought ${eventType}:`, e);
+      return chunkIndex;
+    }
+  }
+
+  /**
+   * 处理动作开始事件
+   * @param res 响应对象
+   * @param chunk 数据块
+   * @param chunkIndex 块索引
+   * @returns 处理后的块索引
+   */
+  private handleActionStartEvent(res: Response, chunk: string, chunkIndex: number): number {
+    try {
+      const jsonStr = chunk.substring(17).trim();
+      const data = JSON.parse(jsonStr);
+      this.sendSSEData(
+        res,
+        {
+          iteration: data.iteration,
+          tool: data.tool,
+          params: data.params,
+        },
+        "action_start"
+      );
+      return chunkIndex + 1;
+    } catch (e) {
+      logger.warn("[ChatController] Failed to parse action_start:", e);
+      return chunkIndex;
+    }
+  }
+
+  /**
+   * 处理观察事件
+   * @param res 响应对象
+   * @param chunk 数据块
+   * @param chunkIndex 块索引
+   * @returns 处理后的块索引
+   */
+  private handleObservationEvent(res: Response, chunk: string, chunkIndex: number): number {
+    try {
+      const jsonStr = chunk.substring(16).trim();
+      const data = JSON.parse(jsonStr);
+      this.sendSSEData(
+        res,
+        {
+          iteration: data.iteration,
+          tool: data.tool,
+          result: data.result,
+          error: data.error,
+        },
+        "observation"
+      );
+      return chunkIndex + 1;
+    } catch (e) {
+      logger.warn("[ChatController] Failed to parse observation:", e);
+      return chunkIndex;
+    }
+  }
+
+  /**
+   * 处理答案事件
+   * @param res 响应对象
+   * @param chunk 数据块
+   * @param chunkIndex 块索引
+   * @param responseId 响应ID
+   * @param actualModel 实际使用的模型
+   * @param eventType 事件类型：start/content/end
+   * @returns 处理后的块索引
+   */
+  private handleAnswerEvent(
+    res: Response,
+    chunk: string,
+    chunkIndex: number,
+    responseId: string,
+    actualModel: string,
+    eventType: "start" | "content" | "end"
+  ): number {
+    try {
+      if (eventType === "start") {
+        res.write(`event: answer_start\n`);
+        res.write(`data: {}\n\n`);
+      } else if (eventType === "content") {
+        const jsonStr = chunk.substring(11).trim();
+        const data = JSON.parse(jsonStr);
+        const sseData = {
+          id: responseId,
+          object: "chat.completion.chunk",
+          created: Math.floor(Date.now() / 1000),
+          model: actualModel,
+          choices: [
+            {
+              index: 0,
+              delta: { content: data.content },
+              finish_reason: null,
+            },
+          ],
+          _type: "answer",
+        };
+        res.write(`data: ${JSON.stringify(sseData)}\n\n`);
+      } else if (eventType === "end") {
+        res.write(`event: answer_end\n`);
+        res.write(`data: {}\n\n`);
+      }
+
+      return chunkIndex + 1;
+    } catch (e) {
+      logger.warn(`[ChatController] Failed to parse answer ${eventType}:`, e);
+      return chunkIndex;
+    }
+  }
+
+  /**
+   * 发送流结束事件
+   * @param res 响应对象
+   * @param responseId 响应ID
+   * @param conversationId 会话ID（可选）
+   * @param chunkIndex 块索引
+   * @returns 处理后的块索引
+   */
+  private sendStreamEndEvents(
+    res: Response,
+    responseId: string,
+    conversationId?: string,
+    chunkIndex?: number
+  ): number {
+    res.write("data: [DONE]\n\n");
+
+    if (conversationId) {
+      res.write(`event: conversation_id\n`);
+      res.write(`data: ${JSON.stringify({ conversationId })}\n\n`);
+    }
+
+    res.end();
+    logger.info(`Streamed ${chunkIndex || 0} chunks for request ${responseId}`);
+    return -1; // 表示流已结束
+  }
+
+  /**
+   * 路由数据块到对应的处理方法
+   * @param chunk 数据块
+   * @param res 响应对象
+   * @param responseId 响应ID
+   * @param actualModel 实际使用的模型
+   * @param enableStreamThoughts 是否启用思考流式输出
+   * @param chunkIndex 块索引
+   * @returns -1 表示流已结束，0 表示未处理，正数表示处理后的索引
+   */
+  private routeChunk(
+    chunk: string,
+    res: Response,
+    responseId: string,
+    actualModel: string,
+    enableStreamThoughts: boolean,
+    chunkIndex: number
+  ): number {
+    // 处理元数据块
+    if (chunk.startsWith("__META__:")) {
+      const handled = this.handleMetaChunk(res, chunk, responseId, actualModel);
+      if (handled) return 0;
+    }
+
+    // 处理思考过程事件（如果未启用思考流式输出则跳过）
+    if (!enableStreamThoughts) {
+      if (chunk.startsWith("__THOUGHT_START__:")) {
+        return this.handleThoughtEvent(res, chunk, chunkIndex, responseId, actualModel, "start");
+      }
+      if (chunk.startsWith("__THOUGHT__:")) {
+        return this.handleThoughtEvent(res, chunk, chunkIndex, responseId, actualModel, "content");
+      }
+      if (chunk.startsWith("__THOUGHT_END__:")) {
+        return this.handleThoughtEvent(res, chunk, chunkIndex, responseId, actualModel, "end");
+      }
+      if (chunk.startsWith("__ACTION")) return chunkIndex;
+      if (chunk.startsWith("__OBSERVATION")) return chunkIndex;
+      if (chunk.startsWith("__ANSWER")) return chunkIndex;
+    } else {
+      if (chunk.startsWith("__THOUGHT_START__:")) {
+        return this.handleThoughtEvent(res, chunk, chunkIndex, responseId, actualModel, "start");
+      }
+      if (chunk.startsWith("__THOUGHT__:")) {
+        return this.handleThoughtEvent(res, chunk, chunkIndex, responseId, actualModel, "content");
+      }
+      if (chunk.startsWith("__THOUGHT_END__:")) {
+        return this.handleThoughtEvent(res, chunk, chunkIndex, responseId, actualModel, "end");
+      }
+      if (chunk.startsWith("__ACTION_START__:")) {
+        return this.handleActionStartEvent(res, chunk, chunkIndex);
+      }
+      if (chunk.startsWith("__OBSERVATION__:")) {
+        return this.handleObservationEvent(res, chunk, chunkIndex);
+      }
+      if (chunk.startsWith("__ANSWER_START__:")) {
+        return this.handleAnswerEvent(res, chunk, chunkIndex, responseId, actualModel, "start");
+      }
+      if (chunk.startsWith("__ANSWER__:")) {
+        return this.handleAnswerEvent(res, chunk, chunkIndex, responseId, actualModel, "content");
+      }
+      if (chunk.startsWith("__ANSWER_END__:")) {
+        return this.handleAnswerEvent(res, chunk, chunkIndex, responseId, actualModel, "end");
+      }
+    }
+
+    return -2; // 表示需要作为普通块处理
+  }
 }
 ````
 
@@ -52233,7 +52606,7 @@ import { IWebSocketManager } from "../api/websocket/WebSocketManager";
 import { ConversationHistoryService, type ConversationMessage } from "./ConversationHistoryService";
 import { SessionManager } from "./SessionManager";
 import { RequestTracker } from "./RequestTracker";
-import type { ChatStrategy } from "../strategies/ChatStrategy";
+import type { ChatStrategy, ChatResult } from "../strategies/ChatStrategy";
 import { MessagePreprocessor } from "./chat/MessagePreprocessor";
 import { ConversationSaver } from "./chat/ConversationSaver";
 import { StrategySelector } from "./chat/StrategySelector";
@@ -52346,9 +52719,11 @@ export class ChatService {
       );
       const processedMessages = preprocessResult.messages;
 
-      // 5. 应用上下文压缩（如果启用）
+      // 5. 应用上下文压缩
+      // 默认启用（遵循 ContextCompressionService.defaultConfig.enabled = true）
       let messagesForLLM = processedMessages;
-      if (options.contextCompression?.enabled) {
+      const compressionEnabled = options.contextCompression?.enabled ?? true;
+      if (compressionEnabled) {
         // 获取模型上下文限制
         const model = ModelRegistry.getInstance().findModel(
           options.provider || "default",
@@ -52376,11 +52751,11 @@ export class ChatService {
 
       // 6. 检查是否为流式模式
       if (options.stream) {
-        // 流式模式，返回AsyncGenerator
+        // 流式模式，返回 AsyncGenerator
         return strategy.execute(messagesForLLM, options) as AsyncIterableIterator<any>;
       } else {
-        // 普通模式，返回ChatResult
-        const result = (await strategy.execute(messagesForLLM, options)) as any;
+        // 普通模式，返回 ChatResult
+        const result = (await strategy.execute(messagesForLLM, options)) as ChatResult;
 
         // 7. 更新会话元数据
         if (options.sessionId && result?.usage) {
@@ -52565,9 +52940,11 @@ export class ChatService {
       );
       const processedMessages = preprocessResult.messages;
 
-      // 4. 应用上下文压缩（如果启用）
+      // 4. 应用上下文压缩
+      // 默认启用（遵循 ContextCompressionService.defaultConfig.enabled = true）
       let messagesForLLM = processedMessages;
-      if (options.contextCompression?.enabled) {
+      const compressionEnabled = options.contextCompression?.enabled ?? true;
+      if (compressionEnabled) {
         // 获取模型上下文限制
         const model = ModelRegistry.getInstance().findModel(
           options.provider || "default",
@@ -52689,8 +53066,12 @@ export class ChatService {
     limit: number = 100,
     offset: number = 0
   ): Promise<Message[]> {
-    const historyService = this.conversationHistoryService || null;
-    return historyService?.getMessages(conversationId, limit, offset) || [];
+    const historyService = this.conversationHistoryService;
+    if (!historyService) {
+      return [];
+    }
+    const messages = await historyService.getMessages(conversationId, limit, offset);
+    return messages as Message[];
   }
 
   /**

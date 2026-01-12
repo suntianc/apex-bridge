@@ -79,7 +79,7 @@ export class SearchEngine implements ISearchEngine {
   }
 
   /**
-   * Search for relevant skills (with optional caching)
+   * Search for relevant skills (with optional caching and fallback)
    */
   async search(query: string, options?: SearchOptions): Promise<ToolRetrievalResult[]> {
     const effectiveLimit = options?.limit ?? this.defaultLimit;
@@ -107,8 +107,8 @@ export class SearchEngine implements ISearchEngine {
       // Get table
       const table = await this.connection.getTable();
       if (!table) {
-        logger.warn("[SearchEngine] Table not initialized");
-        return [];
+        logger.warn("[SearchEngine] Table not initialized, using fallback search");
+        return this.fallbackKeywordSearch(query, effectiveLimit, effectiveThreshold);
       }
 
       // Execute vector search
@@ -135,9 +135,127 @@ export class SearchEngine implements ISearchEngine {
       logger.info(`[SearchEngine] Found ${formattedResults.length} relevant skill(s)`);
       return formattedResults;
     } catch (error) {
-      logger.error(`[SearchEngine] Search failed for query "${query}":`, error);
-      throw error;
+      logger.error(`[SearchEngine] Vector search failed for query "${query}":`, error);
+      logger.warn(`[SearchEngine] Falling back to keyword search for query "${query}"`);
+
+      // Fallback to keyword search
+      return this.fallbackKeywordSearch(query, effectiveLimit, effectiveThreshold);
     }
+  }
+
+  /**
+   * Fallback keyword-based search when vector search fails
+   * @param query Search query
+   * @param limit Maximum results to return
+   * @param threshold Minimum score threshold
+   * @returns Tool retrieval results from keyword matching
+   */
+  private async fallbackKeywordSearch(
+    query: string,
+    limit: number,
+    threshold: number
+  ): Promise<ToolRetrievalResult[]> {
+    try {
+      logger.info(`[SearchEngine] Executing fallback keyword search for: "${query}"`);
+
+      // Get table for keyword matching
+      const table = await this.connection.getTable();
+      if (!table) {
+        logger.warn("[SearchEngine] Table not available for fallback search");
+        return [];
+      }
+
+      // Get all tools for keyword matching
+      const searchTerms = query
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((t) => t.length > 0);
+
+      // Use LanceDB query to get candidates (without vector search)
+      const allRecords = await table
+        .query()
+        .limit(limit * 3)
+        .toArray();
+
+      // Filter by keyword matching
+      const results: ToolRetrievalResult[] = [];
+
+      for (const record of allRecords) {
+        try {
+          const data = this.extractResultData(record);
+
+          // Calculate keyword match score
+          const searchableText =
+            `${data.name} ${data.description} ${(data.tags || []).join(" ")}`.toLowerCase();
+          const matchCount = searchTerms.filter((term) => searchableText.includes(term)).length;
+
+          if (matchCount === 0) {
+            continue;
+          }
+
+          // Calculate score based on match quality
+          const nameMatches = searchTerms.filter((term) =>
+            data.name.toLowerCase().includes(term)
+          ).length;
+          const score = (nameMatches * 0.6 + matchCount * 0.4) / searchTerms.length;
+
+          // Apply threshold filter
+          if (score < threshold) {
+            logger.debug(
+              `[SearchEngine] Fallback filtered out result "${data.name}" with score ${score.toFixed(4)} < threshold ${threshold}`
+            );
+            continue;
+          }
+
+          // Parse metadata
+          const metadata = this.parseMetadata(data);
+
+          // Format result
+          results.push({
+            id: data.id,
+            name: data.name,
+            description: data.description,
+            score: Math.min(score, 1),
+            toolType: data.toolType || "skill",
+            metadata: this.formatFallbackTool(data, metadata),
+            tags: data.tags || [],
+          });
+        } catch (formatError) {
+          logger.warn("[SearchEngine] Failed to format fallback result:", formatError);
+        }
+      }
+
+      // Sort by score and limit results
+      const sortedResults = results.sort((a, b) => b.score - a.score).slice(0, limit);
+
+      logger.info(`[SearchEngine] Fallback keyword search found ${sortedResults.length} result(s)`);
+      return sortedResults;
+    } catch (fallbackError) {
+      logger.error("[SearchEngine] Fallback keyword search also failed:", fallbackError);
+      // Return empty array as last resort - never throw from search
+      return [];
+    }
+  }
+
+  /**
+   * Format tool data for fallback results
+   */
+  private formatFallbackTool(
+    data: ToolsTable,
+    metadata: Record<string, unknown>
+  ): Record<string, unknown> {
+    return {
+      name: data.name,
+      description: data.description,
+      type: data.toolType || "skill",
+      source: data.source,
+      tags: data.tags,
+      metadata: {
+        ...metadata,
+        version: data.version,
+        path: data.path,
+      },
+    };
   }
 
   /**

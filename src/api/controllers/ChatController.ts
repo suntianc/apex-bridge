@@ -26,6 +26,48 @@ export class ChatController {
   }
 
   /**
+   * 提取多模态消息（包含图片URL的消息）
+   * @param messages 消息数组
+   * @returns 包含多模态内容的消息数组
+   */
+  private extractMultimodalMessages(messages: any[]): any[] {
+    return messages.filter(
+      (m: any) => Array.isArray(m.content) && m.content.some((p: any) => p.type === "image_url")
+    );
+  }
+
+  /**
+   * 记录多模态消息的调试信息
+   * @param messages 消息数组
+   */
+  private logMultimodalMessages(messages: any[]): void {
+    const multimodalMessages = this.extractMultimodalMessages(messages);
+    if (multimodalMessages.length === 0) {
+      return;
+    }
+
+    logger.debug(`[ChatController] Received ${multimodalMessages.length} multimodal messages`);
+
+    messages.forEach((msg: any, idx: number) => {
+      if (Array.isArray(msg.content)) {
+        logger.debug(
+          `[ChatController] Message[${idx}] has array content with ${msg.content.length} parts`
+        );
+        msg.content.forEach((part: any, pIdx: number) => {
+          if (part.type === "image_url") {
+            const url = typeof part.image_url === "string" ? part.image_url : part.image_url?.url;
+            if (url) {
+              logger.debug(
+                `[ChatController] Message[${idx}].content[${pIdx}]: image_url with ${url.length} chars, has ;base64,: ${url.includes(";base64,")}`
+              );
+            }
+          }
+        });
+      }
+    });
+  }
+
+  /**
    * POST /v1/chat/completions
    * OpenAI兼容的聊天API
    */
@@ -35,30 +77,7 @@ export class ChatController {
 
       // DEBUG: 检查原始请求中的消息格式
       if (body.messages && Array.isArray(body.messages)) {
-        const multimodalCount = body.messages.filter(
-          (m: any) => Array.isArray(m.content) && m.content.some((p: any) => p.type === "image_url")
-        ).length;
-        if (multimodalCount > 0) {
-          logger.debug(`[ChatController] Received ${multimodalCount} multimodal messages`);
-          body.messages.forEach((msg: any, idx: number) => {
-            if (Array.isArray(msg.content)) {
-              logger.debug(
-                `[ChatController] Message[${idx}] has array content with ${msg.content.length} parts`
-              );
-              msg.content.forEach((part: any, pIdx: number) => {
-                if (part.type === "image_url") {
-                  const url =
-                    typeof part.image_url === "string" ? part.image_url : part.image_url?.url;
-                  if (url) {
-                    logger.debug(
-                      `[ChatController] Message[${idx}].content[${pIdx}]: image_url with ${url.length} chars, has ;base64,: ${url.includes(";base64,")}`
-                    );
-                  }
-                }
-              });
-            }
-          });
-        }
+        this.logMultimodalMessages(body.messages);
       }
 
       const validation = parseChatRequest(body);
@@ -869,5 +888,337 @@ export class ChatController {
         });
       }
     }
+  }
+
+  /**
+   * 发送 SSE 事件数据
+   * @param res 响应对象
+   * @param data 要发送的数据
+   * @param eventType 事件类型（可选）
+   */
+  private sendSSEData(res: Response, data: object, eventType?: string): void {
+    if (eventType) {
+      res.write(`event: ${eventType}\n`);
+    }
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  }
+
+  /**
+   * 处理元数据块（requestId, interrupted 等）
+   * @param res 响应对象
+   * @param chunk 数据块
+   * @param responseId 响应ID
+   * @param actualModel 实际使用的模型
+   * @returns 是否成功处理
+   */
+  private async handleMetaChunk(
+    res: Response,
+    chunk: string,
+    responseId: string,
+    actualModel: string
+  ): Promise<boolean> {
+    const metaJson = chunk.substring(9);
+    try {
+      const metaData = JSON.parse(metaJson);
+
+      if (metaData.type === "requestId") {
+        this.sendSSEData(res, { requestId: metaData.value });
+        return true;
+      } else if (metaData.type === "interrupted") {
+        const interruptedChunk = {
+          id: responseId,
+          object: "chat.completion.chunk",
+          created: Math.floor(Date.now() / 1000),
+          model: actualModel,
+          choices: [
+            {
+              index: 0,
+              delta: { content: "" },
+              finish_reason: "stop",
+            },
+          ],
+        };
+        res.write(`data: ${JSON.stringify(interruptedChunk)}\n\n`);
+        res.write("data: [DONE]\n\n");
+        res.end();
+        logger.info(`Stream interrupted for request ${responseId}`);
+        return true;
+      }
+      return false;
+    } catch (parseError) {
+      logger.warn("[ChatController] Failed to parse meta chunk:", metaJson);
+      return false;
+    }
+  }
+
+  /**
+   * 处理思考过程事件
+   * @param res 响应对象
+   * @param chunk 数据块
+   * @param chunkIndex 块索引
+   * @param responseId 响应ID
+   * @param actualModel 实际使用的模型
+   * @param eventType 事件类型：start/content/end
+   * @returns 处理后的块索引
+   */
+  private handleThoughtEvent(
+    res: Response,
+    chunk: string,
+    chunkIndex: number,
+    responseId: string,
+    actualModel: string,
+    eventType: "start" | "content" | "end"
+  ): number {
+    try {
+      let data: any;
+      let eventName: string;
+
+      if (eventType === "start") {
+        const jsonStr = chunk.substring(18).trim();
+        data = JSON.parse(jsonStr);
+        eventName = "thought_start";
+        this.sendSSEData(
+          res,
+          {
+            iteration: data.iteration,
+            timestamp: data.timestamp,
+          },
+          eventName
+        );
+      } else if (eventType === "content") {
+        const jsonStr = chunk.substring(12).trim();
+        data = JSON.parse(jsonStr);
+        const sseData = {
+          id: responseId,
+          object: "chat.completion.chunk",
+          created: Math.floor(Date.now() / 1000),
+          model: actualModel,
+          choices: [
+            {
+              index: 0,
+              delta: {
+                content: data.content,
+                role: "assistant",
+              },
+              finish_reason: null,
+            },
+          ],
+          _type: "thought",
+          _iteration: data.iteration,
+        };
+        res.write(`data: ${JSON.stringify(sseData)}\n\n`);
+      } else if (eventType === "end") {
+        const jsonStr = chunk.substring(16).trim();
+        data = JSON.parse(jsonStr);
+        eventName = "thought_end";
+        this.sendSSEData(res, { iteration: data.iteration }, eventName);
+      }
+
+      return chunkIndex + 1;
+    } catch (e) {
+      logger.warn(`[ChatController] Failed to parse thought ${eventType}:`, e);
+      return chunkIndex;
+    }
+  }
+
+  /**
+   * 处理动作开始事件
+   * @param res 响应对象
+   * @param chunk 数据块
+   * @param chunkIndex 块索引
+   * @returns 处理后的块索引
+   */
+  private handleActionStartEvent(res: Response, chunk: string, chunkIndex: number): number {
+    try {
+      const jsonStr = chunk.substring(17).trim();
+      const data = JSON.parse(jsonStr);
+      this.sendSSEData(
+        res,
+        {
+          iteration: data.iteration,
+          tool: data.tool,
+          params: data.params,
+        },
+        "action_start"
+      );
+      return chunkIndex + 1;
+    } catch (e) {
+      logger.warn("[ChatController] Failed to parse action_start:", e);
+      return chunkIndex;
+    }
+  }
+
+  /**
+   * 处理观察事件
+   * @param res 响应对象
+   * @param chunk 数据块
+   * @param chunkIndex 块索引
+   * @returns 处理后的块索引
+   */
+  private handleObservationEvent(res: Response, chunk: string, chunkIndex: number): number {
+    try {
+      const jsonStr = chunk.substring(16).trim();
+      const data = JSON.parse(jsonStr);
+      this.sendSSEData(
+        res,
+        {
+          iteration: data.iteration,
+          tool: data.tool,
+          result: data.result,
+          error: data.error,
+        },
+        "observation"
+      );
+      return chunkIndex + 1;
+    } catch (e) {
+      logger.warn("[ChatController] Failed to parse observation:", e);
+      return chunkIndex;
+    }
+  }
+
+  /**
+   * 处理答案事件
+   * @param res 响应对象
+   * @param chunk 数据块
+   * @param chunkIndex 块索引
+   * @param responseId 响应ID
+   * @param actualModel 实际使用的模型
+   * @param eventType 事件类型：start/content/end
+   * @returns 处理后的块索引
+   */
+  private handleAnswerEvent(
+    res: Response,
+    chunk: string,
+    chunkIndex: number,
+    responseId: string,
+    actualModel: string,
+    eventType: "start" | "content" | "end"
+  ): number {
+    try {
+      if (eventType === "start") {
+        res.write(`event: answer_start\n`);
+        res.write(`data: {}\n\n`);
+      } else if (eventType === "content") {
+        const jsonStr = chunk.substring(11).trim();
+        const data = JSON.parse(jsonStr);
+        const sseData = {
+          id: responseId,
+          object: "chat.completion.chunk",
+          created: Math.floor(Date.now() / 1000),
+          model: actualModel,
+          choices: [
+            {
+              index: 0,
+              delta: { content: data.content },
+              finish_reason: null,
+            },
+          ],
+          _type: "answer",
+        };
+        res.write(`data: ${JSON.stringify(sseData)}\n\n`);
+      } else if (eventType === "end") {
+        res.write(`event: answer_end\n`);
+        res.write(`data: {}\n\n`);
+      }
+
+      return chunkIndex + 1;
+    } catch (e) {
+      logger.warn(`[ChatController] Failed to parse answer ${eventType}:`, e);
+      return chunkIndex;
+    }
+  }
+
+  /**
+   * 发送流结束事件
+   * @param res 响应对象
+   * @param responseId 响应ID
+   * @param conversationId 会话ID（可选）
+   * @param chunkIndex 块索引
+   * @returns 处理后的块索引
+   */
+  private sendStreamEndEvents(
+    res: Response,
+    responseId: string,
+    conversationId?: string,
+    chunkIndex?: number
+  ): number {
+    res.write("data: [DONE]\n\n");
+
+    if (conversationId) {
+      res.write(`event: conversation_id\n`);
+      res.write(`data: ${JSON.stringify({ conversationId })}\n\n`);
+    }
+
+    res.end();
+    logger.info(`Streamed ${chunkIndex || 0} chunks for request ${responseId}`);
+    return -1; // 表示流已结束
+  }
+
+  /**
+   * 路由数据块到对应的处理方法
+   * @param chunk 数据块
+   * @param res 响应对象
+   * @param responseId 响应ID
+   * @param actualModel 实际使用的模型
+   * @param enableStreamThoughts 是否启用思考流式输出
+   * @param chunkIndex 块索引
+   * @returns -1 表示流已结束，0 表示未处理，正数表示处理后的索引
+   */
+  private routeChunk(
+    chunk: string,
+    res: Response,
+    responseId: string,
+    actualModel: string,
+    enableStreamThoughts: boolean,
+    chunkIndex: number
+  ): number {
+    // 处理元数据块
+    if (chunk.startsWith("__META__:")) {
+      const handled = this.handleMetaChunk(res, chunk, responseId, actualModel);
+      if (handled) return 0;
+    }
+
+    // 处理思考过程事件（如果未启用思考流式输出则跳过）
+    if (!enableStreamThoughts) {
+      if (chunk.startsWith("__THOUGHT_START__:")) {
+        return this.handleThoughtEvent(res, chunk, chunkIndex, responseId, actualModel, "start");
+      }
+      if (chunk.startsWith("__THOUGHT__:")) {
+        return this.handleThoughtEvent(res, chunk, chunkIndex, responseId, actualModel, "content");
+      }
+      if (chunk.startsWith("__THOUGHT_END__:")) {
+        return this.handleThoughtEvent(res, chunk, chunkIndex, responseId, actualModel, "end");
+      }
+      if (chunk.startsWith("__ACTION")) return chunkIndex;
+      if (chunk.startsWith("__OBSERVATION")) return chunkIndex;
+      if (chunk.startsWith("__ANSWER")) return chunkIndex;
+    } else {
+      if (chunk.startsWith("__THOUGHT_START__:")) {
+        return this.handleThoughtEvent(res, chunk, chunkIndex, responseId, actualModel, "start");
+      }
+      if (chunk.startsWith("__THOUGHT__:")) {
+        return this.handleThoughtEvent(res, chunk, chunkIndex, responseId, actualModel, "content");
+      }
+      if (chunk.startsWith("__THOUGHT_END__:")) {
+        return this.handleThoughtEvent(res, chunk, chunkIndex, responseId, actualModel, "end");
+      }
+      if (chunk.startsWith("__ACTION_START__:")) {
+        return this.handleActionStartEvent(res, chunk, chunkIndex);
+      }
+      if (chunk.startsWith("__OBSERVATION__:")) {
+        return this.handleObservationEvent(res, chunk, chunkIndex);
+      }
+      if (chunk.startsWith("__ANSWER_START__:")) {
+        return this.handleAnswerEvent(res, chunk, chunkIndex, responseId, actualModel, "start");
+      }
+      if (chunk.startsWith("__ANSWER__:")) {
+        return this.handleAnswerEvent(res, chunk, chunkIndex, responseId, actualModel, "content");
+      }
+      if (chunk.startsWith("__ANSWER_END__:")) {
+        return this.handleAnswerEvent(res, chunk, chunkIndex, responseId, actualModel, "end");
+      }
+    }
+
+    return -2; // 表示需要作为普通块处理
   }
 }

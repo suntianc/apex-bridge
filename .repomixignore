@@ -15,3 +15,4 @@ scripts
 tests
 .env
 *.json
+**/*.md

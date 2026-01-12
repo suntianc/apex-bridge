@@ -15,7 +15,6 @@ import {
   DisclosureLevel,
   DisclosureStrategy,
   DisclosureContent,
-  DisclosureOptions,
   HybridRetrievalError,
   HybridRetrievalErrorCode,
 } from "../../types/enhanced-skill";
@@ -97,8 +96,6 @@ export interface DisclosureManagerConfigV2 extends DisclosureManagerConfig {
   parallelLoad: { enabled: boolean; maxConcurrency: number };
   metrics: { enabled: boolean; sampleRate: number };
 }
-
-// ==================== Phase 2: Decision Manager Implementation ====================
 
 /**
  * 决策管理器实现
@@ -340,20 +337,117 @@ export const DEFAULT_DISCLOSURE_CONFIG_V2: DisclosureManagerConfigV2 = {
 };
 
 /**
- * DisclosureManager implementation
+ * Get disclosure options for getDisclosure method
+ */
+export interface GetDisclosureOptions {
+  score: number;
+  maxTokens: number;
+}
+
+/**
+ * Disclosure manager implementation
  * Manages three-tier disclosure mechanism
  */
 export class DisclosureManager implements IDisclosureManager {
   private readonly _logger = logger;
-  private readonly config: DisclosureManagerConfig;
+  private readonly config: DisclosureManagerConfigV2;
+  private readonly _decisionManager: IDisclosureDecisionManager;
+  private readonly _cache: IDisclosureCache;
 
-  constructor(config?: Partial<DisclosureManagerConfig>) {
-    this.config = { ...DEFAULT_DISCLOSURE_CONFIG, ...config };
+  constructor(config?: Partial<DisclosureManagerConfigV2>) {
+    this.config = { ...DEFAULT_DISCLOSURE_CONFIG_V2, ...config };
+    this._decisionManager = new DisclosureDecisionManager(this.config.thresholds);
+    this._cache = new DisclosureCache(this.config.cache);
+
     this._logger.info("[DisclosureManager] Initialized with config:", {
+      enabled: this.config.enabled,
       strategy: this.config.strategy,
-      adaptiveMaxTokens: this.config.adaptiveMaxTokens,
-      preferMetadataBelow: this.config.preferMetadataBelow,
+      thresholds: this.config.thresholds,
+      l1MaxTokens: this.config.l1MaxTokens,
+      l2MaxTokens: this.config.l2MaxTokens,
+      cacheEnabled: this.config.cache.enabled,
     });
+  }
+
+  /**
+   * Get disclosure content for a tool by ID
+   * This is the main entry point used by tests
+   */
+  async getDisclosure(id: string, options: GetDisclosureOptions): Promise<DisclosureContent> {
+    const { score, maxTokens } = options;
+
+    // Check cache first
+    const cacheKey: DisclosureCacheKey = {
+      id,
+      level: DisclosureLevel.METADATA,
+      hash: String(score),
+    };
+
+    const cached = this._cache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    // Use decision manager to determine appropriate level
+    const decisionInput: DisclosureDecisionInput = {
+      result: {
+        id,
+        name: id,
+        description: "",
+        unifiedScore: score,
+        scores: { vector: score, keyword: score, semantic: score, tag: score },
+        ranks: { vector: 1, keyword: 1, semantic: 1, tag: 1 },
+        tags: [],
+        toolType: "skill",
+        disclosure: {
+          level: DisclosureLevel.METADATA,
+          name: id,
+          description: "",
+          tokenCount: 0,
+        },
+      },
+      score,
+      maxTokens,
+    };
+
+    const decision = this._decisionManager.decide(decisionInput);
+
+    // Get disclosure content based on decision
+    const result: UnifiedRetrievalResult = {
+      id,
+      name: id,
+      description: "",
+      unifiedScore: score,
+      scores: { vector: score, keyword: score, semantic: score, tag: score },
+      ranks: { vector: 1, keyword: 1, semantic: 1, tag: 1 },
+      tags: [],
+      toolType: "skill",
+      disclosure: {
+        level: DisclosureLevel.METADATA,
+        name: id,
+        description: "",
+        tokenCount: 0,
+      },
+    };
+
+    const content = this.getDisclosureContent(result, decision.level);
+
+    // Cache the result
+    const contentCacheKey: DisclosureCacheKey = {
+      id,
+      level: decision.level,
+      hash: String(score),
+    };
+    this._cache.set(contentCacheKey, content);
+
+    return content;
+  }
+
+  /**
+   * Get the cache instance
+   */
+  getCache(): IDisclosureCache {
+    return this._cache;
   }
 
   /**
@@ -511,14 +605,24 @@ export class DisclosureManager implements IDisclosureManager {
   /**
    * Extract examples from result metadata
    */
-  private extractExamples(result: UnifiedRetrievalResult): string[] {
+  private extractExamples(
+    result: UnifiedRetrievalResult
+  ): Array<{ input: string; output: string }> {
     if (result.metadata && typeof result.metadata === "object") {
       const metadata = result.metadata as Record<string, unknown>;
       if (Array.isArray(metadata.examples)) {
-        return metadata.examples as string[];
+        const examples = metadata.examples as string[];
+        return examples.map((ex, idx) => ({
+          input: `Example ${idx + 1} input`,
+          output: ex,
+        }));
       }
       if (Array.isArray(metadata.example)) {
-        return metadata.example as string[];
+        const examples = metadata.example as string[];
+        return examples.map((ex, idx) => ({
+          input: `Example ${idx + 1} input`,
+          output: ex,
+        }));
       }
     }
     return [];
@@ -527,23 +631,37 @@ export class DisclosureManager implements IDisclosureManager {
   /**
    * Extract resources from result metadata
    */
-  private extractResources(result: UnifiedRetrievalResult): string[] {
+  private extractResources(
+    result: UnifiedRetrievalResult
+  ): Array<{ type: string; path: string; description: string }> {
     if (result.metadata && typeof result.metadata === "object") {
       const metadata = result.metadata as Record<string, unknown>;
       if (Array.isArray(metadata.resources)) {
-        return metadata.resources as string[];
+        const resources = metadata.resources as string[];
+        return resources.map((res, idx) => ({
+          type: "file",
+          path: res,
+          description: `Resource ${idx + 1}`,
+        }));
       }
       if (Array.isArray(metadata.relatedFiles)) {
-        return metadata.relatedFiles as string[];
+        const files = metadata.relatedFiles as string[];
+        return files.map((file, idx) => ({
+          type: "file",
+          path: file,
+          description: `Related file ${idx + 1}`,
+        }));
       }
       if (Array.isArray(metadata.dependencies)) {
-        return metadata.dependencies as string[];
-      }
-      if (result.path) {
-        return [result.path];
+        const deps = metadata.dependencies as string[];
+        return deps.map((dep, idx) => ({
+          type: "dependency",
+          path: dep,
+          description: `Dependency ${idx + 1}`,
+        }));
       }
     }
-    return result.path ? [result.path] : [];
+    return [];
   }
 
   /**

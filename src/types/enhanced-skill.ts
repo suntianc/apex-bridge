@@ -201,14 +201,26 @@ export interface DisclosureContent {
   name: string;
   /** Description */
   description: string;
+  /** Version */
+  version?: string;
+  /** Author */
+  author?: string;
+  /** Tags */
+  tags?: string[];
   /** Input schema */
   inputSchema?: Record<string, unknown>;
   /** Output schema */
   outputSchema?: Record<string, unknown>;
-  /** Resources */
-  resources?: string[];
-  /** Examples */
-  examples?: string[];
+  /** Parameters (for CONTENT level) */
+  parameters?: Array<{ name: string; type: string; required?: boolean; description?: string }>;
+  /** Examples (for CONTENT/RESOURCES level) */
+  examples?: Array<{ input: string; output: string }>;
+  /** Scripts (for RESOURCES level) */
+  scripts?: Array<{ name: string; language: string; content: string }>;
+  /** Dependencies (for RESOURCES level) */
+  dependencies?: Array<{ name: string; version: string }>;
+  /** Resources (for RESOURCES level) */
+  resources?: Array<{ type: string; path: string; description: string }>;
   /** Token count estimate */
   tokenCount: number;
 }
@@ -255,6 +267,10 @@ export interface RetrievalMetrics {
   resultCount: number;
   /** Cache hit status */
   cacheHit: boolean;
+  /** Number of cache hits */
+  cacheHits: number;
+  /** Number of cache misses */
+  cacheMisses: number;
 }
 
 /**

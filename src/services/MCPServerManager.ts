@@ -42,6 +42,7 @@ export class MCPServerManager extends EventEmitter {
   private process?: ReturnType<typeof spawn>;
   private transport?: StdioClientTransport;
   private monitoringTimer: NodeJS.Timeout | null = null;
+  private processErrorListener?: (error: Error) => void;
 
   constructor(config: MCPServerConfig) {
     super();
@@ -124,8 +125,8 @@ export class MCPServerManager extends EventEmitter {
       cwd: this.config.cwd,
     });
 
-    // 监听进程错误
-    this.process.on("error", (error) => {
+    // 监听进程错误（保存引用以便在 shutdown 时移除）
+    this.processErrorListener = (error: Error) => {
       logger.error(`[MCP] Process error for server ${this.config.id}:`, error);
       this.status = {
         phase: "error",
@@ -135,7 +136,8 @@ export class MCPServerManager extends EventEmitter {
         startTime: undefined,
       };
       this.emit("status-changed", this.status);
-    });
+    };
+    this.process.on("error", this.processErrorListener);
 
     // 创建传输层
     this.transport = new StdioClientTransport({
@@ -414,7 +416,13 @@ export class MCPServerManager extends EventEmitter {
           this.transport = undefined;
         }
 
-        // 3. 优雅终止子进程
+        // 3. 移除进程事件监听器
+        if (this.process && this.processErrorListener) {
+          this.process.removeListener("error", this.processErrorListener);
+          this.processErrorListener = undefined;
+        }
+
+        // 4. 优雅终止子进程
         if (this.process && !this.process.killed) {
           await this.gracefulKillProcess();
         }
