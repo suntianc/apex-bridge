@@ -37,7 +37,6 @@ import { WebSocketManager } from "./api/websocket/WebSocketManager";
 import { ChatChannel } from "./api/websocket/channels/ChatChannel";
 import { ConfigService } from "./services/ConfigService";
 import { PathService } from "./services/PathService";
-import { ToolRetrievalService } from "./services/ToolRetrievalService";
 import { ApplicationWarmupService } from "./services/warmup/ApplicationWarmupService";
 
 // 验证中间件
@@ -151,6 +150,13 @@ export class ABPIntelliCore {
         logger.warn(`⚠️ Warm-up completed with ${warmupStatus.errors.length} errors`);
         warmupStatus.errors.forEach((err) => logger.warn(`   - ${err}`));
       }
+
+      // 索引所有内置工具（file-read, file-write, vector-search, read-skill, platform-detector）
+      // 使其可以通过语义搜索检索
+      const { getToolRetrievalService } = await import("./services/ToolRetrievalService");
+      const toolRetrievalService = getToolRetrievalService();
+      await toolRetrievalService.indexBuiltinTools();
+      logger.debug("✅ Built-in tools indexed");
 
       // 从数据库加载已注册的MCP服务器
       const { mcpIntegration } = await import("./services/MCPIntegrationService");

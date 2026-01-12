@@ -10,6 +10,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { createHash } from "crypto";
 import matter from "gray-matter";
+import { LRUCache } from "lru-cache";
 import {
   ToolRetrievalConfig,
   SkillTool,
@@ -17,6 +18,7 @@ import {
   ToolError,
   ToolErrorCode,
   ToolType,
+  HealthCheckResult,
 } from "../types/tool-system";
 import { LLMModelType } from "../types/llm-models";
 import { logger } from "../utils/logger";
@@ -58,10 +60,23 @@ export class ToolRetrievalService {
   private dimensionsCache: number | null = null;
   private llmConfigService: any = null;
   private optimizer: IndexConfigOptimizer;
+  private embeddingCache: LRUCache<string, number[]>;
+  private lastError: string | null = null;
+  private startTime: number = Date.now();
+
+  private readonly embeddingCacheConfig = {
+    maxSize: 1000,
+    ttl: 5 * 60 * 1000,
+    maxQueryLength: 500,
+  } as const;
 
   constructor(config: ToolRetrievalConfig) {
     this.config = config;
     this.optimizer = new IndexConfigOptimizer();
+    this.embeddingCache = new LRUCache<string, number[]>({
+      max: this.embeddingCacheConfig.maxSize,
+      ttl: this.embeddingCacheConfig.ttl,
+    });
     logger.info("ToolRetrievalService created with config:", {
       vectorDbPath: config.vectorDbPath,
       model: config.model,
@@ -118,12 +133,139 @@ export class ToolRetrievalService {
 
       logger.info(`Updated ToolRetrievalService dimensions to: ${dimensions}`);
 
-      // 如果已经初始化，需要重新初始化表结构
       if (this.isInitialized && this.table) {
         logger.warn("Dimensions updated after initialization, consider reinitializing the service");
       }
     }
   }
+
+  /**
+   * 导出所有工具数据（用于维度迁移）
+   */
+  async exportAllData(): Promise<ToolsTable[]> {
+    if (!this.table) {
+      return [];
+    }
+
+    try {
+      const results = await this.table.query().limit(10000).toArray();
+      const exported: ToolsTable[] = results.map((r: any) => {
+        const data = r.item || r;
+        const vectorData = data.vector ? Array.from(data.vector) : [];
+        return {
+          id: data.id,
+          name: data.name,
+          description: data.description,
+          tags: data.tags || [],
+          path: data.path || null,
+          version: data.version || null,
+          source: data.source || null,
+          toolType: data.toolType || "skill",
+          metadata:
+            typeof data.metadata === "string" ? data.metadata : JSON.stringify(data.metadata || {}),
+          vector: vectorData as number[],
+          indexedAt: data.indexedAt ? new Date(data.indexedAt) : new Date(),
+        };
+      });
+
+      logger.info(`Exported ${exported.length} items from ToolRetrievalService`);
+      return exported;
+    } catch (error) {
+      logger.error("Failed to export data:", error);
+      return [];
+    }
+  }
+
+  /**
+   * 重新计算单个工具的向量（用于维度迁移）
+   */
+  private async recomputeEmbedding(item: ToolsTable, newDimensions: number): Promise<number[]> {
+    const text = this.prepareEmbeddingText({
+      name: item.name,
+      description: item.description,
+      tags: item.tags,
+    });
+
+    const mockSkill = {
+      name: item.name,
+      description: item.description,
+      tags: item.tags,
+    };
+
+    const vector = await this.getEmbedding(mockSkill);
+
+    if (vector.length !== newDimensions) {
+      logger.warn(`Embedding dimension mismatch: expected ${newDimensions}, got ${vector.length}`);
+    }
+
+    return vector.slice(0, newDimensions);
+  }
+
+  /**
+   * 索引单个工具
+   */
+  private async indexSingleTool(item: ToolsTable & { vector: number[] }): Promise<void> {
+    if (!this.table) return;
+
+    await this.table.add([item as unknown as Record<string, unknown>]);
+  }
+
+  /**
+   * 维度迁移
+   * 当 embedding 模型维度变更时，迁移数据到新维度
+   */
+  async migrateDimension(newDimensions: number): Promise<void> {
+    if (!this.table) {
+      logger.warn("ToolRetrievalService not initialized, skipping dimension migration");
+      return;
+    }
+
+    const currentDimensions = await this.getActualDimensions();
+    if (currentDimensions === newDimensions) {
+      logger.info(`Dimension migration skipped: already at ${newDimensions} dimensions`);
+      return;
+    }
+
+    logger.info(
+      `Starting dimension migration from ${currentDimensions} to ${newDimensions} dimensions`
+    );
+
+    try {
+      const backupData = await this.exportAllData();
+      logger.info(`Backed up ${backupData.length} items`);
+
+      await this.dropTableCompletely("skills");
+      logger.info("Dropped existing table");
+
+      this.config.dimensions = newDimensions;
+      this.dimensionsCache = newDimensions;
+
+      await this.initializeSkillsTable();
+      logger.info("Created new table with new dimensions");
+
+      if (backupData.length > 0) {
+        for (let i = 0; i < backupData.length; i++) {
+          const item = backupData[i];
+          const newVector = await this.recomputeEmbedding(item, newDimensions);
+
+          await this.indexSingleTool({
+            ...item,
+            vector: newVector,
+          });
+
+          if ((i + 1) % 10 === 0 || i === backupData.length - 1) {
+            logger.info(`Re-indexed ${i + 1}/${backupData.length} items`);
+          }
+        }
+      }
+
+      logger.info(`Dimension migration completed: ${backupData.length} items re-indexed`);
+    } catch (error) {
+      logger.error("Dimension migration failed:", error);
+      throw error;
+    }
+  }
+
   async initialize(): Promise<void> {
     // 快速检查：如果已初始化，直接返回
     if (this.isInitialized) {
@@ -832,20 +974,35 @@ export class ToolRetrievalService {
         );
       }
 
-      // 生成查询向量
-      const queryVector = await this.getEmbedding({
-        name: query,
-        description: query,
-        tags: [],
-      });
+      // 生成或获取缓存的查询向量
+      const cacheKey = this.getCacheKey(query);
+      let queryVector: number[];
+
+      // 检查缓存
+      if (this.embeddingCache.has(cacheKey)) {
+        logger.debug(`Cache hit for query: "${query.substring(0, 50)}..."`);
+        queryVector = this.embeddingCache.get(cacheKey)!;
+      } else {
+        // 生成新向量
+        queryVector = await this.getEmbedding({
+          name: query,
+          description: query,
+          tags: [],
+        });
+        // 缓存向量
+        this.embeddingCache.set(cacheKey, queryVector);
+        logger.debug(
+          `Cache miss for query: "${query.substring(0, 50)}...", generated new embedding`
+        );
+      }
 
       // 执行向量搜索
       // 使用余弦相似度进行搜索
       const vectorQuery = this.table
         .query()
-        .nearestTo(queryVector) // 使用nearestTo进行向量搜索
-        .distanceType("cosine") // 设置距离类型为余弦相似度
-        .limit(limit * 2); // 获取多一些结果以应用阈值过滤
+        .nearestTo(queryVector)
+        .distanceType("cosine")
+        .limit(limit * 2);
 
       const results = await vectorQuery.toArray();
 
@@ -857,6 +1014,7 @@ export class ToolRetrievalService {
       return formattedResults;
     } catch (error) {
       logger.error(`Skills search failed for query "${query}":`, error);
+      this.lastError = this.formatError(error);
       throw new ToolError(
         `Skills search failed: ${this.formatError(error)}`,
         ToolErrorCode.VECTOR_DB_ERROR
@@ -1200,13 +1358,70 @@ export class ToolRetrievalService {
   }
 
   /**
+   * 健康检查
+   */
+  async healthCheck(): Promise<HealthCheckResult> {
+    const details = {
+      isInitialized: this.isInitialized,
+      hasDatabaseConnection: this.db !== null,
+      hasTable: this.table !== null,
+      tableRowCount: await this.getTableRowCount(),
+      lastError: this.lastError || undefined,
+      uptime: this.startTime ? Date.now() - this.startTime : undefined,
+    };
+
+    const isHealthy = details.isInitialized && details.hasDatabaseConnection && details.hasTable;
+
+    return {
+      status: isHealthy ? "healthy" : "degraded",
+      details,
+      timestamp: new Date(),
+    };
+  }
+
+  /**
+   * 获取表行数
+   */
+  private async getTableRowCount(): Promise<number> {
+    if (!this.table) return 0;
+    try {
+      return await this.table.countRows();
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * 生成缓存键
+   */
+  private getCacheKey(query: string): string {
+    const normalizedQuery = query.toLowerCase().trim();
+    if (normalizedQuery.length > this.embeddingCacheConfig.maxQueryLength) {
+      return createHash("sha256").update(normalizedQuery).digest("hex");
+    }
+    return normalizedQuery;
+  }
+
+  /**
+   * 获取缓存统计信息
+   */
+  getCacheStats() {
+    return {
+      size: this.embeddingCache.size,
+      maxSize: this.embeddingCache.maxSize,
+      ttl: this.embeddingCache.ttl,
+    };
+  }
+
+  /**
    * 获取服务统计信息
    */
   getStatistics() {
     return {
       initialized: this.isInitialized,
       config: this.config,
-      embeddingModel: "using-llm-manager", // 通过 LLMManager 动态获取
+      embeddingModel: "using-llm-manager",
+      cacheStats: this.getCacheStats(),
     };
   }
 
@@ -1354,6 +1569,92 @@ export class ToolRetrievalService {
       return error;
     }
     return "Unknown error occurred in ToolRetrievalService";
+  }
+
+  /**
+   * 索引所有内置工具
+   * 将内置工具（file-read, file-write, vector-search, read-skill, platform-detector）
+   * 索引到向量数据库，使其可以通过语义搜索检索
+   */
+  async indexBuiltinTools(): Promise<void> {
+    try {
+      // 延迟导入 BuiltInToolsRegistry，避免循环依赖
+      const { getBuiltInToolsRegistry } = await import("./BuiltInToolsRegistry");
+
+      const builtInRegistry = getBuiltInToolsRegistry();
+      const builtinTools = builtInRegistry.listAllTools();
+
+      logger.info(`[ToolRetrieval] Found ${builtinTools.length} built-in tools to index`);
+
+      if (builtinTools.length === 0) {
+        logger.warn("[ToolRetrieval] No built-in tools found to index");
+        return;
+      }
+
+      const records: ToolsTable[] = [];
+
+      for (const tool of builtinTools) {
+        try {
+          // 生成唯一ID（使用 builtin 前缀确保唯一性）
+          const toolId = `builtin:${tool.name}`;
+
+          // 检查是否已存在（避免重复索引）
+          const existingRecords = await this.table
+            .query()
+            .where(`id == "${toolId}"`)
+            .limit(1)
+            .toArray();
+
+          if (existingRecords.length > 0) {
+            logger.debug(`[ToolRetrieval] Built-in tool "${tool.name}" already indexed, skipping`);
+            continue;
+          }
+
+          // 生成向量嵌入
+          const vector = await this.getEmbedding({
+            name: tool.name,
+            description: tool.description,
+            tags: [tool.category],
+          });
+
+          // 准备记录数据
+          const record: ToolsTable = {
+            id: toolId,
+            name: tool.name,
+            description: tool.description,
+            tags: [tool.category],
+            path: null, // Built-in tools don't have file paths
+            version: "1.0.0", // Built-in tools have fixed version
+            source: "builtin", // Source identifier
+            toolType: "builtin",
+            metadata: JSON.stringify({
+              category: tool.category,
+              level: tool.level,
+              enabled: tool.enabled,
+              parameters: tool.parameters,
+            }),
+            vector: vector,
+            indexedAt: new Date(),
+          };
+
+          records.push(record);
+          logger.debug(`[ToolRetrieval] Prepared built-in tool for indexing: ${tool.name}`);
+        } catch (error) {
+          logger.error(`[ToolRetrieval] Failed to prepare built-in tool ${tool.name}:`, error);
+        }
+      }
+
+      if (records.length > 0) {
+        // 批量插入
+        await this.table.add(records as unknown as Record<string, unknown>[]);
+        logger.info(`[ToolRetrieval] Successfully indexed ${records.length} built-in tools`);
+      } else {
+        logger.info("[ToolRetrieval] No new built-in tools to index (all already indexed)");
+      }
+    } catch (error) {
+      logger.error("[ToolRetrieval] Failed to index built-in tools:", error);
+      // 不抛出错误，允许服务继续运行
+    }
   }
 }
 
