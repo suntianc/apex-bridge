@@ -21,6 +21,7 @@ import {
 } from "../../types/tool-system";
 import { logger } from "../../utils/logger";
 import { getSkillManager } from "../SkillManager";
+import { getPermissionValidator, PermissionValidationConfig } from "../compat/PermissionValidator";
 
 // 最大参数大小限制 (1MB)
 const MAX_ARGS_SIZE = 1 * 1024 * 1024;
@@ -53,6 +54,7 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
   private processMonitor: ReturnType<typeof setInterval> | null = null;
   private readonly maxArgsSize = MAX_ARGS_SIZE;
   private readonly maxProcessLifetime = MAX_PROCESS_LIFETIME;
+  private permissionConfig: PermissionValidationConfig;
 
   constructor(options: SandboxExecutionOptions = {}) {
     super();
@@ -66,6 +68,14 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
       ...options,
     };
 
+    // 初始化权限验证配置
+    this.permissionConfig = {
+      enabled: true,
+      mode: "strict",
+      logDeniedRequests: true,
+      caseSensitive: true,
+    };
+
     // 确保工作区目录存在
     this.ensureWorkspaceDirectory();
 
@@ -74,6 +84,7 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
       maxOutputSize: this.executionOptions.maxOutputSize,
       memoryLimit: this.executionOptions.memoryLimit,
       maxConcurrency: this.executionOptions.maxConcurrency,
+      permissionValidation: this.permissionConfig,
     });
   }
 
@@ -93,6 +104,57 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
   }
 
   /**
+   * 从执行参数中提取工具列表
+   * 尝试从参数中识别 skill 需要调用的工具
+   */
+  private extractToolsFromArgs(args: Record<string, any>): string[] {
+    const tools: string[] = [];
+
+    // 检查 tools 参数
+    if (args.tools && Array.isArray(args.tools)) {
+      tools.push(...args.tools);
+    }
+
+    // 检查 requestedTools 参数
+    if (args.requestedTools && Array.isArray(args.requestedTools)) {
+      tools.push(...args.requestedTools);
+    }
+
+    // 检查 toolCalls 参数（OpenAI 格式）
+    if (args.toolCalls && Array.isArray(args.toolCalls)) {
+      for (const call of args.toolCalls) {
+        if (call.name && typeof call.name === "string") {
+          tools.push(call.name);
+        }
+      }
+    }
+
+    // 记录调试日志
+    if (tools.length > 0) {
+      logger.debug(`Extracted tools from args: ${tools.join(", ")}`);
+    }
+
+    return tools;
+  }
+
+  /**
+   * 设置权限验证配置
+   */
+  public setPermissionConfig(config: PermissionValidationConfig): void {
+    this.permissionConfig = { ...this.permissionConfig, ...config };
+    logger.info(`Permission config updated for SkillsSandboxExecutor`, {
+      config: this.permissionConfig,
+    });
+  }
+
+  /**
+   * 获取权限验证配置
+   */
+  public getPermissionConfig(): PermissionValidationConfig {
+    return { ...this.permissionConfig };
+  }
+
+  /**
    * 执行Skills
    * @param options 执行选项
    * @returns 执行结果
@@ -107,6 +169,38 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
 
       logger.info(`Executing Skills: ${toolName}`);
       logger.debug(`Skills arguments:`, options.args);
+
+      // 权限验证：检查工具调用是否被允许
+      if (this.permissionConfig.enabled) {
+        const permissionValidator = getPermissionValidator(this.permissionConfig);
+        const toolsToCheck = this.extractToolsFromArgs(options.args);
+
+        if (toolsToCheck.length > 0) {
+          logger.debug(`Validating permissions for skill ${toolName}`, { tools: toolsToCheck });
+
+          const permissionResult = await permissionValidator.validatePermissions(
+            toolName,
+            toolsToCheck
+          );
+
+          if (!permissionResult.allowed) {
+            logger.warn(`Permission denied for skill ${toolName}`, {
+              deniedTools: permissionResult.deniedTools,
+              reason: permissionResult.reason,
+            });
+
+            // 在 strict 模式下抛出错误
+            if (this.permissionConfig.mode === "strict") {
+              return this.createErrorResult(
+                `Permission denied: tools [${permissionResult.deniedTools.join(", ")}] are not allowed for skill ${toolName}`,
+                this.calculateDuration(startTime),
+                ToolErrorCode.TOOL_EXECUTION_FAILED
+              );
+            }
+            // warn 模式下继续执行但记录警告
+          }
+        }
+      }
 
       // 检查Skills是否存在
       const skillPath = await this.getSkillPath(toolName);
@@ -549,6 +643,12 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
    */
   async cleanup(): Promise<void> {
     logger.info("Cleaning up SkillsSandboxExecutor...");
+
+    // 清除进程监控定时器
+    if (this.processMonitor) {
+      clearInterval(this.processMonitor);
+      this.processMonitor = null;
+    }
 
     // 终止所有进程
     await this.terminateAllProcesses();

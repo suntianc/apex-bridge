@@ -4,26 +4,24 @@
  * 包括连接管理、工具发现、调用执行等
  */
 
-import { EventEmitter } from 'events';
-import { spawn } from 'child_process';
-import { randomUUID } from 'crypto';
-import { logger } from '../utils/logger';
+import { EventEmitter } from "events";
+import { spawn } from "child_process";
+import { randomUUID } from "crypto";
+import { logger } from "../utils/logger";
 import {
   CallToolResult,
   Tool as MCPToolDefinition,
-  JSONRPCMessage
-} from '@modelcontextprotocol/sdk/types.js';
-import {
-  Client as MCPClient
-} from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+  JSONRPCMessage,
+} from "@modelcontextprotocol/sdk/types.js";
+import { Client as MCPClient } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type {
   MCPServerConfig,
   MCPServerStatus,
   MCPTool,
   MCPToolCall,
-  MCPToolResult
-} from '../types/mcp';
+  MCPToolResult,
+} from "../types/mcp";
 
 export interface ServerMetrics {
   startTime: Date;
@@ -43,22 +41,23 @@ export class MCPServerManager extends EventEmitter {
   private client?: MCPClient;
   private process?: ReturnType<typeof spawn>;
   private transport?: StdioClientTransport;
+  private monitoringTimer: NodeJS.Timeout | null = null;
 
   constructor(config: MCPServerConfig) {
     super();
     this.config = config;
     this.status = {
-      phase: 'not-started',
-      message: 'Server not started',
+      phase: "not-started",
+      message: "Server not started",
       uptime: 0,
-      startTime: undefined
+      startTime: undefined,
     };
     this.metrics = {
       startTime: new Date(),
       totalCalls: 0,
       successfulCalls: 0,
       failedCalls: 0,
-      averageResponseTime: 0
+      averageResponseTime: 0,
     };
   }
 
@@ -70,12 +69,12 @@ export class MCPServerManager extends EventEmitter {
       logger.info(`[MCP] Initializing server ${this.config.id}...`);
 
       this.status = {
-        phase: 'initializing',
-        message: 'Starting server...',
+        phase: "initializing",
+        message: "Starting server...",
         uptime: 0,
-        startTime: undefined
+        startTime: undefined,
       };
-      this.emit('status-changed', this.status);
+      this.emit("status-changed", this.status);
 
       // 启动MCP客户端
       await this.start();
@@ -85,14 +84,14 @@ export class MCPServerManager extends EventEmitter {
       logger.error(`[MCP] Failed to initialize server ${this.config.id}:`, error);
 
       this.status = {
-        phase: 'error',
-        message: error.message || 'Initialization failed',
+        phase: "error",
+        message: error.message || "Initialization failed",
         error: error.message,
         uptime: 0,
-        startTime: undefined
+        startTime: undefined,
       };
 
-      this.emit('status-changed', this.status);
+      this.emit("status-changed", this.status);
       throw error;
     }
   }
@@ -101,41 +100,41 @@ export class MCPServerManager extends EventEmitter {
    * 启动MCP客户端
    */
   private async start(): Promise<void> {
-    if (this.config.type !== 'stdio') {
+    if (this.config.type !== "stdio") {
       throw new Error(`Unsupported transport type: ${this.config.type}`);
     }
 
     this.status = {
-      phase: 'starting',
-      message: 'Server starting...',
+      phase: "starting",
+      message: "Server starting...",
       uptime: 0,
-      startTime: undefined
+      startTime: undefined,
     };
-    this.emit('status-changed', this.status);
+    this.emit("status-changed", this.status);
 
     // 创建子进程
     const env = {
       ...process.env,
-      ...this.config.env
+      ...this.config.env,
     };
 
     this.process = spawn(this.config.command, this.config.args, {
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: ["pipe", "pipe", "pipe"],
       env,
-      cwd: this.config.cwd
+      cwd: this.config.cwd,
     });
 
     // 监听进程错误
-    this.process.on('error', (error) => {
+    this.process.on("error", (error) => {
       logger.error(`[MCP] Process error for server ${this.config.id}:`, error);
       this.status = {
-        phase: 'error',
+        phase: "error",
         message: `Process error: ${error.message}`,
         error: error.message,
         uptime: 0,
-        startTime: undefined
+        startTime: undefined,
       };
-      this.emit('status-changed', this.status);
+      this.emit("status-changed", this.status);
     });
 
     // 创建传输层
@@ -143,13 +142,13 @@ export class MCPServerManager extends EventEmitter {
       command: this.config.command,
       args: this.config.args,
       env,
-      cwd: this.config.cwd
+      cwd: this.config.cwd,
     });
 
     // 创建MCP客户端
     this.client = new MCPClient({
-      name: 'apex-bridge',
-      version: '1.0.0'
+      name: "apex-bridge",
+      version: "1.0.0",
     });
 
     // 连接到服务器
@@ -160,13 +159,13 @@ export class MCPServerManager extends EventEmitter {
 
     // 更新状态
     this.status = {
-      phase: 'running',
-      message: 'Server running',
+      phase: "running",
+      message: "Server running",
       uptime: 0,
-      startTime: new Date()
+      startTime: new Date(),
     };
 
-    this.emit('status-changed', this.status);
+    this.emit("status-changed", this.status);
 
     // 启动运行监控
     this.startMonitoring();
@@ -177,7 +176,7 @@ export class MCPServerManager extends EventEmitter {
    */
   private async discoverTools(): Promise<void> {
     if (!this.client) {
-      throw new Error('MCP client not initialized');
+      throw new Error("MCP client not initialized");
     }
 
     logger.debug(`[MCP] Discovering tools for server ${this.config.id}...`);
@@ -186,15 +185,15 @@ export class MCPServerManager extends EventEmitter {
       const result = await this.client.listTools();
 
       if (result && result.tools) {
-        this.tools = result.tools.map(tool => ({
+        this.tools = result.tools.map((tool) => ({
           name: tool.name,
-          description: tool.description || '',
-          inputSchema: tool.inputSchema
+          description: tool.description || "",
+          inputSchema: tool.inputSchema,
         }));
 
         logger.info(`[MCP] Discovered ${this.tools.length} tools for server ${this.config.id}`);
 
-        this.emit('tools-changed', this.tools);
+        this.emit("tools-changed", this.tools);
       }
     } catch (error: any) {
       logger.error(`[MCP] Failed to discover tools:`, error);
@@ -207,14 +206,14 @@ export class MCPServerManager extends EventEmitter {
    */
   async callTool(call: MCPToolCall): Promise<MCPToolResult> {
     if (!this.client) {
-      throw new Error('MCP client not initialized');
+      throw new Error("MCP client not initialized");
     }
 
     const startTime = Date.now();
 
     try {
       // 检查工具是否存在
-      const tool = this.tools.find(t => t.name === call.tool);
+      const tool = this.tools.find((t) => t.name === call.tool);
 
       if (!tool) {
         throw new Error(`Tool ${call.tool} not found`);
@@ -225,10 +224,10 @@ export class MCPServerManager extends EventEmitter {
       logger.debug(`[MCP] Calling tool ${call.tool} on server ${this.config.id}`);
 
       // 调用工具
-      const result = await this.client.callTool({
+      const result = (await this.client.callTool({
         name: call.tool,
-        arguments: call.arguments
-      }) as CallToolResult;
+        arguments: call.arguments,
+      })) as CallToolResult;
 
       const duration = Date.now() - startTime;
 
@@ -238,31 +237,31 @@ export class MCPServerManager extends EventEmitter {
       // 转换结果格式
       const toolResult: MCPToolResult = {
         success: true,
-        content: (result.content || []).map(content => {
-          if (content.type === 'text') {
+        content: (result.content || []).map((content) => {
+          if (content.type === "text") {
             return {
-              type: 'text' as const,
-              text: content.text || ''
+              type: "text" as const,
+              text: content.text || "",
             };
-          } else if (content.type === 'image') {
+          } else if (content.type === "image") {
             return {
-              type: 'image' as const,
+              type: "image" as const,
               mimeType: content.mimeType,
-              data: content.data
+              data: content.data,
             };
           } else {
             return {
-              type: 'resource' as const,
-              text: (content as any).text
+              type: "resource" as const,
+              text: (content as any).text,
             };
           }
         }),
         duration,
         metadata: {
-          toolType: 'mcp',
+          toolType: "mcp",
           source: this.config.id,
-          toolName: call.tool
-        }
+          toolName: call.tool,
+        },
       };
 
       logger.debug(`[MCP] Tool ${call.tool} executed successfully in ${duration}ms`);
@@ -281,9 +280,9 @@ export class MCPServerManager extends EventEmitter {
         content: [],
         duration,
         error: {
-          code: 'TOOL_EXECUTION_ERROR',
-          message: error.message || 'Unknown error'
-        }
+          code: "TOOL_EXECUTION_ERROR",
+          message: error.message || "Unknown error",
+        },
       };
     }
   }
@@ -305,7 +304,7 @@ export class MCPServerManager extends EventEmitter {
 
     // 计算平均响应时间
     this.metrics.averageResponseTime =
-      ((this.metrics.averageResponseTime * (this.metrics.totalCalls - 1)) + responseTime) /
+      (this.metrics.averageResponseTime * (this.metrics.totalCalls - 1) + responseTime) /
       this.metrics.totalCalls;
   }
 
@@ -314,8 +313,8 @@ export class MCPServerManager extends EventEmitter {
    */
   private startMonitoring(): void {
     // 更新运行时间
-    setInterval(() => {
-      if (this.status.phase === 'running' && this.status.startTime) {
+    this.monitoringTimer = setInterval(() => {
+      if (this.status.phase === "running" && this.status.startTime) {
         this.status.uptime = Date.now() - this.status.startTime.getTime();
       }
     }, 1000);
@@ -371,17 +370,27 @@ export class MCPServerManager extends EventEmitter {
    */
   async shutdown(): Promise<void> {
     try {
-      if (this.status.phase === 'running' || this.status.phase === 'starting' || this.status.phase === 'initializing') {
+      if (
+        this.status.phase === "running" ||
+        this.status.phase === "starting" ||
+        this.status.phase === "initializing"
+      ) {
         logger.info(`[MCP] Shutting down server ${this.config.id}...`);
 
         this.status = {
-          phase: 'shutting-down',
-          message: 'Shutting down...',
+          phase: "shutting-down",
+          message: "Shutting down...",
           uptime: this.status.startTime ? Date.now() - this.status.startTime.getTime() : 0,
-          startTime: this.status.startTime
+          startTime: this.status.startTime,
         };
 
-        this.emit('status-changed', this.status);
+        this.emit("status-changed", this.status);
+
+        // 清除监控定时器
+        if (this.monitoringTimer) {
+          clearInterval(this.monitoringTimer);
+          this.monitoringTimer = null;
+        }
 
         // 1. 先关闭 MCP 客户端连接（优雅关闭）
         if (this.client) {
@@ -413,13 +422,13 @@ export class MCPServerManager extends EventEmitter {
         this.metrics.endTime = new Date();
 
         this.status = {
-          phase: 'stopped',
-          message: 'Server stopped',
+          phase: "stopped",
+          message: "Server stopped",
           uptime: this.status.uptime,
-          startTime: this.status.startTime
+          startTime: this.status.startTime,
         };
 
-        this.emit('status-changed', this.status);
+        this.emit("status-changed", this.status);
 
         logger.info(`[MCP] Server ${this.config.id} shut down`);
       }
@@ -427,14 +436,14 @@ export class MCPServerManager extends EventEmitter {
       logger.error(`[MCP] Error during shutdown of server ${this.config.id}:`, error);
 
       this.status = {
-        phase: 'error',
-        message: 'Shutdown failed',
+        phase: "error",
+        message: "Shutdown failed",
         error: error.message,
         uptime: this.status.uptime,
-        startTime: this.status.startTime
+        startTime: this.status.startTime,
       };
 
-      this.emit('status-changed', this.status);
+      this.emit("status-changed", this.status);
     }
   }
 
@@ -457,8 +466,8 @@ export class MCPServerManager extends EventEmitter {
         resolve();
       };
 
-      proc.once('exit', onExit);
-      proc.once('close', onExit);
+      proc.once("exit", onExit);
+      proc.once("close", onExit);
 
       // 关闭 stdin 以通知子进程关闭
       if (proc.stdin && !proc.stdin.destroyed) {
@@ -466,13 +475,13 @@ export class MCPServerManager extends EventEmitter {
       }
 
       // 发送 SIGTERM
-      proc.kill('SIGTERM');
+      proc.kill("SIGTERM");
 
       // 设置超时，3秒后强制 SIGKILL
       setTimeout(() => {
         if (!killed && proc && !proc.killed) {
           logger.warn(`[MCP] Server ${serverId} did not exit gracefully, forcing SIGKILL`);
-          proc.kill('SIGKILL');
+          proc.kill("SIGKILL");
         }
         resolve();
       }, 3000);
