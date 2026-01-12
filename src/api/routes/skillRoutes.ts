@@ -46,6 +46,14 @@ router.delete('/:name', uninstallSkill);
 router.put('/:name/description', updateSkillDescription);
 
 /**
+ * @route   GET /api/skills/stats
+ * @desc    获取Skills统计信息
+ * @access  Private (需要API Key)
+ * @note    必须在 /:name 之前定义，否则 :name 会捕获 "stats"
+ */
+router.get('/stats', getSkillStats);
+
+/**
  * @route   GET /api/skills
  * @desc    列出Skills（支持分页、过滤、排序）
  * @access  Private (需要API Key)
@@ -66,13 +74,6 @@ router.get('/:name', getSkill);
  * @access  Private (需要API Key)
  */
 router.get('/:name/exists', checkSkillExists);
-
-/**
- * @route   GET /api/skills/stats
- * @desc    获取Skills统计信息
- * @access  Private (需要API Key)
- */
-router.get('/stats', getSkillStats);
 
 /**
  * @route   POST /api/skills/reindex

@@ -2,6 +2,7 @@
  * SearchEngine - Search Logic
  *
  * Handles vector search, result formatting, and filtering.
+ * Includes semantic caching for improved performance.
  */
 
 import { logger } from "../../utils/logger";
@@ -15,18 +16,33 @@ import {
 import { ILanceDBConnection } from "./LanceDBConnection";
 import { IEmbeddingGenerator } from "./EmbeddingGenerator";
 import { THRESHOLDS } from "../../constants";
+import { SemanticCache, type SemanticSearchResult } from "../cache/SemanticCache";
+
+/**
+ * Search options extended with caching control
+ */
+export interface SearchOptions {
+  limit?: number;
+  minScore?: number;
+  /** Disable cache lookup for this search */
+  skipCache?: boolean;
+  /** Disable caching the result */
+  noCache?: boolean;
+}
 
 /**
  * SearchEngine interface
  */
 export interface ISearchEngine {
-  search(query: string, limit?: number, minScore?: number): Promise<ToolRetrievalResult[]>;
+  search(query: string, options?: SearchOptions): Promise<ToolRetrievalResult[]>;
   formatResults(results: unknown[]): ToolRetrievalResult[];
   applyFilters(results: ToolRetrievalResult[], filters: RetrievalFilter[]): ToolRetrievalResult[];
   sortResults(
     results: ToolRetrievalResult[],
     options: RetrievalSortingOptions
   ): ToolRetrievalResult[];
+  /** Get cache statistics (if caching is enabled) */
+  getCacheStats?: () => ReturnType<SemanticCache["getStats"]>;
 }
 
 /**
@@ -37,25 +53,48 @@ export class SearchEngine implements ISearchEngine {
   private readonly embeddingGenerator: IEmbeddingGenerator;
   private readonly defaultLimit: number;
   private readonly defaultThreshold: number;
+  private readonly semanticCache: SemanticCache | null;
 
   constructor(
     connection: ILanceDBConnection,
     embeddingGenerator: IEmbeddingGenerator,
-    defaultLimit: number = 5,
-    defaultThreshold: number = THRESHOLDS.RELEVANT_SKILLS
+    options?: {
+      defaultLimit?: number;
+      defaultThreshold?: number;
+      semanticCache?: SemanticCache;
+    }
   ) {
     this.connection = connection;
     this.embeddingGenerator = embeddingGenerator;
-    this.defaultLimit = defaultLimit;
-    this.defaultThreshold = defaultThreshold;
+    this.defaultLimit = options?.defaultLimit ?? 5;
+    this.defaultThreshold = options?.defaultThreshold ?? THRESHOLDS.RELEVANT_SKILLS;
+    this.semanticCache = options?.semanticCache ?? null;
+
+    // Set up embedding service for cache if available
+    if (this.semanticCache) {
+      this.semanticCache.setEmbeddingService({
+        generateForText: (text: string) => this.embeddingGenerator.generateForText(text),
+      });
+    }
   }
 
   /**
-   * Search for relevant skills
+   * Search for relevant skills (with optional caching)
    */
-  async search(query: string, limit?: number, minScore?: number): Promise<ToolRetrievalResult[]> {
-    const effectiveLimit = limit ?? this.defaultLimit;
-    const effectiveThreshold = minScore ?? this.defaultThreshold;
+  async search(query: string, options?: SearchOptions): Promise<ToolRetrievalResult[]> {
+    const effectiveLimit = options?.limit ?? this.defaultLimit;
+    const effectiveThreshold = options?.minScore ?? this.defaultThreshold;
+
+    // Try semantic cache first
+    if (this.semanticCache && !options?.skipCache) {
+      const cachedResult = await this.semanticCache.findSimilar(query);
+      if (cachedResult) {
+        logger.info(
+          `[SearchEngine] Cache hit for query "${query.substring(0, 50)}..." (similarity: ${cachedResult.similarity.toFixed(4)})`
+        );
+        return cachedResult.cachedQuery.result as ToolRetrievalResult[];
+      }
+    }
 
     try {
       logger.info(
@@ -77,7 +116,7 @@ export class SearchEngine implements ISearchEngine {
         .query()
         .nearestTo(queryVector.values)
         .distanceType("cosine")
-        .limit(effectiveLimit * 2); // Get more results for threshold filtering
+        .limit(effectiveLimit * 2);
 
       const results = await vectorQuery.toArray();
 
@@ -88,12 +127,24 @@ export class SearchEngine implements ISearchEngine {
         effectiveThreshold
       );
 
+      // Store the result in cache
+      if (this.semanticCache && !options?.noCache) {
+        await this.semanticCache.store(query, formattedResults);
+      }
+
       logger.info(`[SearchEngine] Found ${formattedResults.length} relevant skill(s)`);
       return formattedResults;
     } catch (error) {
       logger.error(`[SearchEngine] Search failed for query "${query}":`, error);
       throw error;
     }
+  }
+
+  /**
+   * Get cache statistics
+   */
+  getCacheStats() {
+    return this.semanticCache?.getStats();
   }
 
   /**

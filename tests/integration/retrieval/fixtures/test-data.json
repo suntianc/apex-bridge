@@ -1,0 +1,804 @@
+{
+  "version": "1.0.0",
+  "description": "Test fixtures for multi-retrieval integration tests",
+  "skills": [
+    {
+      "id": "skill-file-read-001",
+      "name": "File Reader",
+      "description": "Read and parse file contents from the local filesystem with support for various encoding formats",
+      "command": "python file_reader.py",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path to the file to read"
+          },
+          "encoding": {
+            "type": "string",
+            "description": "File encoding (default: utf-8)"
+          }
+        },
+        "required": ["path"]
+      },
+      "type": "skill",
+      "tags": ["category:file", "tag:read", "tag:io", "difficulty:beginner"],
+      "filePath": "/skills/file-reader/SKILL.md",
+      "version": "1.2.0",
+      "metadata": {
+        "author": "Apex Team",
+        "examples": ["Read config file", "Parse JSON data"]
+      }
+    },
+    {
+      "id": "skill-file-write-002",
+      "name": "File Writer",
+      "description": "Write content to files on the local filesystem with automatic directory creation",
+      "command": "python file_writer.py",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Destination file path"
+          },
+          "content": {
+            "type": "string",
+            "description": "Content to write"
+          }
+        },
+        "required": ["path", "content"]
+      },
+      "type": "skill",
+      "tags": ["category:file", "tag:write", "tag:io", "difficulty:beginner"],
+      "filePath": "/skills/file-writer/SKILL.md",
+      "version": "1.1.0",
+      "metadata": {
+        "author": "Apex Team",
+        "examples": ["Save log file", "Generate configuration"]
+      }
+    },
+    {
+      "id": "skill-file-search-003",
+      "name": "File Search",
+      "description": "Search for files and directories using pattern matching and filters",
+      "command": "python file_search.py",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Glob pattern to match files"
+          },
+          "directory": {
+            "type": "string",
+            "description": "Root directory to search from"
+          }
+        },
+        "required": ["pattern"]
+      },
+      "type": "skill",
+      "tags": ["category:file", "tag:search", "tag:glob", "difficulty:intermediate"],
+      "filePath": "/skills/file-search/SKILL.md",
+      "version": "2.0.0",
+      "metadata": {
+        "author": "Apex Team",
+        "examples": ["Find all Python files", "Search for test files"]
+      }
+    },
+    {
+      "id": "skill-data-csv-004",
+      "name": "CSV Processor",
+      "description": "Process and transform CSV data with support for various delimiters and encodings",
+      "command": "python csv_processor.py",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "string",
+            "description": "Input CSV file path"
+          },
+          "output": {
+            "type": "string",
+            "description": "Output file path"
+          },
+          "transform": {
+            "type": "string",
+            "description": "Transformation function name"
+          }
+        },
+        "required": ["input"]
+      },
+      "type": "skill",
+      "tags": ["category:data", "tag:csv", "tag:transform", "difficulty:intermediate"],
+      "filePath": "/skills/csv-processor/SKILL.md",
+      "version": "1.5.0",
+      "metadata": {
+        "author": "Data Team",
+        "examples": ["Convert CSV to JSON", "Filter CSV rows"]
+      }
+    },
+    {
+      "id": "skill-data-json-005",
+      "name": "JSON Handler",
+      "description": "Parse, validate, and transform JSON documents with schema validation support",
+      "command": "python json_handler.py",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["parse", "validate", "transform"],
+            "description": "Action to perform"
+          },
+          "data": {
+            "type": "string",
+            "description": "JSON string or file path"
+          }
+        },
+        "required": ["action", "data"]
+      },
+      "type": "skill",
+      "tags": ["category:data", "tag:json", "tag:validation", "difficulty:beginner"],
+      "filePath": "/skills/json-handler/SKILL.md",
+      "version": "1.3.0",
+      "metadata": {
+        "author": "Apex Team",
+        "examples": ["Validate API response", "Transform JSON structure"]
+      }
+    },
+    {
+      "id": "skill-http-request-006",
+      "name": "HTTP Request",
+      "description": "Make HTTP requests with support for various methods, headers, and authentication",
+      "command": "python http_request.py",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"],
+            "description": "HTTP method"
+          },
+          "url": {
+            "type": "string",
+            "description": "Request URL"
+          },
+          "headers": {
+            "type": "object",
+            "description": "Request headers"
+          },
+          "body": {
+            "type": "string",
+            "description": "Request body"
+          }
+        },
+        "required": ["method", "url"]
+      },
+      "type": "skill",
+      "tags": ["category:network", "tag:http", "tag:api", "difficulty:intermediate"],
+      "filePath": "/skills/http-request/SKILL.md",
+      "version": "2.1.0",
+      "metadata": {
+        "author": "Network Team",
+        "examples": ["Fetch API data", "Submit form data"]
+      }
+    },
+    {
+      "id": "skill-http-server-007",
+      "name": "HTTP Server",
+      "description": "Start a simple HTTP server for serving static files or handling API requests",
+      "command": "python http_server.py",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "port": {
+            "type": "integer",
+            "description": "Port to listen on"
+          },
+          "directory": {
+            "type": "string",
+            "description": "Directory to serve"
+          }
+        },
+        "required": ["port"]
+      },
+      "type": "skill",
+      "tags": ["category:network", "tag:server", "tag:http", "difficulty:intermediate"],
+      "filePath": "/skills/http-server/SKILL.md",
+      "version": "1.4.0",
+      "metadata": {
+        "author": "Network Team",
+        "examples": ["Serve static website", "Host local API"]
+      }
+    },
+    {
+      "id": "skill-code-python-008",
+      "name": "Python Executor",
+      "description": "Execute Python code snippets in a sandboxed environment with timeout support",
+      "command": "python python_executor.py",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Python code to execute"
+          },
+          "timeout": {
+            "type": "integer",
+            "description": "Execution timeout in seconds"
+          }
+        },
+        "required": ["code"]
+      },
+      "type": "skill",
+      "tags": ["category:code", "tag:python", "tag:execute", "difficulty:intermediate"],
+      "filePath": "/skills/python-executor/SKILL.md",
+      "version": "1.6.0",
+      "metadata": {
+        "author": "DevTools Team",
+        "examples": ["Run calculations", "Test code snippets"]
+      }
+    },
+    {
+      "id": "skill-code-analyze-009",
+      "name": "Code Analyzer",
+      "description": "Analyze source code for complexity, bugs, and code quality metrics",
+      "command": "python code_analyzer.py",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path to source code"
+          },
+          "language": {
+            "type": "string",
+            "description": "Programming language"
+          }
+        },
+        "required": ["path"]
+      },
+      "type": "skill",
+      "tags": ["category:code", "tag:analyze", "tag:quality", "difficulty:advanced"],
+      "filePath": "/skills/code-analyzer/SKILL.md",
+      "version": "2.0.0",
+      "metadata": {
+        "author": "Quality Team",
+        "examples": ["Check code complexity", "Find potential bugs"]
+      }
+    },
+    {
+      "id": "skill-image-process-010",
+      "name": "Image Processor",
+      "description": "Apply image transformations including resize, crop, filter, and format conversion",
+      "command": "python image_processor.py",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "string",
+            "description": "Input image path"
+          },
+          "output": {
+            "type": "string",
+            "description": "Output image path"
+          },
+          "operation": {
+            "type": "string",
+            "enum": ["resize", "crop", "filter", "convert"],
+            "description": "Image operation"
+          }
+        },
+        "required": ["input", "operation"]
+      },
+      "type": "skill",
+      "tags": ["category:media", "tag:image", "tag:transform", "difficulty:intermediate"],
+      "filePath": "/skills/image-processor/SKILL.md",
+      "version": "1.2.0",
+      "metadata": {
+        "author": "Media Team",
+        "examples": ["Resize profile picture", "Apply filter effect"]
+      }
+    },
+    {
+      "id": "skill-database-query-011",
+      "name": "Database Query",
+      "description": "Execute SQL queries against configured database connections",
+      "command": "python db_query.py",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "SQL query to execute"
+          },
+          "connection": {
+            "type": "string",
+            "description": "Database connection name"
+          }
+        },
+        "required": ["query"]
+      },
+      "type": "skill",
+      "tags": ["category:database", "tag:sql", "tag:query", "difficulty:advanced"],
+      "filePath": "/skills/database-query/SKILL.md",
+      "version": "1.8.0",
+      "metadata": {
+        "author": "Data Team",
+        "examples": ["Fetch user data", "Generate report"]
+      }
+    },
+    {
+      "id": "skill-cache-manage-012",
+      "name": "Cache Manager",
+      "description": "Manage in-memory and distributed caches with TTL support",
+      "command": "python cache_manager.py",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["get", "set", "delete", "clear"],
+            "description": "Cache operation"
+          },
+          "key": {
+            "type": "string",
+            "description": "Cache key"
+          },
+          "value": {
+            "type": "string",
+            "description": "Value to cache"
+          },
+          "ttl": {
+            "type": "integer",
+            "description": "Time to live in seconds"
+          }
+        },
+        "required": ["action", "key"]
+      },
+      "type": "skill",
+      "tags": ["category:system", "tag:cache", "tag:performance", "difficulty:intermediate"],
+      "filePath": "/skills/cache-manager/SKILL.md",
+      "version": "1.1.0",
+      "metadata": {
+        "author": "System Team",
+        "examples": ["Store API response", "Retrieve cached data"]
+      }
+    },
+    {
+      "id": "skill-logging-013",
+      "name": "Logger",
+      "description": "Create and manage application logs with configurable levels and destinations",
+      "command": "python logger.py",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "level": {
+            "type": "string",
+            "enum": ["DEBUG", "INFO", "WARNING", "ERROR"],
+            "description": "Log level"
+          },
+          "message": {
+            "type": "string",
+            "description": "Log message"
+          },
+          "destination": {
+            "type": "string",
+            "description": "Log destination"
+          }
+        },
+        "required": ["level", "message"]
+      },
+      "type": "skill",
+      "tags": ["category:system", "tag:logging", "tag:debug", "difficulty:beginner"],
+      "filePath": "/skills/logger/SKILL.md",
+      "version": "1.0.0",
+      "metadata": {
+        "author": "System Team",
+        "examples": ["Debug application", "Track errors"]
+      }
+    },
+    {
+      "id": "skill-shell-exec-014",
+      "name": "Shell Executor",
+      "description": "Execute shell commands and return their output with error handling",
+      "command": "python shell_executor.py",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "Shell command to execute"
+          },
+          "timeout": {
+            "type": "integer",
+            "description": "Execution timeout"
+          }
+        },
+        "required": ["command"]
+      },
+      "type": "skill",
+      "tags": ["category:system", "tag:shell", "tag:command", "difficulty:intermediate"],
+      "filePath": "/skills/shell-executor/SKILL.md",
+      "version": "1.3.0",
+      "metadata": {
+        "author": "System Team",
+        "examples": ["Run system command", "Execute script"]
+      }
+    },
+    {
+      "id": "skill-git-015",
+      "name": "Git Operations",
+      "description": "Perform Git operations including clone, commit, push, and branch management",
+      "command": "python git_operations.py",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": ["clone", "commit", "push", "pull", "branch"],
+            "description": "Git operation"
+          },
+          "repository": {
+            "type": "string",
+            "description": "Repository URL or path"
+          }
+        },
+        "required": ["operation"]
+      },
+      "type": "skill",
+      "tags": ["category:version-control", "tag:git", "tag:repository", "difficulty:intermediate"],
+      "filePath": "/skills/git-operations/SKILL.md",
+      "version": "1.5.0",
+      "metadata": {
+        "author": "DevTools Team",
+        "examples": ["Clone repository", "Commit changes"]
+      }
+    },
+    {
+      "id": "skill-text-process-016",
+      "name": "Text Processor",
+      "description": "Process and transform text including regex matching, replacement, and normalization",
+      "command": "python text_processor.py",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Input text"
+          },
+          "operation": {
+            "type": "string",
+            "description": "Text operation"
+          }
+        },
+        "required": ["text", "operation"]
+      },
+      "type": "skill",
+      "tags": ["category:text", "tag:process", "tag:regex", "difficulty:beginner"],
+      "filePath": "/skills/text-processor/SKILL.md",
+      "version": "1.2.0",
+      "metadata": {
+        "author": "Apex Team",
+        "examples": ["Normalize text", "Replace patterns"]
+      }
+    },
+    {
+      "id": "skill-compression-017",
+      "name": "Compression Tool",
+      "description": "Compress and decompress files using various algorithms (gzip, zip, tar)",
+      "command": "python compression_tool.py",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["compress", "decompress"],
+            "description": "Compression action"
+          },
+          "input": {
+            "type": "string",
+            "description": "Input file or directory"
+          },
+          "output": {
+            "type": "string",
+            "description": "Output file path"
+          },
+          "algorithm": {
+            "type": "string",
+            "description": "Compression algorithm"
+          }
+        },
+        "required": ["action", "input"]
+      },
+      "type": "skill",
+      "tags": ["category:file", "tag:compression", "tag:archive", "difficulty:intermediate"],
+      "filePath": "/skills/compression-tool/SKILL.md",
+      "version": "1.1.0",
+      "metadata": {
+        "author": "System Team",
+        "examples": ["Create backup archive", "Extract zip file"]
+      }
+    },
+    {
+      "id": "skill-email-018",
+      "name": "Email Sender",
+      "description": "Send emails with support for attachments, HTML content, and templates",
+      "command": "python email_sender.py",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "string",
+            "description": "Recipient email address"
+          },
+          "subject": {
+            "type": "string",
+            "description": "Email subject"
+          },
+          "body": {
+            "type": "string",
+            "description": "Email body"
+          },
+          "attachments": {
+            "type": "array",
+            "description": "Attachment file paths"
+          }
+        },
+        "required": ["to", "subject"]
+      },
+      "type": "skill",
+      "tags": [
+        "category:communication",
+        "tag:email",
+        "tag:notification",
+        "difficulty:intermediate"
+      ],
+      "filePath": "/skills/email-sender/SKILL.md",
+      "version": "1.4.0",
+      "metadata": {
+        "author": "Communication Team",
+        "examples": ["Send notification", "Send report via email"]
+      }
+    },
+    {
+      "id": "skill-schedule-019",
+      "name": "Task Scheduler",
+      "description": "Schedule and manage recurring tasks with cron-like expressions",
+      "command": "python task_scheduler.py",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string",
+            "description": "Task command or function"
+          },
+          "schedule": {
+            "type": "string",
+            "description": "Cron schedule expression"
+          }
+        },
+        "required": ["task", "schedule"]
+      },
+      "type": "skill",
+      "tags": ["category:system", "tag:schedule", "tag:cron", "difficulty:advanced"],
+      "filePath": "/skills/task-scheduler/SKILL.md",
+      "version": "1.2.0",
+      "metadata": {
+        "author": "System Team",
+        "examples": ["Schedule backup", "Run periodic cleanup"]
+      }
+    },
+    {
+      "id": "skill-auth-020",
+      "name": "Authentication Manager",
+      "description": "Handle user authentication with support for various providers and token management",
+      "command": "python auth_manager.py",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "description": "Auth provider name"
+          },
+          "action": {
+            "type": "string",
+            "enum": ["login", "logout", "refresh", "validate"],
+            "description": "Authentication action"
+          },
+          "credentials": {
+            "type": "object",
+            "description": "User credentials"
+          }
+        },
+        "required": ["provider", "action"]
+      },
+      "type": "skill",
+      "tags": ["category:security", "tag:auth", "tag:token", "difficulty:advanced"],
+      "filePath": "/skills/auth-manager/SKILL.md",
+      "version": "2.0.0",
+      "metadata": {
+        "author": "Security Team",
+        "examples": ["User login", "Token refresh"]
+      }
+    },
+    {
+      "id": "skill-ml-predict-021",
+      "name": "ML Predictor",
+      "description": "Make predictions using trained machine learning models",
+      "command": "python ml_predictor.py",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "Model name or path"
+          },
+          "input": {
+            "type": "object",
+            "description": "Input data for prediction"
+          }
+        },
+        "required": ["model", "input"]
+      },
+      "type": "skill",
+      "tags": ["category:machine-learning", "tag:prediction", "tag:model", "difficulty:advanced"],
+      "filePath": "/skills/ml-predictor/SKILL.md",
+      "version": "1.0.0",
+      "metadata": {
+        "author": "ML Team",
+        "examples": ["Predict classification", "Generate embeddings"]
+      }
+    },
+    {
+      "id": "skill-api-doc-022",
+      "name": "API Documentation",
+      "description": "Generate and serve API documentation from OpenAPI/Swagger specifications",
+      "command": "python api_doc.py",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "spec": {
+            "type": "string",
+            "description": "API specification file path"
+          },
+          "output": {
+            "type": "string",
+            "description": "Output directory"
+          }
+        },
+        "required": ["spec"]
+      },
+      "type": "skill",
+      "tags": ["category:documentation", "tag:api", "tag:openapi", "difficulty:intermediate"],
+      "filePath": "/skills/api-documentation/SKILL.md",
+      "version": "1.1.0",
+      "metadata": {
+        "author": "Docs Team",
+        "examples": ["Generate API docs", "Validate API spec"]
+      }
+    },
+    {
+      "id": "skill-test-runner-023",
+      "name": "Test Runner",
+      "description": "Execute test suites and generate reports with coverage analysis",
+      "command": "python test_runner.py",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "framework": {
+            "type": "string",
+            "description": "Test framework name"
+          },
+          "path": {
+            "type": "string",
+            "description": "Test directory or file"
+          },
+          "coverage": {
+            "type": "boolean",
+            "description": "Enable coverage analysis"
+          }
+        },
+        "required": ["framework", "path"]
+      },
+      "type": "skill",
+      "tags": ["category:testing", "tag:test", "tag:coverage", "difficulty:intermediate"],
+      "filePath": "/skills/test-runner/SKILL.md",
+      "version": "1.3.0",
+      "metadata": {
+        "author": "QA Team",
+        "examples": ["Run unit tests", "Generate coverage report"]
+      }
+    },
+    {
+      "id": "skill-convert-024",
+      "name": "Format Converter",
+      "description": "Convert data between various formats (JSON, YAML, XML, CSV)",
+      "command": "python format_converter.py",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "string",
+            "description": "Input data or file path"
+          },
+          "inputFormat": {
+            "type": "string",
+            "description": "Input format"
+          },
+          "outputFormat": {
+            "type": "string",
+            "description": "Output format"
+          }
+        },
+        "required": ["input", "inputFormat", "outputFormat"]
+      },
+      "type": "skill",
+      "tags": ["category:data", "tag:convert", "tag:format", "difficulty:beginner"],
+      "filePath": "/skills/format-converter/SKILL.md",
+      "version": "1.2.0",
+      "metadata": {
+        "author": "Apex Team",
+        "examples": ["Convert YAML to JSON", "Transform XML to CSV"]
+      }
+    }
+  ],
+  "testCases": {
+    "vectorRetrieval": [
+      {
+        "description": "Semantic search for file operations",
+        "query": "How to read and write files efficiently",
+        "expectedMinResults": 3,
+        "expectedTopTags": ["category:file"]
+      },
+      {
+        "description": "Search for data processing",
+        "query": "Process and transform data structures",
+        "expectedMinResults": 3,
+        "expectedTopCategories": ["data", "text"]
+      }
+    ],
+    "keywordRetrieval": [
+      {
+        "description": "Exact keyword match",
+        "query": "File Reader",
+        "expectedMinResults": 1
+      },
+      {
+        "description": "Case insensitive search",
+        "query": "HTTP REQUEST",
+        "expectedMinResults": 1
+      }
+    ],
+    "hybridRetrieval": [
+      {
+        "description": "File and data processing query",
+        "query": "How to read and process CSV files with Python",
+        "expectedMinResults": 4
+      },
+      {
+        "description": "Network and API query",
+        "query": "Make HTTP requests and handle API responses",
+        "expectedMinResults": 3
+      }
+    ],
+    "edgeCases": [
+      {
+        "description": "Empty query",
+        "query": "",
+        "expectedResults": []
+      },
+      {
+        "description": "Very long query",
+        "query": "machine learning artificial intelligence neural network deep learning machine learning artificial intelligence neural network deep learning machine learning artificial intelligence neural network deep learning machine learning artificial intelligence neural network deep learning machine learning artificial intelligence neural network deep learning machine learning artificial intelligence neural network deep learning machine learning artificial intelligence neural network deep learning machine learning artificial intelligence neural network deep learning machine learning artificial intelligence neural network deep learning machine learning artificial intelligence neural network deep learning machine learning artificial intelligence neural network deep learning machine learning artificial intelligence neural network deep learning",
+        "expectedMinResults": 0
+      },
+      {
+        "description": "Special characters",
+        "query": "API@#$%^&*()测试<>?",
+        "expectedResults": []
+      }
+    ]
+  }
+}

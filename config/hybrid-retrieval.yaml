@@ -1,0 +1,73 @@
+# Hybrid Retrieval Configuration
+# Phase 1: 混合检索框架配置
+
+# 检索权重配置 (总和应为 1.0)
+retrieval:
+  weights:
+    vector: 0.5 # 向量相似度权重
+    keyword: 0.3 # 关键词匹配权重
+    semantic: 0.2 # 语义匹配权重
+    tag: 0.1 # 标签匹配权重
+
+  # RRF 融合参数
+  rrf:
+    k: 60 # RRF 常数 k
+
+  # 检索限制
+  limits:
+    minScore: 0.1 # 最小分数阈值
+    maxResults: 10 # 最大返回结果数
+
+# 标签匹配配置
+tagMatching:
+  enabled: true
+  maxDepth: 3 # 最大层级深度
+  enableAliases: true
+  minScore: 0.5 # 最小匹配分数
+
+# 披露策略配置
+disclosure:
+  strategy: "metadata" # metadata | content | resources | adaptive
+  levels:
+    metadata:
+      maxTokens: 500
+      includeExamples: false
+      includeResources: false
+    content:
+      maxTokens: 2000
+      includeExamples: true
+      includeResources: false
+    resources:
+      maxTokens: 5000
+      includeExamples: true
+      includeResources: true
+  adaptive:
+    minTokens: 200
+    maxTokens: 3000
+    preferMetadataBelow: 500
+
+# 缓存配置
+caching:
+  enabled: true
+  ttl: 300 # 缓存 TTL (秒)
+  maxSize: 1000 # 最大缓存条目数
+  maxMemory: 100MB # 最大内存使用
+
+# 性能配置
+performance:
+  timeout: 5000 # 检索超时 (毫秒)
+  parallel: true # 并行执行检索
+  maxConcurrency: 4 # 最大并发数
+
+# 标签层级配置
+tagHierarchy:
+  levels:
+    - category # 一级分类
+    - subcategory # 二级分类
+    - tag # 标签
+  aliases:
+    cat: category
+    sub: subcategory
+    t: tag
+    c: category
+    s: subcategory

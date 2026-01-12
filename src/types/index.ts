@@ -142,3 +142,6 @@ export * from "./message-v2";
 
 // ==================== Tool State 类型 ====================
 export * from "./tool-state";
+
+// ==================== Enhanced Skill Types (Phase 1) ====================
+export * from "./enhanced-skill";

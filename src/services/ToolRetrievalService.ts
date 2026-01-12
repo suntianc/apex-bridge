@@ -22,6 +22,7 @@ import { LLMModelType } from "../types/llm-models";
 import { logger } from "../utils/logger";
 import { LLMConfigService } from "./LLMConfigService";
 import { THRESHOLDS } from "../constants";
+import { IndexConfigOptimizer } from "./tool-retrieval/IndexConfigOptimizer";
 
 // LLMManager 延迟导入，避免循环依赖
 let llmManagerInstance: any = null;
@@ -56,9 +57,11 @@ export class ToolRetrievalService {
   private isInitialized = false;
   private dimensionsCache: number | null = null;
   private llmConfigService: any = null;
+  private optimizer: IndexConfigOptimizer;
 
   constructor(config: ToolRetrievalConfig) {
     this.config = config;
+    this.optimizer = new IndexConfigOptimizer();
     logger.info("ToolRetrievalService created with config:", {
       vectorDbPath: config.vectorDbPath,
       model: config.model,
@@ -491,19 +494,37 @@ export class ToolRetrievalService {
    * 创建向量索引
    */
   private async createVectorIndex(): Promise<void> {
+    if (!this.table) {
+      return;
+    }
+
     try {
-      // 创建IVF_PQ索引以加速向量搜索
-      await this.table!.createIndex("vector", {
+      const rowCount = await this.table.countRows();
+      const dimension = this.config.dimensions;
+
+      const optimizationResult = this.optimizer.calculateOptimalConfig(
+        rowCount,
+        dimension,
+        0.95,
+        false
+      );
+
+      logger.info(`[ToolRetrieval] ${optimizationResult.reasoning}`);
+
+      await this.table.createIndex("vector", {
         config: Index.ivfPq({
-          numPartitions: 64, // 调整为适合数据集的大小
-          numSubVectors: 8,
+          numPartitions: optimizationResult.config.numPartitions,
+          numSubVectors: optimizationResult.config.numSubVectors,
         }),
         replace: true,
       });
 
-      logger.info("Created vector index for Skills table");
+      logger.info(
+        `[ToolRetrieval] Created optimized vector index: ${optimizationResult.config.numPartitions} partitions, ` +
+          `${optimizationResult.config.numSubVectors} sub-vectors, ` +
+          `est. recall: ${(optimizationResult.estimatedRecall * 100).toFixed(1)}%`
+      );
     } catch (error) {
-      // 索引可能已经存在，忽略错误
       logger.debug("Vector index may already exist:", error);
     }
   }

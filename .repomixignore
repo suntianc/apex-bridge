@@ -7,7 +7,7 @@
 .github
 dist
 docs
-images
+assets
 exmples
 logs
 node_modules

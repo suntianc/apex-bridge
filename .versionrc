@@ -1,0 +1,131 @@
+{
+  "types": [
+    {
+      "type": "feat",
+      "section": "✨ 新功能",
+      "hidden": false
+    },
+    {
+      "type": "fix",
+      "section": "🐛 Bug 修复",
+      "hidden": false
+    },
+    {
+      "type": "perf",
+      "section": "⚡ 性能优化",
+      "hidden": false
+    },
+    {
+      "type": "refactor",
+      "section": "♻️ 重构",
+      "hidden": false
+    },
+    {
+      "type": "revert",
+      "section": "⏪ 回滚",
+      "hidden": false
+    },
+    {
+      "type": "docs",
+      "section": "📚 文档",
+      "hidden": false
+    },
+    {
+      "type": "style",
+      "section": "💄 代码格式",
+      "hidden": true
+    },
+    {
+      "type": "test",
+      "section": "✅ 测试",
+      "hidden": true
+    },
+    {
+      "type": "build",
+      "section": "👷 构建",
+      "hidden": true
+    },
+    {
+      "type": "ci",
+      "section": "🔧 CI/CD",
+      "hidden": true
+    },
+    {
+      "type": "chore",
+      "section": "🔩 其他杂项",
+      "hidden": true
+    }
+  ],
+  "scopeEnum": [
+    "core",
+    "services",
+    "api",
+    "strategies",
+    "utils",
+    "config",
+    "docs",
+    "scripts",
+    "tests"
+  ],
+  "releaseCommitMessageFormat": "chore(release): {{currentTag}}",
+  "issueUrlFormat": "https://github.com/suntianc/apex-bridge/issues/{{id}}",
+  "compareUrlFormat": "https://github.com/suntianc/apex-bridge/compare/{{previousTag}}...{{currentTag}}",
+  "changelogSections": [
+    {
+      "type": "feat",
+      "section": "✨ 新功能"
+    },
+    {
+      "type": "fix",
+      "section": "🐛 Bug 修复"
+    },
+    {
+      "type": "perf",
+      "section": "⚡ 性能优化"
+    },
+    {
+      "type": "refactor",
+      "section": "♻️ 重构"
+    },
+    {
+      "type": "revert",
+      "section": "⏪ 回滚"
+    },
+    {
+      "type": "docs",
+      "section": "📚 文档"
+    }
+  ],
+  "template": "# Changelog\n\n## {{Release.Version}}\n\n{{Release.Date}}\n\n### {{Release.Type}}\n\n{{#if Commit.Features}}\n#### Features\n{{#each Commit.Features}}\n- **{{this.scope}}**: {{this.subject}}\n{{/each}}\n{{/if}}\n\n{{#if Commit.Fixes}}\n#### Bug Fixes\n{{#each Commit.Fixes}}\n- **{{this.scope}}**: {{this.subject}}\n{{/each}}\n{{/if}}\n\n{{#if Commit.Other}}\n#### Other\n{{#each Commit.Other}}\n- {{this.subject}}\n{{/each}}\n{{/if}}\n",
+  "header": "# Changelog\n\n*ApexBridge 变更日志*\n\n",
+  "unreleasedGroupBy": {
+    "types": [
+      {
+        "type": "feat",
+        "section": "✨ 新功能"
+      },
+      {
+        "type": "fix",
+        "section": "🐛 Bug 修复"
+      },
+      {
+        "type": "perf",
+        "section": "⚡ 性能优化"
+      }
+    ]
+  },
+  "unreleasedTitle": "Unreleased",
+  "unreleasedVersion": "Unreleased",
+  "bumpFiles": [
+    {
+      "filename": "package.json",
+      "type": "json",
+      "path": "./package.json"
+    }
+  ],
+  "ignoreMessages": [
+    "Merge pull request",
+    "Merge branch",
+    "chore: Release"
+  ]
+}

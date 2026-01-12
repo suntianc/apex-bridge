@@ -26,7 +26,15 @@
     "test:context-compression": "npx ts-node tests/context-compression-test.ts",
     "test:all-strategies": "npx ts-node tests/all-strategies-test.ts",
     "test:compression-integration": "npx ts-node tests/compression-integration-test.ts",
-    "test:compression-realistic": "npx ts-node tests/compression-realistic-test.ts"
+    "test:compression-realistic": "npx ts-node tests/compression-realistic-test.ts",
+    "changelog": "npx ts-node scripts/generate-changelog.ts",
+    "changelog:stdout": "npx ts-node scripts/generate-changelog.ts --stdout",
+    "rollback": "npx ts-node scripts/rollback.ts",
+    "rollback:quick": "npx ts-node scripts/rollback.ts --quick",
+    "release": "npm run build && npm run changelog && npm version",
+    "release:patch": "npm run release -- patch",
+    "release:minor": "npm run release -- minor",
+    "release:major": "npm run release -- major"
   },
   "keywords": [
     "ai",

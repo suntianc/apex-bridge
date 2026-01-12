@@ -38,6 +38,7 @@ import { ChatChannel } from "./api/websocket/channels/ChatChannel";
 import { ConfigService } from "./services/ConfigService";
 import { PathService } from "./services/PathService";
 import { ToolRetrievalService } from "./services/ToolRetrievalService";
+import { ApplicationWarmupService } from "./services/warmup/ApplicationWarmupService";
 
 // 验证中间件
 import { initializeCustomValidators } from "./api/middleware/customValidators";
@@ -137,6 +138,19 @@ export class ABPIntelliCore {
       // 等待Skills索引初始化完成
       await skillManager.waitForInitialization();
       logger.debug("✅ SkillManager initialized");
+
+      // 🚀 应用启动预热（在数据库和索引初始化后执行）
+      // 预热向量索引、嵌入缓存和搜索缓存，避免冷启动延迟
+      const warmupService = new ApplicationWarmupService();
+      logger.info("🚀 Starting application warm-up...");
+      const warmupStatus = await warmupService.warmup();
+
+      if (warmupStatus.isComplete) {
+        logger.info(`✅ Warm-up completed in ${warmupStatus.totalDuration}ms`);
+      } else {
+        logger.warn(`⚠️ Warm-up completed with ${warmupStatus.errors.length} errors`);
+        warmupStatus.errors.forEach((err) => logger.warn(`   - ${err}`));
+      }
 
       // 从数据库加载已注册的MCP服务器
       const { mcpIntegration } = await import("./services/MCPIntegrationService");

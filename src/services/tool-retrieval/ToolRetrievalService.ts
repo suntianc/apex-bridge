@@ -67,12 +67,10 @@ export class ToolRetrievalService implements IToolRetrievalService {
       dimensions: config.dimensions,
     });
     this.skillIndexer = new SkillIndexer(this.connection, this.embeddingGenerator);
-    this.searchEngine = new SearchEngine(
-      this.connection,
-      this.embeddingGenerator,
-      config.maxResults,
-      config.similarityThreshold
-    );
+    this.searchEngine = new SearchEngine(this.connection, this.embeddingGenerator, {
+      defaultLimit: config.maxResults,
+      defaultThreshold: config.similarityThreshold,
+    });
     this.mcpToolSupport = new MCPToolSupport(this.embeddingGenerator, this.connection);
 
     logger.info("[ToolRetrievalService] Created with config:", {
@@ -145,7 +143,7 @@ export class ToolRetrievalService implements IToolRetrievalService {
         await this.initialize();
       }
 
-      return this.searchEngine.search(query, limit, threshold);
+      return this.searchEngine.search(query, { limit, minScore: threshold });
     } catch (error) {
       logger.error(`[ToolRetrievalService] findRelevantSkills failed for "${query}":`, error);
       throw new ToolError(

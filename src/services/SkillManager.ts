@@ -27,6 +27,15 @@ import { toolRegistry, ToolType as RegistryToolType } from "../core/tool/registr
 import type { Tool } from "../core/tool/tool";
 import { logger } from "../utils/logger";
 import { PathService } from "./PathService";
+import {
+  ClaudeCodeSkillParser,
+  getClaudeCodeSkillParser,
+  LifecycleManager,
+  getLifecycleManager,
+  ParsedClaudeSkill,
+  SkillLifecycleHooks,
+  ParseError,
+} from "./compat";
 
 /**
  * 安装结果
@@ -72,6 +81,8 @@ export class SkillManager {
   private readonly skillsBasePath: string;
   private readonly retrievalService: ToolRetrievalService;
   private readonly skillsExecutor: SkillsSandboxExecutor;
+  private readonly skillParser: ClaudeCodeSkillParser;
+  private readonly lifecycleManager: LifecycleManager;
   private initializationPromise: Promise<void> | null = null;
 
   /**
@@ -102,6 +113,10 @@ export class SkillManager {
       });
     // 初始化 Skills 执行器
     this.skillsExecutor = getSkillsSandboxExecutor();
+
+    // 初始化兼容层组件
+    this.skillParser = getClaudeCodeSkillParser();
+    this.lifecycleManager = getLifecycleManager();
 
     logger.debug("SkillManager initialized", {
       skillsBasePath,
@@ -150,6 +165,16 @@ export class SkillManager {
         logger.info(`Overwriting existing skill: ${metadata.name}`);
       }
 
+      // 执行预安装钩子
+      const installContext = this.lifecycleManager.createContext(
+        metadata.name,
+        targetDir,
+        metadata,
+        undefined,
+        options.validationLevel
+      );
+      await this.lifecycleManager.preInstall(installContext);
+
       // 移动Skills到目标目录
       await fs.mkdir(path.dirname(targetDir), { recursive: true });
       await fs.rename(tempDir, targetDir);
@@ -186,6 +211,9 @@ export class SkillManager {
       }
 
       const duration = Date.now() - startTime;
+
+      // 执行后安装钩子
+      await this.lifecycleManager.postInstall(installContext);
 
       return {
         success: true,
@@ -241,6 +269,18 @@ export class SkillManager {
         }
       }
 
+      // 获取元数据用于生命周期钩子
+      let metadata: SkillMetadata | undefined;
+      try {
+        metadata = await this.parseSkillMetadata(skillPath);
+      } catch {
+        // 如果无法获取元数据，仍然继续卸载
+      }
+
+      // 执行预卸载钩子
+      const uninstallContext = this.lifecycleManager.createContext(skillName, skillPath, metadata);
+      await this.lifecycleManager.preUninstall(uninstallContext);
+
       // 从向量检索中移除
       try {
         await this.retrievalService.removeSkill(skillName);
@@ -254,6 +294,9 @@ export class SkillManager {
 
       // 删除Skills目录
       await fs.rm(skillPath, { recursive: true, force: true });
+
+      // 执行后卸载钩子
+      await this.lifecycleManager.postUninstall(uninstallContext);
 
       const duration = Date.now() - startTime;
 
@@ -305,6 +348,17 @@ export class SkillManager {
       if (!(await this.directoryExists(skillPath))) {
         throw new ToolError(`Skill '${skillName}' not found`, ToolErrorCode.SKILL_NOT_FOUND);
       }
+
+      // 获取当前元数据
+      const currentMetadata = await this.parseSkillMetadata(skillPath);
+
+      // 执行预更新钩子
+      const updateContext = this.lifecycleManager.createContext(
+        skillName,
+        skillPath,
+        currentMetadata
+      );
+      await this.lifecycleManager.preUpdate(updateContext);
 
       const skillMdPath = path.join(skillPath, "SKILL.md");
 
@@ -362,6 +416,9 @@ export class SkillManager {
       }
 
       const duration = Date.now() - startTime;
+
+      // 执行后更新钩子
+      await this.lifecycleManager.postUpdate(updateContext);
 
       return {
         success: true,
@@ -576,8 +633,42 @@ export class SkillManager {
 
   /**
    * 解析Skills元数据
+   * 使用 ClaudeCodeSkillParser 支持 Claude Code 格式
    */
   private async parseSkillMetadata(skillPath: string): Promise<SkillMetadata> {
+    try {
+      // 使用兼容层解析器
+      const parsedSkill = await this.skillParser.parse(skillPath);
+
+      // 注册生命周期钩子（如果有 hooks）
+      if (parsedSkill.compatibility.hooks) {
+        this.lifecycleManager.registerHooks(parsedSkill.metadata.name, {
+          hooks: parsedSkill.compatibility.hooks,
+        } as SkillLifecycleHooks);
+      }
+
+      logger.debug("Parsed skill metadata using compat layer", {
+        name: parsedSkill.metadata.name,
+        source: parsedSkill.compatibility.source,
+      });
+
+      return parsedSkill.metadata;
+    } catch (error: unknown) {
+      // 如果兼容层解析失败，回退到原有解析逻辑
+      if (error instanceof ParseError) {
+        logger.warn("Compat parser failed, falling back to legacy parser", {
+          error: error.message,
+        });
+        return this.parseSkillMetadataLegacy(skillPath);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * 原有解析逻辑（向后兼容）
+   */
+  private async parseSkillMetadataLegacy(skillPath: string): Promise<SkillMetadata> {
     const skillMdPath = path.join(skillPath, "SKILL.md");
 
     if (!(await this.fileExists(skillMdPath))) {
