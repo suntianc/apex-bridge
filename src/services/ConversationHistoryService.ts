@@ -134,8 +134,7 @@ export class ConversationHistoryService {
 
       const insertMany = this.db.transaction((msgs: Message[]) => {
         for (const msg of msgs) {
-          // Message 类型可能没有 metadata 属性，使用类型断言或可选链
-          const metadata = (msg as any).metadata ? JSON.stringify((msg as any).metadata) : null;
+          const metadata = msg.metadata ? JSON.stringify(msg.metadata) : null;
 
           // 🐾 格式化多模态消息内容
           const contentToStore = this.formatMultimodalContent(msg.content);

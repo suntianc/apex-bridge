@@ -9,6 +9,7 @@ export interface Message {
   role: "system" | "user" | "assistant";
   content: string | ContentPart[];
   name?: string;
+  metadata?: Record<string, any>;
 }
 
 export interface ContentPart {

@@ -17,7 +17,7 @@ import { SkillsSandboxExecutor } from "../services/executors/SkillsSandboxExecut
 import { generateToolPrompt, ToolDispatcher } from "../core/tool-action";
 import { getSkillManager } from "../services/SkillManager";
 import type { Tool } from "../core/stream-orchestrator/types";
-import type { SkillTool, BuiltInTool } from "../types/tool-system";
+import { ToolType, SkillTool, BuiltInTool } from "../types/tool-system";
 import { logger } from "../utils/logger";
 import { extractTextFromMessage } from "../utils/message-utils";
 import { TIMEOUT, LIMITS, THRESHOLDS } from "../constants";
@@ -115,7 +115,7 @@ export class ReActStrategy implements ChatStrategy {
 
     // 将可用工具传递给ReActEngine
     if (this.availableTools.length > 0) {
-      (reactEngine as any).tools = this.availableTools;
+      reactEngine.tools = this.availableTools;
       logger.debug(`[${this.getName()}] Passed ${this.availableTools.length} tools to ReActEngine`);
     }
 
@@ -415,7 +415,7 @@ export class ReActStrategy implements ChatStrategy {
     const proxyTool: BuiltInTool = {
       name: skill.name,
       description: skill.description,
-      type: "BUILTIN" as any, // 强制设置为BUILTIN类型
+      type: ToolType.BUILTIN,
       category: skill.tags?.join(", ") || "skill",
       enabled: true,
       level: skill.level,

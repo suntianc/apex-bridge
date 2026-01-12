@@ -54,7 +54,7 @@ export class ToolDispatcher {
 
   /**
    * 调度执行工具调用
-   * 优先从 ToolRegistry 获取工具，回退到原有逻辑
+   * 仅从 ToolRegistry 获取工具执行，ToolRegistry 作为唯一事实来源
    * @param toolCall 工具调用
    * @returns 执行结果
    */
@@ -66,36 +66,20 @@ export class ToolDispatcher {
     logger.debug(`[ToolDispatcher] Parameters:`, parameters);
 
     try {
-      // 优先从 ToolRegistry 获取工具
+      // 从 ToolRegistry 获取工具
       const toolInfo = await toolRegistry.get(name);
-      if (toolInfo) {
-        logger.debug(`[ToolDispatcher] Found tool in ToolRegistry: ${name}`);
-        return await this.executeToolInfo(toolInfo, parameters, startTime);
+      if (!toolInfo) {
+        logger.warn(`[ToolDispatcher] Tool not found in ToolRegistry: ${name}`);
+        return {
+          success: false,
+          toolName: name,
+          error: `Tool not found in registry: ${name}`,
+          executionTime: Date.now() - startTime,
+        };
       }
 
-      // 回退到原有逻辑：根据工具类型路由到不同的执行器
-      switch (type) {
-        case ToolType.BUILTIN:
-          logger.debug(`[ToolDispatcher] Executing as built-in tool: ${name}`);
-          return await this.executeBuiltInTool(name, parameters, startTime);
-
-        case ToolType.SKILL:
-          logger.debug(`[ToolDispatcher] Executing as Skill: ${name}`);
-          return await this.executeSkillTool(name, parameters, startTime);
-
-        case ToolType.MCP:
-          logger.debug(`[ToolDispatcher] Executing as MCP tool: ${name}`);
-          return await this.executeMCPTool(name, parameters, startTime);
-
-        default:
-          logger.warn(`[ToolDispatcher] Unknown tool type: ${type}`);
-          return {
-            success: false,
-            toolName: name,
-            error: `Unknown tool type: ${type}`,
-            executionTime: Date.now() - startTime,
-          };
-      }
+      logger.debug(`[ToolDispatcher] Found tool in ToolRegistry: ${name}`);
+      return await this.executeToolInfo(toolInfo, parameters, startTime);
     } catch (error) {
       const executionTime = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -709,15 +693,15 @@ export class ToolDispatcher {
     tool: { name: string; description: string; inputSchema?: any },
     serverId: string
   ): ToolDescription {
-    const parameters: ToolDescription['parameters'] = [];
+    const parameters: ToolDescription["parameters"] = [];
 
     if (tool.inputSchema?.properties) {
       for (const [name, prop] of Object.entries(tool.inputSchema.properties)) {
         const propObj = prop as { type?: string; description?: string };
         parameters.push({
           name,
-          type: propObj.type || 'string',
-          description: propObj.description || '',
+          type: propObj.type || "string",
+          description: propObj.description || "",
           required: tool.inputSchema.required?.includes(name) ?? false,
         });
       }

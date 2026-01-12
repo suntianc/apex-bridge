@@ -482,7 +482,11 @@ export class ChatService {
       return [];
     }
     const messages = await historyService.getMessages(conversationId, limit, offset);
-    return messages as Message[];
+    return messages.map((msg) => ({
+      role: msg.role,
+      content: msg.content,
+      metadata: msg.metadata ? JSON.parse(msg.metadata) : undefined,
+    }));
   }
 
   /**
