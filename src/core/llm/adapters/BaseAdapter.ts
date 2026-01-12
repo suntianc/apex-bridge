@@ -499,7 +499,10 @@ export abstract class BaseOpenAICompatibleAdapter implements ILLMAdapter {
                 });
               }
             } catch (e) {
-              // Skip parse errors
+              logger.warn(
+                `[${this.providerName}] Failed to parse stream chunk:`,
+                e instanceof Error ? e.message : String(e)
+              );
             }
           }
         }

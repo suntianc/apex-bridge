@@ -81,12 +81,12 @@ export class MessagePreprocessor {
       // 从 options 中提取字符串类型的变量
       ...Object.entries(options).reduce(
         (acc, [key, value]) => {
-          if (typeof value === "string") {
+          if (typeof value !== "function") {
             acc[key] = value;
           }
           return acc;
         },
-        {} as Record<string, string>
+        {} as Record<string, any>
       ),
       // 策略提供的变量（如 available_tools）
       ...strategyVariables,

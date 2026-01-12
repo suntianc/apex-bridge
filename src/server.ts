@@ -290,7 +290,7 @@ export class ABPIntelliCore {
 
     // 注册聊天API
     // 创建控制器（LLMClient采用懒加载）
-    const chatController = new ChatController(this.chatService, null as any);
+    const chatController = new ChatController(this.chatService, null as LLMClient | undefined);
 
     // 聊天API（临时禁用 AJV 验证中间件，只使用 parseChatRequest）
     this.app.post(

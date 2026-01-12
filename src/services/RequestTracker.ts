@@ -209,8 +209,11 @@ export class RequestTracker extends EventEmitter {
 
     try {
       const channel = this.wsManager.getChannel?.("ABPLog");
-      if (channel) {
-        (channel as any).pushLog?.({
+      if (
+        channel &&
+        typeof (channel as { pushLog?: (data: unknown) => void }).pushLog === "function"
+      ) {
+        (channel as { pushLog: (data: unknown) => void }).pushLog({
           status,
           content: `请求已${status === "interrupted" ? "中断" : status}: ${requestId}`,
           source: "request_interrupt",
