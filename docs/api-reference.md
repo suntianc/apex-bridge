@@ -22,7 +22,7 @@ ApexBridge provides a comprehensive REST API for managing AI agents, models, ski
 ## Base URL
 
 ```
-http://localhost:8088
+http://localhost:12345
 ```
 
 All API responses follow a consistent format:
@@ -854,7 +854,7 @@ Real-time communication for streaming responses and interrupts.
 ### Connection
 
 ```
-ws://localhost:8088/ws
+ws://localhost:12345/ws
 ```
 
 ### Events
@@ -907,7 +907,7 @@ Health check endpoint.
 All `/api/*` endpoints require API Key authentication.
 
 ```bash
-curl -H "X-API-Key: your-api-key" http://localhost:8088/api/llm/providers
+curl -H "X-API-Key: your-api-key" http://localhost:12345/api/llm/providers
 ```
 
 ### Rate Limiting

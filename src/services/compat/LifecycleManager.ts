@@ -325,7 +325,7 @@ export class LifecycleManager {
   createContext(
     skillName: string,
     skillPath: string,
-    metadata: SkillMetadata,
+    metadata: SkillMetadata | undefined,
     compatibility?: ParsedClaudeSkill["compatibility"],
     validationLevel: "strict" | "basic" | "none" = "basic"
   ): SkillLifecycleContext {
@@ -335,7 +335,7 @@ export class LifecycleManager {
       metadata,
       compatibility,
       validationLevel,
-      dependencies: metadata.dependencies,
+      dependencies: metadata?.dependencies,
     };
   }
 

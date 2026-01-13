@@ -178,7 +178,10 @@ export class SkillManager {
       logger.debug(`Extracted ZIP to temp directory: ${tempDir}`);
 
       // 验证Skills结构
-      const metadata = await this.validateSkillStructure(tempDir, options.validationLevel);
+      const { metadata, actualSkillPath } = await this.validateSkillStructure(
+        tempDir,
+        options.validationLevel
+      );
       logger.debug("Skills structure validation passed", { metadata });
 
       // 检查名称冲突
@@ -210,7 +213,7 @@ export class SkillManager {
 
       // 移动Skills到目标目录
       await fs.mkdir(path.dirname(targetDir), { recursive: true });
-      await fs.rename(tempDir, targetDir);
+      await fs.rename(actualSkillPath, targetDir);
       logger.debug(`Moved Skills to target: ${targetDir}`);
 
       // 创建.vectorized标识文件（用于索引状态跟踪）
@@ -621,16 +624,39 @@ export class SkillManager {
 
   /**
    * 验证Skills结构
+   * 支持两种ZIP结构：
+   * 1. 扁平结构：SKILL.md 在根目录
+   * 2. 包装文件夹结构：SKILL.md 在单层包装文件夹内
    */
   private async validateSkillStructure(
     skillPath: string,
     validationLevel: SkillInstallOptions["validationLevel"] = "basic"
-  ): Promise<SkillMetadata> {
+  ): Promise<{ metadata: SkillMetadata; actualSkillPath: string }> {
+    let actualSkillPath = skillPath;
+
+    // 首先检查 SKILL.md 是否直接存在于 skillPath
+    const rootSkillMdPath = path.join(skillPath, "SKILL.md");
+    if (!(await this.fileExists(rootSkillMdPath))) {
+      // SKILL.md 不在根目录，检查是否有包装文件夹
+      const entries = await fs.readdir(skillPath, { withFileTypes: true });
+      const directories = entries.filter((entry) => entry.isDirectory());
+
+      if (directories.length === 1) {
+        // 找到单个包装文件夹，更新实际路径
+        actualSkillPath = path.join(skillPath, directories[0].name);
+        logger.debug("Detected wrapper folder, adjusting skill path", {
+          originalPath: skillPath,
+          adjustedPath: actualSkillPath,
+          wrapperFolder: directories[0].name,
+        });
+      }
+    }
+
     // 检查必需文件
     const requiredFiles = ["SKILL.md"];
 
     for (const file of requiredFiles) {
-      const filePath = path.join(skillPath, file);
+      const filePath = path.join(actualSkillPath, file);
       if (!(await this.fileExists(filePath))) {
         throw new ToolError(
           `Required file missing: ${file}`,
@@ -640,11 +666,11 @@ export class SkillManager {
     }
 
     // 解析SKILL.md
-    const metadata = await this.parseSkillMetadata(skillPath);
+    const metadata = await this.parseSkillMetadata(actualSkillPath);
 
     // 严格验证（检查脚本文件是否存在）
     if (validationLevel === "strict") {
-      const scriptsDir = path.join(skillPath, "scripts");
+      const scriptsDir = path.join(actualSkillPath, "scripts");
       if (!(await this.directoryExists(scriptsDir))) {
         throw new ToolError(
           "Scripts directory not found in strict validation mode",
@@ -661,7 +687,7 @@ export class SkillManager {
       }
     }
 
-    return metadata;
+    return { metadata, actualSkillPath };
   }
 
   /**
@@ -715,7 +741,7 @@ export class SkillManager {
     const parsed = matter(content);
 
     // 检查必需字段
-    const requiredFields = ["name", "description", "version"];
+    const requiredFields = ["name", "description"];
     for (const field of requiredFields) {
       if (!parsed.data[field]) {
         throw new ToolError(
@@ -730,7 +756,7 @@ export class SkillManager {
       description: parsed.data.description,
       category: parsed.data.category || "uncategorized",
       tools: parsed.data.tools || [],
-      version: parsed.data.version,
+      version: parsed.data.version || "0.1.0",
       tags: parsed.data.tags || [],
       author: parsed.data.author,
       dependencies: parsed.data.dependencies || [],
