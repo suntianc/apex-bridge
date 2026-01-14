@@ -255,7 +255,7 @@ export interface ToolRetrievalConfig {
   /** Similarity threshold */
   similarityThreshold: number;
   /** Max results */
-  maxResults: number;
+  maxResults?: number;
 }
 
 // ==================== Tool System Types ====================

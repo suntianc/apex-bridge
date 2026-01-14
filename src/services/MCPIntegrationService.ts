@@ -10,7 +10,8 @@ import { logger } from "../utils/logger";
 import { MCPServerManager } from "./MCPServerManager";
 import { MCPConfigService } from "./MCPConfigService";
 import { getToolRetrievalService } from "./ToolRetrievalService";
-import { toolRegistry, ToolType } from "../core/tool/registry";
+import { toolRegistry } from "../core/tool/registry";
+import { ToolType, SkillTool } from "./tool-retrieval/types";
 import { convertMcpTool, cleanMcpToolResult } from "./mcp/convert";
 import type { Tool } from "../core/tool/tool";
 import type {
@@ -514,10 +515,10 @@ export class MCPIntegrationService extends EventEmitter {
    * 向量化服务器工具
    */
   public async vectorizeServerTools(serverId: string, tools: MCPTool[]): Promise<void> {
-    const unifiedTools = tools.map((tool) => ({
+    const unifiedTools: SkillTool[] = tools.map((tool) => ({
       name: tool.name,
       description: tool.description,
-      type: "mcp" as const,
+      type: ToolType.MCP,
       source: serverId,
       tags: [],
       metadata: {

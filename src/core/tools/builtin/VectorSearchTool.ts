@@ -63,8 +63,19 @@ export class VectorSearchTool {
 
       const duration = Date.now() - startTime;
 
-      // 格式化结果
-      const formattedResults = this.formatSearchResults(results, args);
+      // Transform results to match expected format
+      const formattedResults = this.formatSearchResults(
+        results.map((r) => ({
+          tool: {
+            name: r.name,
+            description: r.description,
+            type: r.toolType,
+            metadata: r.metadata,
+          },
+          score: r.score,
+        })),
+        args
+      );
 
       logger.info(`Vector search completed in ${duration}ms, found ${results.length} results`);
 

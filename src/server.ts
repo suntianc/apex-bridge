@@ -1,5 +1,16 @@
 /**
  * ApexBridge Server - 主服务器入口（ABP-only）
+ *
+ * Architecture Note:
+ * Services can be accessed via the Services Facade:
+ * ```typescript
+ * import { getServices } from "./services";
+ * const services = getServices();
+ * const skills = await services.skills.listSkills();
+ * ```
+ *
+ * Current initialization uses direct imports for backward compatibility.
+ * Future refactoring will migrate to facade-based initialization.
  */
 
 // 全局错误处理 - 必须在最顶层，任何导入之前

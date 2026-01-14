@@ -15,7 +15,7 @@ import { ToolRetrievalService } from "../services/ToolRetrievalService";
 import { BuiltInExecutor } from "../services/executors/BuiltInExecutor";
 import { SkillsSandboxExecutor } from "../services/executors/SkillsSandboxExecutor";
 import { generateToolPrompt, ToolDispatcher } from "../core/tool-action";
-import { getSkillManager } from "../services/SkillManager";
+import { getSkillManager } from "../services/skill/SkillManager";
 import type { Tool } from "../core/stream-orchestrator/types";
 import { ToolType, SkillTool, BuiltInTool } from "../types/tool-system";
 import { logger } from "../utils/logger";

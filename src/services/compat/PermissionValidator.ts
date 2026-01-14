@@ -5,7 +5,7 @@
 
 import { ToolError, ToolErrorCode } from "../../types/tool-system";
 import { logger } from "../../utils/logger";
-import { getSkillManager } from "../SkillManager";
+import { getSkillManager } from "../skill/SkillManager";
 import { ParsedClaudeSkill } from "./types";
 import { LRUCache } from "lru-cache";
 

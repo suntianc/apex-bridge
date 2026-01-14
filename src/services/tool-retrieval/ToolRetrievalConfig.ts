@@ -19,7 +19,7 @@ export interface ToolRetrievalConfig {
   /** 相似度阈值 */
   similarityThreshold: number;
   /** 最大结果数 */
-  maxResults: number;
+  maxResults?: number;
 }
 
 /**

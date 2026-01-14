@@ -6,6 +6,7 @@
 
 import * as fs from "fs/promises";
 import * as path from "path";
+import matter from "gray-matter";
 import { logger } from "../../utils/logger";
 import { ToolRetrievalService } from "../ToolRetrievalService";
 import {
@@ -403,6 +404,56 @@ export class SkillManager {
       logger.error("Failed to initialize skills index:", error);
       throw error;
     }
+  }
+
+  /**
+   * Check if directory exists
+   */
+  private async directoryExists(dirPath: string): Promise<boolean> {
+    try {
+      const stat = await fs.stat(dirPath);
+      return stat.isDirectory();
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Check if file exists
+   */
+  private async fileExists(filePath: string): Promise<boolean> {
+    try {
+      const stat = await fs.stat(filePath);
+      return stat.isFile();
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Skill Direct Mode - Return SKILL.md content without sandbox execution
+   * Used for FR-37~FR-40 scenarios
+   */
+  async executeDirect(skillName: string, _args: Record<string, unknown>): Promise<string> {
+    const skillPath = path.join(this.skillsBasePath, skillName);
+    const skillMdPath = path.join(skillPath, "SKILL.md");
+
+    // Check if skill exists
+    if (!(await this.directoryExists(skillPath))) {
+      throw new Error(`Skill '${skillName}' not found`);
+    }
+
+    // Read SKILL.md
+    if (!(await this.fileExists(skillMdPath))) {
+      throw new Error(`SKILL.md not found in Skill '${skillName}'`);
+    }
+
+    const content = await fs.readFile(skillMdPath, "utf8");
+    const parsed = matter(content);
+
+    // Return content part without frontmatter
+    logger.debug(`[SkillManager] Direct execution for skill: ${skillName}`);
+    return parsed.content;
   }
 }
 

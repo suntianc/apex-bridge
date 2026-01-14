@@ -38,6 +38,7 @@ export interface IToolRetrievalService {
   cleanup(): Promise<void>;
   indexTools(tools: SkillTool[]): Promise<void>;
   removeTool(toolId: string): Promise<void>;
+  getStatistics(): Promise<Record<string, unknown>>;
 }
 
 /**
@@ -333,6 +334,19 @@ export class ToolRetrievalService implements IToolRetrievalService {
    */
   async removeTool(toolId: string): Promise<void> {
     await this.connection.deleteById(toolId);
+  }
+
+  /**
+   * Get service statistics
+   */
+  async getStatistics(): Promise<Record<string, unknown>> {
+    const dbStatus = this.connection.getStatus();
+    return {
+      isInitialized: this.isInitialized,
+      databaseConnected: dbStatus.connected,
+      uptime: Date.now() - (this as any).startTime || 0,
+      lastError: dbStatus.error,
+    };
   }
 
   /**
