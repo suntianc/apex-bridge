@@ -9,6 +9,15 @@ import { LLMConfigService } from "../../services/LLMConfigService";
 import { ModelRegistry } from "../../services/ModelRegistry";
 import { CreateModelInput, UpdateModelInput, LLMModelType } from "../../types/llm-models";
 import { logger } from "../../utils/logger";
+import {
+  badRequest,
+  notFound,
+  conflict,
+  serverError,
+  created,
+  ok,
+} from "../../utils/http-response";
+import { parseIdParam, parsePaginationParams } from "../../utils/request-parser";
 
 const configService = LLMConfigService.getInstance();
 const modelRegistry = ModelRegistry.getInstance();
@@ -102,23 +111,17 @@ function handleServiceError(res: Response, error: any, action: string): boolean 
  */
 export async function listProviderModels(req: Request, res: Response): Promise<void> {
   try {
-    const providerId = parseInt(req.params.providerId, 10);
+    const providerId = parseIdParam(req, "providerId");
 
-    if (isNaN(providerId)) {
-      res.status(400).json({
-        error: "Invalid provider ID",
-        message: "Provider ID must be a number",
-      });
+    if (providerId === null) {
+      badRequest(res, "Provider ID must be a number");
       return;
     }
 
     // 验证提供商存在
     const provider = configService.getProvider(providerId);
     if (!provider) {
-      res.status(404).json({
-        error: "Provider not found",
-        message: `Provider with id ${providerId} not found`,
-      });
+      notFound(res, `Provider with id ${providerId} not found`);
       return;
     }
 
@@ -147,10 +150,7 @@ export async function listProviderModels(req: Request, res: Response): Promise<v
     });
   } catch (error: any) {
     logger.error("❌ Failed to list models:", error);
-    res.status(500).json({
-      error: "Failed to list models",
-      message: error.message,
-    });
+    serverError(res, error, "Failed to list models");
   }
 }
 

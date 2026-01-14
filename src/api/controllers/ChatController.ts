@@ -11,6 +11,7 @@ import { InterruptRequest, InterruptResponse } from "../../types/request-abort";
 import { LLMModelType } from "../../types/llm-models";
 import { Message } from "../../types";
 import { logger } from "../../utils/logger";
+import { badRequest, notFound, serverError } from "../../utils/http-response";
 import { parseChatRequest } from "../../api/validators/chat-request-validator";
 import type { ChatRequestOptions } from "../../api/validators/chat-request-validator";
 import { normalizeUsage, buildChatResponse } from "../../api/utils/response-formatter";
@@ -83,12 +84,7 @@ export class ChatController {
       const validation = parseChatRequest(body);
       if (!validation.success) {
         logger.warn("[ChatController] Invalid request:", validation.error);
-        res.status(400).json({
-          error: {
-            message: validation.error || "Invalid request parameters",
-            type: "invalid_request",
-          },
-        });
+        badRequest(res, validation.error || "Invalid request parameters");
         return;
       }
 
@@ -111,13 +107,7 @@ export class ChatController {
       await this.handleStreamResponse(res, messages, options);
     } catch (error: any) {
       logger.error("Error in chatCompletions:", error);
-
-      res.status(500).json({
-        error: {
-          message: error.message || "Internal server error",
-          type: "server_error",
-        },
-      });
+      serverError(res, error);
     }
   }
 
@@ -519,11 +509,7 @@ export class ChatController {
       const { requestId } = body;
 
       if (!requestId || typeof requestId !== "string") {
-        res.status(400).json({
-          success: false,
-          error: "Bad Request",
-          message: "Missing or invalid requestId",
-        });
+        badRequest(res, "Missing or invalid requestId");
         return;
       }
 
@@ -550,18 +536,11 @@ export class ChatController {
         };
 
         logger.warn(`Request not found for interrupt: ${requestId}`);
-        res.status(404).json(response);
+        notFound(res, "Request not found or already completed");
       }
     } catch (error: any) {
       logger.error("Error in interruptRequest:", error);
-
-      const response: InterruptResponse = {
-        success: false,
-        message: error.message || "Failed to interrupt request",
-        error: error.toString(),
-      };
-
-      res.status(500).json(response);
+      serverError(res, error, "Failed to interrupt request");
     }
   }
 
@@ -574,12 +553,7 @@ export class ChatController {
       const conversationId = req.params.conversationId;
 
       if (!conversationId) {
-        res.status(400).json({
-          error: {
-            message: "conversationId is required",
-            type: "invalid_request",
-          },
-        });
+        badRequest(res, "conversationId is required");
         return;
       }
 
@@ -591,12 +565,7 @@ export class ChatController {
       });
     } catch (error: any) {
       logger.error("Error in deleteSession:", error);
-      res.status(500).json({
-        error: {
-          message: error.message || "Internal server error",
-          type: "server_error",
-        },
-      });
+      serverError(res, error);
     }
   }
 
@@ -609,12 +578,7 @@ export class ChatController {
       const conversationId = req.params.conversationId;
 
       if (!conversationId) {
-        res.status(400).json({
-          error: {
-            message: "conversationId is required",
-            type: "invalid_request",
-          },
-        });
+        badRequest(res, "conversationId is required");
         return;
       }
 
@@ -622,12 +586,7 @@ export class ChatController {
       const sessionId = this.chatService.getSessionIdByConversationId(conversationId);
 
       if (!sessionId) {
-        res.status(404).json({
-          error: {
-            message: "Session not found",
-            type: "not_found",
-          },
-        });
+        notFound(res, "Session not found");
         return;
       }
 
@@ -652,12 +611,7 @@ export class ChatController {
       });
     } catch (error: any) {
       logger.error("Error in getSession:", error);
-      res.status(500).json({
-        error: {
-          message: error.message || "Internal server error",
-          type: "server_error",
-        },
-      });
+      serverError(res, error);
     }
   }
 
@@ -707,12 +661,7 @@ export class ChatController {
       });
     } catch (error: any) {
       logger.error("Error in getActiveSessions:", error);
-      res.status(500).json({
-        error: {
-          message: error.message || "Internal server error",
-          type: "server_error",
-        },
-      });
+      serverError(res, error);
     }
   }
 
@@ -726,24 +675,14 @@ export class ChatController {
       const { type = "all", limit = "100" } = req.query;
 
       if (!conversationId) {
-        res.status(400).json({
-          error: {
-            message: "conversationId is required",
-            type: "invalid_request",
-          },
-        });
+        badRequest(res, "conversationId is required");
         return;
       }
 
       // 验证会话是否存在
       const sessionId = this.chatService.getSessionIdByConversationId(conversationId);
       if (!sessionId) {
-        res.status(404).json({
-          error: {
-            message: "Session not found",
-            type: "not_found",
-          },
-        });
+        notFound(res, "Session not found");
         return;
       }
 
@@ -781,12 +720,7 @@ export class ChatController {
       });
     } catch (error: any) {
       logger.error("Error in getSessionHistory:", error);
-      res.status(500).json({
-        error: {
-          message: error.message || "Internal server error",
-          type: "server_error",
-        },
-      });
+      serverError(res, error);
     }
   }
 
@@ -800,12 +734,7 @@ export class ChatController {
       const { limit = "100", offset = "0" } = req.query;
 
       if (!conversationId) {
-        res.status(400).json({
-          error: {
-            message: "conversationId is required",
-            type: "invalid_request",
-          },
-        });
+        badRequest(res, "conversationId is required");
         return;
       }
 
@@ -828,12 +757,7 @@ export class ChatController {
       });
     } catch (error: any) {
       logger.error("Error in getConversationMessages:", error);
-      res.status(500).json({
-        error: {
-          message: error.message || "Internal server error",
-          type: "server_error",
-        },
-      });
+      serverError(res, error);
     }
   }
 
@@ -847,12 +771,7 @@ export class ChatController {
       const body = req.body;
 
       if (!messages || !Array.isArray(messages)) {
-        res.status(400).json({
-          error: {
-            message: "messages is required and must be an array",
-            type: "validation_error",
-          },
-        });
+        badRequest(res, "messages is required and must be an array");
         return;
       }
 
@@ -866,12 +785,7 @@ export class ChatController {
       };
 
       if (!options.model) {
-        res.status(400).json({
-          error: {
-            message: "model is required",
-            type: "validation_error",
-          },
-        });
+        badRequest(res, "model is required");
         return;
       }
 
@@ -880,12 +794,7 @@ export class ChatController {
       logger.error("Error in simpleChatStream:", error);
 
       if (!res.headersSent) {
-        res.status(500).json({
-          error: {
-            message: error.message || "Internal server error",
-            type: "server_error",
-          },
-        });
+        serverError(res, error);
       }
     }
   }
