@@ -21,7 +21,7 @@ export interface ToolRetrievalResult {
   /** Tool type: 'mcp' | 'builtin' | 'skill' */
   toolType: "mcp" | "builtin" | "skill";
   /** Metadata */
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, any>;
   /** Type tags */
   tags?: string[];
 }
@@ -51,7 +51,7 @@ export interface SkillData {
   /** Execution command */
   command?: string;
   /** Parameters pattern */
-  parameters?: Record<string, unknown>;
+  parameters?: Record<string, any>;
   /** Type */
   type?: string;
   /** Tags */
@@ -61,7 +61,7 @@ export interface SkillData {
   /** Last modified time */
   lastModified?: Date;
   /** Metadata */
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, any>;
   /** Version */
   version?: string;
 }
@@ -81,7 +81,7 @@ export interface MCPTool {
   /** Tool type */
   type?: string;
   /** Metadata */
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, any>;
 }
 
 /**
@@ -89,9 +89,9 @@ export interface MCPTool {
  */
 export interface MCPInputSchema {
   /** JSON Schema */
-  schema: Record<string, unknown>;
+  schema: Record<string, any>;
   /** Properties */
-  properties?: Record<string, unknown>;
+  properties?: Record<string, any>;
 }
 
 /**
@@ -105,7 +105,7 @@ export interface MCPToolRetrievalResult {
   /** Description */
   description: string;
   /** Parameters pattern */
-  parameters?: Record<string, unknown>;
+  parameters?: Record<string, any>;
 }
 
 // ==================== Embedding Vector ====================
@@ -303,10 +303,11 @@ export interface SkillTool {
   tags?: string[];
   version?: string;
   path?: string;
-  parameters?: Record<string, unknown>;
+  source?: string;
+  parameters?: Record<string, any>;
   enabled?: boolean;
   level?: number;
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, any>;
 }
 
 // ==================== Internal Types ====================
@@ -320,8 +321,8 @@ export interface ToolsTable {
   description: string;
   tags: string[];
   path?: string;
-  version?: string;
   source?: string;
+  version?: string;
   toolType: "skill" | "mcp" | "builtin";
   metadata: string;
   vector: number[];

@@ -5,7 +5,7 @@
  */
 
 import { logger } from "../../utils/logger";
-import { ToolRetrievalService } from "../ToolRetrievalService";
+import { ToolRetrievalService } from "../tool-retrieval/ToolRetrievalService";
 import {
   SkillMetadata,
   SkillTool,
@@ -97,15 +97,17 @@ export class DynamicSkillManager {
         ...skillData.metadata,
       };
 
-      // Index the skill
-      await this.retrievalService.indexSkill({
-        name: metadata.name,
-        description: metadata.description,
-        tags: metadata.tags || [],
-        path: "", // Dynamic skills may not have a path
-        version: metadata.version,
-        metadata: metadata,
-      });
+      await this.retrievalService.indexTools([
+        {
+          name: metadata.name,
+          description: metadata.description,
+          type: "skill" as any,
+          tags: metadata.tags || [],
+          path: "",
+          version: metadata.version,
+          metadata: metadata,
+        },
+      ]);
 
       // Track the update
       this.recordUpdate({
@@ -190,15 +192,17 @@ export class DynamicSkillManager {
       // Remove old version
       await this.retrievalService.removeSkill(skillName);
 
-      // Add updated version
-      await this.retrievalService.indexSkill({
-        name: updates.name || skillName,
-        description: updates.description || "",
-        tags: updates.tags || [],
-        version: updates.version || "1.0.0",
-        path: "",
-        metadata: updates,
-      });
+      await this.retrievalService.indexTools([
+        {
+          name: updates.name || skillName,
+          description: updates.description || "",
+          type: "skill" as any,
+          tags: updates.tags || [],
+          path: "",
+          version: updates.version || "1.0.0",
+          metadata: updates,
+        },
+      ]);
 
       // Track the update
       this.recordUpdate({

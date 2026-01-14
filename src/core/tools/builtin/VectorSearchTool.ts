@@ -4,10 +4,7 @@
  */
 
 import { ToolResult, BuiltInTool, ToolType } from "../../../types/tool-system";
-import {
-  getToolRetrievalService,
-  ToolRetrievalService,
-} from "../../../services/ToolRetrievalService";
+import { getToolRetrievalService } from "../../../services/tool-retrieval/ToolRetrievalService";
 import { logger } from "../../../utils/logger";
 import { THRESHOLDS } from "../../../constants";
 
@@ -63,7 +60,6 @@ export class VectorSearchTool {
 
       const duration = Date.now() - startTime;
 
-      // Transform results to match expected format
       const formattedResults = this.formatSearchResults(
         results.map((r) => ({
           tool: {
@@ -374,15 +370,6 @@ export class VectorSearchTool {
         required: ["query"],
       },
     };
-  }
-
-  /**
-   * 计算搜索查询的向量嵌入（备用方法）
-   */
-  private static async getQueryEmbedding(query: string): Promise<number[]> {
-    // 这个方法将由ToolRetrievalService实现
-    // 这里只是占位符
-    throw new Error("getQueryEmbedding not implemented");
   }
 
   /**

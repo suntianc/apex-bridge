@@ -9,7 +9,7 @@ import { EventEmitter } from "events";
 import { logger } from "../utils/logger";
 import { MCPServerManager } from "./MCPServerManager";
 import { MCPConfigService } from "./MCPConfigService";
-import { getToolRetrievalService } from "./ToolRetrievalService";
+import { getToolRetrievalService } from "./tool-retrieval/ToolRetrievalService";
 import { toolRegistry } from "../core/tool/registry";
 import { ToolType, SkillTool } from "./tool-retrieval/types";
 import { convertMcpTool, cleanMcpToolResult } from "./mcp/convert";

@@ -8,7 +8,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import matter from "gray-matter";
 import { logger } from "../../utils/logger";
-import { ToolRetrievalService } from "../ToolRetrievalService";
+import { ToolRetrievalService } from "../tool-retrieval/ToolRetrievalService";
 import {
   SkillTool,
   SkillInstallOptions,

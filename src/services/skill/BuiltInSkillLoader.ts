@@ -7,7 +7,7 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { logger } from "../../utils/logger";
-import { ToolRetrievalService } from "../ToolRetrievalService";
+import { ToolRetrievalService } from "../tool-retrieval/ToolRetrievalService";
 import { SkillMetadata, SkillTool, ToolType } from "../../types/tool-system";
 
 export interface BuiltInSkillInfo {
@@ -88,15 +88,17 @@ export class BuiltInSkillLoader {
       const content = await fs.readFile(skillMdPath, "utf8");
       const metadata = await this.parseSkillMetadata(content);
 
-      // Index the built-in skill
-      await this.retrievalService.indexSkill({
-        name: metadata.name,
-        description: metadata.description,
-        tags: metadata.tags || [],
-        path: skillPath,
-        version: metadata.version,
-        metadata: metadata,
-      });
+      await this.retrievalService.indexTools([
+        {
+          name: metadata.name,
+          description: metadata.description,
+          type: "skill" as any,
+          tags: metadata.tags || [],
+          path: skillPath,
+          version: metadata.version,
+          metadata: metadata,
+        },
+      ]);
 
       logger.debug(`Loaded built-in skill: ${metadata.name}`);
       return metadata;

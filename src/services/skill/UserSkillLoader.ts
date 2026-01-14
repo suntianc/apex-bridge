@@ -12,7 +12,7 @@ import * as AdmZip from "adm-zip";
 import matter from "gray-matter";
 import { logger } from "../../utils/logger";
 import { SkillMetadata, SkillTool, ToolType, SkillInstallOptions } from "../../types/tool-system";
-import { ToolRetrievalService } from "../ToolRetrievalService";
+import { ToolRetrievalService } from "../tool-retrieval/ToolRetrievalService";
 
 export interface UserSkillLoadResult {
   success: boolean;
@@ -82,15 +82,17 @@ export class UserSkillLoader {
       const skillName = path.basename(skillPath);
       const metadata = await this.readSkillMetadata(skillPath);
 
-      // Index the user skill
-      await this.retrievalService.indexSkill({
-        name: metadata.name,
-        description: metadata.description,
-        tags: metadata.tags || [],
-        path: skillPath,
-        version: metadata.version,
-        metadata: metadata,
-      });
+      await this.retrievalService.indexTools([
+        {
+          name: metadata.name,
+          description: metadata.description,
+          type: "skill" as any,
+          tags: metadata.tags || [],
+          path: skillPath,
+          version: metadata.version,
+          metadata: metadata,
+        },
+      ]);
 
       logger.debug(`Loaded user skill: ${metadata.name}`);
       return {
@@ -148,15 +150,17 @@ export class UserSkillLoader {
       const vectorizedFile = path.join(targetDir, ".vectorized");
       await fs.writeFile(vectorizedFile, "");
 
-      // Index the skill
-      await this.retrievalService.indexSkill({
-        name: metadata.name,
-        description: metadata.description,
-        tags: metadata.tags || [],
-        path: targetDir,
-        version: metadata.version,
-        metadata: metadata,
-      });
+      await this.retrievalService.indexTools([
+        {
+          name: metadata.name,
+          description: metadata.description,
+          type: "skill" as any,
+          tags: metadata.tags || [],
+          path: targetDir,
+          version: metadata.version,
+          metadata: metadata,
+        },
+      ]);
 
       logger.info(`Successfully installed user skill: ${metadata.name}`);
       return {
@@ -254,14 +258,17 @@ export class UserSkillLoader {
       // Reindex
       const metadata = await this.readSkillMetadata(skillPath);
       await this.retrievalService.removeSkill(metadata.name);
-      await this.retrievalService.indexSkill({
-        name: metadata.name,
-        description: metadata.description,
-        tags: metadata.tags || [],
-        path: skillPath,
-        version: metadata.version,
-        metadata: metadata,
-      });
+      await this.retrievalService.indexTools([
+        {
+          name: metadata.name,
+          description: metadata.description,
+          type: "skill" as any,
+          tags: metadata.tags || [],
+          path: skillPath,
+          version: metadata.version,
+          metadata: metadata,
+        },
+      ]);
 
       logger.info(`Successfully updated skill description: ${skillName}`);
       return {

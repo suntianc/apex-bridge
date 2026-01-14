@@ -11,7 +11,7 @@ import type { ConversationHistoryService } from "../services/ConversationHistory
 import { ReActEngine } from "../core/stream-orchestrator/ReActEngine";
 import { LLMManagerAdapter } from "../core/stream-orchestrator/LLMAdapter";
 import { BuiltInToolsRegistry } from "../services/BuiltInToolsRegistry";
-import { ToolRetrievalService } from "../services/ToolRetrievalService";
+import { ToolRetrievalService } from "../services/tool-retrieval/ToolRetrievalService";
 import { BuiltInExecutor } from "../services/executors/BuiltInExecutor";
 import { SkillsSandboxExecutor } from "../services/executors/SkillsSandboxExecutor";
 import { generateToolPrompt, ToolDispatcher } from "../core/tool-action";

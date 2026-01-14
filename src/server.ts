@@ -164,7 +164,7 @@ export class ABPIntelliCore {
 
       // 索引所有内置工具（file-read, file-write, vector-search, read-skill, platform-detector）
       // 使其可以通过语义搜索检索
-      const { getToolRetrievalService } = await import("./services/ToolRetrievalService");
+      const { getToolRetrievalService } = await import("./services/tool-retrieval/ToolRetrievalService");
       const toolRetrievalService = getToolRetrievalService();
       await toolRetrievalService.indexBuiltinTools();
       logger.debug("✅ Built-in tools indexed");

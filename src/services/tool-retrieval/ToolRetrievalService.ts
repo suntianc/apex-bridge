@@ -6,6 +6,7 @@
  */
 
 import { logger } from "../../utils/logger";
+import * as path from "path";
 import {
   ToolRetrievalConfig,
   ToolRetrievalResult,
@@ -14,6 +15,7 @@ import {
   ToolError,
   ToolErrorCode,
   SkillTool,
+  ToolType,
 } from "./types";
 import { LanceDBConnection, ILanceDBConnection } from "./LanceDBConnection";
 import { EmbeddingGenerator, IEmbeddingGenerator } from "./EmbeddingGenerator";
@@ -37,6 +39,7 @@ export interface IToolRetrievalService {
   getStatus(): ServiceStatus;
   cleanup(): Promise<void>;
   indexTools(tools: SkillTool[]): Promise<void>;
+  indexBuiltinTools(): Promise<void>;
   removeTool(toolId: string): Promise<void>;
   getStatistics(): Promise<Record<string, unknown>>;
 }
@@ -53,6 +56,7 @@ export class ToolRetrievalService implements IToolRetrievalService {
   private searchEngine: ISearchEngine;
   private mcpToolSupport: IMCPToolSupport;
   private isInitialized = false;
+  private readonly startTime = Date.now();
 
   /**
    * Create ToolRetrievalService with dependencies
@@ -68,8 +72,9 @@ export class ToolRetrievalService implements IToolRetrievalService {
       dimensions: config.dimensions,
     });
     this.skillIndexer = new SkillIndexer(this.connection, this.embeddingGenerator);
+    const maxResults = this.config.maxResults ?? 10;
     this.searchEngine = new SearchEngine(this.connection, this.embeddingGenerator, {
-      defaultLimit: config.maxResults,
+      defaultLimit: maxResults,
       defaultThreshold: config.similarityThreshold,
     });
     this.mcpToolSupport = new MCPToolSupport(this.embeddingGenerator, this.connection);
@@ -79,7 +84,7 @@ export class ToolRetrievalService implements IToolRetrievalService {
       model: config.model,
       dimensions: config.dimensions,
       similarityThreshold: config.similarityThreshold,
-      maxResults: config.maxResults,
+      maxResults: maxResults,
     });
   }
 
@@ -273,6 +278,24 @@ export class ToolRetrievalService implements IToolRetrievalService {
     await this.skillIndexer.scanAndIndex(dir);
   }
 
+  async indexBuiltinTools(): Promise<void> {
+    const { BuiltInToolsRegistry } = await import("../BuiltInToolsRegistry");
+    const registry = new BuiltInToolsRegistry();
+    await registry.waitForInitialization();
+    const builtinTools = registry.listAllTools();
+
+    await this.indexTools(
+      builtinTools.map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        type: ToolType.BUILTIN,
+        tags: [tool.category],
+        source: "builtin",
+        metadata: { parameters: tool.parameters, category: tool.category },
+      }))
+    );
+  }
+
   /**
    * Index tools (supports both skills and MCP tools)
    */
@@ -300,9 +323,9 @@ export class ToolRetrievalService implements IToolRetrievalService {
             tags: tool.tags || [],
             path: tool.path,
             version: tool.version,
-            source: tool.path || tool.name,
-            toolType: (tool.type as "skill" | "mcp") || "skill",
-            metadata: JSON.stringify(tool.metadata || {}),
+            source: tool.source || tool.path || tool.name,
+            toolType: ((tool.type as unknown) as "skill" | "mcp" | "builtin") || "skill",
+            metadata: JSON.stringify({ ...(tool.metadata || {}), parameters: tool.parameters }),
             vector: vector.values,
             indexedAt: new Date(),
           };
@@ -344,7 +367,7 @@ export class ToolRetrievalService implements IToolRetrievalService {
     return {
       isInitialized: this.isInitialized,
       databaseConnected: dbStatus.connected,
-      uptime: Date.now() - (this as any).startTime || 0,
+      uptime: Date.now() - this.startTime,
       lastError: dbStatus.error,
     };
   }
@@ -437,8 +460,11 @@ let instance: ToolRetrievalService | null = null;
 export function getToolRetrievalService(config?: ToolRetrievalConfig): ToolRetrievalService {
   if (!instance) {
     if (!config) {
+      const pathService = require("../PathService").PathService.getInstance();
+      const dataDir = pathService.getDataDir();
+
       config = {
-        vectorDbPath: "./.data",
+        vectorDbPath: path.join(dataDir, "skills.lance"),
         model: "nomic-embed-text:latest",
         cacheSize: 1000,
         dimensions: 768,
