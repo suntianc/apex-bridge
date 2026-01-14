@@ -27,6 +27,44 @@ export function formatErrorWithStack(error: unknown): string {
 }
 
 /**
+ * Format error response data for logging
+ * Extracts data from common error response structures (Axios, fetch, etc.)
+ */
+export function formatErrorData(error: unknown): string {
+  if (!error || typeof error !== "object") {
+    return formatErrorMessage(error);
+  }
+
+  const err = error as Record<string, unknown>;
+
+  // Handle axios-style error.response.data
+  if (err.response && typeof err.response === "object") {
+    const response = err.response as Record<string, unknown>;
+    if (response.data && typeof response.data === "object") {
+      return JSON.stringify(response.data, null, 2);
+    }
+  }
+
+  // Handle fetch-style error.response
+  if (err.response && typeof err.response === "string") {
+    try {
+      const parsed = JSON.parse(err.response);
+      return JSON.stringify(parsed, null, 2);
+    } catch {
+      return err.response;
+    }
+  }
+
+  // Handle direct data property
+  if (err.data && typeof err.data === "object") {
+    return JSON.stringify(err.data, null, 2);
+  }
+
+  // Fallback to string representation
+  return formatErrorMessage(error);
+}
+
+/**
  * Check if value is a string
  */
 export function isString(value: unknown): value is string {
