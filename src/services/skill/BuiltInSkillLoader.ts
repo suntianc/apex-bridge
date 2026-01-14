@@ -9,6 +9,7 @@ import * as path from "path";
 import { logger } from "../../utils/logger";
 import { ToolRetrievalService } from "../tool-retrieval/ToolRetrievalService";
 import { SkillMetadata, SkillTool, ToolType } from "../../types/tool-system";
+import { fileExists, parseSkillMetadata, readSkillMetadata } from "./skill-utils";
 
 export interface BuiltInSkillInfo {
   name: string;
@@ -80,13 +81,13 @@ export class BuiltInSkillLoader {
     try {
       const skillMdPath = path.join(skillPath, "SKILL.md");
 
-      if (!(await this.fileExists(skillMdPath))) {
+      if (!(await fileExists(skillMdPath))) {
         logger.warn(`SKILL.md not found for built-in skill: ${skillPath}`);
         return null;
       }
 
       const content = await fs.readFile(skillMdPath, "utf8");
-      const metadata = await this.parseSkillMetadata(content);
+      const metadata = await parseSkillMetadata(content);
 
       await this.retrievalService.indexTools([
         {
@@ -109,26 +110,6 @@ export class BuiltInSkillLoader {
   }
 
   /**
-   * Parse skill metadata from content
-   */
-  private async parseSkillMetadata(content: string): Promise<SkillMetadata> {
-    const matter = await import("gray-matter");
-    const parsed = matter.default(content);
-
-    return {
-      name: parsed.data.name || "Unnamed Skill",
-      description: parsed.data.description || "",
-      category: parsed.data.category || "uncategorized",
-      tools: parsed.data.tools || [],
-      version: parsed.data.version || "1.0.0",
-      tags: parsed.data.tags || [],
-      author: parsed.data.author || "System",
-      dependencies: parsed.data.dependencies || [],
-      parameters: parsed.data.parameters,
-    };
-  }
-
-  /**
    * Convert to SkillTool format
    */
   convertToSkillTool(metadata: SkillMetadata, skillPath: string): SkillTool {
@@ -148,18 +129,6 @@ export class BuiltInSkillLoader {
       path: skillPath,
       level: 1,
     };
-  }
-
-  /**
-   * Check if file exists
-   */
-  private async fileExists(filePath: string): Promise<boolean> {
-    try {
-      await fs.access(filePath);
-      return true;
-    } catch {
-      return false;
-    }
   }
 
   /**

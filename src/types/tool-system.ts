@@ -286,21 +286,9 @@ export interface SandboxExecutionResult {
 
 /**
  * 工具检索服务配置
+ * @deprecated Use ToolRetrievalConfig from src/services/tool-retrieval/types.ts instead
  */
-export interface ToolRetrievalConfig {
-  /** 向量数据库路径 */
-  vectorDbPath: string;
-  /** 嵌入模型名称 */
-  model: string;
-  /** 向量维度 */
-  dimensions: number;
-  /** 相似度阈值 */
-  similarityThreshold: number;
-  /** 缓存大小 */
-  cacheSize: number;
-  /** 最大返回结果数 */
-  maxResults?: number;
-}
+export type ToolRetrievalConfig = import("../services/tool-retrieval/types").ToolRetrievalConfig;
 
 /**
  * Skills配置

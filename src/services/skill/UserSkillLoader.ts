@@ -13,6 +13,13 @@ import matter from "gray-matter";
 import { logger } from "../../utils/logger";
 import { SkillMetadata, SkillTool, ToolType, SkillInstallOptions } from "../../types/tool-system";
 import { ToolRetrievalService } from "../tool-retrieval/ToolRetrievalService";
+import {
+  fileExists,
+  directoryExists,
+  removeFileIfExists,
+  ensureDirectory,
+  readSkillMetadata,
+} from "./skill-utils";
 
 export interface UserSkillLoadResult {
   success: boolean;
@@ -127,7 +134,7 @@ export class UserSkillLoader {
 
       // Check for name conflicts
       const targetDir = path.join(this.skillsBasePath, metadata.name);
-      const exists = await this.directoryExists(targetDir);
+      const exists = await directoryExists(targetDir);
 
       if (exists && !options.overwrite) {
         return {
@@ -139,7 +146,7 @@ export class UserSkillLoader {
 
       // If exists and overwrite, remove first
       if (exists) {
-        await this.removeSkillDirectory(targetDir);
+        await removeFileIfExists(targetDir);
       }
 
       // Move to target directory
@@ -184,7 +191,7 @@ export class UserSkillLoader {
     try {
       const skillPath = path.join(this.skillsBasePath, skillName);
 
-      if (!(await this.directoryExists(skillPath))) {
+      if (!(await directoryExists(skillPath))) {
         return {
           success: false,
           skillName,
@@ -196,7 +203,7 @@ export class UserSkillLoader {
       await this.retrievalService.removeSkill(skillName);
 
       // Remove directory
-      await this.removeSkillDirectory(skillPath);
+      await fs.rm(skillPath, { recursive: true, force: true });
 
       logger.info(`Successfully uninstalled user skill: ${skillName}`);
       return {
@@ -223,7 +230,7 @@ export class UserSkillLoader {
     try {
       const skillPath = path.join(this.skillsBasePath, skillName);
 
-      if (!(await this.directoryExists(skillPath))) {
+      if (!(await directoryExists(skillPath))) {
         return {
           success: false,
           skillName,
@@ -233,7 +240,7 @@ export class UserSkillLoader {
 
       const skillMdPath = path.join(skillPath, "SKILL.md");
 
-      if (!(await this.fileExists(skillMdPath))) {
+      if (!(await fileExists(skillMdPath))) {
         return {
           success: false,
           skillName,
@@ -290,26 +297,7 @@ export class UserSkillLoader {
    * Read skill metadata
    */
   private async readSkillMetadata(skillPath: string): Promise<SkillMetadata> {
-    const skillMdPath = path.join(skillPath, "SKILL.md");
-
-    if (!(await this.fileExists(skillMdPath))) {
-      throw new Error(`SKILL.md not found in ${skillPath}`);
-    }
-
-    const content = await fs.readFile(skillMdPath, "utf8");
-    const parsed = matter(content);
-
-    return {
-      name: parsed.data.name,
-      description: parsed.data.description,
-      category: parsed.data.category || "uncategorized",
-      tools: parsed.data.tools || [],
-      version: parsed.data.version,
-      tags: parsed.data.tags || [],
-      author: parsed.data.author,
-      dependencies: parsed.data.dependencies || [],
-      parameters: parsed.data.parameters,
-    };
+    return readSkillMetadata(skillPath);
   }
 
   /**
@@ -323,7 +311,7 @@ export class UserSkillLoader {
 
     for (const file of requiredFiles) {
       const filePath = path.join(skillPath, file);
-      if (!(await this.fileExists(filePath))) {
+      if (!(await fileExists(filePath))) {
         throw new Error(`Required file missing: ${file}`);
       }
     }
@@ -336,12 +324,12 @@ export class UserSkillLoader {
 
     if (validationLevel === "strict") {
       const scriptsDir = path.join(skillPath, "scripts");
-      if (!(await this.directoryExists(scriptsDir))) {
+      if (!(await directoryExists(scriptsDir))) {
         throw new Error("Scripts directory not found in strict validation mode");
       }
 
       const executeScript = path.join(scriptsDir, "execute.js");
-      if (!(await this.fileExists(executeScript))) {
+      if (!(await fileExists(executeScript))) {
         throw new Error("execute.js not found in scripts directory");
       }
     }
@@ -365,42 +353,11 @@ export class UserSkillLoader {
   }
 
   /**
-   * Check if directory exists
-   */
-  private async directoryExists(dirPath: string): Promise<boolean> {
-    try {
-      const stat = await fs.stat(dirPath);
-      return stat.isDirectory();
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Check if file exists
-   */
-  private async fileExists(filePath: string): Promise<boolean> {
-    try {
-      await fs.access(filePath);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Remove skill directory
-   */
-  private async removeSkillDirectory(skillPath: string): Promise<void> {
-    await fs.rm(skillPath, { recursive: true, force: true });
-  }
-
-  /**
    * Ensure skills directory exists
    */
   private async ensureSkillsDirectory(): Promise<void> {
     try {
-      const exists = await this.directoryExists(this.skillsBasePath);
+      const exists = await directoryExists(this.skillsBasePath);
       if (!exists) {
         await fs.mkdir(this.skillsBasePath, { recursive: true });
       }

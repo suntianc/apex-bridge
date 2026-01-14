@@ -20,6 +20,7 @@ import { BuiltInSkillLoader, createBuiltInSkillLoader } from "./BuiltInSkillLoad
 import { UserSkillLoader, createUserSkillLoader } from "./UserSkillLoader";
 import { DynamicSkillManager, createDynamicSkillManager } from "./DynamicSkillManager";
 import { SkillValidator, createSkillValidator } from "./SkillValidator";
+import { fileExists, directoryExists } from "./skill-utils";
 
 export interface InstallResult {
   success: boolean;
@@ -407,30 +408,6 @@ export class SkillManager {
   }
 
   /**
-   * Check if directory exists
-   */
-  private async directoryExists(dirPath: string): Promise<boolean> {
-    try {
-      const stat = await fs.stat(dirPath);
-      return stat.isDirectory();
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Check if file exists
-   */
-  private async fileExists(filePath: string): Promise<boolean> {
-    try {
-      const stat = await fs.stat(filePath);
-      return stat.isFile();
-    } catch {
-      return false;
-    }
-  }
-
-  /**
    * Skill Direct Mode - Return SKILL.md content without sandbox execution
    * Used for FR-37~FR-40 scenarios
    */
@@ -439,12 +416,12 @@ export class SkillManager {
     const skillMdPath = path.join(skillPath, "SKILL.md");
 
     // Check if skill exists
-    if (!(await this.directoryExists(skillPath))) {
+    if (!(await directoryExists(skillPath))) {
       throw new Error(`Skill '${skillName}' not found`);
     }
 
     // Read SKILL.md
-    if (!(await this.fileExists(skillMdPath))) {
+    if (!(await fileExists(skillMdPath))) {
       throw new Error(`SKILL.md not found in Skill '${skillName}'`);
     }
 

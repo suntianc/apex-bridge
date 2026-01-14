@@ -9,6 +9,7 @@ import * as path from "path";
 import matter from "gray-matter";
 import { logger } from "../../utils/logger";
 import { SkillMetadata, SkillTool, ToolError, ToolErrorCode } from "../../types/tool-system";
+import { fileExists, directoryExists } from "./skill-utils";
 
 export interface ValidationResult {
   valid: boolean;
@@ -118,7 +119,7 @@ export class SkillValidator {
 
     try {
       // Check if directory exists
-      const exists = await this.directoryExists(skillPath);
+      const exists = await directoryExists(skillPath);
       if (!exists) {
         return {
           valid: false,
@@ -129,7 +130,7 @@ export class SkillValidator {
 
       // Check for SKILL.md
       const skillMdPath = path.join(skillPath, "SKILL.md");
-      if (!(await this.fileExists(skillMdPath))) {
+      if (!(await fileExists(skillMdPath))) {
         errors.push("SKILL.md is required");
         return {
           valid: false,
@@ -150,11 +151,11 @@ export class SkillValidator {
       // Check scripts directory if required
       if (this.config.requireScripts) {
         const scriptsDir = path.join(skillPath, "scripts");
-        if (!(await this.directoryExists(scriptsDir))) {
+        if (!(await directoryExists(scriptsDir))) {
           errors.push("Scripts directory is required in strict validation mode");
         } else {
           const executeScript = path.join(scriptsDir, "execute.js");
-          if (!(await this.fileExists(executeScript))) {
+          if (!(await fileExists(executeScript))) {
             errors.push("execute.js is required in scripts directory");
           }
         }
@@ -231,30 +232,6 @@ export class SkillValidator {
       valid: errors.length === 0,
       errors,
     };
-  }
-
-  /**
-   * Check if directory exists
-   */
-  private async directoryExists(dirPath: string): Promise<boolean> {
-    try {
-      const stat = await fs.stat(dirPath);
-      return stat.isDirectory();
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Check if file exists
-   */
-  private async fileExists(filePath: string): Promise<boolean> {
-    try {
-      await fs.access(filePath);
-      return true;
-    } catch {
-      return false;
-    }
   }
 
   /**
