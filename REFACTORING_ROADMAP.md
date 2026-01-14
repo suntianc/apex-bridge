@@ -1,9 +1,51 @@
 # ApexBridge Architecture Refactoring Roadmap
 
-**Document Version:** 1.0  
+**Document Version:** 1.1  
 **Date:** 2026-01-14  
+**Last Updated:** 2026-01-15  
 **Status:** Draft - Awaiting Team Review  
 **Scope:** Structural Refactoring (No Business Logic Changes)
+
+---
+
+## 0. Complementary Refactoring Work (Completed)
+
+This section documents the code deduplication and utility extraction work that complements the ServicesFacade refactoring roadmap.
+
+### 0.1 Utility Modules Created
+
+| Module              | File                          | Lines | Purpose                                                           |
+| ------------------- | ----------------------------- | ----- | ----------------------------------------------------------------- |
+| **File Operations** | `src/utils/file-system.ts`    | ~100  | readJsonFile, writeJsonFile, listDirectories, ensureDirectory     |
+| **Error Handling**  | `src/utils/error-utils.ts`    | ~300  | errorToPlainObject, isErrorWithCode, safeExecute, formatErrorData |
+| **Path Utilities**  | `src/utils/path-utils.ts`     | ~240  | SkillPaths, VectorDbPaths, validatePath                           |
+| **HTTP Response**   | `src/utils/http-response.ts`  | ~230  | badRequest, notFound, serverError, ok, validationError            |
+| **Stream Events**   | `src/utils/stream-events.ts`  | ~280  | 10 SSE event serializers (chatComplete, toolCall, error, etc.)    |
+| **Request Parser**  | `src/utils/request-parser.ts` | ~200  | parseIdParam, parsePaginationParams, parseBooleanParam            |
+| **Common Types**    | `src/types/common.ts`         | ~40   | Result, ValidationResult, PaginatedResult                         |
+
+### 0.2 Controller Migration Results
+
+| Controller           | Original Patterns        | Migrated To       | Net Reduction |
+| -------------------- | ------------------------ | ----------------- | ------------- |
+| `ChatController.ts`  | 17 `res.status().json()` | http-response.ts  | ~90 lines     |
+| `ModelController.ts` | 3 key patterns           | request-parser.ts | ~10 lines     |
+
+### 0.3 Files Deleted
+
+| File                                              | Reason             |
+| ------------------------------------------------- | ------------------ |
+| `src/services/embedding/BatchEmbeddingService.ts` | Unused (436 lines) |
+
+### 0.4 Anti-Pattern Removals
+
+The following anti-patterns are now mitigated by utility modules:
+
+- ❌ Duplicate HTTP response patterns → ✅ Use `src/utils/http-response.ts`
+- ❌ Duplicate error handling → ✅ Use `src/utils/error-utils.ts`
+- ❌ Duplicate stream event serialization → ✅ Use `src/utils/stream-events.ts`
+
+---
 
 ---
 

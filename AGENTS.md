@@ -32,16 +32,17 @@ ApexBridge is an enterprise-grade AI Agent framework with multi-model support (O
 
 ## WHERE TO LOOK
 
-| Task                | Location                                             | Notes                                        |
-| ------------------- | ---------------------------------------------------- | -------------------------------------------- |
-| Start server        | `src/server.ts`                                      | `npm run dev`                                |
-| Chat logic          | `src/services/ChatService.ts`                        | Core message processing                      |
-| Context compression | `src/services/context-compression/`                  | 4 strategies (truncate/prune/summary/hybrid) |
-| LLM adapters        | `src/core/llm/adapters/`                             | OpenAI, Claude, DeepSeek, Ollama             |
-| Tool retrieval      | `src/services/tool-retrieval/`                       | LanceDB vector search                        |
-| MCP integration     | `src/services/MCPIntegrationService.ts`              | MCP protocol client                          |
-| API routes          | `src/api/routes/`                                    | REST endpoints                               |
-| Config              | `config/admin-config.json` + `src/utils/config-*.ts` | JSON-based config                            |
+| Task                | Location                                             | Notes                                         |
+| ------------------- | ---------------------------------------------------- | --------------------------------------------- |
+| Start server        | `src/server.ts`                                      | `npm run dev`                                 |
+| Chat logic          | `src/services/ChatService.ts`                        | Core message processing                       |
+| Context compression | `src/services/context-compression/`                  | 4 strategies (truncate/prune/summary/hybrid)  |
+| LLM adapters        | `src/core/llm/adapters/`                             | OpenAI, Claude, DeepSeek, Ollama              |
+| Tool retrieval      | `src/services/tool-retrieval/`                       | LanceDB vector search                         |
+| MCP integration     | `src/services/MCPIntegrationService.ts`              | MCP protocol client                           |
+| API routes          | `src/api/routes/`                                    | REST endpoints                                |
+| **Utility modules** | `src/utils/`                                         | **HTTP response, error, stream events, etc.** |
+| Config              | `config/admin-config.json` + `src/utils/config-*.ts` | JSON-based config                             |
 
 ---
 
@@ -80,6 +81,9 @@ ApexBridge is an enterprise-grade AI Agent framework with multi-model support (O
 - No `src/index.ts` → Entry is `src/server.ts`
 - Config in two places → `config/` AND `src/config/` (confusing)
 - `.data/` hidden directory → Contains SQLite + LanceDB
+- **Duplicate HTTP response patterns** → Use `src/utils/http-response.ts`
+- **Duplicate error handling** → Use `src/utils/error-utils.ts`
+- **Duplicate stream event serialization** → Use `src/utils/stream-events.ts`
 
 ---
 

@@ -192,7 +192,7 @@ class ToolRetrievalService {
 4. `src/services/tool-retrieval/LanceDBConnectionManager.ts`
 5. `src/services/tool-retrieval/VectorIndexManager.ts`
 6. `src/services/tool-retrieval/EmbeddingGenerator.ts`
-7. `src/services/tool-retrieval/BatchEmbeddingService.ts`
+7. `src/services/tool-retrieval/BatchEmbeddingService.ts` ~~**已删除 (未使用, 436 行)**~~
 8. `src/services/tool-retrieval/SkillIndexer.ts`
 9. `src/services/tool-retrieval/SearchEngine.ts`
 10. `src/services/tool-retrieval/MCPToolSupport.ts`
@@ -266,3 +266,22 @@ const results = await searchEngine.search(query);
 ✅ **ANTI-PATTERN-003 已完成**
 
 成功将 3 个超过 800 行的大型类拆分为职责单一的组件，显著提升了代码的可维护性、可测试性和可读性。所有现有 API 保持向后兼容，无需修改调用方代码。
+
+---
+
+## 📅 更新日志
+
+### 2026-01-15 - 代码去重与公共模块提取
+
+| 类型     | 变更说明                                                     |
+| -------- | ------------------------------------------------------------ |
+| **删除** | `BatchEmbeddingService.ts` (436 行, 未使用)                  |
+| **新增** | `src/utils/file-system.ts` - 文件操作工具                    |
+| **新增** | `src/utils/error-utils.ts` - 错误处理工具                    |
+| **新增** | `src/utils/path-utils.ts` - 路径工具                         |
+| **新增** | `src/utils/http-response.ts` - HTTP 响应工具                 |
+| **新增** | `src/utils/stream-events.ts` - SSE 事件序列化                |
+| **新增** | `src/utils/request-parser.ts` - 请求解析工具                 |
+| **新增** | `src/types/common.ts` - 公共类型定义                         |
+| **重构** | `ChatController.ts` - 使用 http-response 工具 (~90 行减少)   |
+| **重构** | `ModelController.ts` - 使用 request-parser 工具 (~10 行减少) |
