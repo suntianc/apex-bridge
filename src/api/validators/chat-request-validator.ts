@@ -144,9 +144,173 @@ export function parseChatRequest(body: any): ValidationResult<ChatRequestOptions
       options.selfThinking = result.data;
     }
 
+    // 解析contextCompression配置
+    if (body.contextCompression) {
+      const ccResult = validateContextCompression(body.contextCompression);
+      if (!ccResult.success) {
+        return { success: false, error: ccResult.error };
+      }
+      options.contextCompression = ccResult.data;
+    }
+
     return { success: true, data: options };
   } catch (error: any) {
     return { success: false, error: error.message || "Failed to parse chat request" };
+  }
+}
+
+/**
+ * 验证上下文压缩配置
+ */
+export function validateContextCompression(
+  config: any
+): ValidationResult<ContextCompressionConfig> {
+  try {
+    const result: ContextCompressionConfig = {};
+
+    if (config.enabled !== undefined && typeof config.enabled !== "boolean") {
+      return { success: false, error: "contextCompression.enabled must be a boolean" };
+    }
+    result.enabled = config.enabled;
+
+    if (config.strategy !== undefined) {
+      const validStrategies = ["truncate", "prune", "summary", "hybrid"];
+      if (!validStrategies.includes(config.strategy)) {
+        return {
+          success: false,
+          error: `contextCompression.strategy must be one of: ${validStrategies.join(", ")}`,
+        };
+      }
+      result.strategy = config.strategy;
+    }
+
+    if (config.contextLimit !== undefined) {
+      if (typeof config.contextLimit !== "number" || config.contextLimit < 1) {
+        return {
+          success: false,
+          error: "contextCompression.contextLimit must be a positive number",
+        };
+      }
+      result.contextLimit = config.contextLimit;
+    }
+
+    if (config.outputReserve !== undefined) {
+      if (typeof config.outputReserve !== "number" || config.outputReserve < 0) {
+        return {
+          success: false,
+          error: "contextCompression.outputReserve must be a non-negative number",
+        };
+      }
+      result.outputReserve = config.outputReserve;
+    }
+
+    if (
+      config.preserveSystemMessage !== undefined &&
+      typeof config.preserveSystemMessage !== "boolean"
+    ) {
+      return {
+        success: false,
+        error: "contextCompression.preserveSystemMessage must be a boolean",
+      };
+    }
+    result.preserveSystemMessage = config.preserveSystemMessage;
+
+    if (config.minMessageCount !== undefined) {
+      if (typeof config.minMessageCount !== "number" || config.minMessageCount < 0) {
+        return {
+          success: false,
+          error: "contextCompression.minMessageCount must be a non-negative number",
+        };
+      }
+      result.minMessageCount = config.minMessageCount;
+    }
+
+    // 验证openCodeConfig
+    if (config.openCodeConfig) {
+      const openCodeConfig: ContextCompressionConfig["openCodeConfig"] = {};
+
+      if (
+        config.openCodeConfig.auto !== undefined &&
+        typeof config.openCodeConfig.auto !== "boolean"
+      ) {
+        return {
+          success: false,
+          error: "contextCompression.openCodeConfig.auto must be a boolean",
+        };
+      }
+      openCodeConfig.auto = config.openCodeConfig.auto;
+
+      if (
+        config.openCodeConfig.prune !== undefined &&
+        typeof config.openCodeConfig.prune !== "boolean"
+      ) {
+        return {
+          success: false,
+          error: "contextCompression.openCodeConfig.prune must be a boolean",
+        };
+      }
+      openCodeConfig.prune = config.openCodeConfig.prune;
+
+      if (config.openCodeConfig.overflowThreshold !== undefined) {
+        if (
+          typeof config.openCodeConfig.overflowThreshold !== "number" ||
+          config.openCodeConfig.overflowThreshold < 0
+        ) {
+          return {
+            success: false,
+            error:
+              "contextCompression.openCodeConfig.overflowThreshold must be a non-negative number",
+          };
+        }
+        openCodeConfig.overflowThreshold = config.openCodeConfig.overflowThreshold;
+      }
+
+      if (
+        config.openCodeConfig.protectTools !== undefined &&
+        typeof config.openCodeConfig.protectTools !== "boolean"
+      ) {
+        return {
+          success: false,
+          error: "contextCompression.openCodeConfig.protectTools must be a boolean",
+        };
+      }
+      openCodeConfig.protectTools = config.openCodeConfig.protectTools;
+
+      if (
+        config.openCodeConfig.summaryOnSevere !== undefined &&
+        typeof config.openCodeConfig.summaryOnSevere !== "boolean"
+      ) {
+        return {
+          success: false,
+          error: "contextCompression.openCodeConfig.summaryOnSevere must be a boolean",
+        };
+      }
+      openCodeConfig.summaryOnSevere = config.openCodeConfig.summaryOnSevere;
+
+      if (config.openCodeConfig.severeThreshold !== undefined) {
+        if (
+          typeof config.openCodeConfig.severeThreshold !== "number" ||
+          config.openCodeConfig.severeThreshold < 0 ||
+          config.openCodeConfig.severeThreshold > 1
+        ) {
+          return {
+            success: false,
+            error:
+              "contextCompression.openCodeConfig.severeThreshold must be a number between 0 and 1",
+          };
+        }
+        openCodeConfig.severeThreshold = config.openCodeConfig.severeThreshold;
+      }
+
+      result.openCodeConfig = openCodeConfig;
+    }
+
+    return { success: true, data: result };
+  } catch (error: any) {
+    return {
+      success: false,
+      error: error.message || "Failed to validate context compression config",
+    };
   }
 }
 
@@ -269,5 +433,26 @@ export interface ChatRequestOptions {
   userId?: string;
   conversationId?: string;
   selfThinking?: SelfThinkingConfig;
+  contextCompression?: ContextCompressionConfig;
   [key: string]: any;
+}
+
+/**
+ * 上下文压缩配置接口
+ */
+export interface ContextCompressionConfig {
+  enabled?: boolean;
+  strategy?: "truncate" | "prune" | "summary" | "hybrid";
+  contextLimit?: number;
+  outputReserve?: number;
+  preserveSystemMessage?: boolean;
+  minMessageCount?: number;
+  openCodeConfig?: {
+    auto?: boolean;
+    prune?: boolean;
+    overflowThreshold?: number;
+    protectTools?: boolean;
+    summaryOnSevere?: boolean;
+    severeThreshold?: number;
+  };
 }
