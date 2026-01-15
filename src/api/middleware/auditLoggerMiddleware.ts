@@ -7,6 +7,12 @@
 import { Request, Response, NextFunction } from "express";
 import { logger } from "../../utils/logger";
 
+// Auth type from authMiddleware
+interface AuthLocals {
+  apiKeyId?: string;
+  apiKeyToken?: string;
+}
+
 export interface AuditLogEvent {
   timestamp: number;
   path: string;
@@ -40,7 +46,7 @@ export function createAuditLoggerMiddleware(): (
 
     const ip = req.ip || req.socket.remoteAddress || "unknown";
     const userAgent = req.headers["user-agent"];
-    const auth = res.locals.auth as any;
+    const auth: AuthLocals = res.locals.auth || {};
     const apiKeyId = auth?.apiKeyId;
 
     // 监听响应完成

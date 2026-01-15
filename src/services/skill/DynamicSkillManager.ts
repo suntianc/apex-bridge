@@ -101,7 +101,7 @@ export class DynamicSkillManager {
         {
           name: metadata.name,
           description: metadata.description,
-          type: "skill" as any,
+          type: ToolType.SKILL,
           tags: metadata.tags || [],
           path: "",
           version: metadata.version,
@@ -196,7 +196,7 @@ export class DynamicSkillManager {
         {
           name: updates.name || skillName,
           description: updates.description || "",
-          type: "skill" as any,
+          type: ToolType.SKILL,
           tags: updates.tags || [],
           path: "",
           version: updates.version || "1.0.0",

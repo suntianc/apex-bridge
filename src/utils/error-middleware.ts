@@ -7,11 +7,32 @@ import { logger } from "./logger";
 import { ErrorClassifier, ERROR_CODES } from "./error-classifier";
 import { ErrorType } from "../types/trajectory";
 
+/**
+ * Extended Error interface with additional properties
+ */
+export interface ExtendedError extends Error {
+  code?: string;
+  type?: ErrorType;
+  suggestion?: string;
+  context?: string;
+  handledError?: HandledError;
+}
+
 export interface ErrorHandlerOptions {
   context: string;
   defaultCode?: keyof typeof ERROR_CODES;
   rethrow?: boolean;
   logger?: typeof logger;
+}
+
+export interface HandledError {
+  code: string;
+  type: ErrorType;
+  message: string;
+  suggestion: string;
+  context: string;
+  timestamp: number;
+  originalError?: unknown;
 }
 
 export interface HandledError {
@@ -47,12 +68,12 @@ export function createErrorHandler<T = unknown>(
       });
 
       if (rethrow) {
-        const wrappedError = new Error(errorInfo.message);
-        (wrappedError as any).code = errorInfo.code;
-        (wrappedError as any).type = errorInfo.type;
-        (wrappedError as any).suggestion = errorInfo.suggestion;
-        (wrappedError as any).context = context;
-        (wrappedError as any).handledError = errorInfo;
+        const wrappedError: ExtendedError = new Error(errorInfo.message);
+        wrappedError.code = errorInfo.code;
+        wrappedError.type = errorInfo.type;
+        wrappedError.suggestion = errorInfo.suggestion;
+        wrappedError.context = context;
+        wrappedError.handledError = errorInfo;
         throw wrappedError;
       }
 
@@ -82,9 +103,9 @@ export function handleErrorSync<T>(
       suggestion: errorInfo.suggestion,
     });
 
-    const wrappedError = new Error(errorInfo.message);
-    (wrappedError as any).code = errorInfo.code;
-    (wrappedError as any).handledError = errorInfo;
+    const wrappedError: ExtendedError = new Error(errorInfo.message);
+    wrappedError.code = errorInfo.code;
+    wrappedError.handledError = errorInfo;
     throw wrappedError;
   }
 }

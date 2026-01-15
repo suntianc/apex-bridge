@@ -81,20 +81,14 @@ export async function getModel(req: Request, res: Response): Promise<void> {
     const modelId = parseInt(req.params.modelId, 10);
 
     if (isNaN(providerId) || isNaN(modelId)) {
-      res.status(400).json({
-        error: "Invalid ID",
-        message: "Provider ID and Model ID must be numbers",
-      });
+      badRequest(res, "Provider ID and Model ID must be numbers", { code: "INVALID_ID" });
       return;
     }
 
     const model = configService.getModel(modelId);
 
     if (!model || model.providerId !== providerId) {
-      res.status(404).json({
-        error: "Model not found",
-        message: `Model with id ${modelId} not found for provider ${providerId}`,
-      });
+      notFound(res, `Model with id ${modelId} not found for provider ${providerId}`);
       return;
     }
 
@@ -119,10 +113,7 @@ export async function getModel(req: Request, res: Response): Promise<void> {
     });
   } catch (error: any) {
     logger.error("❌ Failed to get model:", error);
-    res.status(500).json({
-      error: "Failed to get model",
-      message: error.message,
-    });
+    serverError(res, error, "Failed to get model");
   }
 }
 
@@ -176,30 +167,21 @@ export async function updateModel(req: Request, res: Response): Promise<void> {
     const modelId = parseInt(req.params.modelId, 10);
 
     if (isNaN(providerId) || isNaN(modelId)) {
-      res.status(400).json({
-        error: "Invalid ID",
-        message: "Provider ID and Model ID must be numbers",
-      });
+      badRequest(res, "Provider ID and Model ID must be numbers", { code: "INVALID_ID" });
       return;
     }
 
     const input: UpdateModelInput = req.body;
 
     if (Object.keys(input).length === 0) {
-      res.status(400).json({
-        error: "No updates provided",
-        message: "At least one field must be provided",
-      });
+      badRequest(res, "At least one field must be provided", { code: "NO_UPDATES" });
       return;
     }
 
     // 验证模型属于该提供商
     const existing = configService.getModel(modelId);
     if (!existing || existing.providerId !== providerId) {
-      res.status(404).json({
-        error: "Model not found",
-        message: `Model with id ${modelId} not found for provider ${providerId}`,
-      });
+      notFound(res, `Model with id ${modelId} not found for provider ${providerId}`);
       return;
     }
 
@@ -303,10 +285,7 @@ export async function queryModels(req: Request, res: Response): Promise<void> {
     });
   } catch (error: any) {
     logger.error("❌ Failed to query models:", error);
-    res.status(500).json({
-      error: "Failed to query models",
-      message: error.message,
-    });
+    serverError(res, error, "Failed to query models");
   }
 }
 
@@ -319,29 +298,19 @@ export async function getDefaultModel(req: Request, res: Response): Promise<void
     const type = req.query.type as string;
 
     if (!type) {
-      res.status(400).json({
-        error: "Missing type parameter",
-        message: "type query parameter is required",
-      });
+      badRequest(res, "type query parameter is required");
       return;
     }
 
-    // 验证模型类型
     if (!Object.values(LLMModelType).includes(type as LLMModelType)) {
-      res.status(400).json({
-        error: "Invalid model type",
-        message: `Model type must be one of: ${Object.values(LLMModelType).join(", ")}`,
-      });
+      badRequest(res, `Model type must be one of: ${Object.values(LLMModelType).join(", ")}`);
       return;
     }
 
     const model = modelRegistry.getDefaultModel(type as LLMModelType);
 
     if (!model) {
-      res.status(404).json({
-        error: "No default model found",
-        message: `No default model configured for type: ${type}`,
-      });
+      notFound(res, `No default model configured for type: ${type}`);
       return;
     }
 
@@ -366,9 +335,6 @@ export async function getDefaultModel(req: Request, res: Response): Promise<void
     });
   } catch (error: any) {
     logger.error("❌ Failed to get default model:", error);
-    res.status(500).json({
-      error: "Failed to get default model",
-      message: error.message,
-    });
+    serverError(res, error, "Failed to get default model");
   }
 }

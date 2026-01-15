@@ -122,6 +122,27 @@ export function unprocessableEntity(
 }
 
 /**
+ * Send 429 Too Many Requests response (rate limit exceeded)
+ */
+export function tooManyRequests(
+  res: Response,
+  message: string = "Too many requests",
+  retryAfter?: number
+): void {
+  const response: Record<string, unknown> = {
+    error: {
+      message,
+      type: "rate_limit_error",
+      code: "RATE_LIMIT_EXCEEDED",
+    },
+  };
+  if (retryAfter !== undefined) {
+    response.retryAfter = retryAfter;
+  }
+  res.status(429).json(response);
+}
+
+/**
  * Send 500 Internal Server Error response
  */
 export function serverError(res: Response, error: unknown, context?: string): void {

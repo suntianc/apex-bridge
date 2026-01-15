@@ -25,6 +25,56 @@ import {
 } from "../types/llm-models";
 
 /**
+ * Database row type for provider queries
+ */
+interface ProviderRow {
+  id: number;
+  provider: string;
+  name: string;
+  description: string | null;
+  base_config: string;
+  enabled: number;
+  created_at: number;
+  updated_at: number;
+}
+
+/**
+ * Database row type for model queries (single table)
+ */
+interface ModelRow {
+  id: number;
+  provider_id: number;
+  model_key: string;
+  model_name: string;
+  model_type: string;
+  model_config: string;
+  api_endpoint_suffix: string | null;
+  enabled: number;
+  is_default: number;
+  is_ace_evolution: number;
+  display_order: number;
+  created_at: number;
+  updated_at: number;
+}
+
+/**
+ * Database row type for joined model + provider queries
+ */
+interface ModelFullRow extends ModelRow {
+  provider: string;
+  name: string;
+  base_config: string;
+  provider_enabled: number;
+}
+
+/**
+ * Database row type for count queries
+ */
+interface CountRow {
+  count: number;
+}
+
+/**
  * LLM 配置服务
  */
 export class LLMConfigService {
@@ -319,7 +369,7 @@ export class LLMConfigService {
       WHERE id = ?
     `
       )
-      .get(id) as any;
+      .get(id) as ProviderRow | undefined;
 
     return row ? this.mapProviderRow(row) : null;
   }
@@ -336,7 +386,7 @@ export class LLMConfigService {
       WHERE provider = ?
     `
       )
-      .get(provider) as any;
+      .get(provider) as ProviderRow | undefined;
 
     return row ? this.mapProviderRow(row) : null;
   }
@@ -457,7 +507,7 @@ export class LLMConfigService {
     // 检查关联的模型数量
     const modelCount = this.db
       .prepare("SELECT COUNT(*) as count FROM llm_models WHERE provider_id = ?")
-      .get(id) as any;
+      .get(id) as CountRow;
 
     this.db.prepare("DELETE FROM llm_providers WHERE id = ?").run(id);
 
@@ -512,7 +562,7 @@ export class LLMConfigService {
 
     sql += " ORDER BY m.provider_id, m.model_type, m.display_order, m.id";
 
-    const rows = this.db.prepare(sql).all(...values) as any[];
+    const rows = this.db.prepare(sql).all(...values) as ModelFullRow[];
     return rows.map((row) => this.mapModelFullRow(row));
   }
 
@@ -533,7 +583,7 @@ export class LLMConfigService {
       WHERE m.id = ?
     `
       )
-      .get(modelId) as any;
+      .get(modelId) as ModelFullRow | undefined;
 
     return row ? this.mapModelFullRow(row) : null;
   }
@@ -559,7 +609,7 @@ export class LLMConfigService {
       LIMIT 1
     `
       )
-      .get(modelType) as any;
+      .get(modelType) as ModelFullRow | undefined;
 
     return row ? this.mapModelFullRow(row) : null;
   }
@@ -824,7 +874,7 @@ export class LLMConfigService {
       LIMIT 1
     `
       )
-      .get() as any;
+      .get() as ModelFullRow | undefined;
 
     return row ? this.mapModelFullRow(row) : null;
   }

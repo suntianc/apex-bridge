@@ -10,6 +10,30 @@ import { Trajectory } from "../types/trajectory";
 import { PathService } from "./PathService";
 import { logger } from "../utils/logger";
 
+/**
+ * Database row type for trajectory queries
+ */
+interface TrajectoryRow {
+  task_id: string;
+  session_id: string | null;
+  user_input: string;
+  steps: string;
+  final_result: string | null;
+  outcome: string;
+  environment_feedback: string | null;
+  used_rule_ids: string;
+  timestamp: number;
+  duration_ms: number;
+  evolution_status: string;
+}
+
+/**
+ * Database row type for count queries
+ */
+interface CountRow {
+  count: number;
+}
+
 export class TrajectoryStore {
   private static instance: TrajectoryStore;
   private db: Database.Database;
@@ -82,7 +106,7 @@ export class TrajectoryStore {
     const stmt = this.db.prepare(`
       SELECT * FROM trajectories WHERE task_id = ?
     `);
-    const row = stmt.get(taskId) as any;
+    const row = stmt.get(taskId) as TrajectoryRow | undefined;
 
     return row ? this.mapRowToTrajectory(row) : null;
   }
@@ -97,7 +121,7 @@ export class TrajectoryStore {
       ORDER BY timestamp DESC
       LIMIT ?
     `);
-    const rows = stmt.all(limit) as any[];
+    const rows = stmt.all(limit) as TrajectoryRow[];
 
     return rows.map((row) => this.mapRowToTrajectory(row));
   }
@@ -112,7 +136,7 @@ export class TrajectoryStore {
       ORDER BY timestamp DESC
       LIMIT ?
     `);
-    const rows = stmt.all(limit) as any[];
+    const rows = stmt.all(limit) as TrajectoryRow[];
 
     return rows.map((row) => this.mapRowToTrajectory(row));
   }
@@ -200,12 +224,12 @@ export class TrajectoryStore {
       "SELECT COUNT(*) as count FROM trajectories WHERE evolution_status = 'FAILED'"
     );
 
-    const total = totalStmt.get() as any;
-    const success = successStmt.get() as any;
-    const failure = failureStmt.get() as any;
-    const pending = pendingStmt.get() as any;
-    const completed = completedStmt.get() as any;
-    const failed = failedStmt.get() as any;
+    const total = totalStmt.get() as CountRow;
+    const success = successStmt.get() as CountRow;
+    const failure = failureStmt.get() as CountRow;
+    const pending = pendingStmt.get() as CountRow;
+    const completed = completedStmt.get() as CountRow;
+    const failed = failedStmt.get() as CountRow;
 
     return {
       total: total.count,
@@ -220,19 +244,19 @@ export class TrajectoryStore {
   /**
    * 映射数据库行到 Trajectory 对象
    */
-  private mapRowToTrajectory(row: any): Trajectory {
+  private mapRowToTrajectory(row: TrajectoryRow): Trajectory {
     return {
       task_id: row.task_id,
       session_id: row.session_id,
       user_input: row.user_input,
       steps: JSON.parse(row.steps),
       final_result: row.final_result,
-      outcome: row.outcome,
+      outcome: row.outcome as "SUCCESS" | "FAILURE",
       environment_feedback: row.environment_feedback,
       used_rule_ids: JSON.parse(row.used_rule_ids || "[]"),
       timestamp: row.timestamp,
       duration_ms: row.duration_ms,
-      evolution_status: row.evolution_status,
+      evolution_status: row.evolution_status as "PENDING" | "COMPLETED" | "FAILED",
     };
   }
 

@@ -12,6 +12,7 @@ import { InMemoryRateLimiter } from "./rateLimit/inMemoryRateLimiter";
 import { RedisRateLimiter } from "./rateLimit/redisRateLimiter";
 import { RateLimiter, RateLimiterMode } from "./rateLimit/types";
 import { RedisService } from "../../services/RedisService";
+import { tooManyRequests } from "../../utils/http-response";
 
 type StrategyType = "ip" | "apiKey";
 
@@ -357,11 +358,7 @@ export function createRateLimitMiddleware(options?: RateLimitMiddlewareOptions) 
         ? Math.ceil((result.reset - Date.now()) / 1000)
         : undefined;
 
-      res.status(429).json({
-        error: "Too Many Requests",
-        message: `Rate limit exceeded for ${rule.name}`,
-        retryAfter: retryAfterSeconds,
-      });
+      tooManyRequests(res, `Rate limit exceeded for ${rule.name}`, retryAfterSeconds);
     } catch (error: any) {
       logger.error("[RateLimit] Rate limit middleware error", { error });
       next();

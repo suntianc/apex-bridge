@@ -673,8 +673,8 @@ export class HybridRetrievalEngine implements IHybridRetrievalEngine {
           description: r.description,
           tags: r.tags,
           toolType: r.toolType,
-          path: (r as any).path,
-          version: (r as any).version,
+          path: r.metadata?.path,
+          version: r.metadata?.version,
         },
       }));
     } catch (error) {
@@ -794,8 +794,8 @@ export class HybridRetrievalEngine implements IHybridRetrievalEngine {
               description: candidate?.description,
               tags: candidate?.tags,
               toolType: candidate?.toolType,
-              path: (candidate as any)?.path,
-              version: (candidate as any)?.version,
+              path: candidate?.metadata?.path,
+              version: candidate?.metadata?.version,
             },
           };
         })

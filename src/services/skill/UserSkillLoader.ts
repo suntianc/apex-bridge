@@ -93,7 +93,7 @@ export class UserSkillLoader {
         {
           name: metadata.name,
           description: metadata.description,
-          type: "skill" as any,
+          type: ToolType.SKILL,
           tags: metadata.tags || [],
           path: skillPath,
           version: metadata.version,
@@ -161,7 +161,7 @@ export class UserSkillLoader {
         {
           name: metadata.name,
           description: metadata.description,
-          type: "skill" as any,
+          type: ToolType.SKILL,
           tags: metadata.tags || [],
           path: targetDir,
           version: metadata.version,
@@ -269,7 +269,7 @@ export class UserSkillLoader {
         {
           name: metadata.name,
           description: metadata.description,
-          type: "skill" as any,
+          type: ToolType.SKILL,
           tags: metadata.tags || [],
           path: skillPath,
           version: metadata.version,

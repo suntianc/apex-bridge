@@ -8,6 +8,7 @@ import { Request, Response, NextFunction } from "express";
 import Ajv, { ErrorObject, AnySchemaObject, ValidateFunction } from "ajv";
 import addFormats from "ajv-formats";
 import { logger } from "../../utils/logger";
+import { badRequest, serverError } from "../../utils/http-response";
 
 /**
  * 验证中间件选项
@@ -127,10 +128,7 @@ export function createValidationMiddleware(
           data = req.params;
           break;
         default:
-          res.status(500).json({
-            error: "Validation Error",
-            message: "Invalid validation target",
-          });
+          serverError(res, null, "Invalid validation target");
           return;
       }
 
@@ -139,21 +137,14 @@ export function createValidationMiddleware(
 
       if (!isValid) {
         const errors = formatValidationErrors(validateFunction.errors || []);
-        res.status(400).json({
-          error: "Validation Error",
-          message: "请求参数验证失败",
-          details: errors,
-        });
+        badRequest(res, "请求参数验证失败", { details: errors });
         return;
       }
 
       next();
     } catch (error) {
       logger.error("Validation middleware error:", error);
-      res.status(500).json({
-        error: "Validation Error",
-        message: "验证过程中发生错误",
-      });
+      serverError(res, error, "Validation middleware error");
     }
   };
 }

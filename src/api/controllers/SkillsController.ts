@@ -56,28 +56,35 @@ export async function installSkill(req: Request, res: Response): Promise<void> {
 
     // 检查文件是否存在
     if (!req.file) {
-      res.status(400).json({
-        error: "No file uploaded",
-        message: "Please upload a ZIP file containing the skill",
-      });
+      badRequest(res, "Please upload a ZIP file containing the skill");
+      return;
+    }
+
+    if (!req.file.originalname.endsWith(".zip")) {
+      badRequest(res, "Only ZIP files are supported");
+      return;
+    }
+
+    if (req.file.size > 100 * 1024 * 1024) {
+      badRequest(res, "Maximum file size is 100MB");
       return;
     }
 
     // 验证文件类型
     if (!req.file.originalname.endsWith(".zip")) {
-      res.status(400).json({
-        error: "Invalid file type",
-        message: "Only ZIP files are supported",
-      });
+      badRequest(res, "Only ZIP files are supported", { code: "INVALID_FILE_TYPE" });
       return;
     }
 
     // 检查文件大小（限制100MB）
     if (req.file.size > 100 * 1024 * 1024) {
-      res.status(400).json({
-        error: "File too large",
-        message: "Maximum file size is 100MB",
-      });
+      badRequest(res, "Maximum file size is 100MB", { code: "FILE_TOO_LARGE" });
+      return;
+    }
+
+    // 检查文件大小（限制100MB）
+    if (req.file.size > 100 * 1024 * 1024) {
+      badRequest(res, "Maximum file size is 100MB", { code: "FILE_TOO_LARGE" });
       return;
     }
 

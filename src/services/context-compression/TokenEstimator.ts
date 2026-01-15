@@ -179,7 +179,7 @@ export class TokenEstimator {
         kept.unshift(msg);
       } else {
         // 不能保留，记录被移除的消息 ID
-        const msgId = (msg as any).id || `msg_${i}`;
+        const msgId = msg.metadata?.id || `msg_${i}`;
         removedIds.push(msgId);
       }
     }

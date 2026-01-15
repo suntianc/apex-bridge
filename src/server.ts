@@ -164,7 +164,8 @@ export class ABPIntelliCore {
 
       // 索引所有内置工具（file-read, file-write, vector-search, read-skill, platform-detector）
       // 使其可以通过语义搜索检索
-      const { getToolRetrievalService } = await import("./services/tool-retrieval/ToolRetrievalService");
+      const { getToolRetrievalService } =
+        await import("./services/tool-retrieval/ToolRetrievalService");
       const toolRetrievalService = getToolRetrievalService();
       await toolRetrievalService.indexBuiltinTools();
       logger.debug("✅ Built-in tools indexed");
@@ -244,24 +245,6 @@ export class ABPIntelliCore {
     // Body解析
     this.app.use(express.json({ limit: process.env.MAX_REQUEST_SIZE || "100mb" })); // ✅ 增加到 100MB
     this.app.use(express.urlencoded({ extended: true, limit: "100mb" }));
-
-    // 🔍 DEBUG: 在最早的地方记录请求
-    this.app.use((req, res, next) => {
-      if (req.path === "/v1/chat/completions" && req.method === "POST") {
-        logger.debug(`[Server] Received POST /v1/chat/completions`);
-        logger.debug(`[Server] Body present: ${!!req.body}`);
-        logger.debug(`[Server] Content-Type: ${req.headers["content-type"]}`);
-        if (req.body?.messages) {
-          logger.debug(`[Server] Messages count: ${req.body.messages.length}`);
-          const multimodal = req.body.messages.filter(
-            (m: any) =>
-              Array.isArray(m.content) && m.content.some((p: any) => p.type === "image_url")
-          ).length;
-          logger.debug(`[Server] Multimodal messages: ${multimodal}`);
-        }
-      }
-      next();
-    });
 
     // 限流保护
     this.app.use(rateLimitMiddleware);

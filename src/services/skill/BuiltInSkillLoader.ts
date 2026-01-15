@@ -93,7 +93,7 @@ export class BuiltInSkillLoader {
         {
           name: metadata.name,
           description: metadata.description,
-          type: "skill" as any,
+          type: ToolType.SKILL,
           tags: metadata.tags || [],
           path: skillPath,
           version: metadata.version,

@@ -29,9 +29,6 @@ export class MessagePreprocessor {
   ): Promise<PreprocessResult> {
     let processedMessages = [...messages];
 
-    // DEBUG: 检查输入消息中的图片数据
-    this.debugImageData(messages, "Input");
-
     // 1. 注入系统提示词（如果没有）
     const hasSystemMessage = processedMessages.some((m) => m.role === "system");
     if (!hasSystemMessage) {
@@ -55,9 +52,6 @@ export class MessagePreprocessor {
     logger.debug(
       `[MessagePreprocessor] Variable replacement completed with ${Object.keys(variables).length} variables`
     );
-
-    // DEBUG: 检查输出消息中的图片数据
-    this.debugImageData(processedMessages, "Output");
 
     return {
       messages: processedMessages,

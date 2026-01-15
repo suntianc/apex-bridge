@@ -6,6 +6,14 @@
 import { Router, Request, Response } from "express";
 import { mcpIntegration } from "../../services/MCPIntegrationService";
 import { logger } from "../../utils/logger";
+import {
+  ok,
+  created,
+  badRequest,
+  notFound,
+  serverError,
+  serviceUnavailable,
+} from "../../utils/http-response";
 
 const router = Router();
 
@@ -18,9 +26,8 @@ router.get("/servers", async (req: Request, res: Response) => {
   try {
     const servers = mcpIntegration.getServers();
 
-    res.json({
-      success: true,
-      data: servers,
+    ok(res, {
+      servers,
       meta: {
         total: servers.length,
         timestamp: new Date().toISOString(),
@@ -28,13 +35,7 @@ router.get("/servers", async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     logger.error("[MCP API] Failed to get servers:", error);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: "GET_SERVERS_FAILED",
-        message: error.message || "Failed to get servers",
-      },
-    });
+    serverError(res, error, "Get servers");
   }
 });
 
@@ -49,43 +50,26 @@ router.post("/servers", async (req: Request, res: Response) => {
 
     // 验证必要字段
     if (!config.id || !config.type || !config.command) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: "INVALID_CONFIG",
-          message: "Missing required fields: id, type, command",
-        },
+      return badRequest(res, "Missing required fields: id, type, command", {
+        code: "INVALID_CONFIG",
       });
     }
 
     const result = await mcpIntegration.registerServer(config);
 
     if (!result.success) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: "REGISTRATION_FAILED",
-          message: result.error || "Registration failed",
-        },
+      return badRequest(res, result.error || "Registration failed", {
+        code: "REGISTRATION_FAILED",
       });
     }
 
-    res.status(201).json({
-      success: true,
-      data: {
-        serverId: result.serverId,
-        message: "Server registered successfully",
-      },
+    created(res, {
+      serverId: result.serverId,
+      message: "Server registered successfully",
     });
   } catch (error: any) {
     logger.error("[MCP API] Failed to register server:", error);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: "REGISTRATION_ERROR",
-        message: error.message || "Registration error",
-      },
-    });
+    serverError(res, error, "Register server");
   }
 });
 
@@ -100,31 +84,18 @@ router.get("/servers/:serverId", async (req: Request, res: Response) => {
     const server = mcpIntegration.getServer(serverId);
 
     if (!server) {
-      return res.status(404).json({
-        success: false,
-        error: {
-          code: "SERVER_NOT_FOUND",
-          message: `Server ${serverId} not found`,
-        },
-      });
+      return notFound(res, `Server ${serverId} not found`);
     }
 
-    res.json({
-      success: true,
-      data: server,
+    ok(res, {
+      server,
       meta: {
         timestamp: new Date().toISOString(),
       },
     });
   } catch (error: any) {
     logger.error("[MCP API] Failed to get server:", error);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: "GET_SERVER_FAILED",
-        message: error.message || "Failed to get server",
-      },
-    });
+    serverError(res, error, "Get server");
   }
 });
 
@@ -139,31 +110,16 @@ router.delete("/servers/:serverId", async (req: Request, res: Response) => {
     const success = await mcpIntegration.unregisterServer(serverId);
 
     if (!success) {
-      return res.status(404).json({
-        success: false,
-        error: {
-          code: "SERVER_NOT_FOUND",
-          message: `Server ${serverId} not found`,
-        },
-      });
+      return notFound(res, `Server ${serverId} not found`);
     }
 
-    res.json({
-      success: true,
-      data: {
-        serverId,
-        message: "Server unregistered successfully",
-      },
+    ok(res, {
+      serverId,
+      message: "Server unregistered successfully",
     });
   } catch (error: any) {
     logger.error("[MCP API] Failed to unregister server:", error);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: "UNREGISTRATION_ERROR",
-        message: error.message || "Unregistration error",
-      },
-    });
+    serverError(res, error, "Unregister server");
   }
 });
 
@@ -178,31 +134,16 @@ router.post("/servers/:serverId/restart", async (req: Request, res: Response) =>
     const success = await mcpIntegration.restartServer(serverId);
 
     if (!success) {
-      return res.status(404).json({
-        success: false,
-        error: {
-          code: "SERVER_NOT_FOUND",
-          message: `Server ${serverId} not found`,
-        },
-      });
+      return notFound(res, `Server ${serverId} not found`);
     }
 
-    res.json({
-      success: true,
-      data: {
-        serverId,
-        message: "Server restarted successfully",
-      },
+    ok(res, {
+      serverId,
+      message: "Server restarted successfully",
     });
   } catch (error: any) {
     logger.error("[MCP API] Failed to restart server:", error);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: "RESTART_ERROR",
-        message: error.message || "Restart error",
-      },
-    });
+    serverError(res, error, "Restart server");
   }
 });
 
@@ -217,31 +158,16 @@ router.get("/servers/:serverId/status", async (req: Request, res: Response) => {
     const status = mcpIntegration.getServerStatus(serverId);
 
     if (!status) {
-      return res.status(404).json({
-        success: false,
-        error: {
-          code: "SERVER_NOT_FOUND",
-          message: `Server ${serverId} not found`,
-        },
-      });
+      return notFound(res, `Server ${serverId} not found`);
     }
 
-    res.json({
-      success: true,
-      data: {
-        serverId,
-        status,
-      },
+    ok(res, {
+      serverId,
+      status,
     });
   } catch (error: any) {
     logger.error("[MCP API] Failed to get server status:", error);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: "GET_STATUS_FAILED",
-        message: error.message || "Failed to get server status",
-      },
-    });
+    serverError(res, error, "Get server status");
   }
 });
 
@@ -256,32 +182,17 @@ router.get("/servers/:serverId/tools", async (req: Request, res: Response) => {
     const server = mcpIntegration.getServer(serverId);
 
     if (!server) {
-      return res.status(404).json({
-        success: false,
-        error: {
-          code: "SERVER_NOT_FOUND",
-          message: `Server ${serverId} not found`,
-        },
-      });
+      return notFound(res, `Server ${serverId} not found`);
     }
 
-    res.json({
-      success: true,
-      data: {
-        serverId,
-        tools: server.tools,
-        count: server.tools.length,
-      },
+    ok(res, {
+      serverId,
+      tools: server.tools,
+      count: server.tools.length,
     });
   } catch (error: any) {
     logger.error("[MCP API] Failed to get server tools:", error);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: "GET_TOOLS_FAILED",
-        message: error.message || "Failed to get server tools",
-      },
-    });
+    serverError(res, error, "Get server tools");
   }
 });
 
@@ -375,13 +286,7 @@ router.post("/servers/:serverId/tools/:toolName/call", async (req: Request, res:
     // Validate request parameters
     const validation = validateToolCallRequest(serverId, toolName, arguments_);
     if (!validation.valid) {
-      return res.status(validation.error!.statusCode).json({
-        success: false,
-        error: {
-          code: validation.error!.code,
-          message: validation.error!.message,
-        },
-      });
+      return badRequest(res, validation.error!.message, { code: validation.error!.code });
     }
 
     const result = await mcpIntegration.callTool({
@@ -390,19 +295,10 @@ router.post("/servers/:serverId/tools/:toolName/call", async (req: Request, res:
       serverId,
     });
 
-    res.json({
-      success: true,
-      data: result,
-    });
+    ok(res, result);
   } catch (error: any) {
     logger.error("[MCP API] Failed to call tool:", error);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: "TOOL_CALL_ERROR",
-        message: error.message || "Tool call error",
-      },
-    });
+    serverError(res, error, "Call tool");
   }
 });
 
@@ -416,13 +312,7 @@ router.post("/tools/call", async (req: Request, res: Response) => {
     const { toolName, arguments: args } = req.body;
 
     if (!toolName) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: "MISSING_TOOL_NAME",
-          message: "Missing toolName",
-        },
-      });
+      return badRequest(res, "Missing toolName", { code: "MISSING_TOOL_NAME" });
     }
 
     const result = await mcpIntegration.callTool({
@@ -430,19 +320,10 @@ router.post("/tools/call", async (req: Request, res: Response) => {
       arguments: args || {},
     });
 
-    res.json({
-      success: true,
-      data: result,
-    });
+    ok(res, result);
   } catch (error: any) {
     logger.error("[MCP API] Failed to call tool:", error);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: "TOOL_CALL_ERROR",
-        message: error.message || "Tool call error",
-      },
-    });
+    serverError(res, error, "Call tool");
   }
 });
 
@@ -455,19 +336,10 @@ router.get("/statistics", async (req: Request, res: Response) => {
   try {
     const stats = mcpIntegration.getStatistics();
 
-    res.json({
-      success: true,
-      data: stats,
-    });
+    ok(res, stats);
   } catch (error: any) {
     logger.error("[MCP API] Failed to get statistics:", error);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: "GET_STATISTICS_FAILED",
-        message: error.message || "Failed to get statistics",
-      },
-    });
+    serverError(res, error, "Get statistics");
   }
 });
 
@@ -488,13 +360,12 @@ router.get("/health", async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     logger.error("[MCP API] Health check failed:", error);
-    res.status(503).json({
-      success: false,
-      error: {
-        code: "HEALTH_CHECK_FAILED",
-        message: error.message || "Health check failed",
-      },
-    });
+    serviceUnavailable(
+      res,
+      error.message || "Health check failed",
+      "server_error",
+      "HEALTH_CHECK_FAILED"
+    );
   }
 });
 

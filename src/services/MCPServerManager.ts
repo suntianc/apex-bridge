@@ -254,7 +254,7 @@ export class MCPServerManager extends EventEmitter {
           } else {
             return {
               type: "resource" as const,
-              text: (content as any).text,
+              text: (content as { text?: string }).text || "",
             };
           }
         }),

@@ -5,9 +5,22 @@
  */
 
 import { Request, Response, NextFunction } from "express";
-import helmet from "helmet";
+import helmet, { HelmetOptions } from "helmet";
 import { ConfigService } from "../../services/ConfigService";
 import { logger } from "../../utils/logger";
+
+// Helmet-compatible types for custom security config
+interface HelmetCSPDirective {
+  [key: string]: string[];
+}
+
+interface HelmetReferrerPolicy {
+  policy: string;
+}
+
+interface HelmetPermissionsPolicy {
+  features: Record<string, string[]>;
+}
 
 export interface SecurityHeadersConfig {
   enabled: boolean;
@@ -111,10 +124,10 @@ export function createSecurityHeadersMiddleware(
   }
 
   // 配置 Helmet
-  const helmetOptions: any = {
+  const helmetOptions: HelmetOptions = {
     contentSecurityPolicy: securityConfig.csp?.enabled
       ? {
-          directives: securityConfig.csp.directives as any,
+          directives: securityConfig.csp.directives as HelmetCSPDirective,
         }
       : false,
     hsts: securityConfig.hsts?.enabled
@@ -131,17 +144,11 @@ export function createSecurityHeadersMiddleware(
       : false,
     noSniff: securityConfig.contentTypeNosniff !== false,
     xssFilter: securityConfig.xssFilter !== false,
-    referrerPolicy: {
-      policy: (securityConfig.referrerPolicy as any) || "strict-origin-when-cross-origin",
-    },
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
     permittedCrossDomainPolicies: {
       permittedPolicies: "none",
     },
-    expectCt: {
-      maxAge: 86400, // 24小时
-      enforce: true,
-    },
-    crossOriginEmbedderPolicy: false, // 禁用，避免破坏现有功能
+    crossOriginEmbedderPolicy: false,
     crossOriginOpenerPolicy: {
       policy: "same-origin",
     },
@@ -152,16 +159,8 @@ export function createSecurityHeadersMiddleware(
     dnsPrefetchControl: {
       allow: false,
     },
-    downloadOptions: {
-      action: "deny",
-    },
     hidePoweredBy: true,
     ieNoOpen: true,
-    permissionsPolicy: securityConfig.permissionsPolicy
-      ? {
-          features: securityConfig.permissionsPolicy as any,
-        }
-      : undefined,
   };
 
   // 创建 Helmet 中间件

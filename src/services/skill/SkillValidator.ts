@@ -199,7 +199,7 @@ export class SkillValidator {
 
       if (tool.parameters.properties) {
         for (const [key, prop] of Object.entries(tool.parameters.properties)) {
-          const property = prop as any;
+          const property = prop as { type?: string };
           if (!property.type) {
             warnings.push(`Property '${key}' has no type defined`);
           }

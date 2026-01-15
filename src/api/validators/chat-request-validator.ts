@@ -109,7 +109,7 @@ export function parseChatRequest(body: any): ValidationResult<ChatRequestOptions
 
     for (const key of STANDARD_CHAT_PARAMS) {
       if (key in body && key !== "provider" && key !== "model") {
-        (options as any)[key] = body[key];
+        options[key] = body[key];
       }
     }
 

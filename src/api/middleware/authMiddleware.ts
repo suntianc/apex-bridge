@@ -10,6 +10,7 @@
 import { Request, Response, NextFunction } from "express";
 import { logger } from "../../utils/logger";
 import { ConfigService } from "../../services/ConfigService";
+import { unauthorized } from "../../utils/http-response";
 
 const configService = ConfigService.getInstance();
 
@@ -95,12 +96,7 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
 
   if (!authHeader) {
     logger.warn("⚠️  Request without Authorization header");
-    res.status(401).json({
-      error: {
-        message: "Missing Authorization header",
-        type: "authentication_error",
-      },
-    });
+    unauthorized(res, "Missing Authorization header");
     return;
   }
 
@@ -112,12 +108,7 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
 
   if (!validation.valid) {
     logger.warn(`⚠️  Invalid API key for ${req.path}`);
-    res.status(401).json({
-      error: {
-        message: "Invalid API key",
-        type: "authentication_error",
-      },
-    });
+    unauthorized(res, "Invalid API key");
     return;
   }
 

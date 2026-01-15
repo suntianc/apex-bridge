@@ -76,11 +76,6 @@ export class ChatController {
     try {
       const body = req.body;
 
-      // DEBUG: 检查原始请求中的消息格式
-      if (body.messages && Array.isArray(body.messages)) {
-        this.logMultimodalMessages(body.messages);
-      }
-
       const validation = parseChatRequest(body);
       if (!validation.success) {
         logger.warn("[ChatController] Invalid request:", validation.error);
@@ -90,18 +85,6 @@ export class ChatController {
 
       const options = validation.data;
       const messages = body.messages;
-
-      // DEBUG: 检查验证后的消息格式
-      const multimodalAfterValidation = messages.filter(
-        (m: any) => Array.isArray(m.content) && m.content.some((p: any) => p.type === "image_url")
-      ).length;
-      if (multimodalAfterValidation > 0) {
-        logger.debug(
-          `[ChatController] After validation: ${multimodalAfterValidation} multimodal messages`
-        );
-      } else if (body.messages.some((m: any) => Array.isArray(m.content))) {
-        logger.warn("[ChatController] Multimodal messages lost after validation!");
-      }
 
       // 深度思考模式：强制流式输出思考过程
       await this.handleStreamResponse(res, messages, options);

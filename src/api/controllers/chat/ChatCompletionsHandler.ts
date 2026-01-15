@@ -6,6 +6,7 @@
 
 import { Request, Response } from "express";
 import { logger } from "../../../utils/logger";
+import { badRequest } from "../../../utils/http-response";
 import { ChatService } from "../../../services/ChatService";
 import { parseChatRequest } from "../../validators/chat-request-validator";
 import type { ChatRequestOptions } from "../../validators/chat-request-validator";
@@ -36,26 +37,11 @@ export class ChatCompletionsHandler {
     try {
       const body = req.body;
 
-      // DEBUG: Check multimodal messages in original request
-      if (body.messages && Array.isArray(body.messages)) {
-        const multimodalCount = body.messages.filter(
-          (m: any) => Array.isArray(m.content) && m.content.some((p: any) => p.type === "image_url")
-        ).length;
-        if (multimodalCount > 0) {
-          logger.debug(`[ChatCompletionsHandler] Received ${multimodalCount} multimodal messages`);
-        }
-      }
-
       // Validate request
       const validation = parseChatRequest(body);
       if (!validation.success) {
         logger.warn("[ChatCompletionsHandler] Invalid request:", validation.error);
-        res.status(400).json({
-          error: {
-            message: validation.error || "Invalid request parameters",
-            type: "invalid_request",
-          },
-        });
+        badRequest(res, validation.error || "Invalid request parameters");
         return { success: false, error: validation.error };
       }
 

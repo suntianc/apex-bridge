@@ -8,6 +8,13 @@ import { Request, Response } from "express";
 import { ChatService } from "../../../services/ChatService";
 import { LLMManager } from "../../../core/LLMManager";
 import { logger } from "../../../utils/logger";
+import {
+  ok,
+  badRequest,
+  notFound,
+  serverError,
+  serviceUnavailable,
+} from "../../../utils/http-response";
 import { ChatCompletionsHandler, createChatCompletionsHandler } from "./ChatCompletionsHandler";
 import { StreamResponseHandler, createStreamResponseHandler } from "./StreamResponseHandler";
 import { MessageValidation, createMessageValidation } from "./MessageValidation";
@@ -61,12 +68,7 @@ export class ChatController {
       const result = await this.completionsHandler.handleCompletions(req, res);
 
       if (!result.success) {
-        res.status(400).json({
-          error: {
-            message: result.error || "Invalid request",
-            type: "invalid_request",
-          },
-        });
+        badRequest(res, result.error || "Invalid request");
         return;
       }
 
@@ -80,16 +82,11 @@ export class ChatController {
         const actualModel = await this.getActualModel(req.body);
         const usage = normalizeUsage(result.response.usage);
         const response = buildChatResponse(result.response.content, actualModel, usage);
-        res.json(response);
+        ok(res, response);
       }
     } catch (error: any) {
       logger.error("Error in chatCompletions:", error);
-      res.status(500).json({
-        error: {
-          message: error.message || "Internal server error",
-          type: "server_error",
-        },
-      });
+      serverError(res, error, "Chat completions");
     }
   }
 
@@ -101,7 +98,7 @@ export class ChatController {
       const llmClient = await this.getLLMClient();
       const models = await llmClient.getAllModels();
 
-      res.json({
+      ok(res, {
         object: "list",
         data: models.map((m) => ({
           id: m.id,
@@ -119,13 +116,13 @@ export class ChatController {
         error.message?.includes("not available") || error.message?.includes("Failed to initialize")
           ? 503
           : 500;
+      const type = statusCode === 503 ? "service_unavailable" : "server_error";
 
-      res.status(statusCode).json({
-        error: {
-          message: error.message || "Failed to fetch models",
-          type: statusCode === 503 ? "service_unavailable" : "server_error",
-        },
-      });
+      if (statusCode === 503) {
+        serviceUnavailable(res, error.message || "Failed to fetch models");
+      } else {
+        serverError(res, error, "Get models");
+      }
     }
   }
 
@@ -138,11 +135,7 @@ export class ChatController {
       const { requestId } = body;
 
       if (!requestId || typeof requestId !== "string") {
-        res.status(400).json({
-          success: false,
-          error: "Bad Request",
-          message: "Missing or invalid requestId",
-        });
+        badRequest(res, "Missing or invalid requestId");
         return;
       }
 
@@ -159,7 +152,7 @@ export class ChatController {
         };
 
         logger.info(`Request interrupted: ${requestId}`);
-        res.json(response);
+        ok(res, response);
       } else {
         const response: InterruptResponse = {
           success: false,
@@ -169,7 +162,7 @@ export class ChatController {
         };
 
         logger.warn(`Request not found for interrupt: ${requestId}`);
-        res.status(404).json(response);
+        notFound(res, "Request not found or already completed");
       }
     } catch (error: any) {
       logger.error("Error in interruptRequest:", error);
@@ -180,7 +173,7 @@ export class ChatController {
         error: error.toString(),
       };
 
-      res.status(500).json(response);
+      serverError(res, error, "Interrupt request");
     }
   }
 
@@ -192,29 +185,19 @@ export class ChatController {
       const conversationId = req.params.conversationId;
 
       if (!conversationId) {
-        res.status(400).json({
-          error: {
-            message: "conversationId is required",
-            type: "invalid_request",
-          },
-        });
+        badRequest(res, "conversationId is required");
         return;
       }
 
       await this.chatService.endSession(conversationId);
 
-      res.json({
+      ok(res, {
         success: true,
         message: "Session deleted successfully",
       });
     } catch (error: any) {
       logger.error("Error in deleteSession:", error);
-      res.status(500).json({
-        error: {
-          message: error.message || "Internal server error",
-          type: "server_error",
-        },
-      });
+      serverError(res, error, "Delete session");
     }
   }
 
@@ -226,24 +209,14 @@ export class ChatController {
       const conversationId = req.params.conversationId;
 
       if (!conversationId) {
-        res.status(400).json({
-          error: {
-            message: "conversationId is required",
-            type: "invalid_request",
-          },
-        });
+        badRequest(res, "conversationId is required");
         return;
       }
 
       const sessionId = this.chatService.getSessionIdByConversationId(conversationId);
 
       if (!sessionId) {
-        res.status(404).json({
-          error: {
-            message: "Session not found",
-            type: "not_found",
-          },
-        });
+        notFound(res, "Session not found");
         return;
       }
 
@@ -261,18 +234,13 @@ export class ChatController {
         },
       };
 
-      res.json({
+      ok(res, {
         success: true,
         data: sessionState,
       });
     } catch (error: any) {
       logger.error("Error in getSession:", error);
-      res.status(500).json({
-        error: {
-          message: error.message || "Internal server error",
-          type: "server_error",
-        },
-      });
+      serverError(res, error, "Get session");
     }
   }
 
@@ -310,7 +278,7 @@ export class ChatController {
 
       const activeSessions = sessions.filter((s) => s !== null);
 
-      res.json({
+      ok(res, {
         success: true,
         data: {
           sessions: activeSessions,
@@ -319,12 +287,7 @@ export class ChatController {
       });
     } catch (error: any) {
       logger.error("Error in getActiveSessions:", error);
-      res.status(500).json({
-        error: {
-          message: error.message || "Internal server error",
-          type: "server_error",
-        },
-      });
+      serverError(res, error, "Get active sessions");
     }
   }
 
@@ -337,23 +300,13 @@ export class ChatController {
       const { type = "all", limit = "100" } = req.query;
 
       if (!conversationId) {
-        res.status(400).json({
-          error: {
-            message: "conversationId is required",
-            type: "invalid_request",
-          },
-        });
+        badRequest(res, "conversationId is required");
         return;
       }
 
       const sessionId = this.chatService.getSessionIdByConversationId(conversationId);
       if (!sessionId) {
-        res.status(404).json({
-          error: {
-            message: "Session not found",
-            type: "not_found",
-          },
-        });
+        notFound(res, "Session not found");
         return;
       }
 
@@ -373,18 +326,13 @@ export class ChatController {
         };
       }
 
-      res.json({
+      ok(res, {
         success: true,
         data: history,
       });
     } catch (error: any) {
       logger.error("Error in getSessionHistory:", error);
-      res.status(500).json({
-        error: {
-          message: error.message || "Internal server error",
-          type: "server_error",
-        },
-      });
+      serverError(res, error, "Get session history");
     }
   }
 
@@ -397,12 +345,7 @@ export class ChatController {
       const { limit = "100", offset = "0" } = req.query;
 
       if (!conversationId) {
-        res.status(400).json({
-          error: {
-            message: "conversationId is required",
-            type: "invalid_request",
-          },
-        });
+        badRequest(res, "conversationId is required");
         return;
       }
 
@@ -414,7 +357,7 @@ export class ChatController {
 
       const total = await this.chatService.getConversationMessageCount(conversationId);
 
-      res.json({
+      ok(res, {
         success: true,
         data: {
           messages,
@@ -425,12 +368,7 @@ export class ChatController {
       });
     } catch (error: any) {
       logger.error("Error in getConversationMessages:", error);
-      res.status(500).json({
-        error: {
-          message: error.message || "Internal server error",
-          type: "server_error",
-        },
-      });
+      serverError(res, error, "Get conversation messages");
     }
   }
 
@@ -443,12 +381,7 @@ export class ChatController {
       const body = req.body;
 
       if (!messages || !Array.isArray(messages)) {
-        res.status(400).json({
-          error: {
-            message: "messages is required and must be an array",
-            type: "validation_error",
-          },
-        });
+        badRequest(res, "messages is required and must be an array");
         return;
       }
 
@@ -462,12 +395,7 @@ export class ChatController {
       };
 
       if (!options.model) {
-        res.status(400).json({
-          error: {
-            message: "model is required",
-            type: "validation_error",
-          },
-        });
+        badRequest(res, "model is required");
         return;
       }
 
@@ -476,12 +404,7 @@ export class ChatController {
       logger.error("Error in simpleChatStream:", error);
 
       if (!res.headersSent) {
-        res.status(500).json({
-          error: {
-            message: error.message || "Internal server error",
-            type: "server_error",
-          },
-        });
+        serverError(res, error, "Simple chat stream");
       }
     }
   }
