@@ -11,6 +11,7 @@ describe("PromptInjectionGuard - Basic Functionality", () => {
   let guard: PromptInjectionGuard;
 
   beforeEach(() => {
+    PromptInjectionGuard.resetInstance();
     guard = PromptInjectionGuard.getInstance();
   });
 
@@ -37,6 +38,7 @@ describe("PromptInjectionGuard - Direct Injection Detection", () => {
   let guard: PromptInjectionGuard;
 
   beforeEach(() => {
+    PromptInjectionGuard.resetInstance();
     guard = PromptInjectionGuard.getInstance({ enableDirectDetection: true });
   });
 
@@ -89,6 +91,7 @@ describe("PromptInjectionGuard - Jailbreak Detection", () => {
   let guard: PromptInjectionGuard;
 
   beforeEach(() => {
+    PromptInjectionGuard.resetInstance();
     guard = PromptInjectionGuard.getInstance({ enableJailbreakDetection: true });
   });
 
@@ -247,6 +250,7 @@ describe("PromptInjectionGuard - Indirect Injection Detection", () => {
   let guard: PromptInjectionGuard;
 
   beforeEach(() => {
+    PromptInjectionGuard.resetInstance();
     guard = PromptInjectionGuard.getInstance({ enableIndirectDetection: true });
   });
 
@@ -298,6 +302,7 @@ describe("PromptInjectionGuard - Sanitization Function", () => {
   let guard: PromptInjectionGuard;
 
   beforeEach(() => {
+    PromptInjectionGuard.resetInstance();
     guard = PromptInjectionGuard.getInstance({ autoSanitize: true });
   });
 
@@ -326,6 +331,10 @@ describe("PromptInjectionGuard - Sanitization Function", () => {
 });
 
 describe("PromptInjectionGuard - Risk Level Calculation", () => {
+  beforeEach(() => {
+    PromptInjectionGuard.resetInstance();
+  });
+
   it("should return low risk for no threats", () => {
     const guard = PromptInjectionGuard.getInstance();
     const result = guard.detect("Normal conversation");
@@ -340,11 +349,11 @@ describe("PromptInjectionGuard - Risk Level Calculation", () => {
     expect(result.riskLevel).toBe("medium");
   });
 
-  it("should return high risk for jailbreak threats", () => {
+  it("should return critical risk for jailbreak threats", () => {
     const guard = PromptInjectionGuard.getInstance({ enableJailbreakDetection: true });
     const result = guard.detect("jailbreak");
 
-    expect(result.riskLevel).toBe("high");
+    expect(result.riskLevel).toBe("critical");
   });
 
   it("should return critical risk for severe direct threats", () => {
@@ -359,6 +368,7 @@ describe("PromptInjectionGuard - Performance", () => {
   let guard: PromptInjectionGuard;
 
   beforeEach(() => {
+    PromptInjectionGuard.resetInstance();
     guard = PromptInjectionGuard.getInstance();
   });
 
@@ -391,6 +401,7 @@ describe("PromptInjectionGuard - Edge Cases", () => {
   let guard: PromptInjectionGuard;
 
   beforeEach(() => {
+    PromptInjectionGuard.resetInstance();
     guard = PromptInjectionGuard.getInstance();
   });
 
@@ -439,6 +450,7 @@ describe("PromptInjectionGuard - Combined Attack Detection", () => {
   let guard: PromptInjectionGuard;
 
   beforeEach(() => {
+    PromptInjectionGuard.resetInstance();
     guard = PromptInjectionGuard.getInstance({
       enableDirectDetection: true,
       enableJailbreakDetection: true,
@@ -467,6 +479,10 @@ describe("PromptInjectionGuard - Combined Attack Detection", () => {
 });
 
 describe("PromptInjectionGuard - Disabled Detection Options", () => {
+  beforeEach(() => {
+    PromptInjectionGuard.resetInstance();
+  });
+
   it("should not detect disabled injection types", () => {
     const guard = PromptInjectionGuard.getInstance({
       enableDirectDetection: false,

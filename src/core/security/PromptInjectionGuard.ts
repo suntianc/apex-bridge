@@ -80,6 +80,7 @@ export class PromptInjectionGuard {
   /** 直接注入 pattern - 忽略之前指令 */
   private readonly DIRECT_PATTERNS = [
     { regex: /ignore\s+previous\s+instructions/gi, severity: "critical" as const },
+    { regex: /ignore\s+all\s+previous\s+instructions/gi, severity: "critical" as const },
     { regex: /forget\s+all\s+instructions/gi, severity: "critical" as const },
     { regex: /you\s+are\s+now\s+/gi, severity: "high" as const },
     { regex: /system\s+override/gi, severity: "critical" as const },
@@ -156,7 +157,7 @@ export class PromptInjectionGuard {
     { regex: /\$\{[^}]+\}/g, severity: "medium" as const }, // ${variable}
     { regex: /#\{[^}]+\}/g, severity: "medium" as const }, // #{variable}
     { regex: /<%[^%]+%>/g, severity: "medium" as const }, // <%template%>
-    { regex: /\$\([[^\)]+\]\)/g, severity: "high" as const }, // $(command)
+    { regex: /\$\([^)]+\)/g, severity: "high" as const }, // $(command)
     { regex: /`[^`]+`/g, severity: "medium" as const }, // Backtick command substitution
     { regex: /\|[a-zA-Z]+(\|[a-zA-Z]+)*/g, severity: "medium" as const }, // Shell pipe chains
     { regex: /;&amp;|\|;|&amp;&amp;/g, severity: "high" as const }, // Command chaining
@@ -186,6 +187,13 @@ export class PromptInjectionGuard {
       PromptInjectionGuard.instance = new PromptInjectionGuard(options);
     }
     return PromptInjectionGuard.instance;
+  }
+
+  /**
+   * 重置单例实例（仅用于测试）
+   */
+  static resetInstance(): void {
+    PromptInjectionGuard.instance = undefined as any;
   }
 
   /**
