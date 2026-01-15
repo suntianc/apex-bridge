@@ -650,7 +650,7 @@ describe("DisclosureDecisionManager", () => {
       const input = createMockDecisionInput(0.5, 3000);
       const decision = decisionManager.decide(input);
 
-      expect(decision.level).toBe(DisclosureLevel.METADATA);
+      expect(decision.level).toBe(DisclosureLevel.CONTENT);
       expect(decision.reason).toBe("tokenBudget");
     });
 
@@ -667,7 +667,7 @@ describe("DisclosureDecisionManager", () => {
       const input = createMockDecisionInput(0.3, 3000);
       const decision = decisionManager.decide(input);
 
-      expect(decision.level).toBe(DisclosureLevel.METADATA);
+      expect(decision.level).toBe(DisclosureLevel.CONTENT);
       expect(decision.reason).toBe("tokenBudget");
     });
 
@@ -675,7 +675,7 @@ describe("DisclosureDecisionManager", () => {
       const input = createMockDecisionInput(0, 3000);
       const decision = decisionManager.decide(input);
 
-      expect(decision.level).toBe(DisclosureLevel.METADATA);
+      expect(decision.level).toBe(DisclosureLevel.CONTENT);
       expect(decision.reason).toBe("tokenBudget");
     });
 
@@ -692,7 +692,9 @@ describe("DisclosureDecisionManager", () => {
     it("should respect custom l2 threshold", () => {
       const manager = new DisclosureDecisionManager({ l2: 0.8, l3: 0.9 });
 
-      expect(manager.decide(createMockDecisionInput(0.75, 3000)).level).toBe("metadata");
+      expect(manager.decide(createMockDecisionInput(0.75, 3000)).level).toBe(
+        DisclosureLevel.CONTENT
+      );
       expect(manager.decide(createMockDecisionInput(0.75, 3000)).reason).toBe("tokenBudget");
     });
 
@@ -725,7 +727,7 @@ describe("DisclosureDecisionManager", () => {
       const input = createMockDecisionInput(-0.1, 3000);
       const decision = decisionManager.decide(input);
 
-      expect(decision.level).toBe(DisclosureLevel.METADATA);
+      expect(decision.level).toBe(DisclosureLevel.CONTENT);
     });
 
     it("should handle score > 1.0", () => {
@@ -1034,7 +1036,7 @@ describe("Boundary Condition Tests", () => {
         maxTokens: 3000,
       });
 
-      expect(result.level).toBe(DisclosureLevel.METADATA);
+      expect(result.level).toBe(DisclosureLevel.CONTENT);
     });
 
     it("should handle score = 0.699999 (just below l2)", async () => {
@@ -1043,8 +1045,8 @@ describe("Boundary Condition Tests", () => {
         maxTokens: 3000,
       });
 
-      // Should return METADATA (from tokenBudget fallback)
-      expect(result.level).toBe(DisclosureLevel.METADATA);
+      // Should return CONTENT (from tokenBudget fallback)
+      expect(result.level).toBe(DisclosureLevel.CONTENT);
     });
 
     it("should handle score = 0.849999 (just below l3)", async () => {
@@ -1063,7 +1065,7 @@ describe("Boundary Condition Tests", () => {
         maxTokens: 3000,
       });
 
-      expect(result.level).toBe(DisclosureLevel.METADATA);
+      expect(result.level).toBe(DisclosureLevel.CONTENT);
     });
 
     it("should handle score > 1.0", async () => {

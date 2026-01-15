@@ -391,7 +391,7 @@ describe("DisclosureDecisionManager", () => {
       expect(decision.reason).toBe("threshold");
     });
 
-    it("should return METADATA for score just below 0.7 threshold (0.699)", () => {
+    it("should return CONTENT for score just below 0.7 threshold (0.699)", () => {
       const input: DisclosureDecisionInput = {
         result: createTestResult({ unifiedScore: 0.699 }),
         score: 0.699,
@@ -399,7 +399,7 @@ describe("DisclosureDecisionManager", () => {
       };
       const decision = decisionManager.decide(input);
 
-      expect(decision.level).toBe(DisclosureLevel.METADATA);
+      expect(decision.level).toBe(DisclosureLevel.CONTENT);
       expect(decision.reason).toBe("tokenBudget");
     });
 
@@ -424,7 +424,7 @@ describe("DisclosureDecisionManager", () => {
       };
       const decision = decisionManager.decide(input);
 
-      expect(decision.level).toBe(DisclosureLevel.METADATA);
+      expect(decision.level).toBe(DisclosureLevel.CONTENT);
       expect(decision.reason).toBe("tokenBudget");
     });
 
@@ -493,7 +493,7 @@ describe("DisclosureDecisionManager", () => {
       const decision = customManager.decide(input);
 
       // Score 0.75 < 0.8 (custom l2), so should be tokenBudget fallback
-      expect(decision.level).toBe(DisclosureLevel.METADATA);
+      expect(decision.level).toBe(DisclosureLevel.CONTENT);
       expect(decision.reason).toBe("tokenBudget");
     });
 
