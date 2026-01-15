@@ -321,3 +321,30 @@ export async function measureAsyncTime<T>(
   const duration = performance.now() - start;
   return { result, duration };
 }
+
+/**
+ * 将 Error 对象转换为可序列化的普通对象
+ * @param error - 错误对象
+ * @returns 可序列化的普通对象
+ */
+export function errorToPlainObject(error: unknown): Record<string, unknown> {
+  if (error instanceof Error) {
+    const result: Record<string, unknown> = {
+      name: error.name,
+      message: error.message,
+    };
+    if (error.stack) {
+      result.stack = error.stack;
+    }
+    if ("cause" in error) {
+      result.cause = error.cause;
+    }
+    return result;
+  }
+
+  if (typeof error === "object" && error !== null) {
+    return { ...error };
+  }
+
+  return { value: String(error) };
+}

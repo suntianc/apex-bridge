@@ -10,114 +10,17 @@ import { ModelRegistry } from "../../services/ModelRegistry";
 import { CreateProviderInput, UpdateProviderInput } from "../../types/llm-models";
 import { logger } from "../../utils/logger";
 import { LLMAdapterFactory } from "../../core/llm/adapters/LLMAdapterFactory";
-import { AppError, isAppError, ErrorCode } from "../../utils/errors";
+import {
+  badRequest,
+  notFound,
+  created,
+  ok,
+  serverError,
+  handleErrorWithAutoDetection,
+} from "../../utils/http-response";
 
 const configService = LLMConfigService.getInstance();
 const modelRegistry = ModelRegistry.getInstance();
-
-/**
- * 统一处理服务层错误
- * 使用类型化错误 (AppError) 处理，替代脆弱的字符串匹配
- *
- * @param res - Express 响应对象
- * @param error - 错误对象
- * @param action - 操作名称（用于日志）
- * @returns 是否已处理错误
- */
-function handleServiceError(res: Response, error: any, action: string): boolean {
-  logger.error(`❌ Failed to ${action}:`, error);
-
-  // 如果是 AppError，使用类型化的错误处理
-  if (isAppError(error)) {
-    res.status(error.statusCode).json({
-      error: {
-        message: error.message,
-        code: error.code,
-        type: error.type,
-        ...(error.details && { details: error.details }),
-      },
-    });
-    return true;
-  }
-
-  // 向后兼容：处理非 AppError 的错误（降级到字符串匹配）
-  const msg = error?.message || String(error);
-  const lowerMsg = msg.toLowerCase();
-
-  if (lowerMsg.includes("not found") || lowerMsg.includes("does not exist")) {
-    res.status(404).json({
-      error: {
-        message: msg,
-        code: ErrorCode.NOT_FOUND,
-        type: "client_error",
-      },
-    });
-    return true;
-  }
-
-  if (lowerMsg.includes("already exists") || lowerMsg.includes("duplicate")) {
-    res.status(409).json({
-      error: {
-        message: msg,
-        code: "RESOURCE_CONFLICT",
-        type: "client_error",
-      },
-    });
-    return true;
-  }
-
-  if (
-    lowerMsg.includes("required") ||
-    lowerMsg.includes("invalid") ||
-    lowerMsg.includes("validation") ||
-    lowerMsg.includes("validation failed")
-  ) {
-    res.status(400).json({
-      error: {
-        message: msg,
-        code: ErrorCode.VALIDATION_ERROR,
-        type: "client_error",
-      },
-    });
-    return true;
-  }
-
-  if (
-    lowerMsg.includes("unauthorized") ||
-    lowerMsg.includes("authentication") ||
-    lowerMsg.includes("auth failed")
-  ) {
-    res.status(401).json({
-      error: {
-        message: msg,
-        code: ErrorCode.UNAUTHORIZED,
-        type: "client_error",
-      },
-    });
-    return true;
-  }
-
-  if (lowerMsg.includes("forbidden") || lowerMsg.includes("permission")) {
-    res.status(403).json({
-      error: {
-        message: msg,
-        code: ErrorCode.FORBIDDEN,
-        type: "client_error",
-      },
-    });
-    return true;
-  }
-
-  // 默认返回 500
-  res.status(500).json({
-    error: {
-      message: msg,
-      code: ErrorCode.INTERNAL_ERROR,
-      type: "server_error",
-    },
-  });
-  return true;
-}
 
 /**
  * 转换为 Provider DTO
@@ -167,7 +70,7 @@ export async function listProviders(req: Request, res: Response): Promise<void> 
       providers: providersWithStats,
     });
   } catch (error: any) {
-    handleServiceError(res, error, "list providers");
+    handleErrorWithAutoDetection(res, error, "list providers");
   }
 }
 
@@ -180,33 +83,24 @@ export async function getProvider(req: Request, res: Response): Promise<void> {
     const id = parseInt(req.params.id, 10);
 
     if (isNaN(id)) {
-      res.status(400).json({
-        error: "Invalid provider ID",
-        message: "Provider ID must be a number",
-      });
+      badRequest(res, "Provider ID must be a number");
       return;
     }
 
     const provider = configService.getProvider(id);
 
     if (!provider) {
-      res.status(404).json({
-        error: "Provider not found",
-        message: `Provider with id ${id} not found`,
-      });
+      notFound(res, `Provider with id ${id} not found`);
       return;
     }
 
-    // 获取该提供商的所有模型
     const models = configService.getProviderModels(id);
 
-    res.json({
-      success: true,
-      // ✅ 使用统一 DTO，确保响应结构一致
+    ok(res, {
       provider: toProviderDTO(provider, models.length),
     });
   } catch (error: any) {
-    handleServiceError(res, error, "get provider");
+    handleErrorWithAutoDetection(res, error, "get provider");
   }
 }
 
@@ -218,28 +112,20 @@ export async function createProvider(req: Request, res: Response): Promise<void>
   try {
     const input: CreateProviderInput = req.body;
 
-    // 基本验证
     if (!input.provider || !input.name || !input.baseConfig) {
-      res.status(400).json({
-        error: "Missing required fields",
-        message: "provider, name, and baseConfig are required",
-      });
+      badRequest(res, "provider, name, and baseConfig are required");
       return;
     }
 
-    const created = configService.createProvider(input);
+    const newProvider = configService.createProvider(input);
 
-    // 刷新缓存
     modelRegistry.forceRefresh();
 
-    res.status(201).json({
-      success: true,
-      message: "Provider created successfully",
-      // ✅ 返回完整的、一致的结构（新创建的 Provider 模型数为 0）
-      provider: toProviderDTO(created, 0),
+    created(res, {
+      provider: toProviderDTO(newProvider, 0),
     });
   } catch (error: any) {
-    handleServiceError(res, error, "create provider");
+    handleErrorWithAutoDetection(res, error, "create provider");
   }
 }
 
@@ -252,39 +138,28 @@ export async function updateProvider(req: Request, res: Response): Promise<void>
     const id = parseInt(req.params.id, 10);
 
     if (isNaN(id)) {
-      res.status(400).json({
-        error: "Invalid provider ID",
-        message: "Provider ID must be a number",
-      });
+      badRequest(res, "Provider ID must be a number");
       return;
     }
 
     const input: UpdateProviderInput = req.body;
 
     if (Object.keys(input).length === 0) {
-      res.status(400).json({
-        error: "No updates provided",
-        message: "At least one field must be provided",
-      });
+      badRequest(res, "At least one field must be provided");
       return;
     }
 
-    const updated = configService.updateProvider(id, input);
+    const updatedProvider = configService.updateProvider(id, input);
 
-    // 刷新缓存
     modelRegistry.forceRefresh();
 
-    // 获取当前模型数以保持一致性
     const models = configService.getProviderModels(id);
 
-    res.json({
-      success: true,
-      message: "Provider updated successfully",
-      // ✅ 返回完整的、一致的结构
-      provider: toProviderDTO(updated, models.length),
+    ok(res, {
+      provider: toProviderDTO(updatedProvider, models.length),
     });
   } catch (error: any) {
-    handleServiceError(res, error, "update provider");
+    handleErrorWithAutoDetection(res, error, "update provider");
   }
 }
 
@@ -297,24 +172,17 @@ export async function deleteProvider(req: Request, res: Response): Promise<void>
     const id = parseInt(req.params.id, 10);
 
     if (isNaN(id)) {
-      res.status(400).json({
-        error: "Invalid provider ID",
-        message: "Provider ID must be a number",
-      });
+      badRequest(res, "Provider ID must be a number");
       return;
     }
 
     configService.deleteProvider(id);
 
-    // 刷新缓存
     modelRegistry.forceRefresh();
 
-    res.json({
-      success: true,
-      message: "Provider and associated models deleted successfully",
-    });
+    ok(res, { message: "Provider and associated models deleted successfully" });
   } catch (error: any) {
-    handleServiceError(res, error, "delete provider");
+    handleErrorWithAutoDetection(res, error, "delete provider");
   }
 }
 
@@ -326,16 +194,10 @@ export async function listAdapters(req: Request, res: Response): Promise<void> {
   try {
     const adapters = LLMAdapterFactory.getSupportedAdapters();
 
-    res.json({
-      success: true,
-      adapters,
-    });
+    ok(res, { adapters });
   } catch (error: any) {
-    logger.error("❌ Failed to list adapters:", error);
-    res.status(500).json({
-      error: "Failed to list adapters",
-      message: error.message,
-    });
+    logger.error("Failed to list adapters:", error);
+    serverError(res, error, "Failed to list adapters");
   }
 }
 
@@ -350,10 +212,8 @@ export async function testProviderConnection(req: Request, res: Response) {
 
     // 2. 基础校验
     if (!provider || !baseConfig) {
-      return res.status(400).json({
-        success: false,
-        message: "Missing required parameters: provider or baseConfig",
-      });
+      badRequest(res, "Missing required parameters: provider or baseConfig");
+      return;
     }
 
     // 3. 实例化适配器 (使用前端传来的临时配置)

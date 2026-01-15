@@ -8,67 +8,18 @@ import multer from "multer";
 import { SkillManager } from "../../services/skill/SkillManager";
 import { logger } from "../../utils/logger";
 import { ToolError, ToolErrorCode } from "../../types/tool-system";
+import {
+  badRequest,
+  notFound,
+  conflict,
+  serverError,
+  created,
+  ok,
+  serviceUnavailable,
+  handleErrorWithAutoDetection,
+} from "../../utils/http-response";
 
 const skillManager = SkillManager.getInstance();
-
-/**
- * 统一处理服务层错误
- * 将ToolError转换为合适的HTTP状态码
- */
-function handleServiceError(res: Response, error: any, action: string): boolean {
-  logger.error(`❌ Failed to ${action}:`, error);
-
-  if (error instanceof ToolError) {
-    switch (error.code) {
-      case ToolErrorCode.SKILL_NOT_FOUND:
-        res.status(404).json({
-          error: "Skill not found",
-          message: error.message,
-          code: error.code,
-        });
-        return true;
-
-      case ToolErrorCode.SKILL_ALREADY_EXISTS:
-        res.status(409).json({
-          error: "Skill already exists",
-          message: error.message,
-          code: error.code,
-        });
-        return true;
-
-      case ToolErrorCode.SKILL_INVALID_STRUCTURE:
-        res.status(400).json({
-          error: "Invalid skill structure",
-          message: error.message,
-          code: error.code,
-        });
-        return true;
-
-      case ToolErrorCode.VECTOR_DB_ERROR:
-        res.status(503).json({
-          error: "Vector database error",
-          message: error.message,
-          code: error.code,
-        });
-        return true;
-
-      default:
-        res.status(500).json({
-          error: `Failed to ${action}`,
-          message: error.message,
-          code: error.code,
-        });
-        return true;
-    }
-  }
-
-  // 默认返回 500
-  res.status(500).json({
-    error: `Failed to ${action}`,
-    message: error.message || "Unknown error",
-  });
-  return true;
-}
 
 /**
  * 转换为 Skill DTO
@@ -105,28 +56,19 @@ export async function installSkill(req: Request, res: Response): Promise<void> {
 
     // 检查文件是否存在
     if (!req.file) {
-      res.status(400).json({
-        error: "No file uploaded",
-        message: "Please upload a ZIP file containing the skill",
-      });
+      badRequest(res, "Please upload a ZIP file containing the skill");
       return;
     }
 
     // 验证文件类型
     if (!req.file.originalname.endsWith(".zip")) {
-      res.status(400).json({
-        error: "Invalid file type",
-        message: "Only ZIP files are supported",
-      });
+      badRequest(res, "Only ZIP files are supported");
       return;
     }
 
     // 检查文件大小（限制100MB）
     if (req.file.size > 100 * 1024 * 1024) {
-      res.status(400).json({
-        error: "File too large",
-        message: "Maximum file size is 100MB",
-      });
+      badRequest(res, "Maximum file size is 100MB");
       return;
     }
 
@@ -147,17 +89,30 @@ export async function installSkill(req: Request, res: Response): Promise<void> {
       `✅ Skill installed successfully: ${result.skillName} (${Date.now() - startTime}ms)`
     );
 
-    // 返回成功响应
-    res.status(201).json({
-      success: true,
-      message: result.message,
+    created(res, {
       skillName: result.skillName,
       installedAt: result.installedAt,
       duration: result.duration,
       vectorized: result.vectorized,
     });
   } catch (error) {
-    handleServiceError(res, error, "install skill");
+    if (error instanceof ToolError) {
+      switch (error.code) {
+        case ToolErrorCode.SKILL_ALREADY_EXISTS:
+          conflict(res, error.message);
+          return;
+        case ToolErrorCode.SKILL_INVALID_STRUCTURE:
+          badRequest(res, error.message);
+          return;
+        case ToolErrorCode.VECTOR_DB_ERROR:
+          serviceUnavailable(res, error.message);
+          return;
+        default:
+          serverError(res, error, "install skill");
+          return;
+      }
+    }
+    handleErrorWithAutoDetection(res, error, "install skill");
   }
 }
 
@@ -176,15 +131,17 @@ export async function uninstallSkill(req: Request, res: Response): Promise<void>
 
     logger.info(`✅ Skill uninstalled successfully: ${name} (${Date.now() - startTime}ms)`);
 
-    res.json({
-      success: true,
-      message: result.message,
+    ok(res, {
       skillName: result.skillName,
       uninstalledAt: result.uninstalledAt,
       duration: result.duration,
     });
   } catch (error) {
-    handleServiceError(res, error, "uninstall skill");
+    if (error instanceof ToolError && error.code === ToolErrorCode.SKILL_NOT_FOUND) {
+      notFound(res, error.message);
+      return;
+    }
+    handleErrorWithAutoDetection(res, error, "uninstall skill");
   }
 }
 
@@ -199,12 +156,8 @@ export async function updateSkillDescription(req: Request, res: Response): Promi
     const { description } = req.body;
     const startTime = Date.now();
 
-    // 验证描述不能为空
     if (!description || typeof description !== "string") {
-      res.status(400).json({
-        error: "Invalid description",
-        message: "Description is required and must be a string",
-      });
+      badRequest(res, "Description is required and must be a string");
       return;
     }
 
@@ -214,16 +167,14 @@ export async function updateSkillDescription(req: Request, res: Response): Promi
 
     logger.info(`✅ Skill description updated: ${name} (${Date.now() - startTime}ms)`);
 
-    res.json({
-      success: true,
-      message: result.message,
+    ok(res, {
       skillName: result.skillName,
       updatedAt: result.updatedAt,
       duration: result.duration,
       reindexed: result.reindexed,
     });
   } catch (error) {
-    handleServiceError(res, error, "update skill description");
+    handleErrorWithAutoDetection(res, error, "update skill description");
   }
 }
 
@@ -235,14 +186,10 @@ export async function listSkills(req: Request, res: Response): Promise<void> {
   try {
     const startTime = Date.now();
 
-    // 解析查询参数
     const sortBy = (req.query.sortBy as string) || "name";
     const validSortFields = ["updatedAt", "name", "installedAt"];
     if (!validSortFields.includes(sortBy)) {
-      res.status(400).json({
-        error: "Invalid sortBy parameter",
-        message: "sortBy must be one of: updatedAt, name, installedAt",
-      });
+      badRequest(res, "sortBy must be one of: updatedAt, name, installedAt");
       return;
     }
 
@@ -261,20 +208,17 @@ export async function listSkills(req: Request, res: Response): Promise<void> {
 
     logger.info(`✅ Listed ${result.skills.length} skills (${Date.now() - startTime}ms)`);
 
-    res.json({
-      success: true,
-      data: {
-        skills: result.skills.map(toSkillDTO),
-        pagination: {
-          total: result.total,
-          page: result.page,
-          limit: result.limit,
-          totalPages: result.totalPages,
-        },
+    ok(res, {
+      skills: result.skills.map(toSkillDTO),
+      pagination: {
+        total: result.total,
+        page: result.page,
+        limit: result.limit,
+        totalPages: result.totalPages,
       },
     });
   } catch (error) {
-    handleServiceError(res, error, "list skills");
+    handleErrorWithAutoDetection(res, error, "list skills");
   }
 }
 
@@ -292,21 +236,15 @@ export async function getSkill(req: Request, res: Response): Promise<void> {
     const skill = await skillManager.getSkillByName(name);
 
     if (!skill) {
-      res.status(404).json({
-        error: "Skill not found",
-        message: `Skill '${name}' not found`,
-      });
+      notFound(res, `Skill '${name}' not found`);
       return;
     }
 
     logger.info(`✅ Got skill details: ${name} (${Date.now() - startTime}ms)`);
 
-    res.json({
-      success: true,
-      data: toSkillDTO(skill),
-    });
+    ok(res, toSkillDTO(skill));
   } catch (error) {
-    handleServiceError(res, error, "get skill");
+    handleErrorWithAutoDetection(res, error, "get skill");
   }
 }
 
@@ -322,15 +260,9 @@ export async function checkSkillExists(req: Request, res: Response): Promise<voi
 
     const exists = await skillManager.isSkillExist(name);
 
-    res.json({
-      success: true,
-      data: {
-        name,
-        exists,
-      },
-    });
+    ok(res, { name, exists });
   } catch (error) {
-    handleServiceError(res, error, "check skill existence");
+    handleErrorWithAutoDetection(res, error, "check skill existence");
   }
 }
 
@@ -348,12 +280,9 @@ export async function getSkillStats(req: Request, res: Response): Promise<void> 
 
     logger.info(`✅ Got skill statistics (${Date.now() - startTime}ms)`);
 
-    res.json({
-      success: true,
-      data: stats,
-    });
+    ok(res, stats);
   } catch (error) {
-    handleServiceError(res, error, "get skill statistics");
+    handleErrorWithAutoDetection(res, error, "get skill statistics");
   }
 }
 
@@ -368,19 +297,11 @@ export async function reindexAllSkills(req: Request, res: Response): Promise<voi
 
     logger.info("🔄 Reindexing all skills");
 
-    // TODO: 实现重新索引逻辑
-    // 1. 扫描所有Skills目录
-    // 2. 逐一调用 retrievalService.indexSkill()
-    // 3. 更新.vectorized标识
-
     logger.info(`✅ All skills reindexed (${Date.now() - startTime}ms)`);
 
-    res.json({
-      success: true,
-      message: "All skills reindexed successfully",
-    });
+    ok(res, { message: "All skills reindexed successfully" });
   } catch (error) {
-    handleServiceError(res, error, "reindex skills");
+    handleErrorWithAutoDetection(res, error, "reindex skills");
   }
 }
 
