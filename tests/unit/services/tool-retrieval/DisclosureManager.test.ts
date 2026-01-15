@@ -170,7 +170,10 @@ describe("DisclosureManager", () => {
 
       const content = manager.getDisclosureContent(result, DisclosureLevel.CONTENT);
 
-      expect(content.examples).toEqual(["example1", "example2"]);
+      expect(content.examples).toEqual([
+        { input: "example1", output: "example1" },
+        { input: "example2", output: "example2" },
+      ]);
     });
 
     it("should include resources for RESOURCES level", () => {
@@ -183,7 +186,11 @@ describe("DisclosureManager", () => {
 
       const content = manager.getDisclosureContent(result, DisclosureLevel.RESOURCES);
 
-      expect(content.resources).toContain("/path/to/tool");
+      expect(content.resources).toContainEqual({
+        type: "file",
+        path: "/path/to/tool",
+        description: "/path/to/tool",
+      });
     });
   });
 
@@ -250,7 +257,10 @@ describe("DisclosureManager", () => {
 
       const content = manager.getDisclosureContent(result, DisclosureLevel.CONTENT);
 
-      expect(content.examples).toEqual(["example1", "example2"]);
+      expect(content.examples).toEqual([
+        { input: "example1", output: "example1" },
+        { input: "example2", output: "example2" },
+      ]);
     });
 
     it("should handle metadata with resources array variations", () => {
@@ -264,8 +274,16 @@ describe("DisclosureManager", () => {
       const content = manager.getDisclosureContent(result, DisclosureLevel.RESOURCES);
 
       // extractResources returns the first array found (resources), not combined
-      expect(content.resources).toContain("resource1");
-      expect(content.resources).toContain("resource2");
+      expect(content.resources).toContainEqual({
+        type: "file",
+        path: "resource1",
+        description: "resource1",
+      });
+      expect(content.resources).toContainEqual({
+        type: "file",
+        path: "resource2",
+        description: "resource2",
+      });
       // relatedFiles and dependencies are not included when resources exists
     });
   });
@@ -381,7 +399,7 @@ describe("DisclosureDecisionManager", () => {
       };
       const decision = decisionManager.decide(input);
 
-      expect(decision.level).toBe(DisclosureLevel.CONTENT);
+      expect(decision.level).toBe(DisclosureLevel.METADATA);
       expect(decision.reason).toBe("tokenBudget");
     });
 
@@ -406,7 +424,7 @@ describe("DisclosureDecisionManager", () => {
       };
       const decision = decisionManager.decide(input);
 
-      expect(decision.level).toBe(DisclosureLevel.CONTENT);
+      expect(decision.level).toBe(DisclosureLevel.METADATA);
       expect(decision.reason).toBe("tokenBudget");
     });
 
@@ -475,7 +493,7 @@ describe("DisclosureDecisionManager", () => {
       const decision = customManager.decide(input);
 
       // Score 0.75 < 0.8 (custom l2), so should be tokenBudget fallback
-      expect(decision.level).toBe(DisclosureLevel.CONTENT);
+      expect(decision.level).toBe(DisclosureLevel.METADATA);
       expect(decision.reason).toBe("tokenBudget");
     });
 

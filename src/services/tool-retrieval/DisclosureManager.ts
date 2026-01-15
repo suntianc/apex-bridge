@@ -130,7 +130,8 @@ export class DisclosureDecisionManager implements IDisclosureDecisionManager {
     }
 
     // 回退: 自适应 Token 预算
-    return { level: DisclosureLevel.CONTENT, reason: "tokenBudget" };
+    // Below threshold → METADATA (minimal disclosure for low relevance)
+    return { level: DisclosureLevel.METADATA, reason: "tokenBudget" };
   }
 }
 
@@ -342,6 +343,8 @@ export const DEFAULT_DISCLOSURE_CONFIG_V2: DisclosureManagerConfigV2 = {
 export interface GetDisclosureOptions {
   score: number;
   maxTokens: number;
+  /** Optional metadata for extraction (used in testing) */
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -374,7 +377,7 @@ export class DisclosureManager implements IDisclosureManager {
    * This is the main entry point used by tests
    */
   async getDisclosure(id: string, options: GetDisclosureOptions): Promise<DisclosureContent> {
-    const { score, maxTokens } = options;
+    const { score, maxTokens, metadata } = options;
 
     // Check cache first
     const cacheKey: DisclosureCacheKey = {
@@ -399,6 +402,7 @@ export class DisclosureManager implements IDisclosureManager {
         ranks: { vector: 1, keyword: 1, semantic: 1, tag: 1 },
         tags: [],
         toolType: "skill",
+        metadata,
         disclosure: {
           level: DisclosureLevel.METADATA,
           name: id,
@@ -422,6 +426,7 @@ export class DisclosureManager implements IDisclosureManager {
       ranks: { vector: 1, keyword: 1, semantic: 1, tag: 1 },
       tags: [],
       toolType: "skill",
+      metadata,
       disclosure: {
         level: DisclosureLevel.METADATA,
         name: id,
@@ -542,6 +547,7 @@ export class DisclosureManager implements IDisclosureManager {
           ...baseContent,
           inputSchema: this.extractInputSchema(result),
           outputSchema: this.extractOutputSchema(result),
+          parameters: this.extractParameters(result),
           examples: this.extractExamples(result),
           tokenCount:
             baseContent.tokenCount +
@@ -553,12 +559,17 @@ export class DisclosureManager implements IDisclosureManager {
           ...baseContent,
           inputSchema: this.extractInputSchema(result),
           outputSchema: this.extractOutputSchema(result),
+          parameters: this.extractParameters(result),
+          scripts: this.extractScripts(result),
+          dependencies: this.extractDependencies(result),
           resources: this.extractResources(result),
           examples: this.extractExamples(result),
           tokenCount:
             baseContent.tokenCount +
             this.estimateTokens(JSON.stringify(baseContent.inputSchema || {})) +
             this.estimateTokens(JSON.stringify(baseContent.outputSchema || {})) +
+            this.estimateTokens((baseContent.scripts || []).join(", ")) +
+            this.estimateTokens((baseContent.dependencies || []).join(", ")) +
             this.estimateTokens((baseContent.resources || []).join(", ")),
         };
 
@@ -612,17 +623,102 @@ export class DisclosureManager implements IDisclosureManager {
       const metadata = result.metadata as Record<string, unknown>;
       if (Array.isArray(metadata.examples)) {
         const examples = metadata.examples as string[];
-        return examples.map((ex, idx) => ({
-          input: `Example ${idx + 1} input`,
-          output: ex,
-        }));
+        return examples.map((ex) => ({ input: ex, output: ex }));
       }
       if (Array.isArray(metadata.example)) {
         const examples = metadata.example as string[];
-        return examples.map((ex, idx) => ({
-          input: `Example ${idx + 1} input`,
-          output: ex,
+        return examples.map((ex) => ({ input: ex, output: ex }));
+      }
+    }
+    return [];
+  }
+
+  /**
+   * Extract parameters from result metadata
+   */
+  private extractParameters(
+    result: UnifiedRetrievalResult
+  ): Array<{ name: string; type: string; required?: boolean; description?: string }> {
+    if (result.metadata && typeof result.metadata === "object") {
+      const metadata = result.metadata as Record<string, unknown>;
+      if (Array.isArray(metadata.parameters)) {
+        return metadata.parameters as Array<{
+          name: string;
+          type: string;
+          required?: boolean;
+          description?: string;
+        }>;
+      }
+      if (Array.isArray(metadata.inputs)) {
+        const inputs = metadata.inputs as Array<Record<string, unknown>>;
+        return inputs.map((input) => ({
+          name: (input.name as string) || "",
+          type: (input.type as string) || "string",
+          required: input.required as boolean,
+          description: (input.description as string) || "",
         }));
+      }
+      if (Array.isArray(metadata.args)) {
+        const args = metadata.args as Array<Record<string, unknown>>;
+        return args.map((arg) => ({
+          name: (arg.name as string) || "",
+          type: (arg.type as string) || "string",
+          required: arg.required as boolean,
+          description: (arg.description as string) || "",
+        }));
+      }
+    }
+    return [];
+  }
+
+  /**
+   * Extract scripts from result metadata
+   */
+  private extractScripts(
+    result: UnifiedRetrievalResult
+  ): Array<{ name: string; language: string; content: string }> {
+    if (result.metadata && typeof result.metadata === "object") {
+      const metadata = result.metadata as Record<string, unknown>;
+      if (Array.isArray(metadata.scripts)) {
+        return metadata.scripts as Array<{ name: string; language: string; content: string }>;
+      }
+      if (Array.isArray(metadata.code)) {
+        const code = metadata.code as Array<Record<string, unknown>>;
+        return code.map((c) => ({
+          name: (c.name as string) || "script",
+          language: (c.language as string) || "javascript",
+          content: (c.content as string) || "",
+        }));
+      }
+    }
+    return [];
+  }
+
+  /**
+   * Extract dependencies from result metadata
+   */
+  private extractDependencies(
+    result: UnifiedRetrievalResult
+  ): Array<{ name: string; version: string }> {
+    if (result.metadata && typeof result.metadata === "object") {
+      const metadata = result.metadata as Record<string, unknown>;
+      if (Array.isArray(metadata.dependencies)) {
+        const deps = metadata.dependencies as Array<Record<string, unknown>>;
+        return deps.map((dep) => ({
+          name: (dep.name as string) || "",
+          version: (dep.version as string) || "*",
+        }));
+      }
+      if (Array.isArray(metadata.packages)) {
+        const packages = metadata.packages as Array<Record<string, unknown>>;
+        return packages.map((pkg) => ({
+          name: (pkg.name as string) || "",
+          version: (pkg.version as string) || "*",
+        }));
+      }
+      if (Array.isArray(metadata.requires)) {
+        const requires = metadata.requires as string[];
+        return requires.map((name) => ({ name, version: "*" }));
       }
     }
     return [];
@@ -638,28 +734,37 @@ export class DisclosureManager implements IDisclosureManager {
       const metadata = result.metadata as Record<string, unknown>;
       if (Array.isArray(metadata.resources)) {
         const resources = metadata.resources as string[];
-        return resources.map((res, idx) => ({
+        return resources.map((res) => ({
           type: "file",
           path: res,
-          description: `Resource ${idx + 1}`,
+          description: res,
         }));
       }
       if (Array.isArray(metadata.relatedFiles)) {
         const files = metadata.relatedFiles as string[];
-        return files.map((file, idx) => ({
+        return files.map((file) => ({
           type: "file",
           path: file,
-          description: `Related file ${idx + 1}`,
+          description: file,
         }));
       }
       if (Array.isArray(metadata.dependencies)) {
         const deps = metadata.dependencies as string[];
-        return deps.map((dep, idx) => ({
+        return deps.map((dep) => ({
           type: "dependency",
           path: dep,
-          description: `Dependency ${idx + 1}`,
+          description: dep,
         }));
       }
+    }
+    if (result.path) {
+      return [
+        {
+          type: "file",
+          path: result.path,
+          description: result.path,
+        },
+      ];
     }
     return [];
   }
