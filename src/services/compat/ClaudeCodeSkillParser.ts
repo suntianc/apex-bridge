@@ -184,12 +184,16 @@ export class ClaudeCodeSkillParser {
       }
     }
 
-    // 6. allowedTools 验证（可选）
+    // 6. allowedTools validation (optional)
     if (frontmatter.allowedTools !== undefined) {
-      if (!Array.isArray(frontmatter.allowedTools)) {
+      // Allow string or array
+      if (typeof frontmatter.allowedTools === "string") {
+        // Single tool will be converted to array
+        warnings.push('Field "allowedTools" as string will be converted to array');
+      } else if (!Array.isArray(frontmatter.allowedTools)) {
         errors.push(
           new ParseError(
-            'Field "allowedTools" must be an array',
+            'Field "allowedTools" must be a string or array',
             ParseErrorCode.INVALID_ALLOWED_TOOLS,
             "allowedTools"
           )
@@ -288,13 +292,22 @@ export class ClaudeCodeSkillParser {
   }
 
   /**
-   * 提取兼容性字段
+   * Extract compatibility fields
    */
   private extractCompatibility(
     frontmatter: ClaudeCodeSkillFrontmatter
   ): ParsedClaudeSkill["compatibility"] {
+    // Convert string allowedTools to array
+    let allowedTools: string[] = [];
+    if (frontmatter.allowedTools !== undefined) {
+      allowedTools =
+        typeof frontmatter.allowedTools === "string"
+          ? [frontmatter.allowedTools]
+          : frontmatter.allowedTools;
+    }
+
     return {
-      allowedTools: frontmatter.allowedTools || [],
+      allowedTools,
       model: frontmatter.model,
       context: frontmatter.context,
       agent: frontmatter.agent,
