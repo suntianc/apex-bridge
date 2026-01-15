@@ -77,7 +77,7 @@ ApexBridge is an enterprise-grade AI Agent framework with multi-model support (O
 ## ANTI-PATTERNS (THIS PROJECT)
 
 - **Empty catch blocks** → Forbidden, always log errors
-- `as any`, `@ts-ignore` → Forbidden, use explicit types (51 instances found)
+- `as any`, `@ts-ignore` → Forbidden, use explicit types (1 instance remaining - in comment only)
 - No `src/index.ts` → Entry is `src/server.ts`
 - Config in two places → `config/` AND `src/config/` (confusing)
 - `.data/` hidden directory → Contains SQLite + LanceDB
@@ -88,12 +88,17 @@ ApexBridge is an enterprise-grade AI Agent framework with multi-model support (O
 
 ### Known Bugs (High Priority)
 
-| Bug                                 | Location                                  | Impact                                                                       |
-| ----------------------------------- | ----------------------------------------- | ---------------------------------------------------------------------------- |
-| Context compression never runs      | `ContextCompressionService.ts:137`        | `enabled: true` but `ChatOptions.contextCompression` defaults to `undefined` |
-| MCP vectorization failures silent   | `MCPIntegrationService.ts:58-64, 103-109` | Index may be stale without warning                                           |
-| ReActStrategy usage tracking broken | `ReActStrategy.ts:149`                    | `usage` field never populated                                                |
-| ToolRetrievalService lazy init      | `ToolRetrievalService.ts`                 | Race conditions on startup                                                   |
+| Bug                               | Location                         | Impact                                                           |
+| --------------------------------- | -------------------------------- | ---------------------------------------------------------------- |
+| MCP vectorization failures silent | `MCPIntegrationService.ts:70-79` | Index may be stale without blocking server startup               |
+| ToolRetrievalService lazy init    | `ToolRetrievalService.ts`        | Singleton created on first call, no explicit initialization hook |
+
+### Recently Fixed
+
+| Bug                                 | Location                           | Status                                                         |
+| ----------------------------------- | ---------------------------------- | -------------------------------------------------------------- |
+| Context compression never runs      | `ContextCompressionService.ts:145` | FIXED - `parseConfig()` now properly defaults `enabled: true`  |
+| ReActStrategy usage tracking broken | `ReActStrategy.ts:153-157`         | FIXED - `usage` field now properly populated with token counts |
 
 ### Debug Code (Should Be Removed)
 
@@ -132,6 +137,21 @@ npm run migrations   # Run migrations
 ---
 
 ## RECENT REFACTORING (2026-01-15)
+
+### Quality Improvements (2026-01-15)
+
+| Improvement                      | Status                      | Files Modified                                                                                                                                   |
+| -------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Removed `as any` type assertions | ✅ COMPLETE (9 of 10 fixed) | PlatformDetectorTool.ts, DeepSeekAdapter.ts, ReActEngine.ts, UnifiedScoringEngine.ts (2), LanceDBConnectionPool.ts, SkillsSandboxExecutor.ts (2) |
+| Updated AGENTS.md documentation  | ✅ COMPLETE                 | AGENTS.md                                                                                                                                        |
+| Context compression bug          | ✅ FIXED                    | ContextCompressionService.ts:145                                                                                                                 |
+| ReActStrategy usage tracking     | ✅ FIXED                    | ReActStrategy.ts:153-157                                                                                                                         |
+
+**Remaining Issues:**
+
+- MCP vectorization failures still silent (non-blocking)
+- ToolRetrievalService lazy init (non-blocking)
+- 1 `as any` remains (in comment only, not code)
 
 ### Utility Modules Created
 

@@ -35,7 +35,7 @@ export const DEFAULT_POOL_CONFIG: PoolConfig = {
  * Pooled connection interface
  */
 export interface PooledConnection {
-  connection: lancedb.Connection;
+  connection: lancedb.Connection | null;
   dbPath: string;
   createdAt: number;
   lastAccess: number;
@@ -446,7 +446,7 @@ export class LanceDBConnectionPool {
     try {
       // LanceDB doesn't have an explicit close method in the Connection interface
       // The connection will be garbage collected when the object is destroyed
-      pooledConnection.connection = null as any;
+      pooledConnection.connection = null;
       pooledConnection.healthy = false;
     } catch (error) {
       logger.error("[LanceDBConnectionPool] Error closing connection:", error);

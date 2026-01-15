@@ -15,6 +15,7 @@ import { StreamTagDetector } from "../tool-action/StreamTagDetector";
 import { ToolDispatcher } from "../tool-action/ToolDispatcher";
 import { ToolActionParser } from "../tool-action/ToolActionParser";
 import type { ToolActionCall } from "../tool-action/types";
+import { ToolType } from "../tool-action/types";
 import type {
   LLMAdapter,
   LLMOptions,
@@ -448,7 +449,7 @@ export class ReActEngine {
 
         const toolActionCall: ToolActionCall = {
           name: toolCall.function.name,
-          type: "builtin" as any,
+          type: ToolType.BUILTIN,
           parameters: JSON.parse(toolCall.function.arguments || "{}"),
           rawText: "",
           startIndex: 0,

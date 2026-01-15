@@ -241,8 +241,14 @@ export class PlatformDetectorTool {
       displayedInterfaces.push(name);
       output += `${name}:\n`;
 
-      const ipv4Info = info.find((i) => i.family === "IPv4" || i.family === (4 as any));
-      const ipv6Info = info.find((i) => i.family === "IPv6" || i.family === (6 as any));
+      const ipv4Info = info.find((i) => {
+        const family = i.family as string | number;
+        return i.family === "IPv4" || family === 4;
+      });
+      const ipv6Info = info.find((i) => {
+        const family = i.family as string | number;
+        return i.family === "IPv6" || family === 6;
+      });
 
       if (ipv4Info) {
         output += `  IPv4: ${ipv4Info.address}\n`;

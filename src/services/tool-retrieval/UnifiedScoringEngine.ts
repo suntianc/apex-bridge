@@ -14,6 +14,7 @@ import {
   HybridRetrievalError,
   HybridRetrievalErrorCode,
   DEFAULT_HYBRID_RETRIEVAL_CONFIG,
+  DisclosureLevel,
 } from "../../types/enhanced-skill";
 
 /**
@@ -180,7 +181,7 @@ export class UnifiedScoringEngine implements IUnifiedScoringEngine {
           tags: toolInfo.tags || [],
           toolType: toolInfo.toolType || "skill",
           disclosure: {
-            level: 0 as any,
+            level: DisclosureLevel.METADATA,
             name: toolInfo.name || "",
             description: toolInfo.description || "",
             tokenCount: 0,
@@ -429,7 +430,7 @@ export class UnifiedScoringEngine implements IUnifiedScoringEngine {
     for (const results of resultMaps.values()) {
       const result = results.find((r) => r.id === id);
       if (result && result.metadata) {
-        return result.metadata as any;
+        return { metadata: result.metadata };
       }
     }
 

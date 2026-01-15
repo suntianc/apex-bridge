@@ -15,9 +15,8 @@ export class DeepSeekAdapter extends BaseOpenAICompatibleAdapter {
   protected filterOptions(options: ChatOptions): ChatOptions {
     const filtered = { ...options };
 
-    // DeepSeek不支持top_k
     if ("top_k" in filtered) {
-      delete (filtered as any).top_k;
+      delete (filtered as ChatOptions).top_k;
     }
 
     // DeepSeek限制：max_tokens最大8192

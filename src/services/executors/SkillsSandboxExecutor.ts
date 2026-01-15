@@ -591,10 +591,10 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
   /**
    * 终止进程
    */
-  private terminateProcess(process: ChildProcess, signal: string = "SIGTERM"): void {
+  private terminateProcess(process: ChildProcess, signal: NodeJS.Signals = "SIGTERM"): void {
     if (!process.killed && process.pid) {
       try {
-        process.kill(signal as any);
+        process.kill(signal);
         logger.debug(`Sent ${signal} signal to process ${process.pid}`);
       } catch (error) {
         logger.warn(`Failed to terminate process ${process.pid}:`, error);
@@ -704,7 +704,7 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
     for (const process of this.activeProcesses.values()) {
       if (process.pid) {
         // 从工作区路径中提取工具名称
-        const cwd = (process as any).spawnfile || "";
+        const cwd = process.spawnfile || "";
         const match = cwd.match(/\/data\/skills\/([^\/]+)/);
         const toolName = match ? match[1] : "unknown";
 
