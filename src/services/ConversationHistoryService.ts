@@ -3,49 +3,23 @@
  * 负责存储、查询和删除对话消息历史
  */
 
-import Database from "better-sqlite3";
-import * as fs from "fs";
-import * as path from "path";
+import type { IConversationStorage, ConversationMessage } from "../core/storage/interfaces";
+import { SQLiteConversationStorage } from "../core/storage/sqlite/conversation";
 import { logger } from "../utils/logger";
-import { PathService } from "./PathService";
-import { Message } from "../types";
+import type { Message } from "../types";
 
-export interface ConversationMessage {
-  id: number;
-  conversation_id: string;
-  role: "user" | "assistant" | "system";
-  content: string;
-  created_at: number;
-  metadata?: string; // JSON string for additional metadata
-}
+export { ConversationMessage };
 
 /**
  * 对话历史服务
  */
 export class ConversationHistoryService {
   private static instance: ConversationHistoryService;
-  private db: Database.Database;
-  private dbPath: string;
+  private storage: IConversationStorage;
 
   private constructor() {
-    const pathService = PathService.getInstance();
-    const dataDir = pathService.getDataDir();
-
-    // 确保数据目录存在
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
-    }
-
-    this.dbPath = path.join(dataDir, "conversation_history.db");
-    this.db = new Database(this.dbPath);
-
-    // 启用 WAL 模式提升性能
-    this.db.pragma("journal_mode = WAL");
-    // 启用外键约束
-    this.db.pragma("foreign_keys = ON");
-
-    this.initializeDatabase();
-    logger.debug(`ConversationHistoryService initialized (database: ${this.dbPath})`);
+    this.storage = new SQLiteConversationStorage();
+    logger.debug("[ConversationHistoryService] Initialized with SQLiteConversationStorage adapter");
   }
 
   /**
@@ -56,30 +30,6 @@ export class ConversationHistoryService {
       ConversationHistoryService.instance = new ConversationHistoryService();
     }
     return ConversationHistoryService.instance;
-  }
-
-  /**
-   * 初始化数据库表结构
-   */
-  private initializeDatabase(): void {
-    this.db.exec(`
-      -- 对话消息表
-      CREATE TABLE IF NOT EXISTS conversation_messages (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        conversation_id TEXT NOT NULL,
-        role TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system')),
-        content TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        metadata TEXT
-      );
-
-      -- 创建索引以提升查询性能
-      CREATE INDEX IF NOT EXISTS idx_conversation_id ON conversation_messages(conversation_id);
-      CREATE INDEX IF NOT EXISTS idx_conversation_created ON conversation_messages(conversation_id, created_at);
-      CREATE INDEX IF NOT EXISTS idx_created_at ON conversation_messages(created_at);
-    `);
-
-    logger.debug("✅ Conversation history tables initialized");
   }
 
   /**
@@ -98,7 +48,6 @@ export class ConversationHistoryService {
         if (part.type === "text" && part.text) {
           parts.push(part.text);
         } else if (part.type === "image_url") {
-          // 提取图片URL
           let imageUrl: string = "";
           if (typeof part.image_url === "string") {
             imageUrl = part.image_url;
@@ -107,7 +56,6 @@ export class ConversationHistoryService {
           }
 
           if (imageUrl) {
-            // 使用XML标签包裹图片，方便后续解析和渲染
             parts.push(`<img>${imageUrl}</img>`);
           }
         }
@@ -116,7 +64,6 @@ export class ConversationHistoryService {
       return parts.join("\n");
     }
 
-    // 其他类型（如对象），回退到JSON序列化
     return JSON.stringify(content);
   }
 
@@ -127,23 +74,11 @@ export class ConversationHistoryService {
    */
   async saveMessages(conversationId: string, messages: Message[]): Promise<void> {
     try {
-      const stmt = this.db.prepare(`
-        INSERT INTO conversation_messages (conversation_id, role, content, created_at, metadata)
-        VALUES (?, ?, ?, ?, ?)
-      `);
-
-      const insertMany = this.db.transaction((msgs: Message[]) => {
-        for (const msg of msgs) {
-          const metadata = msg.metadata ? JSON.stringify(msg.metadata) : null;
-
-          // 🐾 格式化多模态消息内容
-          const contentToStore = this.formatMultimodalContent(msg.content);
-
-          stmt.run(conversationId, msg.role, contentToStore, Date.now(), metadata);
-        }
-      });
-
-      insertMany(messages);
+      const formattedMessages = messages.map((msg) => ({
+        ...msg,
+        content: this.formatMultimodalContent(msg.content),
+      }));
+      await this.storage.saveMessages(conversationId, formattedMessages);
       logger.debug(
         `[ConversationHistory] Saved ${messages.length} messages for conversation: ${conversationId}`
       );
@@ -166,16 +101,7 @@ export class ConversationHistoryService {
     offset: number = 0
   ): Promise<ConversationMessage[]> {
     try {
-      const stmt = this.db.prepare(`
-        SELECT id, conversation_id, role, content, created_at, metadata
-        FROM conversation_messages
-        WHERE conversation_id = ?
-        ORDER BY created_at ASC
-        LIMIT ? OFFSET ?
-      `);
-
-      const rows = stmt.all(conversationId, limit, offset) as ConversationMessage[];
-      return rows;
+      return await this.storage.getByConversationId(conversationId, limit, offset);
     } catch (error: any) {
       logger.error(`[ConversationHistory] Failed to get messages: ${error.message}`);
       throw error;
@@ -189,14 +115,7 @@ export class ConversationHistoryService {
    */
   async getMessageCount(conversationId: string): Promise<number> {
     try {
-      const stmt = this.db.prepare(`
-        SELECT COUNT(*) as count
-        FROM conversation_messages
-        WHERE conversation_id = ?
-      `);
-
-      const result = stmt.get(conversationId) as { count: number };
-      return result.count;
+      return await this.storage.getMessageCount(conversationId);
     } catch (error: any) {
       logger.error(`[ConversationHistory] Failed to get message count: ${error.message}`);
       throw error;
@@ -209,14 +128,9 @@ export class ConversationHistoryService {
    */
   async deleteMessages(conversationId: string): Promise<void> {
     try {
-      const stmt = this.db.prepare(`
-        DELETE FROM conversation_messages
-        WHERE conversation_id = ?
-      `);
-
-      const result = stmt.run(conversationId);
+      const count = await this.storage.deleteByConversationId(conversationId);
       logger.info(
-        `[ConversationHistory] Deleted ${result.changes} messages for conversation: ${conversationId}`
+        `[ConversationHistory] Deleted ${count} messages for conversation: ${conversationId}`
       );
     } catch (error: any) {
       logger.error(`[ConversationHistory] Failed to delete messages: ${error.message}`);
@@ -231,16 +145,11 @@ export class ConversationHistoryService {
    */
   async deleteMessagesBefore(beforeTimestamp: number): Promise<number> {
     try {
-      const stmt = this.db.prepare(`
-        DELETE FROM conversation_messages
-        WHERE created_at < ?
-      `);
-
-      const result = stmt.run(beforeTimestamp);
+      const count = await this.storage.deleteBefore(beforeTimestamp);
       logger.info(
-        `[ConversationHistory] Deleted ${result.changes} messages before ${new Date(beforeTimestamp).toISOString()}`
+        `[ConversationHistory] Deleted ${count} messages before ${new Date(beforeTimestamp).toISOString()}`
       );
-      return result.changes;
+      return count;
     } catch (error: any) {
       logger.error(`[ConversationHistory] Failed to delete old messages: ${error.message}`);
       throw error;
@@ -253,15 +162,19 @@ export class ConversationHistoryService {
    */
   async getAllConversationIds(): Promise<string[]> {
     try {
-      const stmt = this.db.prepare(`
-        SELECT conversation_id, MAX(created_at) as last_message_at
-        FROM conversation_messages
-        GROUP BY conversation_id
-        ORDER BY last_message_at DESC
-      `);
+      const messages = await this.storage.find({});
+      const conversationMap = new Map<string, number>();
 
-      const rows = stmt.all() as Array<{ conversation_id: string; last_message_at: number }>;
-      return rows.map((row) => row.conversation_id);
+      for (const msg of messages) {
+        const existing = conversationMap.get(msg.conversation_id);
+        if (!existing || msg.created_at > existing) {
+          conversationMap.set(msg.conversation_id, msg.created_at);
+        }
+      }
+
+      return Array.from(conversationMap.entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([id]) => id);
     } catch (error) {
       logger.error("❌ Failed to get all conversation IDs:", error);
       throw error;
@@ -276,16 +189,7 @@ export class ConversationHistoryService {
    */
   async getLastMessage(conversationId: string): Promise<ConversationMessage | null> {
     try {
-      const stmt = this.db.prepare(`
-        SELECT id, conversation_id, role, content, created_at, metadata
-        FROM conversation_messages
-        WHERE conversation_id = ?
-        ORDER BY created_at DESC
-        LIMIT 1
-      `);
-
-      const row = stmt.get(conversationId) as ConversationMessage | undefined;
-      return row || null;
+      return await this.storage.getLastMessage(conversationId);
     } catch (error: any) {
       logger.error(`[ConversationHistory] Failed to get last message: ${error.message}`);
       throw new Error(
@@ -302,16 +206,7 @@ export class ConversationHistoryService {
    */
   async getFirstMessage(conversationId: string): Promise<ConversationMessage | null> {
     try {
-      const stmt = this.db.prepare(`
-        SELECT id, conversation_id, role, content, created_at, metadata
-        FROM conversation_messages
-        WHERE conversation_id = ?
-        ORDER BY created_at ASC
-        LIMIT 1
-      `);
-
-      const row = stmt.get(conversationId) as ConversationMessage | undefined;
-      return row || null;
+      return await this.storage.getFirstMessage(conversationId);
     } catch (error: any) {
       logger.error(`[ConversationHistory] Failed to get first message: ${error.message}`);
       throw new Error(
@@ -324,7 +219,9 @@ export class ConversationHistoryService {
    * 关闭数据库连接
    */
   close(): void {
-    this.db.close();
-    logger.info("✅ ConversationHistoryService database closed");
+    if (typeof (this.storage as any).close === "function") {
+      (this.storage as any).close();
+      logger.info("[ConversationHistoryService] database closed");
+    }
   }
 }

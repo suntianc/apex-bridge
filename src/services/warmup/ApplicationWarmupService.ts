@@ -193,7 +193,7 @@ export class ApplicationWarmupService {
 
       if (this.config.databaseWarmup.priority.includes("sqlite")) {
         const llmConfigService = LLMConfigService.getInstance();
-        const providers = llmConfigService.listProviders();
+        const providers = await llmConfigService.listProviders();
         logger.debug(
           `[ApplicationWarmupService] SQLite connection warmed up (${providers.length} providers)`
         );

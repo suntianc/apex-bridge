@@ -574,27 +574,20 @@ describe("Tier 3: Full Disclosure", () => {
       expect(avgLatency).toBeLessThan(100);
     });
 
-    it("should be slower than L2 due to more content", async () => {
-      // L2
-      const l2Start = Date.now();
-      await disclosureManager.getDisclosure("tool1", {
+    it("should produce more content at L3 than L2", async () => {
+      const l2Content = await disclosureManager.getDisclosure("tool1", {
         score: 0.75,
         maxTokens: 3000,
       });
-      const l2Time = Date.now() - l2Start;
 
-      // L3
-      const l3Start = Date.now();
-      await disclosureManager.getDisclosure("tool2", {
+      const l3Content = await disclosureManager.getDisclosure("tool2", {
         score: 0.9,
         maxTokens: 8000,
       });
-      const l3Time = Date.now() - l3Start;
 
-      console.log(`L2 time: ${l2Time}ms, L3 time: ${l3Time}ms`);
-
-      // L3 should generally be slower due to more content
-      expect(l3Time).toBeGreaterThanOrEqual(l2Time);
+      expect(l2Content.level).toBe(DisclosureLevel.CONTENT);
+      expect(l3Content.level).toBe(DisclosureLevel.RESOURCES);
+      expect(l3Content.tokenCount).toBeGreaterThanOrEqual(l2Content.tokenCount);
     });
   });
 });

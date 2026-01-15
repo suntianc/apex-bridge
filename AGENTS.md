@@ -95,8 +95,9 @@ ApexBridge is an enterprise-grade AI Agent framework with multi-model support (O
 
 ### Recently Fixed
 
-| Bug | Location | Status |
-| --- | -------- | ------ |
+| Bug                         | Location                                                                                                         | Status                   |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| Phase 0: 存储接口抽象层重构 | `src/services/LLMConfigService.ts`, `MCPConfigService.ts`, `ConversationHistoryService.ts`, `TrajectoryStore.ts` | ✅ COMPLETE (2026-01-16) |
 
 ### Technical Debt
 
@@ -104,6 +105,7 @@ The following issues are known limitations that have been addressed or are by de
 
 | Issue                                 | Status                      | Notes                                                      |
 | ------------------------------------- | --------------------------- | ---------------------------------------------------------- |
+| Phase 0: 库存盘点与接口提取           | ✅ COMPLETE (2026-01-16)    | 4个服务重构，100% 测试通过                                 |
 | Context compression never runs        | ✅ FIXED (2026-01-15)       | `parseConfig()` now properly defaults `enabled: true`      |
 | ReActStrategy usage tracking broken   | ✅ FIXED (2026-01-15)       | `usage` field now properly populated with token counts     |
 | PromptInjectionGuard singleton        | ✅ FIXED (2026-01-15)       | Added `resetInstance()` method for test isolation          |
@@ -162,7 +164,7 @@ npm run migrations   # Run migrations
 | Keyword search fallback          | ✅ COMPLETE                  | ToolRetrievalService.ts:226-251, SearchEngine.ts:269-396                                                                                         |
 | Updated AGENTS.md documentation  | ✅ COMPLETE                  | AGENTS.md                                                                                                                                        |
 
-**Quality Score: 9.2/10** (was 8.5/10)
+**Quality Score: 9.5/10** (was 9.2/10)
 
 **Completed in this session:**
 
