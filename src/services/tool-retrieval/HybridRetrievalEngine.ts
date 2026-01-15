@@ -808,13 +808,27 @@ export class HybridRetrievalEngine implements IHybridRetrievalEngine {
   }
 
   /**
-   * Get all tools from database
+   * Get all tools from database for keyword matching
    */
   private async getAllTools(): Promise<ToolsTable[]> {
     try {
-      // This would typically query the database
-      // For now, return empty array as placeholder
-      return [];
+      const table = await this.config.connection.getTable();
+      if (!table) {
+        this._logger.warn("[HybridRetrievalEngine] Table not available for getAllTools");
+        return [];
+      }
+
+      const records = await table.query().limit(1000).toArray();
+
+      return records.map((record) => {
+        if (record && typeof record === "object") {
+          const r = record as Record<string, unknown>;
+          if ("item" in r) {
+            return r.item as ToolsTable;
+          }
+        }
+        return record as ToolsTable;
+      });
     } catch (error) {
       this._logger.error("[HybridRetrievalEngine] Failed to get all tools:", error);
       return [];
