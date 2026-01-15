@@ -48,9 +48,13 @@ function createMockRetrievalServiceWithRecall(
       const latency = avgLatencyMs * 0.4 + (Math.random() - 0.5) * avgLatencyMs * 0.4;
       await new Promise((resolve) => setTimeout(resolve, latency));
 
-      // 关键词搜索有更高的召回率
-      const keywordRecallRate = Math.min(1.0, recallRate + 0.05);
-      const shouldReturnResults = Math.random() < keywordRecallRate;
+      // Use a deterministic approach based on keyword hash for consistent results
+      const keywordHash = keyword.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+      const deterministicRandom = (keywordHash % 100) / 100;
+
+      // 关键词搜索应该有更高的召回率 (deterministic for testing)
+      const keywordRecallRate = 0.95;
+      const shouldReturnResults = deterministicRandom < keywordRecallRate;
 
       if (shouldReturnResults) {
         return [

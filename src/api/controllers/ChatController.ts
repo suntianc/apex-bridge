@@ -17,6 +17,13 @@ import type { ChatRequestOptions } from "../../api/validators/chat-request-valid
 import { normalizeUsage, buildChatResponse } from "../../api/utils/response-formatter";
 import { parseLLMChunk } from "../../api/utils/stream-parser";
 
+/**
+ * @swagger
+ * tags:
+ *   name: Chat
+ *   description: Chat completion and streaming endpoints
+ */
+
 export class ChatController {
   private chatService: ChatService;
   private llmClient: LLMClient | null;
@@ -71,6 +78,40 @@ export class ChatController {
   /**
    * POST /v1/chat/completions
    * OpenAI兼容的聊天API
+   *
+   * @swagger
+   * /v1/chat/completions:
+   *   post:
+   *     summary: Create chat completion
+   *     description: OpenAI-compatible chat completion API with ApexBridge extensions
+   *     tags: [Chat]
+   *     security:
+   *       - BearerAuth: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             $ref: '#/components/schemas/ChatRequest'
+   *     responses:
+   *       200:
+   *         description: Chat completion response
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ChatResponse'
+   *       400:
+   *         description: Invalid request
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/Error'
+   *       500:
+   *         description: Server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/Error'
    */
   async chatCompletions(req: Request, res: Response): Promise<void> {
     try {

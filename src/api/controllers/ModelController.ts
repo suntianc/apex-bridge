@@ -2,6 +2,11 @@
  * ModelController - 模型管理 API 控制器
  *
  * 管理 LLM 模型的 CRUD 操作
+ *
+ * @swagger
+ * tags:
+ *   name: Models
+ *   description: LLM model management
  */
 
 import { Request, Response } from "express";

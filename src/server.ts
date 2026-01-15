@@ -71,6 +71,9 @@ import { createAuditLoggerMiddleware } from "./api/middleware/auditLoggerMiddlew
 import skillRoutes from "./api/routes/skillRoutes";
 // MCP管理路由
 import mcpRoutes from "./api/routes/mcpRoutes";
+// Swagger API文档
+import swaggerUi from "swagger-ui-express";
+import { swaggerSpec } from "./api/swagger";
 
 export class ABPIntelliCore {
   private app: express.Application;
@@ -95,7 +98,7 @@ export class ABPIntelliCore {
 
   async initialize(): Promise<void> {
     try {
-      // 1. 基础服务初始化 (Config, Path, DB)
+      // 1. 基础服务初始化 (Config, Path, DB) - 核心依赖先完成
       const pathService = PathService.getInstance();
       pathService.ensureAllDirs();
       logger.debug("✅ All required directories ensured");
@@ -133,23 +136,73 @@ export class ABPIntelliCore {
       }
       logger.debug("✅ Configuration loaded");
 
+      // 2. 并行初始化独立服务（减少启动时间）
+      logger.info("🚀 Starting parallel initialization...");
+
+      const [
+        { LLMConfigService },
+        { SkillManager },
+        { getToolRetrievalService },
+        { mcpIntegration },
+      ] = await Promise.all([
+        import("./services/LLMConfigService"),
+        import("./services/SkillManager"),
+        import("./services/tool-retrieval/ToolRetrievalService"),
+        import("./services/MCPIntegrationService"),
+      ]);
+
       // 初始化LLM配置服务（确保SQLite数据库和表已创建）
-      const { LLMConfigService } = await import("./services/LLMConfigService");
       const llmConfigService = LLMConfigService.getInstance(); // 触发 DB 初始化
       logger.debug("✅ LLMConfigService initialized");
 
       // 自动初始化默认提供商（如果不存在）
       llmConfigService.initializeDefaultProviders();
 
-      // 初始化SkillManager（确保在ChatService之前）
-      const { SkillManager } = await import("./services/SkillManager");
+      // 初始化SkillManager（异步，不阻塞）
       const skillManager = SkillManager.getInstance();
+      logger.debug("✅ SkillManager instantiated");
 
-      // 等待Skills索引初始化完成
-      await skillManager.waitForInitialization();
-      logger.debug("✅ SkillManager initialized");
+      // 初始化缓存服务（非阻塞，不影响启动）
+      const { cacheService } = await import("./services/cache/CacheService");
+      cacheService
+        .initialize()
+        .then(() => {
+          logger.debug("✅ CacheService initialized");
+        })
+        .catch((err) => {
+          logger.warn(
+            "⚠️ CacheService initialization failed (Redis may not be available):",
+            err.message
+          );
+        });
 
-      // 🚀 应用启动预热（在数据库和索引初始化后执行）
+      // 3. 并行执行：技能索引初始化 + MCP服务器加载 + 工具检索服务初始化
+      // 这些操作相互独立，可以并行执行
+      const [skillInitResult, mcpLoadResult, toolService] = await Promise.all([
+        // 等待Skills索引初始化完成（非阻塞）
+        skillManager.waitForInitialization().then(() => {
+          logger.debug("✅ SkillManager initialization complete");
+          return true;
+        }),
+        // 加载MCP服务器（非阻塞）
+        mcpIntegration.loadServersFromDatabase().then(() => {
+          logger.debug("✅ MCP servers loaded from database");
+          return true;
+        }),
+        // 初始化工具检索服务（非阻塞）
+        (async () => {
+          const service = getToolRetrievalService();
+          await service.initialize();
+          logger.debug("✅ ToolRetrievalService initialized");
+          return service;
+        })(),
+      ]);
+
+      // 索引所有内置工具
+      await toolService.indexBuiltinTools();
+      logger.debug("✅ Built-in tools indexed");
+
+      // 4. 🚀 应用启动预热（在数据库和索引初始化后执行）
       // 预热向量索引、嵌入缓存和搜索缓存，避免冷启动延迟
       const warmupService = new ApplicationWarmupService();
       logger.info("🚀 Starting application warm-up...");
@@ -162,25 +215,12 @@ export class ABPIntelliCore {
         warmupStatus.errors.forEach((err) => logger.warn(`   - ${err}`));
       }
 
-      // 索引所有内置工具（file-read, file-write, vector-search, read-skill, platform-detector）
-      // 使其可以通过语义搜索检索
-      const { getToolRetrievalService } =
-        await import("./services/tool-retrieval/ToolRetrievalService");
-      const toolRetrievalService = getToolRetrievalService();
-      await toolRetrievalService.indexBuiltinTools();
-      logger.debug("✅ Built-in tools indexed");
-
-      // 从数据库加载已注册的MCP服务器
-      const { mcpIntegration } = await import("./services/MCPIntegrationService");
-      await mcpIntegration.loadServersFromDatabase();
-      logger.debug("✅ MCP servers loaded from database");
-
-      // 2. 核心引擎初始化
+      // 5. 核心引擎初始化
       this.protocolEngine = new ProtocolEngine(extendedConfig);
       await this.protocolEngine.initialize();
       logger.debug("✅ Protocol Engine initialized");
 
-      // 3. 业务服务初始化 (ChatService)
+      // 6. 业务服务初始化 (ChatService)
       const { LLMManager } = await import("./core/LLMManager");
       const llmManager = new LLMManager();
       logger.debug("✅ LLMManager initialized");
@@ -191,7 +231,7 @@ export class ABPIntelliCore {
       this.chatService = factory.create(this.protocolEngine, llmManager, this.eventBus);
       logger.debug("✅ ChatService initialized (created via factory)");
 
-      // 4. 接口层初始化 (WebSocket & HTTP Routes)
+      // 7. 接口层初始化 (WebSocket & HTTP Routes)
       // ⚠️ 关键调整：先初始化 ChatService，再初始化 WS，最后绑定 Server
       this.setupWebSocket(extendedConfig);
 
@@ -200,20 +240,20 @@ export class ABPIntelliCore {
         this.chatService.setWebSocketManager(this.websocketManager);
       }
 
-      // 5. 设置中间件
+      // 8. 设置中间件
       this.setupMiddleware();
 
-      // 6. 设置路由
+      // 9. 设置路由
       await this.setupRoutes();
 
-      // 7. 启动HTTP服务器（所有初始化完成后才启动）
+      // 10. 启动HTTP服务器（所有初始化完成后才启动）
       const apiHost = extendedConfig.api?.host || "0.0.0.0";
       const apiPort = fullConfig.port; // ✅ 从系统配置读取
       this.server.listen(apiPort, apiHost, () => {
         logger.info(`🚀 ApexBridge running on http://${apiHost}:${apiPort}`);
       });
 
-      // 8. 设置优雅关闭
+      // 11. 设置优雅关闭
       this.setupGracefulShutdown();
     } catch (error) {
       logger.error("❌ Failed to initialize ApexBridge:", error);
@@ -271,6 +311,10 @@ export class ABPIntelliCore {
 
     // 审计日志中间件（记录关键操作）
     this.app.use(createAuditLoggerMiddleware());
+
+    // 监控指标中间件
+    const { createMetricsMiddleware } = require("./api/middleware/metricsMiddleware");
+    this.app.use(createMetricsMiddleware());
 
     // 认证中间件
     this.app.use(authMiddleware);
@@ -389,6 +433,101 @@ export class ABPIntelliCore {
         plugins: this.protocolEngine!.getPluginCount(),
         activeRequests: this.chatService?.getActiveRequestCount() || 0,
       });
+    });
+
+    /**
+     * Swagger API文档
+     * 仅在非生产环境启用
+     */
+    if (process.env.NODE_ENV !== "production") {
+      this.app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+    }
+
+    // OpenAPI JSON端点（用于外部工具）
+    this.app.get("/openapi.json", (req, res) => {
+      res.setHeader("Content-Type", "application/json");
+      res.send(swaggerSpec);
+    });
+
+    /**
+     * 监控指标端点
+     * 提供 Prometheus 兼容的指标格式
+     */
+    this.app.get("/metrics", (req, res) => {
+      const { metricsService } = require("./services/monitoring/MetricsService");
+      const snapshot = metricsService.getSnapshot();
+
+      // Prometheus 格式输出
+      const lines: string[] = [
+        `# HELP apexbridge_uptime Server uptime in seconds`,
+        `# TYPE apexbridge_uptime counter`,
+        `apexbridge_uptime ${snapshot.uptime}`,
+        ``,
+        `# HELP apexbridge_memory_heap_used_bytes Process heap memory used`,
+        `# TYPE apexbridge_memory_heap_used_bytes gauge`,
+        `apexbridge_memory_heap_used_bytes ${snapshot.memory.heapUsed}`,
+        ``,
+        `# HELP apexbridge_memory_heap_total_bytes Process heap memory total`,
+        `# TYPE apexbridge_memory_heap_total_bytes gauge`,
+        `apexbridge_memory_heap_total_bytes ${snapshot.memory.heapTotal}`,
+        ``,
+        `# HELP apexbridge_memory_rss_bytes Process resident set size`,
+        `# TYPE apexbridge_memory_rss_bytes gauge`,
+        `apexbridge_memory_rss_bytes ${snapshot.memory.rss}`,
+        ``,
+        `# HELP apexbridge_requests_total Total number of HTTP requests`,
+        `# TYPE apexbridge_requests_total counter`,
+        `apexbridge_requests_total ${snapshot.requests.total}`,
+        ``,
+        `# HELP apexbridge_requests_active Current number of active requests`,
+        `# TYPE apexbridge_requests_active gauge`,
+        `apexbridge_requests_active ${snapshot.requests.active}`,
+        ``,
+        `# HELP apexbridge_requests_rate Requests per minute`,
+        `# TYPE apexbridge_requests_rate gauge`,
+        `apexbridge_requests_rate ${snapshot.requests.rate}`,
+        ``,
+        `# HELP apexbridge_errors_total Total number of HTTP errors`,
+        `# TYPE apexbridge_errors_total counter`,
+        `apexbridge_errors_total ${snapshot.errors.total}`,
+        ``,
+        `# HELP apexbridge_error_rate Error rate (errors / total requests)`,
+        `# TYPE apexbridge_error_rate gauge`,
+        `apexbridge_error_rate ${snapshot.errors.rate}`,
+        ``,
+        `# HELP apexbridge_latency_avg Average request latency in ms`,
+        `# TYPE apexbridge_latency_avg gauge`,
+        `apexbridge_latency_avg ${snapshot.latency.avg}`,
+        ``,
+        `# HELP apexbridge_latency_p95 95th percentile request latency in ms`,
+        `# TYPE apexbridge_latency_p95 gauge`,
+        `apexbridge_latency_p95 ${snapshot.latency.p95}`,
+        ``,
+        `# HELP apexbridge_latency_p99 99th percentile request latency in ms`,
+        `# TYPE apexbridge_latency_p99 gauge`,
+        `apexbridge_latency_p99 ${snapshot.latency.p99}`,
+        ``,
+        `# HELP apexbridge_cache_hits Total number of cache hits`,
+        `# TYPE apexbridge_cache_hits counter`,
+        `apexbridge_cache_hits ${snapshot.cache.hits}`,
+        ``,
+        `# HELP apexbridge_cache_misses Total number of cache misses`,
+        `# TYPE apexbridge_cache_misses counter`,
+        `apexbridge_cache_misses ${snapshot.cache.misses}`,
+        ``,
+        `# HELP apexbridge_cache_hit_rate Cache hit rate`,
+        `# TYPE apexbridge_cache_hit_rate gauge`,
+        `apexbridge_cache_hit_rate ${snapshot.cache.hitRate}`,
+      ];
+
+      res.set("Content-Type", "text/plain");
+      res.send(lines.join("\n"));
+    });
+
+    // JSON格式指标端点（用于调试和监控）
+    this.app.get("/metrics/json", (req, res) => {
+      const { metricsService } = require("./services/monitoring/MetricsService");
+      res.json(metricsService.getSnapshot());
     });
 
     // 错误处理（必须最后注册）

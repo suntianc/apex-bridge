@@ -2,6 +2,11 @@
  * ProviderController - 提供商管理 API 控制器
  *
  * 管理 LLM 提供商的 CRUD 操作
+ *
+ * @swagger
+ * tags:
+ *   name: Providers
+ *   description: LLM provider management
  */
 
 import { Request, Response } from "express";
@@ -53,6 +58,29 @@ function toProviderDTO(provider: any, modelCount: number = 0) {
 /**
  * 列出所有提供商
  * GET /api/llm/providers
+ *
+ * @swagger
+ * /api/llm/providers:
+ *   get:
+ *     summary: List all providers
+ *     description: Returns a list of all configured LLM providers
+ *     tags: [Providers]
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of providers
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 providers:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Provider'
  */
 export async function listProviders(req: Request, res: Response): Promise<void> {
   try {

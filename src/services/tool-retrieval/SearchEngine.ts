@@ -35,6 +35,7 @@ export interface SearchOptions {
  */
 export interface ISearchEngine {
   search(query: string, options?: SearchOptions): Promise<ToolRetrievalResult[]>;
+  keywordSearch(query: string, limit?: number, threshold?: number): Promise<ToolRetrievalResult[]>;
   formatResults(results: unknown[]): ToolRetrievalResult[];
   applyFilters(results: ToolRetrievalResult[], filters: RetrievalFilter[]): ToolRetrievalResult[];
   sortResults(
@@ -263,6 +264,103 @@ export class SearchEngine implements ISearchEngine {
    */
   getCacheStats() {
     return this.semanticCache?.getStats();
+  }
+
+  /**
+   * Public keyword search method for fallback scenarios
+   * @param query Search query
+   * @param limit Maximum results to return
+   * @param threshold Minimum score threshold
+   * @returns Tool retrieval results from keyword matching
+   */
+  async keywordSearch(
+    query: string,
+    limit?: number,
+    threshold?: number
+  ): Promise<ToolRetrievalResult[]> {
+    const effectiveLimit = limit ?? this.defaultLimit;
+    const effectiveThreshold = threshold ?? this.defaultThreshold;
+
+    try {
+      logger.info(`[SearchEngine] Executing keyword search for: "${query}"`);
+
+      // Get table for keyword matching
+      const table = await this.connection.getTable();
+      if (!table) {
+        logger.warn("[SearchEngine] Table not available for keyword search");
+        return [];
+      }
+
+      // Get all tools for keyword matching
+      const searchTerms = query
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((t) => t.length > 0);
+
+      if (searchTerms.length === 0) {
+        return [];
+      }
+
+      // Use LanceDB query to get candidates (without vector search)
+      const allRecords = await table
+        .query()
+        .limit(effectiveLimit * 3)
+        .toArray();
+
+      // Filter by keyword matching
+      const results: ToolRetrievalResult[] = [];
+
+      for (const record of allRecords) {
+        try {
+          const data = this.extractResultData(record);
+
+          // Calculate keyword match score
+          const searchableText =
+            `${data.name} ${data.description} ${(data.tags || []).join(" ")}`.toLowerCase();
+          const matchCount = searchTerms.filter((term) => searchableText.includes(term)).length;
+
+          if (matchCount === 0) {
+            continue;
+          }
+
+          // Calculate score based on match quality
+          const nameMatches = searchTerms.filter((term) =>
+            data.name.toLowerCase().includes(term)
+          ).length;
+          const score = (nameMatches * 0.6 + matchCount * 0.4) / searchTerms.length;
+
+          // Apply threshold filter
+          if (score < effectiveThreshold) {
+            continue;
+          }
+
+          // Parse metadata
+          const metadata = this.parseMetadata(data);
+
+          // Format result
+          results.push({
+            id: data.id,
+            name: data.name,
+            description: data.description,
+            score: Math.min(score, 1),
+            toolType: data.toolType || "skill",
+            metadata: this.formatTool(data, metadata) as Record<string, unknown>,
+            tags: data.tags || [],
+          });
+        } catch (formatError) {
+          logger.warn("[SearchEngine] Failed to format keyword search result:", formatError);
+        }
+      }
+
+      // Sort by score and limit results
+      const sortedResults = results.sort((a, b) => b.score - a.score).slice(0, effectiveLimit);
+
+      logger.info(`[SearchEngine] Keyword search found ${sortedResults.length} result(s)`);
+      return sortedResults;
+    } catch (error) {
+      logger.error("[SearchEngine] Keyword search failed:", error);
+      return [];
+    }
   }
 
   /**

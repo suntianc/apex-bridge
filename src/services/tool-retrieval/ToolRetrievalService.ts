@@ -22,6 +22,7 @@ import { EmbeddingGenerator, IEmbeddingGenerator } from "./EmbeddingGenerator";
 import { SkillIndexer, ISkillIndexer } from "./SkillIndexer";
 import { SearchEngine, ISearchEngine } from "./SearchEngine";
 import { MCPToolSupport, IMCPToolSupport } from "./MCPToolSupport";
+import { cacheService } from "../cache/CacheService";
 
 /**
  * ToolRetrievalService interface
@@ -154,8 +155,19 @@ export class ToolRetrievalService implements IToolRetrievalService {
         await this.initialize();
       }
 
+      // Try cache first (only for exact match queries without complex filters)
+      const cacheKey = `skill_search:${query.toLowerCase().trim()}:${limit || ""}:${threshold || ""}`;
+      const cachedResults = await cacheService.get<ToolRetrievalResult[]>(cacheKey);
+      if (cachedResults) {
+        logger.debug(`[ToolRetrievalService] Cache hit for query: "${query.substring(0, 50)}..."`);
+        return cachedResults;
+      }
+
       // Try vector search (with internal fallback to keyword search)
       const results = await this.searchEngine.search(query, { limit, minScore: threshold });
+
+      // Cache the results (only successful results)
+      await cacheService.set(cacheKey, results, 300); // 5 minute TTL
 
       const duration = Date.now() - startTime;
       logger.debug(`[ToolRetrievalService] Search completed in ${duration}ms`, {
@@ -234,22 +246,18 @@ export class ToolRetrievalService implements IToolRetrievalService {
     try {
       logger.info(`[ToolRetrievalService] Executing fallback keyword search for: "${query}"`);
 
-      // Get search terms from query
-      const searchTerms = query
-        .toLowerCase()
-        .split(/\s+/)
-        .filter((t) => t.length > 0);
-
-      if (searchTerms.length === 0) {
-        return [];
-      }
-
-      // In a real implementation, this would query the database
-      // For now, return empty results to maintain service availability
-      logger.debug(
-        `[ToolRetrievalService] Fallback search completed with 0 results for query "${query.substring(0, 50)}"`
+      // Use the SearchEngine's keyword search method
+      const results = await this.searchEngine.keywordSearch(
+        query,
+        effectiveLimit,
+        effectiveThreshold
       );
-      return [];
+
+      logger.info(
+        `[ToolRetrievalService] Fallback keyword search completed with ${results.length} results`
+      );
+
+      return results;
     } catch (error) {
       logger.error("[ToolRetrievalService] Keyword fallback search failed:", error);
       throw error;
@@ -324,7 +332,7 @@ export class ToolRetrievalService implements IToolRetrievalService {
             path: tool.path,
             version: tool.version,
             source: tool.source || tool.path || tool.name,
-            toolType: ((tool.type as unknown) as "skill" | "mcp" | "builtin") || "skill",
+            toolType: (tool.type as unknown as "skill" | "mcp" | "builtin") || "skill",
             metadata: JSON.stringify({ ...(tool.metadata || {}), parameters: tool.parameters }),
             vector: vector.values,
             indexedAt: new Date(),

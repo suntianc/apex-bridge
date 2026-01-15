@@ -61,7 +61,7 @@ export interface WarmupStatus {
  */
 const DEFAULT_CONFIG: WarmupConfig = {
   enabled: true,
-  timeoutMs: 60000,
+  timeoutMs: 30000,
   databaseWarmup: {
     enabled: true,
     priority: ["sqlite"],
@@ -120,6 +120,9 @@ export class ApplicationWarmupService {
   async warmup(): Promise<WarmupStatus> {
     if (!this.config.enabled) {
       logger.info("[ApplicationWarmupService] Warmup disabled, skipping");
+      this.status.isComplete = true;
+      this.status.startTime = new Date();
+      this.status.endTime = new Date();
       return this.status;
     }
 

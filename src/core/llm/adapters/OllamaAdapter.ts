@@ -56,50 +56,85 @@ export class OllamaAdapter extends BaseOpenAICompatibleAdapter {
    * 重写 embed 方法，使用 Ollama 的 /api/embeddings 端点
    */
   async embed(texts: string[], model?: string): Promise<number[][]> {
-    try {
-      // Ollama 0.13.5 使用 prompt 参数，不支持 input 参数
-      const requestBody = {
-        model: model || this.config.defaultModel,
-        prompt: texts[0] || "", // Ollama 只支持单个文本
-      };
+    const maxRetries = 3;
+    const baseDelay = 1000;
+    const maxDelay = 10000;
 
-      logger.debug(`[${this.providerName}] Embedding request`, {
-        model: requestBody.model,
-        textCount: texts.length,
-        textPreview: (texts[0] || "").substring(0, 50),
-      });
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // Ollama 0.13.5 使用 prompt 参数，不支持 input 参数
+        const requestBody = {
+          model: model || this.config.defaultModel,
+          prompt: texts[0] || "", // Ollama 只支持单个文本
+        };
 
-      // Ollama 使用 /api/embeddings 端点
-      const response = await this.client.post("/api/embeddings", requestBody);
+        logger.debug(`[${this.providerName}] Embedding request`, {
+          model: requestBody.model,
+          textCount: texts.length,
+          textPreview: (texts[0] || "").substring(0, 50),
+          attempt,
+        });
 
-      // Ollama 格式: { embedding: [...] } 或 { embeddings: [[...]] }
-      if (response.data?.embedding) {
-        return [response.data.embedding];
-      }
-      if (response.data?.embeddings) {
-        return response.data.embeddings;
-      }
+        // Ollama 使用 /api/embeddings 端点
+        const response = await this.client.post("/api/embeddings", requestBody);
 
-      // OpenAI 兼容格式
-      if (response.data?.data) {
-        return response.data.data.map((item: any) => item.embedding);
-      }
-
-      throw new Error("Unexpected embedding response format");
-    } catch (error: any) {
-      logger.error(`❌ ${this.providerName} embed error:`, error.message);
-      if (error.response) {
-        logger.error(`   HTTP状态: ${error.response.status}`);
-        try {
-          if (error.response.data && typeof error.response.data === "object") {
-            logger.error(`   错误详情: ${JSON.stringify(error.response.data, null, 2)}`);
-          }
-        } catch (e) {
-          // 序列化失败
+        // Ollama 格式: { embedding: [...] } 或 { embeddings: [[...]] }
+        if (response.data?.embedding) {
+          return [response.data.embedding];
         }
+        if (response.data?.embeddings) {
+          return response.data.embeddings;
+        }
+
+        // OpenAI 兼容格式
+        if (response.data?.data) {
+          return response.data.data.map((item: any) => item.embedding);
+        }
+
+        throw new Error("Unexpected embedding response format");
+      } catch (error: any) {
+        const isRetryable = this.isRetryableError(error);
+        const delay = Math.min(baseDelay * Math.pow(2, attempt - 1), maxDelay);
+
+        logger.warn(
+          `[${this.providerName}] Embedding attempt ${attempt}/${maxRetries} failed:`,
+          error.message
+        );
+
+        if (attempt === maxRetries || !isRetryable) {
+          logger.error(`[${this.providerName}] Embedding failed after ${attempt} attempts`);
+          if (error.response) {
+            logger.error(`   HTTP状态: ${error.response.status}`);
+            try {
+              if (error.response.data && typeof error.response.data === "object") {
+                logger.error(`   错误详情: ${JSON.stringify(error.response.data, null, 2)}`);
+              }
+            } catch (e) {
+              // 序列化失败
+            }
+          }
+          throw new Error(`${this.providerName} embedding failed: ${error.message}`);
+        }
+
+        logger.info(`[${this.providerName}] Retrying in ${delay}ms...`);
+        await this.sleep(delay);
       }
-      throw new Error(`${this.providerName} embedding failed: ${error.message}`);
     }
+
+    throw new Error(`${this.providerName} embedding failed: Max retries exceeded`);
+  }
+
+  private isRetryableError(error: any): boolean {
+    if (!error.response) {
+      return true;
+    }
+
+    const status = error.response.status;
+    return status >= 500 || status === 429;
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**

@@ -256,7 +256,14 @@ export class ConfigService {
         jwtSecret: systemConfig.security.jwtSecret,
       },
       performance: appConfig.performance,
-      redis: appConfig.redis,
+      redis: {
+        ...appConfig.redis,
+        enabled: this.parseBooleanEnv("CACHE_ENABLED", appConfig.redis?.enabled ?? false),
+        host: process.env.REDIS_HOST || appConfig.redis?.host || "localhost",
+        port: parseInt(process.env.REDIS_PORT || String(appConfig.redis?.port || 6379), 10),
+        password: process.env.REDIS_PASSWORD || appConfig.redis?.password || "",
+        db: appConfig.redis?.db ?? 0,
+      },
       appSecurity: appConfig.security,
     };
   }
@@ -298,6 +305,17 @@ export class ConfigService {
       sqlitePath: process.env.SQLITE_PATH || "./.data/llm_providers.db",
       lancedbPath: process.env.LANCEDB_PATH || "./.data/lancedb",
     };
+  }
+
+  /**
+   * 解析布尔类型的环境变量
+   */
+  private parseBooleanEnv(envKey: string, defaultValue: boolean): boolean {
+    const value = process.env[envKey];
+    if (value === undefined || value === null) {
+      return defaultValue;
+    }
+    return value === "true" || value === "1" || value === "yes";
   }
 }
 

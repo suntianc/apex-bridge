@@ -1,6 +1,11 @@
 /**
  * SkillsController - Skills管理 API 控制器
  * 提供Skills的安装、卸载、查询等RESTful接口
+ *
+ * @swagger
+ * tags:
+ *   name: Skills
+ *   description: Skill management
  */
 
 import { Request, Response } from "express";

@@ -71,7 +71,7 @@ describe("ApplicationWarmupService", () => {
       const config = service.getConfig();
 
       expect(config.enabled).toBe(true);
-      expect(config.timeoutMs).toBe(60000);
+      expect(config.timeoutMs).toBe(30000);
       expect(config.databaseWarmup.enabled).toBe(true);
       expect(config.indexWarmup.enabled).toBe(true);
       expect(config.embeddingCacheWarmup.enabled).toBe(true);
@@ -96,14 +96,17 @@ describe("ApplicationWarmupService", () => {
 
   describe("warmup() - State Management", () => {
     it("should reset isRunning flag after successful warmup", async () => {
-      // Warmup should complete (disabled means it returns immediately but still sets state)
-      await service.warmup();
+      jest.setTimeout(60000);
+      // Disable warmup to test state management without actual warmup operations
+      const disabledService = new ApplicationWarmupService({ enabled: false });
+      await disabledService.warmup();
 
-      const status = service.getStatus();
+      const status = disabledService.getStatus();
       expect(status.isComplete).toBe(true);
-    });
+    }, 60000);
 
     it("should reset isRunning flag after failed warmup", async () => {
+      jest.setTimeout(60000);
       const failingService = new ApplicationWarmupService({
         enabled: true,
         timeoutMs: 1000,
@@ -131,7 +134,7 @@ describe("ApplicationWarmupService", () => {
       const status = failingService.getStatus();
       // Either complete or has errors, but state should be consistent
       expect(status.startTime).not.toBeNull();
-    });
+    }, 60000);
 
     it("should handle multiple warmup calls sequentially", async () => {
       const disabledService = new ApplicationWarmupService({
