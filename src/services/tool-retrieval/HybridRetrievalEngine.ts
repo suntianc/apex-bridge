@@ -210,7 +210,7 @@ export class HybridRetrievalEngine implements IHybridRetrievalEngine {
       }
 
       this._logger.info(`[HybridRetrievalEngine] Searching for: "${query.query}"`, {
-        limit: query.limit || this.config.hybridConfig.maxResults,
+        limit: query.limit ?? this.config.hybridConfig.maxResults,
         tags: query.tags,
       });
 
@@ -294,7 +294,7 @@ export class HybridRetrievalEngine implements IHybridRetrievalEngine {
 
     try {
       this._logger.info(`[HybridRetrievalEngine] Searching with disclosure: "${query.query}"`, {
-        limit: options?.limit || this.config.hybridConfig.maxResults,
+        limit: options?.limit ?? this.config.hybridConfig.maxResults,
         forceLevel: options?.forceLevel,
       });
 
@@ -497,7 +497,7 @@ export class HybridRetrievalEngine implements IHybridRetrievalEngine {
     const parts = [
       query.query,
       query.tags?.join(",") || "",
-      String(options?.limit || this.config.hybridConfig.maxResults),
+      String(options?.limit ?? this.config.hybridConfig.maxResults),
       String(options?.minScore || this.config.hybridConfig.minScore),
       String(options?.forceLevel || "auto"),
     ];
@@ -658,7 +658,7 @@ export class HybridRetrievalEngine implements IHybridRetrievalEngine {
 
     try {
       const results = await this.config.searchEngine.search(query, {
-        limit: limit || this.config.hybridConfig.maxResults,
+        limit: limit ?? this.config.hybridConfig.maxResults,
         minScore: this.config.hybridConfig.minScore,
       });
 
@@ -723,7 +723,7 @@ export class HybridRetrievalEngine implements IHybridRetrievalEngine {
           };
         })
         .sort((a, b) => b.score - a.score)
-        .slice(0, limit || this.config.hybridConfig.maxResults);
+        .slice(0, limit ?? this.config.hybridConfig.maxResults);
 
       this.metrics.keywordTime = Date.now() - startTime;
 
@@ -770,7 +770,7 @@ export class HybridRetrievalEngine implements IHybridRetrievalEngine {
     try {
       // Get candidates from vector search first
       const candidates = await this.config.searchEngine.search(query, {
-        limit: (limit || this.config.hybridConfig.maxResults) * 2,
+        limit: (limit ?? this.config.hybridConfig.maxResults) * 2,
         minScore: 0.1, // Lower threshold for tag matching
       });
 
@@ -800,7 +800,7 @@ export class HybridRetrievalEngine implements IHybridRetrievalEngine {
           };
         })
         .sort((a, b) => b.score - a.score)
-        .slice(0, limit || this.config.hybridConfig.maxResults);
+        .slice(0, limit ?? this.config.hybridConfig.maxResults);
     } catch (error) {
       this._logger.error("[HybridRetrievalEngine] Tag search failed:", error);
       return [];
@@ -828,7 +828,7 @@ export class HybridRetrievalEngine implements IHybridRetrievalEngine {
     const parts = [
       query.query,
       query.tags?.join(",") || "",
-      String(query.limit || this.config.hybridConfig.maxResults),
+      String(query.limit ?? this.config.hybridConfig.maxResults),
       String(query.disclosureLevel || DisclosureLevel.METADATA),
     ];
     return require("crypto").createHash("md5").update(parts.join("|")).digest("hex");

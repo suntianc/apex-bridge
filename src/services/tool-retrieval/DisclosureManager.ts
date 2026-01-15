@@ -130,8 +130,8 @@ export class DisclosureDecisionManager implements IDisclosureDecisionManager {
     }
 
     // 回退: 自适应 Token 预算
-    // Below threshold → METADATA (minimal disclosure for low relevance)
-    return { level: DisclosureLevel.METADATA, reason: "tokenBudget" };
+    // Below threshold → CONTENT (minimal disclosure for low relevance)
+    return { level: DisclosureLevel.CONTENT, reason: "tokenBudget" };
   }
 }
 
