@@ -212,8 +212,10 @@ export async function testProviderConnection(req: Request, res: Response) {
 
     // 2. 基础校验
     if (!provider || !baseConfig) {
-      badRequest(res, "Missing required parameters: provider or baseConfig");
-      return;
+      return res.status(400).json({
+        success: false,
+        message: "Missing required parameters: provider or baseConfig",
+      });
     }
 
     // 3. 实例化适配器 (使用前端传来的临时配置)

@@ -144,13 +144,15 @@ export function serverError(res: Response, error: unknown, context?: string): vo
  */
 export function serviceUnavailable(
   res: Response,
-  message: string = "Service temporarily unavailable"
+  message: string = "Service temporarily unavailable",
+  type: string = "server_error",
+  code: string = "SERVICE_UNAVAILABLE"
 ): void {
   res.status(503).json({
     error: {
       message,
-      type: "server_error",
-      code: "SERVICE_UNAVAILABLE",
+      type,
+      code,
     },
   });
 }

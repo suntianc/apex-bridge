@@ -11,7 +11,7 @@ import { InterruptRequest, InterruptResponse } from "../../types/request-abort";
 import { LLMModelType } from "../../types/llm-models";
 import { Message } from "../../types";
 import { logger } from "../../utils/logger";
-import { badRequest, notFound, serverError } from "../../utils/http-response";
+import { badRequest, notFound, serverError, serviceUnavailable } from "../../utils/http-response";
 import { parseChatRequest } from "../../api/validators/chat-request-validator";
 import type { ChatRequestOptions } from "../../api/validators/chat-request-validator";
 import { normalizeUsage, buildChatResponse } from "../../api/utils/response-formatter";
@@ -490,12 +490,10 @@ export class ChatController {
           ? 503
           : 500;
 
-      res.status(statusCode).json({
-        error: {
-          message: error.message || "Failed to fetch models",
-          type: statusCode === 503 ? "service_unavailable" : "server_error",
-        },
-      });
+      const errorType = statusCode === 503 ? "service_unavailable" : "server_error";
+      const errorCode = statusCode === 503 ? "SERVICE_UNAVAILABLE" : "INTERNAL_ERROR";
+
+      serviceUnavailable(res, error.message || "Failed to fetch models", errorType, errorCode);
     }
   }
 
