@@ -9,11 +9,13 @@ import { SurrealDBConversationStorage } from "./conversation";
 import { SurrealDBLLMConfigStorage } from "./llm-config";
 import { SurrealDBMCPConfigStorage } from "./mcp-config";
 import { SurrealDBTrajectoryStorage } from "./trajectory";
+import { SurrealDBVectorStorage } from "./vector-storage";
 import type {
   IConversationStorage,
   ILLMConfigStorage,
   IMCPConfigStorage,
   ITrajectoryStorage,
+  IVectorStorage,
 } from "../interfaces";
 import { logger } from "../../../utils/logger";
 
@@ -33,6 +35,7 @@ export class SurrealDBStorageAdapter {
   mcpConfig: IMCPConfigStorage;
   conversation: IConversationStorage;
   trajectory: ITrajectoryStorage;
+  vector: IVectorStorage;
 
   constructor(options: SurrealDBStorageAdapterOptions) {
     this.client = SurrealDBClient.getInstance();
@@ -57,6 +60,7 @@ export class SurrealDBStorageAdapter {
     this.mcpConfig = new SurrealDBMCPConfigStorage();
     this.conversation = new SurrealDBConversationStorage();
     this.trajectory = new SurrealDBTrajectoryStorage();
+    this.vector = new SurrealDBVectorStorage();
   }
 
   async close(): Promise<void> {

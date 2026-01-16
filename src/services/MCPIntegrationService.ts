@@ -580,7 +580,7 @@ export class MCPIntegrationService extends EventEmitter {
    */
   async loadServersFromDatabase(): Promise<void> {
     try {
-      const records = this.configService.getAllServers();
+      const records = await this.configService.getAllServers();
 
       logger.info(`[MCP] Loading ${records.length} MCP servers from database`);
 

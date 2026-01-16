@@ -67,7 +67,7 @@ export class SQLiteLLMConfigStorage implements ILLMConfigStorage {
   private db: Database.Database;
   private dbPath: string;
 
-  constructor() {
+  constructor(customPath?: string) {
     const pathService = PathService.getInstance();
     const dataDir = pathService.getDataDir();
 
@@ -75,7 +75,11 @@ export class SQLiteLLMConfigStorage implements ILLMConfigStorage {
       fs.mkdirSync(dataDir, { recursive: true });
     }
 
-    this.dbPath = path.join(dataDir, "llm_providers.db");
+    if (customPath) {
+      this.dbPath = customPath;
+    } else {
+      this.dbPath = path.join(dataDir, "llm_providers.db");
+    }
     this.db = new Database(this.dbPath);
 
     this.db.pragma("journal_mode = WAL");

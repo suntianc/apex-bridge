@@ -50,9 +50,9 @@ export class LLMManager {
   /**
    * 从数据库加载所有启用的提供商
    */
-  private loadProviders(): void {
+  private async loadProviders(): Promise<void> {
     try {
-      const providers = this.configService.listProviders().filter((p) => p.enabled);
+      const providers = (await this.configService.listProviders()).filter((p) => p.enabled);
 
       if (providers.length === 0) {
         logger.warn("⚠️  No enabled LLM providers found");
@@ -97,9 +97,9 @@ export class LLMManager {
         model = this.modelRegistry.findModel(options.provider, options.model);
       } else if (options?.provider) {
         // 只指定了提供商，使用该提供商的默认 NLP 模型
-        const provider = this.configService.getProviderByKey(options.provider);
+        const provider = await this.configService.getProviderByKey(options.provider);
         if (provider) {
-          const models = this.configService.listModels({
+          const models = await this.configService.listModels({
             providerId: provider.id,
             modelType: LLMModelType.NLP,
             isDefault: true,
@@ -278,9 +278,9 @@ export class LLMManager {
       logger.debug(`[LLMManager.getActiveModel] Found model: ${foundModel?.modelName || "null"}`);
       return foundModel;
     } else if (options?.provider) {
-      const provider = this.configService.getProviderByKey(options.provider);
+      const provider = await this.configService.getProviderByKey(options.provider);
       if (provider) {
-        const models = this.configService.listModels({
+        const models = await this.configService.listModels({
           providerId: provider.id,
           modelType: LLMModelType.NLP,
           isDefault: true,

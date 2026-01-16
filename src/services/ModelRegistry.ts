@@ -47,7 +47,7 @@ export class ModelRegistry {
   /**
    * 刷新缓存
    */
-  public refreshCache(): void {
+  public async refreshCache(): Promise<void> {
     try {
       // 清空旧缓存
       this.modelCache.clear();
@@ -56,7 +56,7 @@ export class ModelRegistry {
       this.keyIndexCache.clear(); // 🆕 清空 Key 索引
 
       // 加载所有启用的模型
-      const models = this.configService.listModels({ enabled: true });
+      const models = await this.configService.listModels({ enabled: true });
 
       // 构建缓存
       models.forEach((model) => {

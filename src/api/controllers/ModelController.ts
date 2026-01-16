@@ -41,13 +41,13 @@ export async function listProviderModels(req: Request, res: Response): Promise<v
     }
 
     // 验证提供商存在
-    const provider = configService.getProvider(providerId);
+    const provider = await configService.getProvider(providerId);
     if (!provider) {
       notFound(res, `Provider with id ${providerId} not found`);
       return;
     }
 
-    const models = configService.listModels({ providerId });
+    const models = await configService.listModels({ providerId });
 
     res.json({
       success: true,
@@ -90,7 +90,7 @@ export async function getModel(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    const model = configService.getModel(modelId);
+    const model = await configService.getModel(modelId);
 
     if (!model || model.providerId !== providerId) {
       notFound(res, `Model with id ${modelId} not found for provider ${providerId}`);
@@ -142,7 +142,7 @@ export async function createModel(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    const newModel = configService.createModel(providerId, input);
+    const newModel = await configService.createModel(providerId, input);
 
     modelRegistry.forceRefresh();
 
@@ -184,13 +184,13 @@ export async function updateModel(req: Request, res: Response): Promise<void> {
     }
 
     // 验证模型属于该提供商
-    const existing = configService.getModel(modelId);
+    const existing = await configService.getModel(modelId);
     if (!existing || existing.providerId !== providerId) {
       notFound(res, `Model with id ${modelId} not found for provider ${providerId}`);
       return;
     }
 
-    const updatedModel = configService.updateModel(modelId, input);
+    const updatedModel = await configService.updateModel(modelId, input);
 
     modelRegistry.forceRefresh();
 
@@ -223,13 +223,13 @@ export async function deleteModel(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    const existing = configService.getModel(modelId);
+    const existing = await configService.getModel(modelId);
     if (!existing || existing.providerId !== providerId) {
       notFound(res, `Model with id ${modelId} not found for provider ${providerId}`);
       return;
     }
 
-    configService.deleteModel(modelId);
+    await configService.deleteModel(modelId);
 
     modelRegistry.forceRefresh();
 
@@ -268,7 +268,7 @@ export async function queryModels(req: Request, res: Response): Promise<void> {
       params.isDefault = isDefault;
     }
 
-    const models = configService.listModels(params);
+    const models = await configService.listModels(params);
 
     res.json({
       success: true,

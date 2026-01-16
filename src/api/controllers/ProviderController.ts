@@ -84,14 +84,16 @@ function toProviderDTO(provider: any, modelCount: number = 0) {
  */
 export async function listProviders(req: Request, res: Response): Promise<void> {
   try {
-    const providers = configService.listProviders();
+    const providers = await configService.listProviders();
 
     // 为每个提供商添加模型统计，使用统一的 DTO
-    const providersWithStats = providers.map((p) => {
-      const models = configService.getProviderModels(p.id);
-      // ✅ 使用统一 DTO，确保响应结构一致
-      return toProviderDTO(p, models.length);
-    });
+    const providersWithStats = await Promise.all(
+      providers.map(async (p) => {
+        const models = await configService.getProviderModels(p.id);
+        // ✅ 使用统一 DTO，确保响应结构一致
+        return toProviderDTO(p, models.length);
+      })
+    );
 
     res.json({
       success: true,
@@ -115,14 +117,14 @@ export async function getProvider(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    const provider = configService.getProvider(id);
+    const provider = await configService.getProvider(id);
 
     if (!provider) {
       notFound(res, `Provider with id ${id} not found`);
       return;
     }
 
-    const models = configService.getProviderModels(id);
+    const models = await configService.getProviderModels(id);
 
     ok(res, {
       provider: toProviderDTO(provider, models.length),
@@ -177,11 +179,11 @@ export async function updateProvider(req: Request, res: Response): Promise<void>
       return;
     }
 
-    const updatedProvider = configService.updateProvider(id, input);
+    const updatedProvider = await configService.updateProvider(id, input);
 
     modelRegistry.forceRefresh();
 
-    const models = configService.getProviderModels(id);
+    const models = await configService.getProviderModels(id);
 
     ok(res, {
       provider: toProviderDTO(updatedProvider, models.length),
@@ -204,7 +206,7 @@ export async function deleteProvider(req: Request, res: Response): Promise<void>
       return;
     }
 
-    configService.deleteProvider(id);
+    await configService.deleteProvider(id);
 
     modelRegistry.forceRefresh();
 
