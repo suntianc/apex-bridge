@@ -8,6 +8,15 @@ import {
   parseFeatureFlags,
 } from "@/core/storage/adapter-factory";
 import { StorageBackend } from "@/core/storage/interfaces";
+import { DualWriteMCPConfigAdapter, DualWriteTrajectoryAdapter } from "@/core/storage/dual-write";
+import {
+  ConsistentDualWriteConversationAdapter,
+  ConsistentDualWriteLLMConfigAdapter,
+  ReadWriteSplitConversationAdapter,
+  ReadWriteSplitLLMConfigAdapter,
+} from "@/core/storage/consistent-dual-write";
+import { VectorDualWriteAdapter } from "@/core/storage/vector-dual-write";
+import { VectorReadWriteSplitAdapter } from "@/core/storage/vector-read-write-split";
 
 describe("StorageAdapterFactory", () => {
   afterEach(() => {
@@ -138,6 +147,186 @@ describe("StorageAdapterFactory", () => {
       StorageAdapterFactory.reset();
       expect(StorageAdapterFactory.getConfig()).toBeNull();
       expect(StorageAdapterFactory.getBackendType()).toBeNull();
+    });
+  });
+
+  describe("Phase 2: Dual-Write Adapters", () => {
+    beforeEach(() => {
+      StorageAdapterFactory.reset();
+      jest.resetModules();
+    });
+
+    afterEach(() => {
+      delete process.env.APEX_SURREALDB_MCP_DUAL_WRITE;
+      delete process.env.APEX_SURREALDB_TRAJECTORY_DUAL_WRITE;
+      delete process.env.APEX_SURREALDB_LLM_CONFIG_DUAL_WRITE;
+      delete process.env.APEX_SURREALDB_LLM_CONFIG_RW_SPLIT;
+      delete process.env.APEX_SURREALDB_CONVERSATION_DUAL_WRITE;
+      delete process.env.APEX_SURREALDB_CONVERSATION_RW_SPLIT;
+      delete process.env.APEX_SURREALDB_VECTOR_DUAL_WRITE;
+      delete process.env.APEX_SURREALDB_VECTOR_RW_SPLIT;
+      delete process.env.APEX_SURREALDB_VECTOR_BATCH_SIZE;
+    });
+
+    it("should return standard adapter when MCP dual-write is disabled", () => {
+      const config = createStorageConfig({});
+      StorageAdapterFactory.initialize(config);
+
+      const adapter = StorageAdapterFactory.getMCPConfigStorage();
+      expect(adapter).toBeDefined();
+    });
+
+    it("should return standard adapter when Trajectory dual-write is disabled", () => {
+      const config = createStorageConfig({});
+      StorageAdapterFactory.initialize(config);
+
+      const adapter = StorageAdapterFactory.getTrajectoryStorage();
+      expect(adapter).toBeDefined();
+    });
+
+    it("should return standard adapter when LLMConfig dual-write is disabled", () => {
+      const config = createStorageConfig({});
+      StorageAdapterFactory.initialize(config);
+
+      const adapter = StorageAdapterFactory.getLLMConfigStorage();
+      expect(adapter).toBeDefined();
+    });
+
+    it("should return standard adapter when Conversation dual-write is disabled", () => {
+      const config = createStorageConfig({});
+      StorageAdapterFactory.initialize(config);
+
+      const adapter = StorageAdapterFactory.getConversationStorage();
+      expect(adapter).toBeDefined();
+    });
+
+    it("should enable MCP dual-write when env var is set", () => {
+      process.env.APEX_SURREALDB_MCP_DUAL_WRITE = "true";
+
+      const config = createStorageConfig({});
+      StorageAdapterFactory.initialize(config);
+
+      const adapter = StorageAdapterFactory.getMCPConfigStorage();
+      expect(adapter).toBeInstanceOf(DualWriteMCPConfigAdapter);
+    });
+
+    it("should enable Trajectory dual-write when env var is set", () => {
+      process.env.APEX_SURREALDB_TRAJECTORY_DUAL_WRITE = "true";
+
+      const config = createStorageConfig({});
+      StorageAdapterFactory.initialize(config);
+
+      const adapter = StorageAdapterFactory.getTrajectoryStorage();
+      expect(adapter).toBeInstanceOf(DualWriteTrajectoryAdapter);
+    });
+  });
+
+  describe("Phase 3: High-Risk Domain Migration", () => {
+    beforeEach(() => {
+      StorageAdapterFactory.reset();
+      jest.resetModules();
+    });
+
+    afterEach(() => {
+      delete process.env.APEX_SURREALDB_LLM_CONFIG_DUAL_WRITE;
+      delete process.env.APEX_SURREALDB_LLM_CONFIG_RW_SPLIT;
+      delete process.env.APEX_SURREALDB_CONVERSATION_DUAL_WRITE;
+      delete process.env.APEX_SURREALDB_CONVERSATION_RW_SPLIT;
+    });
+
+    it("should enable LLMConfig dual-write when env var is set", () => {
+      process.env.APEX_SURREALDB_LLM_CONFIG_DUAL_WRITE = "true";
+
+      const config = createStorageConfig({});
+      StorageAdapterFactory.initialize(config);
+
+      const adapter = StorageAdapterFactory.getLLMConfigStorage();
+      expect(adapter).toBeInstanceOf(ConsistentDualWriteLLMConfigAdapter);
+    });
+
+    it("should enable LLMConfig read-write split when env var is set", () => {
+      process.env.APEX_SURREALDB_LLM_CONFIG_RW_SPLIT = "true";
+
+      const config = createStorageConfig({});
+      StorageAdapterFactory.initialize(config);
+
+      const adapter = StorageAdapterFactory.getLLMConfigStorage();
+      expect(adapter).toBeInstanceOf(ReadWriteSplitLLMConfigAdapter);
+    });
+
+    it("should enable Conversation dual-write when env var is set", () => {
+      process.env.APEX_SURREALDB_CONVERSATION_DUAL_WRITE = "true";
+
+      const config = createStorageConfig({});
+      StorageAdapterFactory.initialize(config);
+
+      const adapter = StorageAdapterFactory.getConversationStorage();
+      expect(adapter).toBeInstanceOf(ConsistentDualWriteConversationAdapter);
+    });
+
+    it("should enable Conversation read-write split when env var is set", () => {
+      process.env.APEX_SURREALDB_CONVERSATION_RW_SPLIT = "true";
+
+      const config = createStorageConfig({});
+      StorageAdapterFactory.initialize(config);
+
+      const adapter = StorageAdapterFactory.getConversationStorage();
+      expect(adapter).toBeInstanceOf(ReadWriteSplitConversationAdapter);
+    });
+
+    it("should prefer RW-split over dual-write when both are enabled", () => {
+      process.env.APEX_SURREALDB_LLM_CONFIG_DUAL_WRITE = "true";
+      process.env.APEX_SURREALDB_LLM_CONFIG_RW_SPLIT = "true";
+
+      const config = createStorageConfig({});
+      StorageAdapterFactory.initialize(config);
+
+      const adapter = StorageAdapterFactory.getLLMConfigStorage();
+      expect(adapter).toBeInstanceOf(ReadWriteSplitLLMConfigAdapter);
+    });
+  });
+
+  describe("Phase 4: Vector Storage Migration", () => {
+    beforeEach(() => {
+      StorageAdapterFactory.reset();
+      jest.resetModules();
+    });
+
+    afterEach(() => {
+      delete process.env.APEX_SURREALDB_VECTOR_DUAL_WRITE;
+      delete process.env.APEX_SURREALDB_VECTOR_RW_SPLIT;
+      delete process.env.APEX_SURREALDB_VECTOR_BATCH_SIZE;
+    });
+
+    it("should enable Vector dual-write when env var is set", () => {
+      process.env.APEX_SURREALDB_VECTOR_DUAL_WRITE = "true";
+
+      const config = createStorageConfig({});
+      StorageAdapterFactory.initialize(config);
+
+      const adapter = StorageAdapterFactory.getVectorStorage();
+      expect(adapter).toBeInstanceOf(VectorDualWriteAdapter);
+    });
+
+    it("should enable Vector read-write split when env var is set", () => {
+      process.env.APEX_SURREALDB_VECTOR_RW_SPLIT = "true";
+
+      const config = createStorageConfig({});
+      StorageAdapterFactory.initialize(config);
+
+      const adapter = StorageAdapterFactory.getVectorStorage();
+      expect(adapter).toBeInstanceOf(VectorReadWriteSplitAdapter);
+    });
+
+    it("should prefer RW-split over dual-write when both are enabled", () => {
+      process.env.APEX_SURREALDB_VECTOR_DUAL_WRITE = "true";
+      process.env.APEX_SURREALDB_VECTOR_RW_SPLIT = "true";
+
+      const config = createStorageConfig({});
+      StorageAdapterFactory.initialize(config);
+
+      const adapter = StorageAdapterFactory.getVectorStorage();
+      expect(adapter).toBeInstanceOf(VectorReadWriteSplitAdapter);
     });
   });
 });

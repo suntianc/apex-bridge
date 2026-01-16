@@ -6,7 +6,7 @@
 
 import { SurrealDBClient } from "./client";
 import type { ILLMConfigStorage, LLMConfigQuery } from "../interfaces";
-import type { LLMProviderV2, LLMModelV2 } from "../../../types/llm-models";
+import type { LLMProviderV2, LLMModelV2, LLMModelFull } from "../../../types/llm-models";
 import { logger } from "../../../utils/logger";
 import { validatePagination, parseStorageIdAsNumber } from "../utils";
 
@@ -268,6 +268,50 @@ export class SurrealDBLLMConfigStorage implements ILLMConfigStorage {
     }
 
     return providerId;
+  }
+
+  async getAceEvolutionModel(): Promise<LLMModelFull | null> {
+    try {
+      const result = await this.client.query<ModelRecord[]>(
+        "SELECT * FROM llm_models WHERE is_ace_evolution = true LIMIT 1"
+      );
+      if (result.length === 0) {
+        return null;
+      }
+      const record = result[0];
+
+      const providerId = record.provider_id;
+      const providerResult = await this.client.query<ProviderRecord[]>(
+        `SELECT * FROM ${TABLE_PROVIDERS} WHERE id = $providerId LIMIT 1`,
+        { providerId }
+      );
+
+      const provider = providerResult.length > 0 ? this.recordToProvider(providerResult[0]) : null;
+
+      const providerBaseConfig = provider?.baseConfig ?? { baseURL: "" };
+
+      return {
+        id: parseStorageIdAsNumber(record.id?.split(":").pop() || "0"),
+        providerId: parseStorageIdAsNumber(providerId),
+        modelKey: record.key,
+        modelName: record.name,
+        modelType: record.type as LLMModelV2["modelType"],
+        modelConfig: {},
+        enabled: true,
+        isDefault: false,
+        isAceEvolution: true,
+        displayOrder: 0,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        provider: provider?.provider || "",
+        providerName: provider?.name || "",
+        providerBaseConfig,
+        providerEnabled: provider?.enabled ?? false,
+      };
+    } catch (error: unknown) {
+      logger.error("[SurrealDB] Failed to get ACE evolution model:", { error });
+      throw error;
+    }
   }
 
   private recordToProvider(record: ProviderRecord): LLMProviderV2 {

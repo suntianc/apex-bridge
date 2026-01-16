@@ -16,13 +16,32 @@ import {
   IVectorStorage,
 } from "./interfaces";
 import { logger } from "../../utils/logger";
+import { DualWriteMCPConfigAdapter, DualWriteTrajectoryAdapter, parseEnvBool } from "./dual-write";
+import {
+  ConsistentDualWriteConversationAdapter,
+  ConsistentDualWriteLLMConfigAdapter,
+  ReadWriteSplitConversationAdapter,
+  ReadWriteSplitLLMConfigAdapter,
+} from "./consistent-dual-write";
+import { LanceDBVectorStorage } from "./lance/vector-storage";
+import { SurrealDBVectorStorage } from "./surrealdb/vector-storage";
+import { VectorDualWriteAdapter, VectorDualWriteConfig } from "./vector-dual-write";
+import { VectorReadWriteSplitAdapter, VectorReadWriteSplitConfig } from "./vector-read-write-split";
 
-interface AdapterInstances {
-  llmConfig: ILLMConfigStorage | null;
-  mcpConfig: IMCPConfigStorage | null;
-  conversation: IConversationStorage | null;
-  trajectory: ITrajectoryStorage | null;
-  vector: IVectorStorage | null;
+import { SQLiteLLMConfigStorage } from "./sqlite/llm-config";
+import { SQLiteConversationStorage } from "./sqlite/conversation";
+import { SQLiteTrajectoryStorage } from "./sqlite/trajectory";
+import { SurrealDBLLMConfigStorage } from "./surrealdb/llm-config";
+import { SurrealDBConversationStorage } from "./surrealdb/conversation";
+import { SurrealDBMCPConfigStorage } from "./surrealdb/mcp-config";
+import { SurrealDBTrajectoryStorage } from "./surrealdb/trajectory";
+
+function parseEnvInt(value: string | undefined, defaultValue: number): number {
+  if (value === undefined || value === "") {
+    return defaultValue;
+  }
+  const parsed = parseInt(value, 10);
+  return isNaN(parsed) ? defaultValue : parsed;
 }
 
 class StorageAdapterFactory {
@@ -51,7 +70,30 @@ class StorageAdapterFactory {
       return this.instances.get(key) as ILLMConfigStorage;
     }
 
-    const adapter = this.createAdapter<ILLMConfigStorage>("ILLMConfigStorage");
+    let adapter: ILLMConfigStorage;
+
+    if (parseEnvBool(process.env.APEX_SURREALDB_LLM_CONFIG_RW_SPLIT, false)) {
+      const primary = new SQLiteLLMConfigStorage();
+      const secondary = new SurrealDBLLMConfigStorage();
+      adapter = new ReadWriteSplitLLMConfigAdapter(primary, secondary, {
+        domain: "LLMConfig",
+        readFromSecondary: false,
+        fallbackToPrimary: true,
+      });
+      logger.info("[StorageAdapterFactory] LLMConfig read-write split mode enabled");
+    } else if (parseEnvBool(process.env.APEX_SURREALDB_LLM_CONFIG_DUAL_WRITE, false)) {
+      const primary = new SQLiteLLMConfigStorage();
+      const secondary = new SurrealDBLLMConfigStorage();
+      adapter = new ConsistentDualWriteLLMConfigAdapter(primary, secondary, {
+        domain: "LLMConfig",
+        verifyOnWrite: true,
+        repairOnFailure: true,
+      });
+      logger.info("[StorageAdapterFactory] LLMConfig consistent dual-write mode enabled");
+    } else {
+      adapter = this.createAdapter<ILLMConfigStorage>("ILLMConfigStorage");
+    }
+
     this.instances.set(key, adapter);
     return adapter;
   }
@@ -66,7 +108,17 @@ class StorageAdapterFactory {
       return this.instances.get(key) as IMCPConfigStorage;
     }
 
-    const adapter = this.createAdapter<IMCPConfigStorage>("IMCPConfigStorage");
+    let adapter: IMCPConfigStorage;
+
+    if (parseEnvBool(process.env.APEX_SURREALDB_MCP_DUAL_WRITE, false)) {
+      const primary = this.createAdapter<IMCPConfigStorage>("IMCPConfigStorage");
+      const secondary = new SurrealDBMCPConfigStorage();
+      adapter = new DualWriteMCPConfigAdapter(primary, secondary);
+      logger.info("[StorageAdapterFactory] MCPConfig dual-write mode enabled");
+    } else {
+      adapter = this.createAdapter<IMCPConfigStorage>("IMCPConfigStorage");
+    }
+
     this.instances.set(key, adapter);
     return adapter;
   }
@@ -81,7 +133,30 @@ class StorageAdapterFactory {
       return this.instances.get(key) as IConversationStorage;
     }
 
-    const adapter = this.createAdapter<IConversationStorage>("IConversationStorage");
+    let adapter: IConversationStorage;
+
+    if (parseEnvBool(process.env.APEX_SURREALDB_CONVERSATION_RW_SPLIT, false)) {
+      const primary = new SQLiteConversationStorage();
+      const secondary = new SurrealDBConversationStorage();
+      adapter = new ReadWriteSplitConversationAdapter(primary, secondary, {
+        domain: "Conversation",
+        readFromSecondary: false,
+        fallbackToPrimary: true,
+      });
+      logger.info("[StorageAdapterFactory] Conversation read-write split mode enabled");
+    } else if (parseEnvBool(process.env.APEX_SURREALDB_CONVERSATION_DUAL_WRITE, false)) {
+      const primary = new SQLiteConversationStorage();
+      const secondary = new SurrealDBConversationStorage();
+      adapter = new ConsistentDualWriteConversationAdapter(primary, secondary, {
+        domain: "Conversation",
+        verifyOnWrite: true,
+        repairOnFailure: true,
+      });
+      logger.info("[StorageAdapterFactory] Conversation consistent dual-write mode enabled");
+    } else {
+      adapter = this.createAdapter<IConversationStorage>("IConversationStorage");
+    }
+
     this.instances.set(key, adapter);
     return adapter;
   }
@@ -96,7 +171,17 @@ class StorageAdapterFactory {
       return this.instances.get(key) as ITrajectoryStorage;
     }
 
-    const adapter = this.createAdapter<ITrajectoryStorage>("ITrajectoryStorage");
+    let adapter: ITrajectoryStorage;
+
+    if (parseEnvBool(process.env.APEX_SURREALDB_TRAJECTORY_DUAL_WRITE, false)) {
+      const primary = new SQLiteTrajectoryStorage();
+      const secondary = new SurrealDBTrajectoryStorage();
+      adapter = new DualWriteTrajectoryAdapter(primary, secondary);
+      logger.info("[StorageAdapterFactory] Trajectory dual-write mode enabled");
+    } else {
+      adapter = this.createAdapter<ITrajectoryStorage>("ITrajectoryStorage");
+    }
+
     this.instances.set(key, adapter);
     return adapter;
   }
@@ -111,9 +196,45 @@ class StorageAdapterFactory {
       return this.instances.get(key) as IVectorStorage;
     }
 
-    const adapter = this.createAdapter<IVectorStorage>("IVectorStorage");
+    const adapter = this.createVectorAdapter();
     this.instances.set(key, adapter);
     return adapter;
+  }
+
+  /**
+   * Create vector storage adapter with migration support
+   */
+  private static createVectorAdapter(): IVectorStorage {
+    const vectorDualWrite = parseEnvBool(process.env.APEX_SURREALDB_VECTOR_DUAL_WRITE, false);
+    const vectorReadWriteSplit = parseEnvBool(process.env.APEX_SURREALDB_VECTOR_RW_SPLIT, false);
+
+    if (!vectorDualWrite && !vectorReadWriteSplit) {
+      return new LanceDBVectorStorage();
+    }
+
+    const lanceDB = new LanceDBVectorStorage();
+    const surrealdb = new SurrealDBVectorStorage();
+
+    if (vectorReadWriteSplit) {
+      logger.info("[StorageAdapterFactory] Vector read-write split mode enabled");
+      const config: Partial<VectorReadWriteSplitConfig> = {
+        domain: "Vector",
+        readFromSecondary: false,
+        fallbackToPrimary: true,
+        secondaryWarmup: false,
+      };
+      return new VectorReadWriteSplitAdapter(lanceDB, surrealdb, config);
+    }
+
+    logger.info("[StorageAdapterFactory] Vector dual-write mode enabled");
+    const batchSize = parseEnvInt(process.env.APEX_SURREALDB_VECTOR_BATCH_SIZE, 100);
+
+    const config: Partial<VectorDualWriteConfig> = {
+      domain: "Vector",
+      batchSize,
+      asyncWrite: true,
+    };
+    return new VectorDualWriteAdapter(lanceDB, surrealdb, config);
   }
 
   /**
