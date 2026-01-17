@@ -1,6 +1,7 @@
 # AGENTS.md - src/services
 
-**Services layer - Chat, Skills, MCP, ToolRetrieval, ContextCompression.**
+**Generated:** 2026-01-17
+**Services layer** - Chat, Skills, MCP, ToolRetrieval, ContextCompression.
 
 ## WHERE TO LOOK
 
@@ -58,3 +59,4 @@
 - **ContextCompressionService** default `enabled: true` (line 137) but `ChatOptions.contextCompression` defaults to `undefined` → compression never runs unless explicitly set in options
 - **ToolRetrievalService** singleton instance created on first `getToolRetrievalService()` call - not initialized until first use
 - **MCPIntegrationService** vectorization failures are swallowed (lines 58-64, 103-109) - index may be stale without warning
+- **Empty catch blocks**: ProcessPool.ts:410 has `.catch(() => {})` violation

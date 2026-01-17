@@ -26,6 +26,7 @@ describe("ILLMConfigStorage Interface", () => {
         getModelByKey: jest.fn(),
         getDefaultModelByType: jest.fn(),
         createProviderWithModels: jest.fn(),
+        deleteModel: jest.fn(),
       };
 
       expect(storage).toBeDefined();
@@ -63,6 +64,7 @@ describe("ILLMConfigStorage Interface", () => {
         getModelByKey: jest.fn().mockResolvedValue(null),
         getDefaultModelByType: jest.fn().mockResolvedValue(null),
         createProviderWithModels: jest.fn().mockResolvedValue("1"),
+        deleteModel: jest.fn().mockResolvedValue(true),
       };
     });
 
@@ -183,6 +185,7 @@ describe("ILLMConfigStorage Interface", () => {
         getModelByKey: jest.fn(),
         getDefaultModelByType: jest.fn(),
         createProviderWithModels: jest.fn(),
+        deleteModel: jest.fn(),
       };
     });
 
@@ -352,6 +355,7 @@ describe("ILLMConfigStorage Interface", () => {
         getModelByKey: jest.fn().mockRejectedValue(new Error("Database error")),
         getDefaultModelByType: jest.fn().mockRejectedValue(new Error("Database error")),
         createProviderWithModels: jest.fn().mockRejectedValue(new Error("Database error")),
+        deleteModel: jest.fn().mockRejectedValue(new Error("Database error")),
       };
     });
 

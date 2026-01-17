@@ -1,6 +1,6 @@
 # AGENTS.md
 
-**Generated:** 2026-01-10
+**Generated:** 2026-01-17
 **Directory:** src/api
 
 ---
@@ -34,3 +34,5 @@ Same as root.
 ## ANTI-PATTERNS (THIS SUBDIR)
 
 - **String-matching error handling**: ProviderController and ModelController use `error.message.includes('not found')` instead of `AppError`. This fragile pattern should be replaced with proper typed error handling.
+- **HTTP response duplicates**: 19 direct `res.status().json()` calls found, should use `src/utils/http-response.ts` utilities
+- **Debug code present**: ChatController.ts:79,94 have debug code that should be removed

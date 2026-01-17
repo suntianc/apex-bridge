@@ -1,6 +1,6 @@
 # AGENTS.md
 
-**Generated:** 2026-01-10
+**Generated:** 2026-01-17
 **Directory:** src/api/middleware
 
 ---

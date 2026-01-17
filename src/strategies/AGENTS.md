@@ -1,6 +1,7 @@
 # STRATEGIES
 
-**Chat strategies - ReAct (multi-round), SingleRound (fast)**
+**Generated:** 2026-01-17
+**Chat strategies** - ReAct (multi-round), SingleRound (fast)
 
 ---
 

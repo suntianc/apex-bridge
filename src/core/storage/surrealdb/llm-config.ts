@@ -9,6 +9,11 @@ import type { ILLMConfigStorage, LLMConfigQuery } from "../interfaces";
 import type { LLMProviderV2, LLMModelV2, LLMModelFull } from "../../../types/llm-models";
 import { logger } from "../../../utils/logger";
 import { validatePagination, parseStorageIdAsNumber } from "../utils";
+import {
+  SurrealDBErrorCode,
+  isSurrealDBError,
+  wrapSurrealDBError,
+} from "../../../utils/surreal-error";
 
 const TABLE_PROVIDERS = "llm_providers";
 
@@ -35,12 +40,56 @@ interface ModelRecord {
 
 export class SurrealDBLLMConfigStorage implements ILLMConfigStorage {
   private client: SurrealDBClient;
+  private connecting: boolean = false;
 
   constructor() {
     this.client = SurrealDBClient.getInstance();
   }
 
+  /**
+   * Ensure SurrealDB connection is established before operations
+   */
+  private async ensureConnected(): Promise<void> {
+    // Fast path: already connected
+    if (this.client.isConnected()) {
+      return;
+    }
+
+    // Prevent concurrent connection attempts
+    if (this.connecting) {
+      // Wait a bit and check again
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      if (this.client.isConnected()) {
+        return;
+      }
+    }
+
+    this.connecting = true;
+    try {
+      // Trigger connection using environment variables
+      const url = process.env.SURREALDB_URL || "ws://localhost:8000/rpc";
+      const user = process.env.SURREALDB_USER || "root";
+      const pass = process.env.SURREALDB_PASS || "root";
+      const ns = process.env.SURREALDB_NAMESPACE || "apexbridge";
+      const db = process.env.SURREALDB_DATABASE || "staging";
+
+      await this.client.connect({
+        url,
+        username: user,
+        password: pass,
+        namespace: ns,
+        database: db,
+        timeout: 10000,
+        maxRetries: 3,
+      });
+    } finally {
+      this.connecting = false;
+    }
+  }
+
   async get(id: string): Promise<LLMProviderV2 | null> {
+    await this.ensureConnected();
+
     try {
       const result = await this.client.select<ProviderRecord>(`${TABLE_PROVIDERS}:${id}`);
       if (result.length === 0) {
@@ -48,8 +97,11 @@ export class SurrealDBLLMConfigStorage implements ILLMConfigStorage {
       }
       return this.recordToProvider(result[0]);
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to get provider:", { id, error });
-      throw error;
+      throw wrapSurrealDBError(error, "get", SurrealDBErrorCode.SELECT_FAILED, { id });
     }
   }
 
@@ -66,10 +118,11 @@ export class SurrealDBLLMConfigStorage implements ILLMConfigStorage {
         vars[`$id${i}`] = `${TABLE_PROVIDERS}:${id}`;
       });
 
-      const result = await this.client.query<ProviderRecord[]>(
-        `SELECT * FROM ${TABLE_PROVIDERS} WHERE id IN [${placeholders}]`,
-        vars
-      );
+      const result = await this.client
+        .query<
+          ProviderRecord[]
+        >(`SELECT * FROM ${TABLE_PROVIDERS} WHERE id IN [${placeholders}]`, vars)
+        .then((r) => r.flat());
 
       for (const record of result) {
         const provider = this.recordToProvider(record);
@@ -79,16 +132,20 @@ export class SurrealDBLLMConfigStorage implements ILLMConfigStorage {
 
       return map;
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to get many providers:", { ids, error });
-      throw error;
+      throw wrapSurrealDBError(error, "getMany", SurrealDBErrorCode.SELECT_FAILED, { ids });
     }
   }
 
   async save(entity: LLMProviderV2): Promise<string> {
-    const id =
-      entity.id !== undefined && entity.id !== null && entity.id !== 0
-        ? String(entity.id)
-        : String(Date.now());
+    await this.ensureConnected();
+
+    const providerId = typeof entity.id === "number" && entity.id > 0 ? entity.id : Date.now();
+    const recordId = `${TABLE_PROVIDERS}:${providerId}`;
+
     const record: Omit<ProviderRecord, "id"> = {
       provider: entity.provider,
       name: entity.name,
@@ -100,19 +157,55 @@ export class SurrealDBLLMConfigStorage implements ILLMConfigStorage {
     };
 
     try {
-      await this.client.create(`${TABLE_PROVIDERS}:${id}`, record);
-      return id;
+      // Use CREATE with explicit ID - SurrealDB's native record creation
+      // This creates records in the table, never new tables
+      logger.debug("[SurrealDB] Saving provider with CREATE:", {
+        table: TABLE_PROVIDERS,
+        recordId,
+        provider: record.provider,
+        name: record.name,
+      });
+
+      if (typeof entity.id === "number" && entity.id > 0) {
+        await this.client.update<Omit<ProviderRecord, "id">>(recordId, record);
+      } else {
+        await this.client.create<Omit<ProviderRecord, "id">>(recordId, record);
+      }
+
+      const numericId = recordId.replace(`${TABLE_PROVIDERS}:`, "");
+      logger.debug("[SurrealDB] Provider saved successfully:", { recordId, numericId });
+      return numericId;
     } catch (error: unknown) {
-      logger.error("[SurrealDB] Failed to save provider:", { id, error });
-      throw error;
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : "";
+      logger.error("[SurrealDB] Failed to save provider:", {
+        error: errorMessage,
+        stack: errorStack,
+        record,
+        recordId,
+      });
+
+      throw wrapSurrealDBError(error, "save", SurrealDBErrorCode.CREATE_FAILED, { record });
     }
   }
 
   async delete(id: string): Promise<boolean> {
     try {
-      await this.client.delete(`${TABLE_PROVIDERS}:${id}`);
+      const providerId = id;
+
+      await this.client.query("DELETE llm_models WHERE provider_id = $providerId", {
+        providerId,
+      });
+      await this.client.delete(`${TABLE_PROVIDERS}:${providerId}`);
+
       return true;
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to delete provider:", { id, error });
       return false;
     }
@@ -129,6 +222,8 @@ export class SurrealDBLLMConfigStorage implements ILLMConfigStorage {
   }
 
   async find(query: LLMConfigQuery): Promise<LLMProviderV2[]> {
+    await this.ensureConnected();
+
     const conditions: string[] = [];
     const vars: Record<string, unknown> = {};
 
@@ -158,15 +253,19 @@ export class SurrealDBLLMConfigStorage implements ILLMConfigStorage {
     const offsetClause = pagination.offset > 0 ? `OFFSET ${pagination.offset}` : "";
 
     try {
-      const result = await this.client.query<ProviderRecord[]>(
-        `SELECT * FROM ${TABLE_PROVIDERS} ${whereClause} ${limitClause} ${offsetClause}`.trim(),
-        vars
-      );
+      const result = await this.client
+        .query<
+          ProviderRecord[]
+        >(`SELECT * FROM ${TABLE_PROVIDERS} ${whereClause} ${limitClause} ${offsetClause}`.trim(), vars)
+        .then((r) => r.flat());
 
       return result.map((record) => this.recordToProvider(record));
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to find providers:", { query, error });
-      throw error;
+      throw wrapSurrealDBError(error, "find", SurrealDBErrorCode.QUERY_FAILED, { query });
     }
   }
 
@@ -187,14 +286,18 @@ export class SurrealDBLLMConfigStorage implements ILLMConfigStorage {
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     try {
-      const result = await this.client.query<{ count: number }[]>(
-        `SELECT count() as count FROM ${TABLE_PROVIDERS} ${whereClause}`,
-        vars
-      );
+      const result = await this.client
+        .query<
+          { count: number }[]
+        >(`SELECT count() as count FROM ${TABLE_PROVIDERS} ${whereClause}`, vars)
+        .then((r) => r.flat());
       return result[0]?.count ?? 0;
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to count providers:", { query, error });
-      throw error;
+      throw wrapSurrealDBError(error, "count", SurrealDBErrorCode.QUERY_FAILED, { query });
     }
   }
 
@@ -209,89 +312,143 @@ export class SurrealDBLLMConfigStorage implements ILLMConfigStorage {
 
   async getModelsByProvider(providerId: string): Promise<LLMModelV2[]> {
     try {
-      const result = await this.client.query<ModelRecord[]>(
-        "SELECT * FROM llm_models WHERE provider_id = $providerId",
-        { providerId }
-      );
-      return result.map((record) => this.modelRecordToModel(record, providerId));
+      const result = await this.client
+        .query<
+          ModelRecord[]
+        >("SELECT * FROM llm_models WHERE provider_id = $providerId", { providerId })
+        .then((r) => r.flat());
+      const models: LLMModelV2[] = [];
+      for (const record of result) {
+        try {
+          models.push(this.modelRecordToModel(record, providerId));
+        } catch (error: unknown) {
+          logger.warn("[SurrealDB] Skipping invalid llm_models record", {
+            providerId,
+            recordId: String(record.id || ""),
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      return models;
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to get models by provider:", { providerId, error });
-      throw error;
+      throw wrapSurrealDBError(error, "getModelsByProvider", SurrealDBErrorCode.QUERY_FAILED, {
+        providerId,
+      });
     }
   }
 
   async getModelByKey(providerId: string, modelKey: string): Promise<LLMModelV2 | null> {
     try {
-      const result = await this.client.query<ModelRecord[]>(
-        "SELECT * FROM llm_models WHERE provider_id = $providerId AND key = $modelKey LIMIT 1",
-        { providerId, modelKey }
-      );
+      const result = await this.client
+        .query<
+          ModelRecord[]
+        >("SELECT * FROM llm_models WHERE provider_id = $providerId AND key = $modelKey LIMIT 1", { providerId, modelKey })
+        .then((r) => r.flat());
       if (result.length === 0) {
         return null;
       }
       return this.modelRecordToModel(result[0], providerId);
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to get model by key:", { providerId, modelKey, error });
-      throw error;
+      throw wrapSurrealDBError(error, "getModelByKey", SurrealDBErrorCode.QUERY_FAILED, {
+        providerId,
+        modelKey,
+      });
     }
   }
 
   async getDefaultModelByType(modelType: string): Promise<LLMModelV2 | null> {
     try {
-      const result = await this.client.query<ModelRecord[]>(
-        "SELECT * FROM llm_models WHERE type = $modelType AND is_default = true LIMIT 1",
-        { modelType }
-      );
+      const result = await this.client
+        .query<
+          ModelRecord[]
+        >("SELECT * FROM llm_models WHERE type = $modelType AND is_default = true LIMIT 1", { modelType })
+        .then((r) => r.flat());
       if (result.length === 0) {
         return null;
       }
       const record = result[0];
       return this.modelRecordToModel(record, record.provider_id);
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to get default model by type:", { modelType, error });
-      throw error;
+      throw wrapSurrealDBError(error, "getDefaultModelByType", SurrealDBErrorCode.QUERY_FAILED, {
+        modelType,
+      });
     }
   }
 
   async createProviderWithModels(provider: LLMProviderV2, models: LLMModelV2[]): Promise<string> {
-    const providerId = await this.save(provider);
+    return this.client.withTransaction(async () => {
+      const providerId = await this.save(provider);
 
-    for (const model of models) {
-      const modelRecord: ModelRecord = {
-        id: `${TABLE_PROVIDERS}:${providerId}:models:${model.modelKey}`,
-        provider_id: providerId,
-        key: model.modelKey,
-        name: model.modelName,
-        type: model.modelType,
-      };
-      await this.client.create("llm_models", modelRecord);
+      for (const model of models) {
+        const modelId = String(model.id && model.id > 0 ? model.id : Date.now());
+        const recordId = `llm_models:${modelId}`;
+        const modelRecord: Omit<ModelRecord, "id"> = {
+          provider_id: providerId,
+          key: model.modelKey,
+          name: model.modelName,
+          type: model.modelType,
+        };
+        await this.client.upsert(recordId, modelRecord);
+      }
+
+      return providerId;
+    });
+  }
+
+  async deleteModel(modelId: string): Promise<boolean> {
+    try {
+      await this.ensureConnected();
+
+      const recordId = `llm_models:${modelId}`;
+      return await this.client.delete(recordId);
+    } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
+      logger.error("[SurrealDB] Failed to delete model:", { modelId, error });
+      return false;
     }
-
-    return providerId;
   }
 
   async getAceEvolutionModel(): Promise<LLMModelFull | null> {
     try {
-      const result = await this.client.query<ModelRecord[]>(
-        "SELECT * FROM llm_models WHERE is_ace_evolution = true LIMIT 1"
-      );
+      const result = await this.client
+        .query<ModelRecord[]>("SELECT * FROM llm_models WHERE is_ace_evolution = true LIMIT 1")
+        .then((r) => r.flat());
       if (result.length === 0) {
         return null;
       }
       const record = result[0];
 
       const providerId = record.provider_id;
-      const providerResult = await this.client.query<ProviderRecord[]>(
-        `SELECT * FROM ${TABLE_PROVIDERS} WHERE id = $providerId LIMIT 1`,
-        { providerId }
-      );
+      const providerResult = await this.client
+        .query<
+          ProviderRecord[]
+        >(`SELECT * FROM ${TABLE_PROVIDERS} WHERE id = $providerId LIMIT 1`, { providerId })
+        .then((r) => r.flat());
 
       const provider = providerResult.length > 0 ? this.recordToProvider(providerResult[0]) : null;
 
       const providerBaseConfig = provider?.baseConfig ?? { baseURL: "" };
 
       return {
-        id: parseStorageIdAsNumber(record.id?.split(":").pop() || "0"),
+        id: parseStorageIdAsNumber(
+          String(record.id || "")
+            .split(":")
+            .pop() || "0"
+        ),
         providerId: parseStorageIdAsNumber(providerId),
         modelKey: record.key,
         modelName: record.name,
@@ -309,13 +466,27 @@ export class SurrealDBLLMConfigStorage implements ILLMConfigStorage {
         providerEnabled: provider?.enabled ?? false,
       };
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to get ACE evolution model:", { error });
-      throw error;
+      throw wrapSurrealDBError(error, "getAceEvolutionModel", SurrealDBErrorCode.QUERY_FAILED);
     }
   }
 
   private recordToProvider(record: ProviderRecord): LLMProviderV2 {
-    const idStr = record.id?.replace(`${TABLE_PROVIDERS}:`, "") || "0";
+    // Handle SurrealDB v2 ID format: "table:⟨table:id⟩" or "table:⟨id⟩"
+    let idStr = String(record.id || "");
+
+    // Extract numeric ID from v2 format: ⟨table:id⟩ or ⟨id⟩
+    const v2Match = idStr.match(/⟨(?:[^:]+:)?(\d+)⟩$/);
+    if (v2Match) {
+      idStr = v2Match[1];
+    } else {
+      // Fallback to v1 format: "table:id"
+      idStr = idStr.replace(`${TABLE_PROVIDERS}:`, "");
+    }
+
     return {
       id: parseStorageIdAsNumber(idStr),
       provider: record.provider,
@@ -330,7 +501,15 @@ export class SurrealDBLLMConfigStorage implements ILLMConfigStorage {
 
   private modelRecordToModel(record: ModelRecord, providerId: string): LLMModelV2 {
     const providerIdNum = parseStorageIdAsNumber(providerId);
-    const idStr = record.id?.split(":").pop() || "0";
+
+    let idStr = String(record.id || "");
+    const v2Match = idStr.match(/⟨(?:[^:]+:)?(\d+)⟩$/);
+    if (v2Match) {
+      idStr = v2Match[1];
+    } else {
+      idStr = idStr.split(":").pop() || "0";
+    }
+
     return {
       id: parseStorageIdAsNumber(idStr),
       providerId: providerIdNum,

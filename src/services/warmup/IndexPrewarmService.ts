@@ -5,7 +5,7 @@
  */
 
 import { logger } from "../../utils/logger";
-import { ToolRetrievalService } from "../tool-retrieval/ToolRetrievalService";
+import { getToolRetrievalService } from "../tool-retrieval/ToolRetrievalService";
 import { ToolRetrievalConfig } from "../tool-retrieval/types";
 
 /**
@@ -58,7 +58,7 @@ const SAMPLE_QUERIES = [
 export class IndexPrewarmService {
   private config: IndexPrewarmConfig;
   private hasWarmed = false;
-  private toolRetrievalService: ToolRetrievalService | null = null;
+  private toolRetrievalService: ReturnType<typeof getToolRetrievalService> | null = null;
 
   constructor(config?: Partial<IndexPrewarmConfig>) {
     this.config = {
@@ -96,14 +96,14 @@ export class IndexPrewarmService {
       // 初始化 ToolRetrievalService
       if (!this.toolRetrievalService) {
         const retrievalConfig: ToolRetrievalConfig = {
-          vectorDbPath: "./.data/tools.lance",
-          model: "text-embedding-3-small",
-          dimensions: 1536,
+          vectorDbPath: "./.data/skills.lance",
+          model: "nomic-embed-text:latest",
+          dimensions: 768,
           similarityThreshold: 0.4,
           maxResults: 10,
           cacheSize: 1000,
         };
-        this.toolRetrievalService = new ToolRetrievalService(retrievalConfig);
+        this.toolRetrievalService = getToolRetrievalService(retrievalConfig);
       }
 
       // 初始化服务
@@ -171,7 +171,7 @@ export class IndexPrewarmService {
    * 带超时的查询执行
    */
   private async executeQueryWithTimeout(
-    service: ToolRetrievalService,
+    service: ReturnType<typeof getToolRetrievalService>,
     query: string,
     timeoutMs: number
   ): Promise<boolean> {

@@ -65,8 +65,8 @@ export class ToolRetrievalService implements IToolRetrievalService {
   constructor(config: ToolRetrievalConfig) {
     this.config = config;
 
-    // Initialize sub-modules
-    this.connection = new LanceDBConnection();
+    // Use singleton LanceDBConnection to ensure all services share the same connection
+    this.connection = LanceDBConnection.getInstance();
     this.embeddingGenerator = new EmbeddingGenerator({
       provider: "openai", // Will be determined dynamically
       model: config.model,

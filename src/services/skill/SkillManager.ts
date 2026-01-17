@@ -8,18 +8,16 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import matter from "gray-matter";
 import { logger } from "../../utils/logger";
-import { ToolRetrievalService } from "../tool-retrieval/ToolRetrievalService";
+import { getToolRetrievalService } from "../tool-retrieval/ToolRetrievalService";
 import {
   SkillTool,
   SkillInstallOptions,
   SkillListOptions,
   SkillListResult,
-  ToolType,
 } from "../../types/tool-system";
 import { BuiltInSkillLoader, createBuiltInSkillLoader } from "./BuiltInSkillLoader";
 import { UserSkillLoader, createUserSkillLoader } from "./UserSkillLoader";
 import { DynamicSkillManager, createDynamicSkillManager } from "./DynamicSkillManager";
-import { SkillValidator, createSkillValidator } from "./SkillValidator";
 import { fileExists, directoryExists } from "./skill-utils";
 
 export interface InstallResult {
@@ -57,11 +55,10 @@ export interface UpdateResult {
 export class SkillManager {
   private static instance: SkillManager | null = null;
 
-  private retrievalService: ToolRetrievalService;
+  private retrievalService: ReturnType<typeof getToolRetrievalService>;
   private builtInLoader: BuiltInSkillLoader;
   private userLoader: UserSkillLoader;
   private dynamicManager: DynamicSkillManager;
-  private validator: SkillValidator;
   private skillsBasePath: string;
   private initializationPromise: Promise<void> | null = null;
 
@@ -72,12 +69,13 @@ export class SkillManager {
     this.skillsBasePath = skillsBasePath || path.join(dataDir, "skills");
 
     const vectorDbPath = path.join(dataDir, "skills.lance");
-    this.retrievalService = new ToolRetrievalService({
+    this.retrievalService = getToolRetrievalService({
       vectorDbPath,
-      model: "all-MiniLM-L6-v2",
-      dimensions: 384,
+      model: "nomic-embed-text:latest",
+      dimensions: 768,
       similarityThreshold: 0.4,
       cacheSize: 1000,
+      maxResults: 10,
     });
 
     // Initialize loaders and managers
@@ -88,16 +86,12 @@ export class SkillManager {
       this.userLoader,
       this.builtInLoader
     );
-    this.validator = createSkillValidator();
 
     logger.debug("SkillManager initialized", {
       skillsBasePath: this.skillsBasePath,
     });
 
-    // Start async initialization
-    this.initializationPromise = this.initializeSkillsIndex().catch((error) => {
-      logger.error("Failed to initialize skills index during startup:", error);
-    });
+    this.initializationPromise = Promise.resolve();
   }
 
   /**
@@ -373,7 +367,7 @@ export class SkillManager {
   /**
    * Get retrieval service
    */
-  getRetrievalService(): ToolRetrievalService {
+  getRetrievalService(): ReturnType<typeof getToolRetrievalService> {
     return this.retrievalService;
   }
 

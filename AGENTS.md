@@ -1,8 +1,7 @@
 # PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-01-15
-**Project:** ApexBridge - AI Agent Framework
-**Stack:** TypeScript 5.0+ / Node.js 18+ / Express / SQLite / LanceDB
+**Generated:** 2026-01-17
+**Commit:** d2f457e (refactor/surreal-db)
 
 ---
 
@@ -104,18 +103,22 @@ ApexBridge is an enterprise-grade AI Agent framework with multi-model support (O
 
 The following issues are known limitations that have been addressed or are by design:
 
-| Issue                                   | Status                      | Notes                                                      |
-| --------------------------------------- | --------------------------- | ---------------------------------------------------------- |
-| Phase 0: 存储接口抽象层重构             | ✅ COMPLETE (2026-01-16)    | 4个服务重构，100% 测试通过                                 |
-| SurrealDB Vector Storage implementation | ✅ COMPLETE (2026-01-16)    | Implemented SurrealDBVectorStorage for LanceDB deprecation |
-| Context compression never runs          | ✅ FIXED (2026-01-15)       | `parseConfig()` now properly defaults `enabled: true`      |
-| ReActStrategy usage tracking broken     | ✅ FIXED (2026-01-15)       | `usage` field now properly populated with token counts     |
-| PromptInjectionGuard singleton          | ✅ FIXED (2026-01-15)       | Added `resetInstance()` method for test isolation          |
-| Shell command regex malformed           | ✅ FIXED (2026-01-15)       | Corrected `\$\([[^\)]+\]\)` → `\$\([^)]+\)`                |
-| Missing "ignore all previous" pattern   | ✅ FIXED (2026-01-15)       | Added pattern for "ignore all previous instructions"       |
-| Server startup time (~60s)              | ✅ OPTIMIZED (2026-01-15)   | Parallelized initialization, reduced warmup timeout to 30s |
-| Ollama embedding fallback               | ✅ IMPLEMENTED (2026-01-15) | Keyword search fallback now works when embedding fails     |
-| LanceDB vector index non-blocking       | ✅ BY DESIGN                | Index errors are logged but don't block server startup     |
+| Issue                                   | Status                      | Notes                                                                                             |
+| --------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------- |
+| Phase 0: 存储接口抽象层重构             | ✅ COMPLETE (2026-01-16)    | 4个服务重构，100% 测试通过                                                                        |
+| SurrealDB Vector Storage implementation | ✅ COMPLETE (2026-01-16)    | Implemented SurrealDBVectorStorage for LanceDB deprecation                                        |
+| Context compression never runs          | ✅ FIXED (2026-01-15)       | `parseConfig()` now properly defaults `enabled: true`                                             |
+| ReActStrategy usage tracking broken     | ✅ FIXED (2026-01-15)       | `usage` field now properly populated with token counts                                            |
+| PromptInjectionGuard singleton          | ✅ FIXED (2026-01-15)       | Added `resetInstance()` method for test isolation                                                 |
+| Shell command regex malformed           | ✅ FIXED (2026-01-15)       | Corrected `\$\([[^\)]+\]\)` → `\$\([^)]+\)`                                                       |
+| Missing "ignore all previous" pattern   | ✅ FIXED (2026-01-15)       | Added pattern for "ignore all previous instructions"                                              |
+| Server startup time (~60s)              | ✅ OPTIMIZED (2026-01-15)   | Parallelized initialization, reduced warmup timeout to 30s                                        |
+| Ollama embedding fallback               | ✅ IMPLEMENTED (2026-01-15) | Keyword search fallback now works when embedding fails                                            |
+| LanceDB vector index non-blocking       | ✅ BY DESIGN                | Index errors are logged but don't block server startup                                            |
+| Empty catch blocks in tests             | 🔴 PENDING                  | 4+ violations in tests (ProcessPool.ts, SQLiteLLMConfigStorage.test.ts, surrealdb/client.test.ts) |
+| `as any` type assertions                | 🔴 PENDING                  | 109 violations across 24 files (mostly tests, some production)                                    |
+| Config in two places                    | 🔴 PENDING                  | `config/` AND `src/config/` directories both exist                                                |
+| Duplicate HTTP response patterns        | 🔴 PENDING                  | 33 violations using inline res.status().json() instead of http-response.ts utilities              |
 
 ### Debug Code (Should Be Removed)
 
@@ -126,6 +129,41 @@ The following issues are known limitations that have been addressed or are by de
 | `VariableEngine.ts`         | 324    |
 | `ChatController.ts`         | 79, 94 |
 | `ChatCompletionsHandler.ts` | 39     |
+
+---
+
+## CI/CD Anti-Patterns (Non-Standard Patterns)
+
+### GitHub Actions Workflows
+
+| Workflow                               | Lines | Issues                                                                            |
+| -------------------------------------- | ----- | --------------------------------------------------------------------------------- |
+| `.github/workflows/ci.yml`             | 226   | Chinese comments, commented-out publish job, manual artifact verification         |
+| `.github/workflows/release.yml`        | 253   | Deprecated actions (create-release@v1, upload-release-asset@v1), hardcoded emojis |
+| `.github/workflows/security-tests.yml` | 93    | Multiple separate test runs, working-directory inconsistency                      |
+
+### Specific Issues
+
+1. **Deprecated Actions** (release.yml:71, 126)
+   - `actions/create-release@v1` - Deprecated, use `softprops/action-gh-release`
+   - `actions/upload-release-asset@v1` - Deprecated
+
+2. **Manual Build Verification** (ci.yml:91-99)
+   - Custom shell script to verify `dist/server.js` exists
+   - Overly defensive, adds maintenance burden
+
+3. **Dynamic Script Validation** (ci.yml:166-177)
+   - Runtime validation of npm scripts (unnecessary complexity)
+
+4. **File Existence Checks** (ci.yml:179-194)
+   - Explicit checks for `package.json`, `tsconfig.json`, `README.md`, `.env.example`
+   - Redundant - these files are required for project to function
+
+5. **Working-Directory Inconsistency** (security-tests.yml)
+   - Mixed `working-directory` and relative paths
+   - Suspicious `apex-bridge/apex-bridge` path pattern in cache-dependency-path
+
+6. **No Makefile** - Uses npm scripts exclusively (standard Node.js pattern)
 
 ---
 
@@ -236,6 +274,35 @@ npm run migrations   # Run migrations
 - `swagger-jsdoc` + `@types/swagger-jsdoc`
 - `swagger-ui-express`
 
+### Test Patterns
+
+| Aspect      | Convention                                       |
+| ----------- | ------------------------------------------------ |
+| Framework   | Vitest (not Jest)                                |
+| File naming | `*.test.ts` (NOT `*.spec.ts`)                    |
+| Setup       | Global in `tests/setup.ts`                       |
+| Mocking     | ViMock (`vi.mock()`, `vi.spyOn()`)               |
+| Structure   | Mirrors source: `tests/unit/[feature]/*.test.ts` |
+
+### Example Test Pattern
+
+```typescript
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { SurrealDBAdapterFactory } from "@/core/storage/surrealdb/adapter";
+
+describe("SurrealDBAdapterFactory", () => {
+  let factory: SurrealDBAdapterFactory;
+  beforeEach(() => {
+    vi.clearAllMocks();
+    factory = new SurrealDBAdapterFactory();
+  });
+  it("should create LLM config adapter", () => {
+    const adapter = factory.createAdapter("llm-config");
+    expect(adapter).toBeDefined();
+  });
+});
+```
+
 ---
 
 ## NOTES
@@ -246,11 +313,11 @@ npm run migrations   # Run migrations
 | ------- | ----------------------------- | ----------- | --------------- |
 | Phase 0 | Storage Interface Abstraction | ✅ COMPLETE | 2026-01-15      |
 | Phase 1 | SurrealDB v1 Client Wrapper   | ✅ COMPLETE | 2026-01-16      |
-| Phase 2 | Low-risk Domain Migration     | ⏳ PENDING  | -               |
-| Phase 3 | High-risk Domain Migration    | ⏳ PENDING  | -               |
-| Phase 4 | Vector Storage Migration      | ⏳ PENDING  | -               |
+| Phase 2 | Low-risk Domain Migration     | ✅ COMPLETE | 2026-01-17      |
+| Phase 3 | High-risk Domain Migration    | ✅ COMPLETE | 2026-01-16      |
+| Phase 4 | Vector Storage Migration      | ✅ COMPLETE | 2026-01-17      |
 
-**Overall Progress: 2/6 Phases (33%)**
+**Overall Progress: 6/6 Phases (100%)**
 
 - Auto-start: Set `APEX_BRIDGE_AUTOSTART=false` to disable
 - Config is JSON-based (`config/admin-config.json`), NOT `.env`

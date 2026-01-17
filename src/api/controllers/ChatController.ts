@@ -11,6 +11,7 @@ import { InterruptRequest, InterruptResponse } from "../../types/request-abort";
 import { LLMModelType } from "../../types/llm-models";
 import { Message } from "../../types";
 import { logger } from "../../utils/logger";
+import { ConversationHistoryService } from "../../services/ConversationHistoryService";
 import { badRequest, notFound, serverError, serviceUnavailable } from "../../utils/http-response";
 import { parseChatRequest } from "../../api/validators/chat-request-validator";
 import type { ChatRequestOptions } from "../../api/validators/chat-request-validator";
@@ -422,6 +423,20 @@ export class ChatController {
       }
 
       res.write("data: [DONE]\n\n");
+
+      // 流结束后保存对话历史（仅保存用户消息，不保存 AI 响应）
+      if (options.conversationId) {
+        try {
+          const conversationHistoryService = ConversationHistoryService.getInstance();
+          await conversationHistoryService.saveMessages(options.conversationId, messages);
+          logger.debug(`[ChatController] Saved conversation history for ${options.conversationId}`);
+        } catch (saveError: any) {
+          logger.error(
+            "[ChatController] Failed to save conversation history after stream:",
+            saveError
+          );
+        }
+      }
 
       // 发送 conversationId 事件（方便前端保存）
       if (options.conversationId) {

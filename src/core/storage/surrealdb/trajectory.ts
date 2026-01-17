@@ -9,6 +9,11 @@ import type { ITrajectoryStorage, TrajectoryQuery, TrajectoryStats } from "../in
 import type { Trajectory as TrajectoryType } from "../../../types/trajectory";
 import { logger } from "../../../utils/logger";
 import { validatePagination } from "../utils";
+import {
+  SurrealDBErrorCode,
+  isSurrealDBError,
+  wrapSurrealDBError,
+} from "../../../utils/surreal-error";
 
 const TABLE_TRAJECTORIES = "trajectories";
 
@@ -39,8 +44,11 @@ export class SurrealDBTrajectoryStorage implements ITrajectoryStorage {
       }
       return this.recordToTrajectory(result[0]);
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to get trajectory:", { id, error });
-      throw error;
+      throw wrapSurrealDBError(error, "get", SurrealDBErrorCode.SELECT_FAILED, { id });
     }
   }
 
@@ -57,26 +65,30 @@ export class SurrealDBTrajectoryStorage implements ITrajectoryStorage {
         vars[`$id${i}`] = `${TABLE_TRAJECTORIES}:${id}`;
       });
 
-      const result = await this.client.query<TrajectoryRecord[]>(
-        `SELECT * FROM ${TABLE_TRAJECTORIES} WHERE id IN [${placeholders}]`,
-        vars
-      );
+      const result = await this.client
+        .query<
+          TrajectoryRecord[]
+        >(`SELECT * FROM ${TABLE_TRAJECTORIES} WHERE id IN [${placeholders}]`, vars)
+        .then((r) => r.flat());
 
       for (const record of result) {
         const trajectory = this.recordToTrajectory(record);
-        map.set(record.id.replace(`${TABLE_TRAJECTORIES}:`, ""), trajectory);
+        map.set(String(record.id).replace(`${TABLE_TRAJECTORIES}:`, ""), trajectory);
       }
 
       return map;
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to get many trajectories:", { ids, error });
-      throw error;
+      throw wrapSurrealDBError(error, "getMany", SurrealDBErrorCode.SELECT_FAILED, { ids });
     }
   }
 
   async save(entity: TrajectoryType): Promise<string> {
-    const record: TrajectoryRecord = {
-      id: `${TABLE_TRAJECTORIES}:${entity.task_id}`,
+    const recordId = `${TABLE_TRAJECTORIES}:${entity.task_id}`;
+    const record: Omit<TrajectoryRecord, "id"> = {
       task_id: entity.task_id,
       session_id: entity.session_id || "",
       steps: JSON.stringify(entity.steps),
@@ -87,11 +99,16 @@ export class SurrealDBTrajectoryStorage implements ITrajectoryStorage {
     };
 
     try {
-      await this.client.create(TABLE_TRAJECTORIES, record);
+      await this.client.upsert(recordId, record);
       return entity.task_id;
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to save trajectory:", { taskId: entity.task_id, error });
-      throw error;
+      throw wrapSurrealDBError(error, "save", SurrealDBErrorCode.CREATE_FAILED, {
+        taskId: entity.task_id,
+      });
     }
   }
 
@@ -100,6 +117,9 @@ export class SurrealDBTrajectoryStorage implements ITrajectoryStorage {
       await this.client.delete(`${TABLE_TRAJECTORIES}:${id}`);
       return true;
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to delete trajectory:", { id, error });
       return false;
     }
@@ -158,15 +178,19 @@ export class SurrealDBTrajectoryStorage implements ITrajectoryStorage {
     const limitClause = pagination && pagination.limit > 0 ? `LIMIT ${pagination.limit}` : "";
 
     try {
-      const result = await this.client.query<TrajectoryRecord[]>(
-        `SELECT * FROM ${TABLE_TRAJECTORIES} ${whereClause} ${orderClause} ${limitClause}`.trim(),
-        vars
-      );
+      const result = await this.client
+        .query<
+          TrajectoryRecord[]
+        >(`SELECT * FROM ${TABLE_TRAJECTORIES} ${whereClause} ${orderClause} ${limitClause}`.trim(), vars)
+        .then((r) => r.flat());
 
       return result.map((record) => this.recordToTrajectory(record));
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to find trajectories:", { query, error });
-      throw error;
+      throw wrapSurrealDBError(error, "find", SurrealDBErrorCode.QUERY_FAILED, { query });
     }
   }
 
@@ -192,30 +216,38 @@ export class SurrealDBTrajectoryStorage implements ITrajectoryStorage {
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     try {
-      const result = await this.client.query<{ count: number }[]>(
-        `SELECT count() as count FROM ${TABLE_TRAJECTORIES} ${whereClause}`,
-        vars
-      );
+      const result = await this.client
+        .query<
+          { count: number }[]
+        >(`SELECT count() as count FROM ${TABLE_TRAJECTORIES} ${whereClause}`, vars)
+        .then((r) => r.flat());
       return result[0]?.count ?? 0;
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to count trajectories:", { query, error });
-      throw error;
+      throw wrapSurrealDBError(error, "count", SurrealDBErrorCode.QUERY_FAILED, { query });
     }
   }
 
   async getByTaskId(taskId: string): Promise<TrajectoryType | null> {
     try {
-      const result = await this.client.query<TrajectoryRecord[]>(
-        `SELECT * FROM ${TABLE_TRAJECTORIES} WHERE task_id = $taskId LIMIT 1`,
-        { taskId }
-      );
+      const result = await this.client
+        .query<
+          TrajectoryRecord[]
+        >(`SELECT * FROM ${TABLE_TRAJECTORIES} WHERE task_id = $taskId LIMIT 1`, { taskId })
+        .then((r) => r.flat());
       if (result.length === 0) {
         return null;
       }
       return this.recordToTrajectory(result[0]);
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to get trajectory by taskId:", { taskId, error });
-      throw error;
+      throw wrapSurrealDBError(error, "getByTaskId", SurrealDBErrorCode.QUERY_FAILED, { taskId });
     }
   }
 
@@ -226,30 +258,37 @@ export class SurrealDBTrajectoryStorage implements ITrajectoryStorage {
     try {
       const pagination = validatePagination({ limit: limit ?? 10, defaultLimit: 10 });
       const limitClause = pagination.limit > 0 ? `LIMIT ${pagination.limit}` : "LIMIT 10";
-      const result = await this.client.query<TrajectoryRecord[]>(
-        `SELECT * FROM ${TABLE_TRAJECTORIES} WHERE outcome = $outcome ORDER BY created_at DESC ${limitClause}`,
-        { outcome }
-      );
+      const result = await this.client
+        .query<
+          TrajectoryRecord[]
+        >(`SELECT * FROM ${TABLE_TRAJECTORIES} WHERE outcome = $outcome ORDER BY created_at DESC ${limitClause}`, { outcome })
+        .then((r) => r.flat());
       return result.map((record) => this.recordToTrajectory(record));
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to get recent by outcome:", { outcome, error });
-      throw error;
+      throw wrapSurrealDBError(error, "getRecentByOutcome", SurrealDBErrorCode.QUERY_FAILED, {
+        outcome,
+      });
     }
   }
 
   async getStats(): Promise<TrajectoryStats> {
     try {
-      const result = await this.client.query<
-        {
-          success: number;
-          failure: number;
-          pending: number;
-          completed: number;
-          failed: number;
-          total: number;
-        }[]
-      >(
-        `SELECT
+      const result = await this.client
+        .query<
+          {
+            success: number;
+            failure: number;
+            pending: number;
+            completed: number;
+            failed: number;
+            total: number;
+          }[]
+        >(
+          `SELECT
           count() as total,
           sum(case when outcome = 'SUCCESS' then 1 else 0 end) as success,
           sum(case when outcome = 'FAILURE' then 1 else 0 end) as failure,
@@ -257,8 +296,9 @@ export class SurrealDBTrajectoryStorage implements ITrajectoryStorage {
           sum(case when evolution_status = 'COMPLETED' then 1 else 0 end) as completed,
           sum(case when evolution_status = 'FAILED' then 1 else 0 end) as failed
         FROM ${TABLE_TRAJECTORIES}`,
-        {}
-      );
+          {}
+        )
+        .then((r) => r.flat());
 
       const stats = result[0];
       return {
@@ -270,23 +310,32 @@ export class SurrealDBTrajectoryStorage implements ITrajectoryStorage {
         failed: stats?.failed ?? 0,
       };
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to get trajectory stats:", { error });
-      throw error;
+      throw wrapSurrealDBError(error, "getStats", SurrealDBErrorCode.QUERY_FAILED);
     }
   }
 
   async cleanup(olderThanDays: number): Promise<number> {
     try {
       const cutoffTime = Date.now() - olderThanDays * 24 * 60 * 60 * 1000;
-      const result = await this.client.query<{ id: string }[]>(
-        `SELECT id FROM ${TABLE_TRAJECTORIES} WHERE created_at < $cutoffTime`,
-        { cutoffTime }
-      );
-      const ids = result.map((r) => r.id.replace(`${TABLE_TRAJECTORIES}:`, ""));
+      const result = await this.client
+        .query<
+          { id: string }[]
+        >(`SELECT id FROM ${TABLE_TRAJECTORIES} WHERE created_at < $cutoffTime`, { cutoffTime })
+        .then((r) => r.flat());
+      const ids = result.map((r) => String(r.id).replace(`${TABLE_TRAJECTORIES}:`, ""));
       return this.deleteMany(ids);
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to cleanup trajectories:", { olderThanDays, error });
-      throw error;
+      throw wrapSurrealDBError(error, "cleanup", SurrealDBErrorCode.DELETE_FAILED, {
+        olderThanDays,
+      });
     }
   }
 

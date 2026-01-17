@@ -1,7 +1,7 @@
 # ApexBridge API Reference
 
-**Generated:** 2026-01-11  
-**Version:** 2.0.0
+**Generated:** 2026-01-16  
+**Version:** 2.1.0
 
 ApexBridge provides a comprehensive REST API for managing AI agents, models, skills, and MCP servers.
 
@@ -22,8 +22,39 @@ ApexBridge provides a comprehensive REST API for managing AI agents, models, ski
 ## Base URL
 
 ```
-http://localhost:12345
+http://localhost:8088
 ```
+
+---
+
+## General Information
+
+### Async API Calls
+
+All API endpoints are asynchronous and require `await` or `.then()` to handle responses.
+
+```javascript
+// Example - Listing providers
+const response = await fetch("/api/llm/providers");
+const data = await response.json();
+console.log(data.providers);
+```
+
+```javascript
+// Example - Creating a provider
+const response = await fetch("/api/llm/providers", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    provider: "openai",
+    name: "My OpenAI",
+    baseConfig: { apiKey: "sk-..." },
+  }),
+});
+const result = await response.json();
+```
+
+### Response Format
 
 All API responses follow a consistent format:
 
@@ -32,22 +63,35 @@ All API responses follow a consistent format:
   "success": true,
   "data": { ... },
   "meta": {
-    "timestamp": "2026-01-11T15:45:30.000Z"
+    "timestamp": "2026-01-16T15:45:30.000Z"
   }
 }
 ```
 
-Error responses:
+### Error Response
+
+Error responses include enhanced error details:
 
 ```json
 {
   "success": false,
   "error": {
-    "code": "ERROR_CODE",
-    "message": "Human readable error message"
+    "code": "NOT_FOUND",
+    "message": "Provider not found",
+    "details": {
+      "provider_id": 1
+    }
   }
 }
 ```
+
+### Common Error Codes
+
+| Error Code         | HTTP Status | Description                |
+| ------------------ | ----------- | -------------------------- |
+| `NOT_FOUND`        | 404         | Resource not found         |
+| `VALIDATION_ERROR` | 400         | Parameter validation error |
+| `INTERNAL_ERROR`   | 500         | Server internal error      |
 
 ---
 
@@ -129,6 +173,25 @@ Create a chat completion request.
 }
 ```
 
+**Call Example:**
+
+```javascript
+const response = await fetch("/v1/chat/completions", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    messages: [
+      { role: "system", content: "You are a helpful assistant." },
+      { role: "user", content: "Hello, world!" },
+    ],
+    model: "gpt-4",
+    stream: false,
+  }),
+});
+const result = await response.json();
+console.log(result.choices[0].message.content);
+```
+
 ---
 
 ### GET /v1/chat/sessions/active
@@ -148,15 +211,23 @@ Get list of active chat sessions.
     {
       "conversationId": "conv_123456",
       "model": "gpt-4",
-      "createdAt": "2026-01-11T10:00:00Z",
+      "createdAt": "2026-01-16T10:00:00Z",
       "messageCount": 15
     }
   ],
   "meta": {
     "total": 1,
-    "timestamp": "2026-01-11T15:45:30.000Z"
+    "timestamp": "2026-01-16T15:45:30.000Z"
   }
 }
+```
+
+**Call Example:**
+
+```javascript
+const response = await fetch("/v1/chat/sessions/active");
+const { success, data: sessions } = await response.json();
+console.log(sessions);
 ```
 
 ---
@@ -241,6 +312,17 @@ Interrupt an ongoing request.
 }
 ```
 
+**Call Example:**
+
+```javascript
+const response = await fetch("/v1/interrupt", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ conversationId: "conv_123456" }),
+});
+const result = await response.json();
+```
+
 ---
 
 ## Models API
@@ -277,9 +359,17 @@ Get list of available models.
   ],
   "meta": {
     "total": 8,
-    "timestamp": "2026-01-11T15:45:30.000Z"
+    "timestamp": "2026-01-16T15:45:30.000Z"
   }
 }
+```
+
+**Call Example:**
+
+```javascript
+const response = await fetch("/v1/models");
+const { success, data: models } = await response.json();
+console.log(models);
 ```
 
 ---
@@ -293,6 +383,22 @@ Query models across all providers.
 **File:** `src/server.ts` (line 352)  
 **Controller:** `ModelController.queryModels`
 
+**Query Parameters:**
+
+| Parameter | Type    | Description              |
+| --------- | ------- | ------------------------ |
+| `type`    | String  | Filter by model type     |
+| `enabled` | Boolean | Filter by enabled status |
+| `default` | Boolean | Filter by default status |
+
+**Call Example:**
+
+```javascript
+const response = await fetch("/api/llm/models?type=NLP&enabled=true");
+const { success, models } = await response.json();
+console.log(models);
+```
+
 ---
 
 ### GET /api/llm/models/default
@@ -303,6 +409,20 @@ Get the default model.
 **Path:** `/api/llm/models/default`  
 **File:** `src/server.ts` (line 353)  
 **Controller:** `ModelController.getDefaultModel`
+
+**Query Parameters:**
+
+| Parameter | Type   | Required | Description                           |
+| --------- | ------ | -------- | ------------------------------------- |
+| `type`    | String | Yes      | Model type (NLP, EMBEDDING, RERANKER) |
+
+**Call Example:**
+
+```javascript
+const response = await fetch("/api/llm/models/default?type=NLP");
+const { success, model } = await response.json();
+console.log(model);
+```
 
 ---
 
@@ -324,22 +444,32 @@ List all LLM providers.
 ```json
 {
   "success": true,
-  "data": [
+  "providers": [
     {
-      "id": "openai",
+      "id": 1,
+      "provider": "openai",
       "name": "OpenAI",
-      "type": "openai",
-      "models": [
-        { "id": "gpt-4", "name": "GPT-4" },
-        { "id": "gpt-4o", "name": "GPT-4o" }
-      ]
+      "description": "OpenAI API provider",
+      "enabled": true,
+      "modelCount": 2,
+      "baseConfig": {
+        "baseURL": "https://api.openai.com/v1",
+        "timeout": 60000,
+        "maxRetries": 3
+      },
+      "createdAt": "2026-01-16T10:00:00.000Z",
+      "updatedAt": "2026-01-16T15:45:30.000Z"
     }
-  ],
-  "meta": {
-    "total": 1,
-    "timestamp": "2026-01-11T15:45:30.000Z"
-  }
+  ]
 }
+```
+
+**Call Example:**
+
+```javascript
+const response = await fetch("/api/llm/providers");
+const { success, providers } = await response.json();
+console.log(providers);
 ```
 
 ---
@@ -352,6 +482,23 @@ List available LLM adapters.
 **Path:** `/api/llm/providers/adapters`  
 **File:** `src/server.ts` (line 332)  
 **Controller:** `ProviderController.listAdapters`
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "adapters": ["openai", "anthropic", "deepseek", "ollama", "google", "custom"]
+}
+```
+
+**Call Example:**
+
+```javascript
+const response = await fetch("/api/llm/providers/adapters");
+const { success, adapters } = await response.json();
+console.log(adapters);
+```
 
 ---
 
@@ -366,9 +513,40 @@ Get a specific provider by ID.
 
 **Parameters:**
 
-| Parameter | Type   | Description         |
-| --------- | ------ | ------------------- |
-| `id`      | String | Provider identifier |
+| Parameter | Type    | Description         |
+| --------- | ------- | ------------------- |
+| `id`      | Integer | Provider identifier |
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "provider": {
+    "id": 1,
+    "provider": "openai",
+    "name": "OpenAI",
+    "description": "OpenAI API provider",
+    "enabled": true,
+    "modelCount": 2,
+    "baseConfig": {
+      "baseURL": "https://api.openai.com/v1",
+      "timeout": 60000,
+      "maxRetries": 3
+    },
+    "createdAt": "2026-01-16T10:00:00.000Z",
+    "updatedAt": "2026-01-16T15:45:30.000Z"
+  }
+}
+```
+
+**Call Example:**
+
+```javascript
+const response = await fetch("/api/llm/providers/1");
+const { success, provider } = await response.json();
+console.log(provider);
+```
 
 ---
 
@@ -385,9 +563,11 @@ Test provider connection.
 
 ```json
 {
-  "type": "openai",
-  "apiKey": "sk-...",
-  "baseUrl": "https://api.openai.com/v1"
+  "provider": "openai",
+  "baseConfig": {
+    "apiKey": "sk-...",
+    "baseURL": "https://api.openai.com/v1"
+  }
 }
 ```
 
@@ -396,11 +576,28 @@ Test provider connection.
 ```json
 {
   "success": true,
-  "data": {
-    "connected": true,
-    "latency": 150
+  "latency": 150,
+  "message": "Connection successful",
+  "details": {
+    "provider": "openai",
+    "testedAt": "2026-01-16T15:45:30.000Z"
   }
 }
+```
+
+**Call Example:**
+
+```javascript
+const response = await fetch("/api/llm/providers/test-connect", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    provider: "openai",
+    baseConfig: { apiKey: "sk-..." },
+  }),
+});
+const result = await response.json();
+console.log(result.latency);
 ```
 
 ---
@@ -418,12 +615,56 @@ Create a new provider.
 
 ```json
 {
+  "provider": "openai",
   "name": "My OpenAI",
-  "type": "openai",
-  "apiKey": "sk-...",
-  "baseUrl": "https://api.openai.com/v1",
+  "description": "My custom OpenAI configuration",
+  "baseConfig": {
+    "apiKey": "sk-...",
+    "baseURL": "https://api.openai.com/v1",
+    "timeout": 60000,
+    "maxRetries": 3
+  },
   "enabled": true
 }
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "provider": {
+    "id": 2,
+    "provider": "openai",
+    "name": "My OpenAI",
+    "description": "My custom OpenAI configuration",
+    "enabled": true,
+    "modelCount": 0,
+    "baseConfig": {
+      "baseURL": "https://api.openai.com/v1",
+      "timeout": 60000,
+      "maxRetries": 3
+    },
+    "createdAt": "2026-01-16T15:45:30.000Z",
+    "updatedAt": "2026-01-16T15:45:30.000Z"
+  }
+}
+```
+
+**Call Example:**
+
+```javascript
+const response = await fetch("/api/llm/providers", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    provider: "openai",
+    name: "My OpenAI",
+    baseConfig: { apiKey: "sk-..." },
+  }),
+});
+const { success, provider } = await response.json();
+console.log(provider.id);
 ```
 
 ---
@@ -437,6 +678,32 @@ Update a provider.
 **File:** `src/server.ts` (line 341)  
 **Controller:** `ProviderController.updateProvider`
 
+**Parameters:**
+
+| Parameter | Type    | Description         |
+| --------- | ------- | ------------------- |
+| `id`      | Integer | Provider identifier |
+
+**Request Body:**
+
+```json
+{
+  "name": "Updated OpenAI",
+  "enabled": false
+}
+```
+
+**Call Example:**
+
+```javascript
+const response = await fetch("/api/llm/providers/1", {
+  method: "PUT",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ name: "Updated OpenAI", enabled: false }),
+});
+const { success, provider } = await response.json();
+```
+
 ---
 
 ### DELETE /api/llm/providers/:id
@@ -447,6 +714,22 @@ Delete a provider.
 **Path:** `/api/llm/providers/:id`  
 **File:** `src/server.ts` (line 342)  
 **Controller:** `ProviderController.deleteProvider`
+
+**Parameters:**
+
+| Parameter | Type    | Description         |
+| --------- | ------- | ------------------- |
+| `id`      | Integer | Provider identifier |
+
+**Call Example:**
+
+```javascript
+const response = await fetch("/api/llm/providers/1", {
+  method: "DELETE",
+});
+const result = await response.json();
+console.log(result.message);
+```
 
 ---
 
@@ -459,6 +742,44 @@ List models for a specific provider.
 **File:** `src/server.ts` (line 345)  
 **Controller:** `ModelController.listProviderModels`
 
+**Parameters:**
+
+| Parameter    | Type    | Description         |
+| ------------ | ------- | ------------------- |
+| `providerId` | Integer | Provider identifier |
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "provider": {
+    "id": 1,
+    "provider": "openai",
+    "name": "OpenAI"
+  },
+  "models": [
+    {
+      "id": 1,
+      "modelKey": "gpt-4",
+      "modelName": "GPT-4",
+      "modelType": "NLP",
+      "enabled": true,
+      "isDefault": true,
+      "displayOrder": 1
+    }
+  ]
+}
+```
+
+**Call Example:**
+
+```javascript
+const response = await fetch("/api/llm/providers/1/models");
+const { success, provider, models } = await response.json();
+console.log(models);
+```
+
 ---
 
 ### GET /api/llm/providers/:providerId/models/:modelId
@@ -469,6 +790,21 @@ Get a specific model.
 **Path:** `/api/llm/providers/:providerId/models/:modelId`  
 **File:** `src/server.ts` (line 346)  
 **Controller:** `ModelController.getModel`
+
+**Parameters:**
+
+| Parameter    | Type    | Description |
+| ------------ | ------- | ----------- |
+| `providerId` | Integer | Provider ID |
+| `modelId`    | Integer | Model ID    |
+
+**Call Example:**
+
+```javascript
+const response = await fetch("/api/llm/providers/1/models/1");
+const { success, model } = await response.json();
+console.log(model);
+```
 
 ---
 
@@ -481,6 +817,39 @@ Create a new model for a provider.
 **File:** `src/server.ts` (line 347)  
 **Controller:** `ModelController.createModel`
 
+**Parameters:**
+
+| Parameter    | Type    | Description |
+| ------------ | ------- | ----------- |
+| `providerId` | Integer | Provider ID |
+
+**Request Body:**
+
+```json
+{
+  "modelKey": "gpt-4o",
+  "modelName": "GPT-4o",
+  "modelType": "NLP",
+  "enabled": true,
+  "isDefault": false
+}
+```
+
+**Call Example:**
+
+```javascript
+const response = await fetch("/api/llm/providers/1/models", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    modelKey: "gpt-4o",
+    modelName: "GPT-4o",
+    modelType: "NLP",
+  }),
+});
+const result = await response.json();
+```
+
 ---
 
 ### PUT /api/llm/providers/:providerId/models/:modelId
@@ -492,6 +861,24 @@ Update a model.
 **File:** `src/server.ts` (line 348)  
 **Controller:** `ModelController.updateModel`
 
+**Parameters:**
+
+| Parameter    | Type    | Description |
+| ------------ | ------- | ----------- |
+| `providerId` | Integer | Provider ID |
+| `modelId`    | Integer | Model ID    |
+
+**Call Example:**
+
+```javascript
+const response = await fetch("/api/llm/providers/1/models/1", {
+  method: "PUT",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ enabled: false, isDefault: false }),
+});
+const result = await response.json();
+```
+
 ---
 
 ### DELETE /api/llm/providers/:providerId/models/:modelId
@@ -502,6 +889,22 @@ Delete a model.
 **Path:** `/api/llm/providers/:providerId/models/:modelId`  
 **File:** `src/server.ts` (line 349)  
 **Controller:** `ModelController.deleteModel`
+
+**Parameters:**
+
+| Parameter    | Type    | Description |
+| ------------ | ------- | ----------- |
+| `providerId` | Integer | Provider ID |
+| `modelId`    | Integer | Model ID    |
+
+**Call Example:**
+
+```javascript
+const response = await fetch("/api/llm/providers/1/models/1", {
+  method: "DELETE",
+});
+const result = await response.json();
+```
 
 ---
 
@@ -532,6 +935,34 @@ Install skills from ZIP file upload.
 | `file`              | File    | Yes      | ZIP file containing skill definition |
 | `overwrite`         | Boolean | No       | Overwrite existing skill             |
 | `skipVectorization` | Boolean | No       | Skip vector indexing                 |
+| `validationLevel`   | String  | No       | Validation level (basic/full)        |
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "skillName": "my-skill",
+  "installedAt": "2026-01-16T15:45:30.000Z",
+  "duration": 1500,
+  "vectorized": true
+}
+```
+
+**Call Example:**
+
+```javascript
+const formData = new FormData();
+formData.append("file", skillZipFile);
+formData.append("overwrite", "false");
+
+const response = await fetch("/api/skills/install", {
+  method: "POST",
+  body: formData,
+});
+const result = await response.json();
+console.log(result.skillName);
+```
 
 ---
 
@@ -550,6 +981,27 @@ Uninstall a skill.
 | --------- | ------ | ----------------------- |
 | `name`    | String | Skill name to uninstall |
 
+**Response:**
+
+```json
+{
+  "success": true,
+  "skillName": "my-skill",
+  "uninstalledAt": "2026-01-16T15:45:30.000Z",
+  "duration": 150
+}
+```
+
+**Call Example:**
+
+```javascript
+const response = await fetch("/api/skills/my-skill", {
+  method: "DELETE",
+});
+const result = await response.json();
+console.log(result.skillName);
+```
+
 ---
 
 ### PUT /api/skills/:name/description
@@ -561,12 +1013,29 @@ Update skill description.
 **File:** `src/api/routes/skillRoutes.ts` (line 46)  
 **Controller:** `SkillsController.updateSkillDescription`
 
+**Parameters:**
+
+| Parameter | Type   | Description |
+| --------- | ------ | ----------- |
+| `name`    | String | Skill name  |
+
 **Request Body:**
 
 ```json
 {
   "description": "Updated skill description"
 }
+```
+
+**Call Example:**
+
+```javascript
+const response = await fetch("/api/skills/my-skill/description", {
+  method: "PUT",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ description: "New description" }),
+});
+const result = await response.json();
 ```
 
 ---
@@ -582,14 +1051,60 @@ List all skills with pagination, filtering, and sorting.
 
 **Query Parameters:**
 
-| Parameter   | Type    | Description                  |
-| ----------- | ------- | ---------------------------- |
-| `page`      | Integer | Page number (default: 1)     |
-| `limit`     | Integer | Items per page (default: 20) |
-| `name`      | String  | Filter by name               |
-| `tags`      | String  | Filter by tags               |
-| `sortBy`    | String  | Field to sort by             |
-| `sortOrder` | String  | `asc` or `desc`              |
+| Parameter   | Type    | Description                                     |
+| ----------- | ------- | ----------------------------------------------- |
+| `page`      | Integer | Page number (default: 1)                        |
+| `limit`     | Integer | Items per page (default: 50)                    |
+| `name`      | String  | Filter by name                                  |
+| `tags`      | String  | Filter by tags (comma-separated)                |
+| `sortBy`    | String  | Field to sort by (updatedAt, name, installedAt) |
+| `sortOrder` | String  | `asc` or `desc`                                 |
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "skills": [
+    {
+      "name": "calculator",
+      "description": "Performs arithmetic calculations",
+      "type": "tool",
+      "tags": ["math", "utility"],
+      "version": "1.0.0",
+      "author": "ApexBridge",
+      "enabled": true,
+      "level": 0,
+      "path": "/skills/calculator",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "expression": {
+            "type": "string",
+            "description": "Mathematical expression"
+          }
+        },
+        "required": ["expression"]
+      }
+    }
+  ],
+  "pagination": {
+    "total": 10,
+    "page": 1,
+    "limit": 50,
+    "totalPages": 1
+  }
+}
+```
+
+**Call Example:**
+
+```javascript
+const response = await fetch("/api/skills?page=1&limit=10&sortBy=updatedAt&sortOrder=desc");
+const { success, skills, pagination } = await response.json();
+console.log(`Total: ${pagination.total}, Pages: ${pagination.totalPages}`);
+console.log(skills);
+```
 
 ---
 
@@ -602,6 +1117,38 @@ Get a single skill details.
 **File:** `src/api/routes/skillRoutes.ts` (line 61)  
 **Controller:** `SkillsController.getSkill`
 
+**Parameters:**
+
+| Parameter | Type   | Description |
+| --------- | ------ | ----------- |
+| `name`    | String | Skill name  |
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "name": "calculator",
+  "description": "Performs arithmetic calculations",
+  "type": "tool",
+  "tags": ["math", "utility"],
+  "version": "1.0.0",
+  "author": "ApexBridge",
+  "enabled": true,
+  "level": 0,
+  "path": "/skills/calculator",
+  "parameters": { ... }
+}
+```
+
+**Call Example:**
+
+```javascript
+const response = await fetch("/api/skills/calculator");
+const { success, ...skill } = await response.json();
+console.log(skill);
+```
+
 ---
 
 ### GET /api/skills/:name/exists
@@ -612,6 +1159,32 @@ Check if a skill exists.
 **Path:** `/api/skills/:name/exists`  
 **File:** `src/api/routes/skillRoutes.ts` (line 68)  
 **Controller:** `SkillsController.checkSkillExists`
+
+**Parameters:**
+
+| Parameter | Type   | Description |
+| --------- | ------ | ----------- |
+| `name`    | String | Skill name  |
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "name": "calculator",
+  "exists": true
+}
+```
+
+**Call Example:**
+
+```javascript
+const response = await fetch("/api/skills/calculator/exists");
+const { success, name, exists } = await response.json();
+if (exists) {
+  console.log(`Skill '${name}' exists`);
+}
+```
 
 ---
 
@@ -624,6 +1197,36 @@ Get skill statistics.
 **File:** `src/api/routes/skillRoutes.ts` (line 75)  
 **Controller:** `SkillsController.getSkillStats`
 
+**Response:**
+
+```json
+{
+  "success": true,
+  "totalSkills": 15,
+  "enabledSkills": 12,
+  "disabledSkills": 3,
+  "totalTags": 25,
+  "skillsByType": {
+    "tool": 10,
+    "agent": 3,
+    "utility": 2
+  },
+  "skillsByLevel": {
+    "0": 8,
+    "1": 5,
+    "2": 2
+  }
+}
+```
+
+**Call Example:**
+
+```javascript
+const response = await fetch("/api/skills/stats");
+const { success, totalSkills, enabledSkills } = await response.json();
+console.log(`Total: ${totalSkills}, Enabled: ${enabledSkills}`);
+```
+
 ---
 
 ### POST /api/skills/reindex
@@ -634,6 +1237,25 @@ Reindex all skills (for vector database rebuild).
 **Path:** `/api/skills/reindex`  
 **File:** `src/api/routes/skillRoutes.ts` (line 82)  
 **Controller:** `SkillsController.reindexAllSkills`
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "message": "All skills reindexed successfully"
+}
+```
+
+**Call Example:**
+
+```javascript
+const response = await fetch("/api/skills/reindex", {
+  method: "POST",
+});
+const result = await response.json();
+console.log(result.message);
+```
 
 ---
 
@@ -670,7 +1292,7 @@ Get all registered MCP servers.
   ],
   "meta": {
     "total": 1,
-    "timestamp": "2026-01-11T15:45:30.000Z"
+    "timestamp": "2026-01-16T15:45:30.000Z"
   }
 }
 ```
@@ -752,7 +1374,7 @@ Get MCP server status.
     "status": {
       "healthy": true,
       "uptime": 3600,
-      "lastCheck": "2026-01-11T15:45:00.000Z"
+      "lastCheck": "2026-01-16T15:45:00.000Z"
     }
   }
 }
@@ -854,7 +1476,7 @@ Real-time communication for streaming responses and interrupts.
 ### Connection
 
 ```
-ws://localhost:12345/ws
+ws://localhost:8088/ws
 ```
 
 ### Events
@@ -891,11 +1513,19 @@ Health check endpoint.
 ```json
 {
   "status": "ok",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "uptime": 3600,
   "plugins": 5,
   "activeRequests": 2
 }
+```
+
+**Call Example:**
+
+```javascript
+const response = await fetch("/health");
+const health = await response.json();
+console.log(health.status);
 ```
 
 ---
@@ -907,7 +1537,7 @@ Health check endpoint.
 All `/api/*` endpoints require API Key authentication.
 
 ```bash
-curl -H "X-API-Key: your-api-key" http://localhost:12345/api/llm/providers
+curl -H "X-API-Key: your-api-key" http://localhost:8088/api/llm/providers
 ```
 
 ### Rate Limiting
@@ -935,6 +1565,9 @@ curl -H "X-API-Key: your-api-key" http://localhost:12345/api/llm/providers
 | `GET_SERVERS_FAILED`  | 500         | Internal error fetching servers       |
 | `TOOL_CALL_ERROR`     | 500         | Error executing MCP tool              |
 | `HEALTH_CHECK_FAILED` | 503         | Health check failed                   |
+| `NOT_FOUND`           | 404         | Resource not found                    |
+| `VALIDATION_ERROR`    | 400         | Parameter validation error            |
+| `INTERNAL_ERROR`      | 500         | Server internal error                 |
 
 ---
 
@@ -955,6 +1588,21 @@ curl -H "X-API-Key: your-api-key" http://localhost:12345/api/llm/providers
 | `/v1/chat/completions` | 120s (streaming) |
 | `/api/mcp/tools/call`  | 30s              |
 | Other endpoints        | 10s              |
+
+---
+
+## Changelog
+
+### Version 2.1.0 (2026-01-16)
+
+- **All APIs now async**: All endpoints require `await` to handle responses
+- **Enhanced error responses**: Added `details` field for better error debugging
+- **Skills API improvements**:
+  - Added `totalPages` field to pagination response
+  - Added `/api/skills/:name/exists` endpoint
+  - Added `/api/skills/stats` endpoint
+  - Added `/api/skills/reindex` endpoint
+- **Updated Base URL**: Changed from `12345` to `8088`
 
 ---
 

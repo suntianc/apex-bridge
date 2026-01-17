@@ -19,17 +19,24 @@ const router = Router();
 
 /**
  * @route   GET /api/mcp/servers
- * @desc    获取所有注册的MCP服务器列表
+ * @desc    获取所有注册的MCP服务器列表（仅返回id、status、tools，避免敏感信息泄露）
  * @access  Public
  */
 router.get("/servers", async (req: Request, res: Response) => {
   try {
     const servers = mcpIntegration.getServers();
 
+    // 只暴露 id、status、tools，避免敏感信息泄露（如 config 中的命令、参数等）
+    const sanitizedServers = servers.map((server) => ({
+      id: server.id,
+      status: server.status,
+      tools: server.tools,
+    }));
+
     ok(res, {
-      servers,
+      servers: sanitizedServers,
       meta: {
-        total: servers.length,
+        total: sanitizedServers.length,
         timestamp: new Date().toISOString(),
       },
     });

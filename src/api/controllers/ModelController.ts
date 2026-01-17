@@ -30,6 +30,60 @@ const modelRegistry = ModelRegistry.getInstance();
 /**
  * 列出提供商的所有模型
  * GET /api/llm/providers/:providerId/models
+ *
+ * @swagger
+ * /api/llm/providers/{providerId}/models:
+ *   get:
+ *     summary: List models for a provider
+ *     description: Returns all models configured for a specific provider
+ *     tags: [Models]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: providerId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Provider ID
+ *     responses:
+ *       200:
+ *         description: List of models for the provider
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 provider:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                     provider:
+ *                       type: string
+ *                     name:
+ *                       type: string
+ *                 models:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: integer
+ *                       modelKey:
+ *                         type: string
+ *                       modelName:
+ *                         type: string
+ *                       modelType:
+ *                         type: string
+ *                       enabled:
+ *                         type: boolean
+ *                       isDefault:
+ *                         type: boolean
+ *       404:
+ *         description: Provider not found
  */
 export async function listProviderModels(req: Request, res: Response): Promise<void> {
   try {
@@ -79,6 +133,61 @@ export async function listProviderModels(req: Request, res: Response): Promise<v
 /**
  * 获取模型详情
  * GET /api/llm/providers/:providerId/models/:modelId
+ *
+ * @swagger
+ * /api/llm/providers/{providerId}/models/{modelId}:
+ *   get:
+ *     summary: Get model details
+ *     description: Returns detailed information about a specific model
+ *     tags: [Models]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: providerId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Provider ID
+ *       - in: path
+ *         name: modelId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Model ID
+ *     responses:
+ *       200:
+ *         description: Model details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 model:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                     providerId:
+ *                       type: integer
+ *                     provider:
+ *                       type: string
+ *                     providerName:
+ *                       type: string
+ *                     modelKey:
+ *                       type: string
+ *                     modelName:
+ *                       type: string
+ *                     modelType:
+ *                       type: string
+ *                     enabled:
+ *                       type: boolean
+ *                     isDefault:
+ *                       type: boolean
+ *       404:
+ *         description: Model not found
  */
 export async function getModel(req: Request, res: Response): Promise<void> {
   try {
@@ -125,6 +234,74 @@ export async function getModel(req: Request, res: Response): Promise<void> {
 /**
  * 创建模型
  * POST /api/llm/providers/:providerId/models
+ *
+ * @swagger
+ * /api/llm/providers/{providerId}/models:
+ *   post:
+ *     summary: Create a new model
+ *     description: Creates a new model configuration for a provider
+ *     tags: [Models]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: providerId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Provider ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - modelKey
+ *               - modelName
+ *               - modelType
+ *             properties:
+ *               modelKey:
+ *                 type: string
+ *                 description: Model identifier key
+ *               modelName:
+ *                 type: string
+ *                 description: Display name for the model
+ *               modelType:
+ *                 type: string
+ *                 enum: [nlp, embedding, rerank, tts, vision]
+ *                 description: Type of model
+ *               modelConfig:
+ *                 type: object
+ *                 description: Model-specific configuration
+ *               apiEndpointSuffix:
+ *                 type: string
+ *                 description: Suffix for API endpoint
+ *               enabled:
+ *                 type: boolean
+ *                 description: Whether the model is enabled
+ *     responses:
+ *       201:
+ *         description: Model created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 id:
+ *                   type: integer
+ *                 providerId:
+ *                   type: integer
+ *                 modelKey:
+ *                   type: string
+ *                 modelName:
+ *                   type: string
+ *                 modelType:
+ *                   type: string
+ *       400:
+ *         description: Invalid request
  */
 export async function createModel(req: Request, res: Response): Promise<void> {
   try {
@@ -165,6 +342,69 @@ export async function createModel(req: Request, res: Response): Promise<void> {
 /**
  * 更新模型
  * PUT /api/llm/providers/:providerId/models/:modelId
+ *
+ * @swagger
+ * /api/llm/providers/{providerId}/models/{modelId}:
+ *   put:
+ *     summary: Update a model
+ *     description: Updates an existing model configuration
+ *     tags: [Models]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: providerId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Provider ID
+ *       - in: path
+ *         name: modelId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Model ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               modelName:
+ *                 type: string
+ *                 description: Updated display name
+ *               modelConfig:
+ *                 type: object
+ *                 description: Updated model configuration
+ *               apiEndpointSuffix:
+ *                 type: string
+ *                 description: Updated API endpoint suffix
+ *               enabled:
+ *                 type: boolean
+ *                 description: Whether the model is enabled
+ *     responses:
+ *       200:
+ *         description: Model updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 id:
+ *                   type: integer
+ *                 providerId:
+ *                   type: integer
+ *                 modelKey:
+ *                   type: string
+ *                 modelName:
+ *                   type: string
+ *                 modelType:
+ *                   type: string
+ *       404:
+ *         description: Model not found
  */
 export async function updateModel(req: Request, res: Response): Promise<void> {
   try {
@@ -212,6 +452,42 @@ export async function updateModel(req: Request, res: Response): Promise<void> {
 /**
  * 删除模型
  * DELETE /api/llm/providers/:providerId/models/:modelId
+ *
+ * @swagger
+ * /api/llm/providers/{providerId}/models/{modelId}:
+ *   delete:
+ *     summary: Delete a model
+ *     description: Deletes a model configuration
+ *     tags: [Models]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: providerId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Provider ID
+ *       - in: path
+ *         name: modelId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Model ID
+ *     responses:
+ *       200:
+ *         description: Model deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *       404:
+ *         description: Model not found
  */
 export async function deleteModel(req: Request, res: Response): Promise<void> {
   try {
@@ -242,6 +518,48 @@ export async function deleteModel(req: Request, res: Response): Promise<void> {
 /**
  * 查询模型（跨提供商）
  * GET /api/llm/models?type=nlp&enabled=true
+ *
+ * @swagger
+ * /api/llm/models:
+ *   get:
+ *     summary: Query models across providers
+ *     description: Returns models filtered by type and other criteria
+ *     tags: [Models]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: type
+ *         schema:
+ *           type: string
+ *           enum: [nlp, embedding, rerank, tts, vision]
+ *         description: Filter by model type
+ *       - in: query
+ *         name: enabled
+ *         schema:
+ *           type: boolean
+ *         description: Filter by enabled status
+ *       - in: query
+ *         name: default
+ *         schema:
+ *           type: boolean
+ *         description: Filter by default model status
+ *     responses:
+ *       200:
+ *         description: List of models matching the query
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 count:
+ *                   type: number
+ *                 models:
+ *                   type: array
+ *                   items:
+ *                     type: object
  */
 export async function queryModels(req: Request, res: Response): Promise<void> {
   try {
@@ -297,6 +615,54 @@ export async function queryModels(req: Request, res: Response): Promise<void> {
 /**
  * 获取默认模型
  * GET /api/llm/models/default?type=embedding
+ *
+ * @swagger
+ * /api/llm/models/default:
+ *   get:
+ *     summary: Get default model for a type
+ *     description: Returns the default model configured for a specific type
+ *     tags: [Models]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: type
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [nlp, embedding, rerank, tts, vision]
+ *         description: Model type
+ *     responses:
+ *       200:
+ *         description: Default model details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 model:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                     providerId:
+ *                       type: integer
+ *                     provider:
+ *                       type: string
+ *                     providerName:
+ *                       type: string
+ *                     modelKey:
+ *                       type: string
+ *                     modelName:
+ *                       type: string
+ *                     modelType:
+ *                       type: string
+ *       400:
+ *         description: Type parameter required
+ *       404:
+ *         description: No default model configured
  */
 export async function getDefaultModel(req: Request, res: Response): Promise<void> {
   try {

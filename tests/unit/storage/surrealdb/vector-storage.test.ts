@@ -121,9 +121,15 @@ describe("SurrealDBVectorStorage - Vector Operations", () => {
   });
 
   describe("delete", () => {
-    it("should not throw for non-existent id", async () => {
-      const result = await storage.delete("non-existent-id");
-      expect(typeof result).toBe("boolean");
+    it("should throw SurrealDBError when not connected", async () => {
+      let threw = false;
+      try {
+        await storage.delete("non-existent-id");
+      } catch (error) {
+        threw = true;
+        expect(error).toBeDefined();
+      }
+      expect(threw).toBe(true);
     });
   });
 

@@ -53,7 +53,35 @@ function toSkillDTO(skill: any) {
  * 安装Skills
  * POST /api/skills/install
  * Content-Type: multipart/form-data
- * Body: { file: ZIP文件, overwrite?: boolean, skipVectorization?: boolean }
+ *
+ * @swagger
+ * /api/skills/install:
+ *   post:
+ *     summary: Install a skill
+ *     description: Upload and install a skill from a ZIP file
+ *     tags: [Skills]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *                 description: ZIP file containing the skill
+ *               overwrite:
+ *                 type: boolean
+ *                 description: Overwrite existing skill
+ *               skipVectorization:
+ *                 type: boolean
+ *                 description: Skip vector indexing
+ *     responses:
+ *       201:
+ *         description: Skill installed successfully
  */
 export async function installSkill(req: Request, res: Response): Promise<void> {
   try {
@@ -140,6 +168,25 @@ export async function installSkill(req: Request, res: Response): Promise<void> {
 /**
  * 卸载Skills
  * DELETE /api/skills/:name
+ *
+ * @swagger
+ * /api/skills/{name}:
+ *   delete:
+ *     summary: Uninstall a skill
+ *     description: Remove a skill from the system
+ *     tags: [Skills]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: name
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Skill name
+ *     responses:
+ *       200:
+ *         description: Skill uninstalled successfully
  */
 export async function uninstallSkill(req: Request, res: Response): Promise<void> {
   try {
@@ -170,6 +217,54 @@ export async function uninstallSkill(req: Request, res: Response): Promise<void>
  * 更新Skills描述
  * PUT /api/skills/:name/description
  * Body: { description: string }
+ *
+ * @swagger
+ * /api/skills/{name}/description:
+ *   put:
+ *     summary: Update skill description
+ *     description: Update the description of a specific skill
+ *     tags: [Skills]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: name
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Skill name
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - description
+ *             properties:
+ *               description:
+ *                 type: string
+ *                 description: New description for the skill
+ *     responses:
+ *       200:
+ *         description: Skill description updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 skillName:
+ *                   type: string
+ *                 updatedAt:
+ *                   type: string
+ *                 duration:
+ *                   type: number
+ *                 reindexed:
+ *                   type: boolean
+ *       400:
+ *         description: Invalid request
  */
 export async function updateSkillDescription(req: Request, res: Response): Promise<void> {
   try {
@@ -202,6 +297,47 @@ export async function updateSkillDescription(req: Request, res: Response): Promi
 /**
  * 列出Skills
  * GET /api/skills?page=1&limit=50&name=&tags=&sortBy=name&sortOrder=asc
+ *
+ * @swagger
+ * /api/skills:
+ *   get:
+ *     summary: List all skills
+ *     description: Returns a paginated list of skills with filtering options
+ *     tags: [Skills]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *       - in: query
+ *         name: name
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: tags
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: sortBy
+ *         schema:
+ *           type: string
+ *           enum: [updatedAt, name, installedAt]
+ *       - in: query
+ *         name: sortOrder
+ *         schema:
+ *           type: string
+ *           enum: [asc, desc]
+ *     responses:
+ *       200:
+ *         description: List of skills with pagination
  */
 export async function listSkills(req: Request, res: Response): Promise<void> {
   try {
@@ -246,6 +382,27 @@ export async function listSkills(req: Request, res: Response): Promise<void> {
 /**
  * 获取单个Skills详情
  * GET /api/skills/:name
+ *
+ * @swagger
+ * /api/skills/{name}:
+ *   get:
+ *     summary: Get skill details
+ *     description: Returns detailed information about a specific skill
+ *     tags: [Skills]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: name
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Skill name
+ *     responses:
+ *       200:
+ *         description: Skill details
+ *       404:
+ *         description: Skill not found
  */
 export async function getSkill(req: Request, res: Response): Promise<void> {
   try {
@@ -272,6 +429,36 @@ export async function getSkill(req: Request, res: Response): Promise<void> {
 /**
  * 检查Skills是否存在
  * GET /api/skills/:name/exists
+ *
+ * @swagger
+ * /api/skills/{name}/exists:
+ *   get:
+ *     summary: Check if skill exists
+ *     description: Check if a specific skill exists in the system
+ *     tags: [Skills]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: name
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Skill name
+ *     responses:
+ *       200:
+ *         description: Skill existence check result
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 name:
+ *                   type: string
+ *                 exists:
+ *                   type: boolean
  */
 export async function checkSkillExists(req: Request, res: Response): Promise<void> {
   try {
@@ -290,6 +477,35 @@ export async function checkSkillExists(req: Request, res: Response): Promise<voi
 /**
  * 获取Skills统计信息
  * GET /api/skills/stats
+ *
+ * @swagger
+ * /api/skills/stats:
+ *   get:
+ *     summary: Get skill statistics
+ *     description: Returns statistics about all installed skills
+ *     tags: [Skills]
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Skill statistics
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 total:
+ *                   type: number
+ *                 enabled:
+ *                   type: number
+ *                 disabled:
+ *                   type: number
+ *                 byType:
+ *                   type: object
+ *                 byTags:
+ *                   type: object
  */
 export async function getSkillStats(req: Request, res: Response): Promise<void> {
   try {
@@ -311,6 +527,27 @@ export async function getSkillStats(req: Request, res: Response): Promise<void> 
  * 重新索引所有Skills
  * POST /api/skills/reindex
  * 用于向量数据库重建或同步
+ *
+ * @swagger
+ * /api/skills/reindex:
+ *   post:
+ *     summary: Reindex all skills
+ *     description: Rebuild the vector index for all skills
+ *     tags: [Skills]
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: All skills reindexed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
  */
 export async function reindexAllSkills(req: Request, res: Response): Promise<void> {
   try {

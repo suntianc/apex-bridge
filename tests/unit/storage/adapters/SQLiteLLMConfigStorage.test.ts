@@ -397,6 +397,12 @@ class TestSQLiteLLMConfigStorage {
     return String(providerId);
   }
 
+  async deleteModel(modelId: string): Promise<boolean> {
+    const numericId = parseInt(modelId, 10);
+    const result = this.db.prepare("DELETE FROM llm_models WHERE id = ?").run(numericId);
+    return result.changes > 0;
+  }
+
   async close(): Promise<void> {
     this.db.close();
   }
@@ -1061,6 +1067,7 @@ describe("SQLiteLLMConfigStorage", () => {
         "getModelByKey",
         "getDefaultModelByType",
         "createProviderWithModels",
+        "deleteModel",
       ];
 
       for (const method of storageMethods) {

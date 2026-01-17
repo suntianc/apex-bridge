@@ -322,63 +322,87 @@ export class LLMManager {
 
   /**
    * 文本向量化（使用 Embedding 模型）
-   * 采用两级优先级选择模型：
+   * 采用三级优先级选择模型：
    * 1. 优先级1：SQLite 中配置的默认 embedding 模型（is_default = 1）
    * 2. 优先级2：.env 配置中的 EMBEDDING_PROVIDER 和 EMBEDDING_MODEL
+   * 3. 优先级3：直接使用 Ollama 适配器（无需注册）
    */
   async embed(texts: string[]): Promise<number[][]> {
     try {
       // 1. 优先级1：SQLite 全局默认 embedding 模型
       let model = this.modelRegistry.getDefaultModel(LLMModelType.EMBEDDING);
+      let adapter = model ? this.adapters.get(model.provider) : null;
 
       // 2. 优先级2：回退到 .env 配置
-      if (!model) {
-        const envProvider = process.env.EMBEDDING_PROVIDER;
+      if (!adapter) {
+        const envProvider = process.env.EMBEDDING_PROVIDER?.toLowerCase();
         const envModel = process.env.EMBEDDING_MODEL;
 
         if (envProvider && envModel) {
+          // 先尝试从注册表查找
           model = this.modelRegistry.findModel(envProvider, envModel);
           if (model) {
-            logger.info(`[LLMManager] Using .env embedding config: ${envProvider}/${envModel}`);
-          }
-        } else if (envModel && !envProvider) {
-          // 尝试从模型名称推断 provider
-          const match = envModel.match(/^([a-zA-Z0-9]+)-/);
-          if (match) {
-            const inferredProvider = match[1];
+            adapter = this.adapters.get(model.provider);
             logger.info(
-              `[LLMManager] Using .env model with inferred provider: ${inferredProvider}/${envModel}`
+              `[LLMManager] Using .env embedding config from registry: ${envProvider}/${envModel}`
             );
-            model = this.modelRegistry.findModel(inferredProvider, envModel);
+          } else {
+            // 优先级3：直接创建 Ollama 适配器（无需注册）
+            if (envProvider === "ollama") {
+              const ollamaHost = process.env.OLLAMA_HOST || "http://localhost:11434";
+              adapter = LLMAdapterFactory.create("ollama", {
+                apiKey: "", // Ollama 不需要 API key
+                baseURL: ollamaHost,
+                defaultModel: envModel,
+                timeout: TIMEOUT.SKILL_CACHE_TTL,
+                maxRetries: 3,
+              });
+              logger.info(
+                `[LLMManager] Using Ollama directly from .env: ${ollamaHost}/${envModel}`
+              );
+              model = {
+                provider: "ollama",
+                modelKey: envModel,
+                modelName: envModel,
+                type: LLMModelType.EMBEDDING,
+              } as unknown as LLMModelFull;
+            } else {
+              // 尝试用模型名称推断 provider
+              const match = envModel.match(/^([a-zA-Z0-9]+)-/);
+              if (match) {
+                const inferredProvider = match[1].toLowerCase();
+                model = this.modelRegistry.findModel(inferredProvider, envModel);
+                if (model) {
+                  adapter = this.adapters.get(model.provider);
+                  logger.info(
+                    `[LLMManager] Using .env model with inferred provider: ${inferredProvider}/${envModel}`
+                  );
+                }
+              }
+            }
           }
         }
       }
 
-      // 3. 验证模型可用性
-      if (!model) {
+      // 3. 验证适配器可用性
+      if (!adapter) {
         throw new Error(
           "No embedding model available. " +
             "Please configure an embedding model in SQLite (set is_default=1) or set EMBEDDING_PROVIDER and EMBEDDING_MODEL in .env"
         );
       }
 
-      // 4. 获取对应的适配器
-      const adapter = this.adapters.get(model.provider);
-      if (!adapter) {
-        throw new Error(`No adapter found for provider: ${model.provider}`);
-      }
-
-      // 5. 检查适配器是否支持 embed 方法
+      // 4. 检查适配器是否支持 embed 方法
       if (!adapter.embed) {
-        throw new Error(`Adapter for ${model.provider} does not support embedding`);
+        throw new Error(`Adapter for ${model?.provider || "unknown"} does not support embedding`);
       }
 
-      // 6. 调用 Embedding API
+      // 5. 调用 Embedding API
       logger.debug(
-        `🔢 Using embedding model: ${model.modelName} (${model.provider}/${model.modelKey})`
+        `🔢 Using embedding model: ${model?.modelName || "unknown"} (${model?.provider || "unknown"})`
       );
 
-      const embeddings = await adapter.embed(texts, model.modelKey);
+      const embeddings = await adapter.embed(texts, model?.modelKey);
 
       logger.debug(
         `✅ Generated ${embeddings.length} embeddings with ${embeddings[0]?.length || 0} dimensions`

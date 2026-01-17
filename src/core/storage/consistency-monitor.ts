@@ -146,12 +146,14 @@ export class ConsistencyMonitor {
       }
 
       if (!secondaryRecord) {
+        (primaryRecord as { id?: string }).id = id;
         await domain.secondary.save(primaryRecord);
         logger.info(`[ConsistencyMonitor][${domain.name}] Repaired missing record: ${id}`);
         return false;
       }
 
       if (!this.deepEqual(primaryRecord, secondaryRecord)) {
+        (primaryRecord as { id?: string }).id = id;
         await domain.secondary.save(primaryRecord);
         logger.warn(`[ConsistencyMonitor][${domain.name}] Repaired inconsistent record: ${id}`);
         return false;

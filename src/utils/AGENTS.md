@@ -23,4 +23,5 @@ Same as root (2-space indent, single quotes, semicolons required).
 
 ## ANTI-PATTERNS
 
-- **Config split**: `config/` AND `src/utils/config/` directories both exist (confusing, prefer consolidating to `config/`)
+- **Config split**: `config/` AND `src/config/` directories both exist (confusing, prefer consolidating to `config/`)
+- **Config split**: `src/utils/config/` also exists (additional confusion)

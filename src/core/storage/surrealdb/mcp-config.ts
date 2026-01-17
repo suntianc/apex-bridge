@@ -8,6 +8,11 @@ import { SurrealDBClient } from "./client";
 import type { IMCPConfigStorage, MCPConfigQuery, MCPServerRecord } from "../interfaces";
 import type { MCPServerConfig } from "../../../types/mcp";
 import { logger } from "../../../utils/logger";
+import {
+  SurrealDBErrorCode,
+  isSurrealDBError,
+  wrapSurrealDBError,
+} from "../../../utils/surreal-error";
 
 const TABLE_MCP_SERVERS = "mcp_servers";
 
@@ -35,8 +40,11 @@ export class SurrealDBMCPConfigStorage implements IMCPConfigStorage {
       }
       return this.recordToServerRecord(result[0]);
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to get MCP server:", { id, error });
-      throw error;
+      throw wrapSurrealDBError(error, "get", SurrealDBErrorCode.SELECT_FAILED, { id });
     }
   }
 
@@ -53,10 +61,11 @@ export class SurrealDBMCPConfigStorage implements IMCPConfigStorage {
         vars[`$id${i}`] = `${TABLE_MCP_SERVERS}:${id}`;
       });
 
-      const result = await this.client.query<MCPServerSurrealRecord[]>(
-        `SELECT * FROM ${TABLE_MCP_SERVERS} WHERE id IN [${placeholders}]`,
-        vars
-      );
+      const result = await this.client
+        .query<
+          MCPServerSurrealRecord[]
+        >(`SELECT * FROM ${TABLE_MCP_SERVERS} WHERE id IN [${placeholders}]`, vars)
+        .then((r) => r.flat());
 
       for (const record of result) {
         const serverRecord = this.recordToServerRecord(record);
@@ -66,14 +75,16 @@ export class SurrealDBMCPConfigStorage implements IMCPConfigStorage {
 
       return map;
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to get many MCP servers:", { ids, error });
-      throw error;
+      throw wrapSurrealDBError(error, "getMany", SurrealDBErrorCode.SELECT_FAILED, { ids });
     }
   }
 
   async save(entity: MCPServerRecord): Promise<string> {
-    const record: MCPServerSurrealRecord = {
-      id: `${TABLE_MCP_SERVERS}:${entity.id}`,
+    const record: Omit<MCPServerSurrealRecord, "id"> = {
       config: entity.config,
       enabled: entity.enabled,
       created_at: entity.created_at,
@@ -81,11 +92,16 @@ export class SurrealDBMCPConfigStorage implements IMCPConfigStorage {
     };
 
     try {
-      await this.client.create(`${TABLE_MCP_SERVERS}:${entity.id}`, record);
+      await this.client.upsert(`${TABLE_MCP_SERVERS}:${entity.id}`, record);
       return entity.id;
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to save MCP server:", { id: entity.id, error });
-      throw error;
+      throw wrapSurrealDBError(error, "save", SurrealDBErrorCode.CREATE_FAILED, {
+        id: entity.id,
+      });
     }
   }
 
@@ -94,6 +110,9 @@ export class SurrealDBMCPConfigStorage implements IMCPConfigStorage {
       await this.client.delete(`${TABLE_MCP_SERVERS}:${id}`);
       return true;
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to delete MCP server:", { id, error });
       return false;
     }
@@ -126,15 +145,19 @@ export class SurrealDBMCPConfigStorage implements IMCPConfigStorage {
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     try {
-      const result = await this.client.query<MCPServerSurrealRecord[]>(
-        `SELECT * FROM ${TABLE_MCP_SERVERS} ${whereClause}`.trim(),
-        vars
-      );
+      const result = await this.client
+        .query<
+          MCPServerSurrealRecord[]
+        >(`SELECT * FROM ${TABLE_MCP_SERVERS} ${whereClause}`.trim(), vars)
+        .then((r) => r.flat());
 
       return result.map((record) => this.recordToServerRecord(record));
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to find MCP servers:", { query, error });
-      throw error;
+      throw wrapSurrealDBError(error, "find", SurrealDBErrorCode.QUERY_FAILED, { query });
     }
   }
 
@@ -150,14 +173,18 @@ export class SurrealDBMCPConfigStorage implements IMCPConfigStorage {
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     try {
-      const result = await this.client.query<{ count: number }[]>(
-        `SELECT count() as count FROM ${TABLE_MCP_SERVERS} ${whereClause}`,
-        vars
-      );
+      const result = await this.client
+        .query<
+          { count: number }[]
+        >(`SELECT count() as count FROM ${TABLE_MCP_SERVERS} ${whereClause}`, vars)
+        .then((r) => r.flat());
       return result[0]?.count ?? 0;
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to count MCP servers:", { query, error });
-      throw error;
+      throw wrapSurrealDBError(error, "count", SurrealDBErrorCode.QUERY_FAILED, { query });
     }
   }
 

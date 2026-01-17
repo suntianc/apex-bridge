@@ -33,21 +33,46 @@ export interface ILanceDBConnection {
 
 /**
  * LanceDB Connection implementation with connection pooling
+ *
+ * IMPORTANT: This class now uses a SINGLETON pattern to ensure all services
+ * share the same connection instance. This prevents race conditions where
+ * multiple connections try to initialize the same table.
  */
 export class LanceDBConnection implements ILanceDBConnection {
   private static pool: LanceDBConnectionPool | null = null;
+  private static singleton: LanceDBConnection | null = null;
+  private static tableInitLock: Promise<void> | null = null;
   private db: lancedb.Connection | null = null;
   private table: lancedb.Table | null = null;
   private config: LanceDBConfig | null = null;
   private connected = false;
   private dbPath: string = "";
   private optimizer: IndexConfigOptimizer;
+  private tableInitialized = false;
 
   /**
    * Initialize the optimizer
    */
   constructor() {
     this.optimizer = new IndexConfigOptimizer();
+  }
+
+  /**
+   * Get the singleton instance (ensures all services share the same connection)
+   */
+  static getInstance(): LanceDBConnection {
+    if (!this.singleton) {
+      this.singleton = new LanceDBConnection();
+    }
+    return this.singleton;
+  }
+
+  /**
+   * Reset the singleton (for testing)
+   */
+  static resetSingleton(): void {
+    this.singleton = null;
+    this.tableInitLock = null;
   }
 
   /**
@@ -76,8 +101,15 @@ export class LanceDBConnection implements ILanceDBConnection {
 
   /**
    * Connect to LanceDB using connection pool
+   * Uses singleton pattern to ensure consistent connection
    */
   async connect(config: LanceDBConfig): Promise<void> {
+    // If already connected with same config, return early
+    if (this.connected && this.config && this.config.databasePath === config.databasePath) {
+      logger.debug("[LanceDB] Already connected to same database, skipping");
+      return;
+    }
+
     try {
       // Ensure database directory exists
       await fs.mkdir(config.databasePath, { recursive: true });
@@ -113,9 +145,45 @@ export class LanceDBConnection implements ILanceDBConnection {
   }
 
   /**
-   * Initialize the skills table
+   * Initialize the skills table (with mutex to prevent concurrent initialization)
+   * Also refreshes the table reference if needed
    */
   async initializeTable(): Promise<void> {
+    // If table is already initialized and valid, just return
+    if (this.tableInitialized && this.table) {
+      // Refresh table reference from database (in case it was recreated)
+      try {
+        if (this.db && this.config) {
+          const freshTable = await this.db.openTable(this.config.tableName);
+          if (freshTable) {
+            this.table = freshTable;
+            logger.debug("[LanceDB] Refreshed table reference");
+          }
+        }
+      } catch (e) {
+        // Table might not exist, will recreate
+        this.tableInitialized = false;
+      }
+      return;
+    }
+
+    // Use mutex to prevent concurrent table initialization
+    if (!LanceDBConnection.tableInitLock) {
+      LanceDBConnection.tableInitLock = this._initializeTable();
+    }
+    await LanceDBConnection.tableInitLock;
+
+    // Mark as initialized and get fresh table reference
+    this.tableInitialized = true;
+    if (this.db && this.config) {
+      this.table = await this.db.openTable(this.config.tableName);
+    }
+  }
+
+  /**
+   * Internal table initialization (called via mutex)
+   */
+  private async _initializeTable(): Promise<void> {
     if (!this.db || !this.config) {
       throw new Error("Database not connected");
     }
@@ -339,8 +407,10 @@ export class LanceDBConnection implements ILanceDBConnection {
     }
 
     try {
-      // Use provided row count or estimate from table
-      const estimatedRows = rowCount || (await this.getCount()) || 10000;
+      const estimatedRows = rowCount ?? (await this.getCount());
+      if (!estimatedRows || estimatedRows <= 0) {
+        return;
+      }
       const dimension = this.config.vectorDimensions;
 
       // Calculate optimal configuration
@@ -369,8 +439,7 @@ export class LanceDBConnection implements ILanceDBConnection {
           `est. recall: ${(optimizationResult.estimatedRecall * 100).toFixed(1)}%`
       );
     } catch (error) {
-      // Index may already exist, ignore error
-      logger.debug("[LanceDB] Vector index may already exist:", error);
+      logger.debug("[LanceDB] Vector index create failed:", error);
     }
   }
 

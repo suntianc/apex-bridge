@@ -516,24 +516,50 @@ export class SQLiteLLMConfigStorage implements ILLMConfigStorage {
       const createTransaction = this.db.transaction(() => {
         const now = Date.now();
 
-        const result = this.db
-          .prepare(
-            `
-            INSERT INTO llm_providers (provider, name, description, base_config, enabled, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-          `
-          )
-          .run(
-            provider.provider,
-            provider.name,
-            provider.description || null,
-            JSON.stringify(provider.baseConfig),
-            provider.enabled ? 1 : 0,
-            now,
-            now
-          );
+        const existingProvider = this.db
+          .prepare("SELECT id FROM llm_providers WHERE provider = ? LIMIT 1")
+          .get(provider.provider) as { id: number } | undefined;
 
-        const providerId = result.lastInsertRowid;
+        let providerId: number;
+        if (existingProvider) {
+          providerId = existingProvider.id;
+
+          this.db
+            .prepare(
+              `
+              UPDATE llm_providers
+              SET name = ?, description = ?, base_config = ?, enabled = ?, updated_at = ?
+              WHERE id = ?
+            `
+            )
+            .run(
+              provider.name,
+              provider.description || null,
+              JSON.stringify(provider.baseConfig),
+              provider.enabled ? 1 : 0,
+              now,
+              providerId
+            );
+        } else {
+          const result = this.db
+            .prepare(
+              `
+              INSERT INTO llm_providers (provider, name, description, base_config, enabled, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?)
+            `
+            )
+            .run(
+              provider.provider,
+              provider.name,
+              provider.description || null,
+              JSON.stringify(provider.baseConfig),
+              provider.enabled ? 1 : 0,
+              now,
+              now
+            );
+
+          providerId = Number(result.lastInsertRowid);
+        }
 
         for (const model of models) {
           this.db
@@ -544,6 +570,16 @@ export class SQLiteLLMConfigStorage implements ILLMConfigStorage {
                 model_config, api_endpoint_suffix, enabled, is_default, is_ace_evolution,
                 display_order, created_at, updated_at
               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ON CONFLICT(provider_id, model_key) DO UPDATE SET
+                model_name = excluded.model_name,
+                model_type = excluded.model_type,
+                model_config = excluded.model_config,
+                api_endpoint_suffix = excluded.api_endpoint_suffix,
+                enabled = excluded.enabled,
+                is_default = excluded.is_default,
+                is_ace_evolution = excluded.is_ace_evolution,
+                display_order = excluded.display_order,
+                updated_at = excluded.updated_at
             `
             )
             .run(
@@ -560,6 +596,32 @@ export class SQLiteLLMConfigStorage implements ILLMConfigStorage {
               now,
               now
             );
+
+          if (model.isDefault) {
+            this.clearDefaultModel(model.modelType);
+            this.db
+              .prepare(
+                `
+                UPDATE llm_models
+                SET is_default = 1, updated_at = ?
+                WHERE provider_id = ? AND model_key = ?
+              `
+              )
+              .run(now, providerId, model.modelKey);
+          }
+
+          if (model.isAceEvolution) {
+            this.clearAceEvolutionModel();
+            this.db
+              .prepare(
+                `
+                UPDATE llm_models
+                SET is_ace_evolution = 1, updated_at = ?
+                WHERE provider_id = ? AND model_key = ?
+              `
+              )
+              .run(now, providerId, model.modelKey);
+          }
         }
 
         return providerId;
@@ -570,6 +632,21 @@ export class SQLiteLLMConfigStorage implements ILLMConfigStorage {
     } catch (error: unknown) {
       logger.error("[SQLite] Failed to create provider with models:", { error });
       throw error;
+    }
+  }
+
+  async deleteModel(modelId: string): Promise<boolean> {
+    try {
+      const numericId = parseInt(modelId, 10);
+      if (isNaN(numericId)) {
+        return false;
+      }
+
+      const result = this.db.prepare("DELETE FROM llm_models WHERE id = ?").run(numericId);
+      return result.changes > 0;
+    } catch (error: unknown) {
+      logger.error("[SQLite] Failed to delete model:", { modelId, error });
+      return false;
     }
   }
 

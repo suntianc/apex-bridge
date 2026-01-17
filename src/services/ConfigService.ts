@@ -205,7 +205,8 @@ export class ConfigService {
    * 获取系统级配置（从环境变量读取）
    */
   public getSystemConfig(): SystemConfig {
-    const port = parseInt(process.env.PORT || "3000", 10);
+    const { API } = require("../constants");
+    const port = parseInt(process.env.PORT || String(API.DEFAULT_PORT), 10);
     const autostart = process.env.APEX_BRIDGE_AUTOSTART !== "false";
 
     return {
@@ -258,7 +259,7 @@ export class ConfigService {
       performance: appConfig.performance,
       redis: {
         ...appConfig.redis,
-        enabled: this.parseBooleanEnv("CACHE_ENABLED", appConfig.redis?.enabled ?? false),
+        enabled: this.parseBooleanEnv("APEX_CACHE_ENABLED", appConfig.redis?.enabled ?? false),
         host: process.env.REDIS_HOST || appConfig.redis?.host || "localhost",
         port: parseInt(process.env.REDIS_PORT || String(appConfig.redis?.port || 6379), 10),
         password: process.env.REDIS_PASSWORD || appConfig.redis?.password || "",

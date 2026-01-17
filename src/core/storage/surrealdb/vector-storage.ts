@@ -13,6 +13,11 @@ import type {
   VectorSearchResult,
 } from "../interfaces";
 import { logger } from "../../../utils/logger";
+import {
+  SurrealDBErrorCode,
+  isSurrealDBError,
+  wrapSurrealDBError,
+} from "../../../utils/surreal-error";
 
 const TABLE_VECTORS = "tool_vectors";
 
@@ -49,8 +54,11 @@ export class SurrealDBVectorStorage implements IVectorStorage {
       this.initialized = true;
       logger.info("[SurrealDB] Vector storage initialized", { dimension: this.dimension });
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to initialize vector storage:", { error });
-      throw error;
+      throw wrapSurrealDBError(error, "initialize", SurrealDBErrorCode.INTERNAL_ERROR);
     }
   }
 
@@ -71,8 +79,8 @@ export class SurrealDBVectorStorage implements IVectorStorage {
   }
 
   async upsert(id: string, vector: number[], metadata: Record<string, unknown>): Promise<void> {
-    const record: VectorSurrealRecord = {
-      id: `${TABLE_VECTORS}:${id}`,
+    const recordId = `${TABLE_VECTORS}:${id}`;
+    const record: Omit<VectorSurrealRecord, "id"> = {
       vector,
       metadata: JSON.stringify(metadata),
       created_at: Date.now(),
@@ -80,11 +88,14 @@ export class SurrealDBVectorStorage implements IVectorStorage {
     };
 
     try {
-      await this.client.create(`${TABLE_VECTORS}:${id}`, record);
+      await this.client.upsert(recordId, record);
       logger.debug("[SurrealDB] Vector upserted", { id, dimension: vector.length });
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to upsert vector:", { id, error });
-      throw error;
+      throw wrapSurrealDBError(error, "upsert", SurrealDBErrorCode.CREATE_FAILED, { id });
     }
   }
 
@@ -95,22 +106,30 @@ export class SurrealDBVectorStorage implements IVectorStorage {
 
     try {
       const now = Date.now();
-      const surrealRecords: VectorSurrealRecord[] = records.map((record) => ({
-        id: `${TABLE_VECTORS}:${record.id}`,
-        vector: record.vector,
-        metadata: JSON.stringify(record.metadata),
-        created_at: now,
-        updated_at: now,
-      }));
+      const surrealRecords: Array<{ recordId: string; data: Omit<VectorSurrealRecord, "id"> }> =
+        records.map((record) => ({
+          recordId: `${TABLE_VECTORS}:${record.id}`,
+          data: {
+            vector: record.vector,
+            metadata: JSON.stringify(record.metadata),
+            created_at: now,
+            updated_at: now,
+          },
+        }));
 
       for (const record of surrealRecords) {
-        await this.client.create(TABLE_VECTORS, record);
+        await this.client.upsert(record.recordId, record.data);
       }
 
       logger.debug("[SurrealDB] Batch upsert completed", { count: records.length });
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to upsert batch:", { count: records.length, error });
-      throw error;
+      throw wrapSurrealDBError(error, "upsertBatch", SurrealDBErrorCode.CREATE_FAILED, {
+        count: records.length,
+      });
     }
   }
 
@@ -119,6 +138,9 @@ export class SurrealDBVectorStorage implements IVectorStorage {
       await this.client.delete(`${TABLE_VECTORS}:${id}`);
       return true;
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to delete vector:", { id, error });
       return false;
     }
@@ -180,24 +202,29 @@ export class SurrealDBVectorStorage implements IVectorStorage {
           `;
       }
 
-      const result = await this.client.query<
-        {
-          id: string;
-          score: number;
-          metadata: string;
-        }[]
-      >(searchQuery, vars);
+      const result = await this.client
+        .query<
+          {
+            id: string;
+            score: number;
+            metadata: string;
+          }[]
+        >(searchQuery, vars)
+        .then((r) => r.flat());
 
       return result
         .filter((item) => item.score !== null)
         .map((item) => ({
-          id: item.id.replace(`${TABLE_VECTORS}:`, ""),
+          id: String(item.id).replace(`${TABLE_VECTORS}:`, ""),
           score: this.normalizeScore(item.score, distanceType),
           metadata: this.parseMetadata(item.metadata),
         }));
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Vector search failed:", { error });
-      throw error;
+      throw wrapSurrealDBError(error, "search", SurrealDBErrorCode.QUERY_FAILED);
     }
   }
 
@@ -226,30 +253,34 @@ export class SurrealDBVectorStorage implements IVectorStorage {
 
   async count(): Promise<number> {
     try {
-      const result = await this.client.query<{ count: number }[]>(
-        `SELECT count() as count FROM ${TABLE_VECTORS}`,
-        {}
-      );
+      const result = await this.client
+        .query<{ count: number }[]>(`SELECT count() as count FROM ${TABLE_VECTORS}`, {})
+        .then((r) => r.flat());
       return result[0]?.count ?? 0;
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to count vectors:", { error });
-      throw error;
+      throw wrapSurrealDBError(error, "count", SurrealDBErrorCode.QUERY_FAILED);
     }
   }
 
   async clear(): Promise<void> {
     try {
-      const result = await this.client.query<{ id: string }[]>(
-        `SELECT id FROM ${TABLE_VECTORS}`,
-        {}
-      );
+      const result = await this.client
+        .query<{ id: string }[]>(`SELECT id FROM ${TABLE_VECTORS}`, {})
+        .then((r) => r.flat());
       for (const record of result) {
         await this.client.delete(record.id);
       }
       logger.info("[SurrealDB] Vector storage cleared", { count: result.length });
     } catch (error: unknown) {
+      if (isSurrealDBError(error)) {
+        throw error;
+      }
       logger.error("[SurrealDB] Failed to clear vectors:", { error });
-      throw error;
+      throw wrapSurrealDBError(error, "clear", SurrealDBErrorCode.DELETE_FAILED);
     }
   }
 }

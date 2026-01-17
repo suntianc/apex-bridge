@@ -32,8 +32,8 @@ export class LLMConfigService {
     if (storage) {
       this.storage = storage;
     } else {
-      const { SQLiteLLMConfigStorage } = require("../core/storage/sqlite/llm-config");
-      this.storage = new SQLiteLLMConfigStorage();
+      const { StorageAdapterFactory } = require("../core/storage/adapter-factory");
+      this.storage = StorageAdapterFactory.getLLMConfigStorage();
     }
   }
 
@@ -406,7 +406,7 @@ export class LLMConfigService {
       throw new Error(`Model not found: ${modelId}`);
     }
 
-    await this.storage.delete(String(existing.providerId));
+    await this.storage.deleteModel(String(existing.id));
 
     logger.info(`✅ Deleted model: ${existing.modelName} (id: ${modelId})`);
   }

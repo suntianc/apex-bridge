@@ -4,7 +4,7 @@
  */
 
 import type { IConversationStorage, ConversationMessage } from "../core/storage/interfaces";
-import { SQLiteConversationStorage } from "../core/storage/sqlite/conversation";
+import { StorageAdapterFactory } from "../core/storage/adapter-factory";
 import { logger } from "../utils/logger";
 import type { Message } from "../types";
 
@@ -18,8 +18,8 @@ export class ConversationHistoryService {
   private storage: IConversationStorage;
 
   private constructor() {
-    this.storage = new SQLiteConversationStorage();
-    logger.debug("[ConversationHistoryService] Initialized with SQLiteConversationStorage adapter");
+    this.storage = StorageAdapterFactory.getConversationStorage();
+    logger.debug("[ConversationHistoryService] Initialized with StorageAdapterFactory");
   }
 
   /**

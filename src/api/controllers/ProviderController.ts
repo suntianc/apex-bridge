@@ -107,6 +107,36 @@ export async function listProviders(req: Request, res: Response): Promise<void> 
 /**
  * 获取提供商详情
  * GET /api/llm/providers/:id
+ *
+ * @swagger
+ * /api/llm/providers/{id}:
+ *   get:
+ *     summary: Get provider details
+ *     description: Returns a specific LLM provider by ID
+ *     tags: [Providers]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Provider ID
+ *     responses:
+ *       200:
+ *         description: Provider details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 provider:
+ *                   $ref: '#/components/schemas/Provider'
+ *       404:
+ *         description: Provider not found
  */
 export async function getProvider(req: Request, res: Response): Promise<void> {
   try {
@@ -137,6 +167,52 @@ export async function getProvider(req: Request, res: Response): Promise<void> {
 /**
  * 创建提供商
  * POST /api/llm/providers
+ *
+ * @swagger
+ * /api/llm/providers:
+ *   post:
+ *     summary: Create a new provider
+ *     description: Creates a new LLM provider configuration
+ *     tags: [Providers]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - provider
+ *               - name
+ *               - baseConfig
+ *             properties:
+ *               provider:
+ *                 type: string
+ *                 description: Provider type (e.g., openai, claude)
+ *               name:
+ *                 type: string
+ *                 description: Display name for the provider
+ *               description:
+ *                 type: string
+ *               baseConfig:
+ *                 type: object
+ *                 required:
+ *                   - apiKey
+ *                 properties:
+ *                   apiKey:
+ *                     type: string
+ *                     description: API key
+ *                   baseURL:
+ *                     type: string
+ *                     description: Base URL for the API
+ *                   timeout:
+ *                     type: integer
+ *                   maxRetries:
+ *                     type: integer
+ *     responses:
+ *       201:
+ *         description: Provider created successfully
  */
 export async function createProvider(req: Request, res: Response): Promise<void> {
   try {
@@ -162,6 +238,39 @@ export async function createProvider(req: Request, res: Response): Promise<void>
 /**
  * 更新提供商
  * PUT /api/llm/providers/:id
+ *
+ * @swagger
+ * /api/llm/providers/{id}:
+ *   put:
+ *     summary: Update a provider
+ *     description: Updates an existing LLM provider configuration
+ *     tags: [Providers]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               enabled:
+ *                 type: boolean
+ *               baseConfig:
+ *                 type: object
+ *     responses:
+ *       200:
+ *         description: Provider updated successfully
  */
 export async function updateProvider(req: Request, res: Response): Promise<void> {
   try {
@@ -196,6 +305,24 @@ export async function updateProvider(req: Request, res: Response): Promise<void>
 /**
  * 删除提供商
  * DELETE /api/llm/providers/:id
+ *
+ * @swagger
+ * /api/llm/providers/{id}:
+ *   delete:
+ *     summary: Delete a provider
+ *     description: Deletes an LLM provider and all associated models
+ *     tags: [Providers]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Provider deleted successfully
  */
 export async function deleteProvider(req: Request, res: Response): Promise<void> {
   try {

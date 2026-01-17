@@ -5,7 +5,7 @@
 
 import type { ITrajectoryStorage, TrajectoryStats } from "../core/storage/interfaces";
 import type { Trajectory } from "../types/trajectory";
-import { SQLiteTrajectoryStorage } from "../core/storage/sqlite/trajectory";
+import { StorageAdapterFactory } from "../core/storage/adapter-factory";
 import { logger } from "../utils/logger";
 
 export class TrajectoryStore {
@@ -13,8 +13,8 @@ export class TrajectoryStore {
   private storage: ITrajectoryStorage;
 
   private constructor() {
-    this.storage = new SQLiteTrajectoryStorage();
-    logger.debug("[TrajectoryStore] Initialized with SQLiteTrajectoryStorage adapter");
+    this.storage = StorageAdapterFactory.getTrajectoryStorage();
+    logger.debug("[TrajectoryStore] Initialized with StorageAdapterFactory");
   }
 
   /**

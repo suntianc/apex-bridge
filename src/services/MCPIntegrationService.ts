@@ -656,5 +656,21 @@ export class MCPIntegrationService extends EventEmitter {
   }
 }
 
-// 导出单例实例
-export const mcpIntegration = new MCPIntegrationService();
+// 导出懒加载单例实例
+let _instance: MCPIntegrationService | null = null;
+
+export function getMCPIntegrationService(): MCPIntegrationService {
+  if (!_instance) {
+    _instance = new MCPIntegrationService();
+  }
+  return _instance;
+}
+
+// 懒加载代理对象 - 首次访问时才创建实例
+export const mcpIntegration = new Proxy({} as unknown as MCPIntegrationService, {
+  get(_target, prop) {
+    const instance = getMCPIntegrationService();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (instance as any)[prop];
+  },
+});

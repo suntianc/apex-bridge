@@ -136,7 +136,11 @@ export class ABPIntelliCore {
       }
       logger.debug("✅ Configuration loaded");
 
-      // 2. 并行初始化独立服务（减少启动时间）
+      const { createStorageConfig, StorageAdapterFactory } =
+        await import("./core/storage/adapter-factory");
+      StorageAdapterFactory.initialize(createStorageConfig(process.env));
+      logger.debug("✅ StorageAdapterFactory initialized");
+
       logger.info("🚀 Starting parallel initialization...");
 
       const [
@@ -151,16 +155,19 @@ export class ABPIntelliCore {
         import("./services/MCPIntegrationService"),
       ]);
 
-      // 初始化LLM配置服务（确保SQLite数据库和表已创建）
-      const llmConfigService = LLMConfigService.getInstance(); // 触发 DB 初始化
+      const llmConfigService = LLMConfigService.getInstance();
       logger.debug("✅ LLMConfigService initialized");
 
       // 自动初始化默认提供商（如果不存在）
       llmConfigService.initializeDefaultProviders();
 
+      // 初始化MCP配置服务（在创建MCPIntegrationService之前）
+      const { MCPConfigService } = await import("./services/MCPConfigService");
+      await MCPConfigService.initialize();
+      logger.debug("✅ MCPConfigService initialized");
+
       // 初始化SkillManager（异步，不阻塞）
-      const skillManager = SkillManager.getInstance();
-      logger.debug("✅ SkillManager instantiated");
+      let skillManager: ReturnType<typeof SkillManager.getInstance> | null = null;
 
       // 初始化缓存服务（非阻塞，不影响启动）
       const { cacheService } = await import("./services/cache/CacheService");
@@ -176,27 +183,23 @@ export class ABPIntelliCore {
           );
         });
 
-      // 3. 并行执行：技能索引初始化 + MCP服务器加载 + 工具检索服务初始化
-      // 这些操作相互独立，可以并行执行
-      const [skillInitResult, mcpLoadResult, toolService] = await Promise.all([
-        // 等待Skills索引初始化完成（非阻塞）
-        skillManager.waitForInitialization().then(() => {
-          logger.debug("✅ SkillManager initialization complete");
-          return true;
-        }),
-        // 加载MCP服务器（非阻塞）
-        mcpIntegration.loadServersFromDatabase().then(() => {
-          logger.debug("✅ MCP servers loaded from database");
-          return true;
-        }),
-        // 初始化工具检索服务（非阻塞）
-        (async () => {
-          const service = getToolRetrievalService();
-          await service.initialize();
-          logger.debug("✅ ToolRetrievalService initialized");
-          return service;
-        })(),
-      ]);
+      // 3. 按顺序初始化：工具检索服务 → MCP服务器加载 → 技能索引
+      // 顺序很重要：ToolRetrievalService 必须最先初始化（表必须存在）
+      // 然后 MCP 服务器才能安全地索引工具
+
+      // 3.1 初始化工具检索服务（必须最先完成）
+      const toolService = getToolRetrievalService();
+      await toolService.initialize();
+      logger.debug("✅ ToolRetrievalService initialized");
+
+      // 3.2 加载 MCP 服务器（需要 ToolRetrievalService 完成）
+      await mcpIntegration.loadServersFromDatabase();
+      logger.debug("✅ MCP servers loaded from database");
+
+      skillManager = SkillManager.getInstance();
+      logger.debug("✅ SkillManager instantiated");
+      await skillManager.waitForInitialization();
+      logger.debug("✅ SkillManager initialization complete");
 
       // 索引所有内置工具
       await toolService.indexBuiltinTools();

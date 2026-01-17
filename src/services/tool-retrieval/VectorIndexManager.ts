@@ -77,8 +77,10 @@ export class VectorIndexManager {
           // 检查是否需要添加新字段（MCP支持）
           await this.checkAndAddMissingFields(tableName);
 
-          // 创建向量索引
-          await this.createVectorIndex();
+          const rowCount = await this.getTableCount();
+          if (rowCount > 0) {
+            await this.createVectorIndex();
+          }
           return this.table;
         }
       } catch (openError: any) {
@@ -119,8 +121,10 @@ export class VectorIndexManager {
 
       logger.info(`Created new table: ${tableName} with ${this.dimensions} dimensions`);
 
-      // 创建向量索引
-      await this.createVectorIndex();
+      const rowCount = await this.getTableCount();
+      if (rowCount > 0) {
+        await this.createVectorIndex();
+      }
 
       return this.table;
     } catch (error) {

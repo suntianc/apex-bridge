@@ -1,6 +1,7 @@
 # AGENTS.md - src/services/tool-retrieval
 
-Vector search & tool embedding using LanceDB.
+**Generated:** 2026-01-17
+**Vector search & tool embedding** - LanceDB (being deprecated for SurrealDB)
 
 ## WHERE TO LOOK
 
@@ -50,3 +51,4 @@ Same as root: single quotes, 2-space indent, semicolons, 100-char width, `_` pre
 - **Singleton instantiation**: `ToolRetrievalService.getInstance()` creates on first call - no lazy initialization hook
 - **Vector dimensions mismatch**: LanceDB recreates table if embedding dimensions change
 - **Silent vectorization failures**: `MCPToolSupport` errors are logged but don't block tool registration
+- **LanceDB deprecation**: Being replaced by SurrealDBVectorStorage (Phase 4 migration pending)

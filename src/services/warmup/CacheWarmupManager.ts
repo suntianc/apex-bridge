@@ -8,7 +8,7 @@
 
 import { logger } from "../../utils/logger";
 import { EmbeddingGenerator } from "../tool-retrieval/EmbeddingGenerator";
-import { ToolRetrievalService } from "../tool-retrieval/ToolRetrievalService";
+import { getToolRetrievalService } from "../tool-retrieval/ToolRetrievalService";
 import { ToolRetrievalConfig, EmbeddingConfig } from "../tool-retrieval/types";
 
 /**
@@ -59,7 +59,7 @@ const SAMPLE_SEARCH_QUERIES = [
 export class CacheWarmupManager {
   private embeddingConfig: EmbeddingConfig | null = null;
   private embeddingGenerator: EmbeddingGenerator | null = null;
-  private toolRetrievalService: ToolRetrievalService | null = null;
+  private toolRetrievalService: ReturnType<typeof getToolRetrievalService> | null = null;
 
   constructor() {
     logger.info("[CacheWarmupManager] Initialized");
@@ -157,14 +157,14 @@ export class CacheWarmupManager {
       // 初始化 ToolRetrievalService
       if (!this.toolRetrievalService) {
         const retrievalConfig: ToolRetrievalConfig = {
-          vectorDbPath: "./.data/tools.lance",
-          model: "text-embedding-3-small",
-          dimensions: 1536,
+          vectorDbPath: "./.data/skills.lance",
+          model: "nomic-embed-text:latest",
+          dimensions: 768,
           similarityThreshold: 0.4,
           maxResults: 10,
           cacheSize: 1000,
         };
-        this.toolRetrievalService = new ToolRetrievalService(retrievalConfig);
+        this.toolRetrievalService = getToolRetrievalService(retrievalConfig);
         await this.toolRetrievalService.initialize();
       }
 
@@ -286,7 +286,7 @@ export class CacheWarmupManager {
    * 执行搜索（带超时）
    */
   private async executeSearchWithTimeout(
-    service: ToolRetrievalService,
+    service: ReturnType<typeof getToolRetrievalService>,
     query: string,
     timeoutMs: number
   ): Promise<boolean> {

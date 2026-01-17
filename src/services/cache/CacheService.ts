@@ -35,6 +35,19 @@ class CacheService {
    * 初始化 Redis 连接
    */
   async initialize(): Promise<void> {
+    // 检查缓存是否启用
+    const configService = ConfigService.getInstance();
+    const fullConfig = configService.getFullConfig();
+    const redisConfig = fullConfig.redis;
+
+    // 如果 Redis 未配置或显式禁用，跳过初始化
+    if (!redisConfig || redisConfig.enabled === false) {
+      logger.info("[CacheService] Cache is disabled, skipping Redis initialization");
+      this.isConnected = false;
+      this.client = null;
+      return;
+    }
+
     if (this.client && this.isConnected) {
       return;
     }
@@ -42,10 +55,6 @@ class CacheService {
     if (this.connectPromise) {
       return this.connectPromise;
     }
-
-    const configService = ConfigService.getInstance();
-    const fullConfig = configService.getFullConfig();
-    const redisConfig = fullConfig.redis;
 
     const redisHost = redisConfig.host || "localhost";
     const redisPort = redisConfig.port || 6379;

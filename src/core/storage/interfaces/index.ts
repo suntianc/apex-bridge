@@ -75,6 +75,8 @@ export interface ILLMConfigStorage extends IQueryableStorage<LLMProviderV2, LLMC
   /** Create provider with models (transactional) */
   createProviderWithModels(provider: LLMProviderV2, models: LLMModelV2[]): Promise<string>;
 
+  deleteModel(modelId: string): Promise<boolean>;
+
   /** Get ACE evolution model (optional) */
   getAceEvolutionModel?(): Promise<LLMModelFull | null>;
 }

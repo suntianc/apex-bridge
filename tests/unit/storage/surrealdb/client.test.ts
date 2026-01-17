@@ -49,18 +49,18 @@ describe("SurrealDBClient - Connection Management", () => {
   it("should not allow concurrent connect with different configs", async () => {
     const client = SurrealDBClient.getInstance();
     const config1 = {
-      url: "ws://localhost:8000",
-      namespace: "ns1",
-      database: "db1",
-      username: "user",
-      password: "pass",
+      url: "ws://localhost:12470/rpc",
+      namespace: "apexbridge",
+      database: "staging",
+      username: "root",
+      password: "root",
     };
     const config2 = {
-      url: "ws://localhost:8000",
-      namespace: "ns2",
-      database: "db2",
-      username: "user",
-      password: "pass",
+      url: "ws://localhost:12470/rpc",
+      namespace: "apexbridge",
+      database: "staging",
+      username: "root",
+      password: "root",
     };
 
     const connect1 = client.connect(config1);
