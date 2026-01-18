@@ -5,6 +5,7 @@
  */
 
 import { SurrealDBClient } from "./client";
+import { ensureSurrealDBConnected } from "./connection";
 import type { ILLMConfigStorage, LLMConfigQuery } from "../interfaces";
 import type { LLMProviderV2, LLMModelV2, LLMModelFull } from "../../../types/llm-models";
 import { logger } from "../../../utils/logger";
@@ -40,7 +41,6 @@ interface ModelRecord {
 
 export class SurrealDBLLMConfigStorage implements ILLMConfigStorage {
   private client: SurrealDBClient;
-  private connecting: boolean = false;
 
   constructor() {
     this.client = SurrealDBClient.getInstance();
@@ -50,41 +50,7 @@ export class SurrealDBLLMConfigStorage implements ILLMConfigStorage {
    * Ensure SurrealDB connection is established before operations
    */
   private async ensureConnected(): Promise<void> {
-    // Fast path: already connected
-    if (this.client.isConnected()) {
-      return;
-    }
-
-    // Prevent concurrent connection attempts
-    if (this.connecting) {
-      // Wait a bit and check again
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      if (this.client.isConnected()) {
-        return;
-      }
-    }
-
-    this.connecting = true;
-    try {
-      // Trigger connection using environment variables
-      const url = process.env.SURREALDB_URL || "ws://localhost:8000/rpc";
-      const user = process.env.SURREALDB_USER || "root";
-      const pass = process.env.SURREALDB_PASS || "root";
-      const ns = process.env.SURREALDB_NAMESPACE || "apexbridge";
-      const db = process.env.SURREALDB_DATABASE || "staging";
-
-      await this.client.connect({
-        url,
-        username: user,
-        password: pass,
-        namespace: ns,
-        database: db,
-        timeout: 10000,
-        maxRetries: 3,
-      });
-    } finally {
-      this.connecting = false;
-    }
+    await ensureSurrealDBConnected();
   }
 
   async get(id: string): Promise<LLMProviderV2 | null> {

@@ -78,8 +78,8 @@ describe("SurrealDBClient - Transaction", () => {
       });
 
       expect(result).toBe("success");
-      expect(querySpy).toHaveBeenCalledWith("BEGIN TRANSACTION");
-      expect(querySpy).toHaveBeenCalledWith("COMMIT TRANSACTION");
+      expect(querySpy).toHaveBeenCalledWith("BEGIN");
+      expect(querySpy).toHaveBeenCalledWith("COMMIT");
     });
 
     it("should rollback on error", async () => {
@@ -92,7 +92,7 @@ describe("SurrealDBClient - Transaction", () => {
         })
       ).rejects.toThrow("Test error");
 
-      expect(querySpy).toHaveBeenCalledWith("CANCEL TRANSACTION");
+      expect(querySpy).toHaveBeenCalledWith("CANCEL");
     });
 
     it("should reset transaction depth on error", async () => {

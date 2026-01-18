@@ -364,7 +364,15 @@ class SurrealDBClient {
   }
 
   async withTransaction<T>(fn: () => Promise<T>): Promise<T> {
-    return fn();
+    await this.beginTransaction();
+    try {
+      const result = await fn();
+      await this.commitTransaction();
+      return result;
+    } catch (error: unknown) {
+      await this.rollbackTransaction();
+      throw error;
+    }
   }
 
   private mapToSurrealDBError(
@@ -377,16 +385,18 @@ class SurrealDBClient {
     }
 
     const message = error instanceof Error ? error.message : String(error);
+    const lowerMessage = message.toLowerCase();
 
-    if (message.includes("not connected") || message.includes("Not connected")) {
+    // Connection-related errors
+    if (lowerMessage.includes("not connected")) {
       return wrapSurrealDBError(error, operation, SurrealDBErrorCode.NOT_CONNECTED, details);
     }
 
-    if (message.includes("timeout") || message.includes("timed out")) {
+    if (lowerMessage.includes("timeout") || lowerMessage.includes("timed out")) {
       return wrapSurrealDBError(error, operation, SurrealDBErrorCode.CONNECTION_TIMEOUT, details);
     }
 
-    if (message.includes("already exists") || message.includes("already exists")) {
+    if (lowerMessage.includes("already exists") || lowerMessage.includes("already registered")) {
       return wrapSurrealDBError(
         error,
         operation,
@@ -395,7 +405,11 @@ class SurrealDBClient {
       );
     }
 
-    if (message.includes("not found") || message.includes("Record not found")) {
+    if (
+      lowerMessage.includes("not found") ||
+      lowerMessage.includes("record not found") ||
+      lowerMessage.includes("no such")
+    ) {
       return wrapSurrealDBError(error, operation, SurrealDBErrorCode.RECORD_NOT_FOUND, details);
     }
 

@@ -5,6 +5,7 @@
  */
 
 import { SurrealDBClient } from "./client";
+import { ensureSurrealDBConnected } from "./connection";
 import type { IConversationStorage, ConversationQuery, ConversationMessage } from "../interfaces";
 import type { Message } from "../../../types";
 import { logger } from "../../../utils/logger";
@@ -29,7 +30,6 @@ interface ConversationMessageRecord {
 
 export class SurrealDBConversationStorage implements IConversationStorage {
   private client: SurrealDBClient;
-  private connecting = false;
 
   constructor() {
     this.client = SurrealDBClient.getInstance();
@@ -39,36 +39,7 @@ export class SurrealDBConversationStorage implements IConversationStorage {
    * Ensure connected to SurrealDB with lazy initialization
    */
   private async ensureConnected(): Promise<void> {
-    if (this.client.isConnected()) {
-      return;
-    }
-
-    if (this.connecting) {
-      // Wait for other connection attempt
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      return this.ensureConnected();
-    }
-
-    this.connecting = true;
-    try {
-      const url = process.env.SURREALDB_URL || "ws://localhost:8000/rpc";
-      const user = process.env.SURREALDB_USER || "root";
-      const pass = process.env.SURREALDB_PASS || "root";
-      const ns = process.env.SURREALDB_NAMESPACE || "apexbridge";
-      const db = process.env.SURREALDB_DATABASE || "staging";
-
-      await this.client.connect({
-        url,
-        username: user,
-        password: pass,
-        namespace: ns,
-        database: db,
-        timeout: 10000,
-        maxRetries: 3,
-      });
-    } finally {
-      this.connecting = false;
-    }
+    await ensureSurrealDBConnected();
   }
 
   async get(id: string): Promise<ConversationMessage | null> {
