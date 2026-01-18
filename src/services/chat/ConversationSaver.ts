@@ -42,18 +42,19 @@ export class ConversationSaver {
         const count = await this.conversationHistoryService.getMessageCount(conversationId);
         const messagesToSave: Message[] = [];
 
+        const userMessages = messages.filter((m) => m.role === "user");
+
         if (count === 0) {
-          messagesToSave.push(
-            ...messages.filter((m) => m.role !== "assistant" && m.role !== "system")
-          );
+          if (userMessages.length > 0) {
+            messagesToSave.push(userMessages[userMessages.length - 1]);
+          }
         } else {
-          const lastMessage = messages[messages.length - 1];
-          if (lastMessage && lastMessage.role !== "assistant" && lastMessage.role !== "system") {
-            messagesToSave.push(lastMessage);
+          if (userMessages.length > 0) {
+            messagesToSave.push(userMessages[userMessages.length - 1]);
           }
         }
 
-        let assistantContent = this.formatAssistantContent(aiContent, thinkingProcess, isReAct);
+        const assistantContent = this.formatAssistantContent(aiContent, thinkingProcess, isReAct);
 
         messagesToSave.push({
           role: "assistant",

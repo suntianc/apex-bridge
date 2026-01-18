@@ -95,6 +95,12 @@ export class LLMManager {
       if (options?.provider && options?.model) {
         // 指定了提供商和模型
         model = this.modelRegistry.findModel(options.provider, options.model);
+      } else if (options?.model) {
+        const models = await this.configService.listModels({
+          modelType: LLMModelType.NLP,
+          enabled: true,
+        });
+        model = models.find((m) => m.modelKey === options.model) || null;
       } else if (options?.provider) {
         // 只指定了提供商，使用该提供商的默认 NLP 模型
         const provider = await this.configService.getProviderByKey(options.provider);
@@ -275,9 +281,46 @@ export class LLMManager {
         `[LLMManager.getActiveModel] Searching for model: ${options.provider}/${options.model}`
       );
       const foundModel = this.modelRegistry.findModel(options.provider, options.model);
-      logger.debug(`[LLMManager.getActiveModel] Found model: ${foundModel?.modelName || "null"}`);
-      return foundModel;
-    } else if (options?.provider) {
+      if (foundModel) {
+        logger.debug(`[LLMManager.getActiveModel] Found model: ${foundModel.modelName}`);
+        return foundModel;
+      }
+
+      const provider = await this.configService.getProviderByKey(options.provider);
+      if (!provider || !provider.enabled) {
+        return null;
+      }
+
+      const byKey = await this.configService.getProviderModels(provider.id);
+      const matched = byKey.find((m) => m.modelKey === options.model) || null;
+      if (!matched || !matched.enabled) {
+        return null;
+      }
+
+      return {
+        ...matched,
+        provider: provider.provider,
+        providerName: provider.name,
+        providerBaseConfig: provider.baseConfig,
+        providerEnabled: provider.enabled,
+      };
+    }
+
+    if (options?.model) {
+      const candidates = await this.configService.listModels({
+        modelType: LLMModelType.NLP,
+        enabled: true,
+      });
+
+      const found = candidates.find((m) => m.modelKey === options.model) || null;
+      if (found) {
+        return found;
+      }
+
+      return null;
+    }
+
+    if (options?.provider) {
       const provider = await this.configService.getProviderByKey(options.provider);
       if (provider) {
         const models = await this.configService.listModels({
@@ -291,7 +334,12 @@ export class LLMManager {
     }
 
     logger.debug("[LLMManager.getActiveModel] Using system default model");
-    return this.modelRegistry.getDefaultModel(LLMModelType.NLP);
+    const defaultModel = this.modelRegistry.getDefaultModel(LLMModelType.NLP);
+    if (defaultModel) {
+      return defaultModel;
+    }
+
+    return null;
   }
 
   /**

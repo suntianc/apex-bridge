@@ -35,46 +35,41 @@ describe("ConversationSaver", () => {
       { role: "assistant", content: "Hi there!" },
     ];
 
-    it("应该保存新对话的所有非assistant和非system消息", async () => {
+    it("应该只保存新对话的最后一条 user 消息 + assistant", async () => {
       mockConversationHistoryService.getMessageCount.mockResolvedValue(0);
 
       await conversationSaver.save(conversationId, baseMessages, "AI response");
 
       expect(mockConversationHistoryService.getMessageCount).toHaveBeenCalledWith(conversationId);
-      expect(mockConversationHistoryService.saveMessages).toHaveBeenCalledWith(
-        conversationId,
-        expect.arrayContaining([expect.objectContaining({ role: "user", content: "Hello" })])
-      );
-      // 应该包含 assistant 消息
       const savedMessages = mockConversationHistoryService.saveMessages.mock.calls[0][1];
-      const assistantMessage = savedMessages.find((m: Message) => m.role === "assistant");
-      expect(assistantMessage).toBeDefined();
+      expect(savedMessages).toHaveLength(2);
+      expect(savedMessages[0]).toMatchObject({ role: "user", content: "Hello" });
+      expect(savedMessages[1].role).toBe("assistant");
     });
 
-    it("应该只保存已有对话的最后一条非assistant和非system消息", async () => {
+    it("应该只保存已有对话的最后一条 user 消息 + assistant", async () => {
       mockConversationHistoryService.getMessageCount.mockResolvedValue(5);
 
       const newMessages: Message[] = [...baseMessages, { role: "user", content: "New message" }];
 
       await conversationSaver.save(conversationId, newMessages, "AI response");
 
-      // 保存的消息数量应该只有 2（最后一条 user + assistant）
       const savedMessages = mockConversationHistoryService.saveMessages.mock.calls[0][1];
       expect(savedMessages).toHaveLength(2);
+      expect(savedMessages[0]).toMatchObject({ role: "user", content: "New message" });
+      expect(savedMessages[1].role).toBe("assistant");
     });
 
-    it("当最后一条消息是assistant时不应该保存用户消息", async () => {
+    it("当没有 user 消息时只应该保存 assistant", async () => {
       mockConversationHistoryService.getMessageCount.mockResolvedValue(5);
 
       const messages: Message[] = [
-        { role: "user", content: "Hello" },
         { role: "assistant", content: "Hi there!" },
         { role: "assistant", content: "Another response" },
       ];
 
       await conversationSaver.save(conversationId, messages, "AI response");
 
-      // 只应该保存 assistant 消息
       const savedMessages = mockConversationHistoryService.saveMessages.mock.calls[0][1];
       expect(savedMessages).toHaveLength(1);
       expect(savedMessages[0].role).toBe("assistant");

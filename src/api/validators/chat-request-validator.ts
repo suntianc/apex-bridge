@@ -3,7 +3,7 @@
  * 纯函数式验证，无状态，易于测试
  */
 
-import type { Message, ChatOptions, ToolDefinition } from "../../types";
+import type { ToolDefinition } from "../../types";
 
 /**
  * OpenAI标准聊天参数白名单
@@ -142,6 +142,8 @@ export function parseChatRequest(body: any): ValidationResult<ChatRequestOptions
         return result;
       }
       options.selfThinking = result.data;
+    } else {
+      options.selfThinking = { enabled: true };
     }
 
     // 解析contextCompression配置
@@ -369,7 +371,7 @@ export function validateSelfThinking(selfThinking: any): ValidationResult<SelfTh
     if (selfThinking.additionalPrompts !== undefined) {
       if (
         !Array.isArray(selfThinking.additionalPrompts) ||
-        !selfThinking.additionalPrompts.every((p) => typeof p === "string")
+        !selfThinking.additionalPrompts.every((p: string) => typeof p === "string")
       ) {
         return {
           success: false,
