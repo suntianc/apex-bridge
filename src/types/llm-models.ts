@@ -129,7 +129,6 @@ export interface LLMModelV2 {
   apiEndpointSuffix?: string; // API 端点后缀
   enabled: boolean;
   isDefault: boolean; // 是否为该类型的默认模型
-  isAceEvolution: boolean; // ACE进化专用模型字段（已废弃，2026-01-11）
   displayOrder: number; // 显示排序
   createdAt: number;
   updatedAt: number;
@@ -143,13 +142,6 @@ export interface LLMModelFull extends LLMModelV2 {
   providerName: string; // 提供商名称
   providerBaseConfig: ProviderBaseConfig; // 提供商基础配置
   providerEnabled: boolean; // 提供商是否启用
-  // ACE层级标记字段（已废弃，2026-01-11）
-  isAceLayerL1?: boolean;
-  isAceLayerL2?: boolean;
-  isAceLayerL3?: boolean;
-  isAceLayerL4?: boolean;
-  isAceLayerL5?: boolean;
-  isAceLayerL6?: boolean;
 }
 
 /**
@@ -184,7 +176,6 @@ export interface CreateModelInput {
   apiEndpointSuffix?: string; // API 端点后缀
   enabled?: boolean; // 是否启用（默认 true）
   isDefault?: boolean; // 是否默认（默认 false）
-  isAceEvolution?: boolean; // ACE进化专用字段（已废弃，2026-01-11）
   displayOrder?: number; // 显示排序（默认 0）
 }
 
@@ -197,7 +188,6 @@ export interface UpdateModelInput {
   apiEndpointSuffix?: string;
   enabled?: boolean;
   isDefault?: boolean;
-  isAceEvolution?: boolean; // ACE进化专用字段（已废弃，2026-01-11）
   displayOrder?: number;
 }
 

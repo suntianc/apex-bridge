@@ -329,8 +329,11 @@ export async function createModel(req: Request, res: Response): Promise<void> {
       modelKey: newModel.modelKey,
       modelName: newModel.modelName,
       modelType: newModel.modelType,
+      modelConfig: newModel.modelConfig,
+      apiEndpointSuffix: newModel.apiEndpointSuffix,
       enabled: newModel.enabled,
       isDefault: newModel.isDefault,
+      displayOrder: newModel.displayOrder,
       createdAt: newModel.createdAt,
       updatedAt: newModel.updatedAt,
     });
@@ -440,8 +443,11 @@ export async function updateModel(req: Request, res: Response): Promise<void> {
       modelKey: updatedModel.modelKey,
       modelName: updatedModel.modelName,
       modelType: updatedModel.modelType,
+      modelConfig: updatedModel.modelConfig,
+      apiEndpointSuffix: updatedModel.apiEndpointSuffix,
       enabled: updatedModel.enabled,
       isDefault: updatedModel.isDefault,
+      displayOrder: updatedModel.displayOrder,
       updatedAt: updatedModel.updatedAt,
     });
   } catch (error: any) {

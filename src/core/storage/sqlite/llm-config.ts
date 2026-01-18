@@ -46,7 +46,6 @@ interface ModelRow {
   api_endpoint_suffix: string | null;
   enabled: number;
   is_default: number;
-  is_ace_evolution: number;
   display_order: number;
   created_at: number;
   updated_at: number;
@@ -191,7 +190,6 @@ export class SQLiteLLMConfigStorage implements ILLMConfigStorage {
       apiEndpointSuffix: row.api_endpoint_suffix,
       enabled: row.enabled === 1,
       isDefault: row.is_default === 1,
-      isAceEvolution: row.is_ace_evolution === 1,
       displayOrder: row.display_order,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -443,7 +441,7 @@ export class SQLiteLLMConfigStorage implements ILLMConfigStorage {
           `
         SELECT 
           m.id, m.provider_id, m.model_key, m.model_name, m.model_type,
-          m.model_config, m.api_endpoint_suffix, m.enabled, m.is_default, m.is_ace_evolution,
+          m.model_config, m.api_endpoint_suffix, m.enabled, m.is_default,
           m.display_order, m.created_at, m.updated_at,
           p.provider, p.name as provider_name, p.base_config, p.enabled as provider_enabled
         FROM llm_models m
@@ -468,7 +466,7 @@ export class SQLiteLLMConfigStorage implements ILLMConfigStorage {
           `
         SELECT 
           m.id, m.provider_id, m.model_key, m.model_name, m.model_type,
-          m.model_config, m.api_endpoint_suffix, m.enabled, m.is_default, m.is_ace_evolution,
+          m.model_config, m.api_endpoint_suffix, m.enabled, m.is_default,
           m.display_order, m.created_at, m.updated_at,
           p.provider, p.name as provider_name, p.base_config, p.enabled as provider_enabled
         FROM llm_models m
@@ -491,7 +489,7 @@ export class SQLiteLLMConfigStorage implements ILLMConfigStorage {
           `
         SELECT 
           m.id, m.provider_id, m.model_key, m.model_name, m.model_type,
-          m.model_config, m.api_endpoint_suffix, m.enabled, m.is_default, m.is_ace_evolution,
+          m.model_config, m.api_endpoint_suffix, m.enabled, m.is_default,
           m.display_order, m.created_at, m.updated_at,
           p.provider, p.name as provider_name, p.base_config, p.enabled as provider_enabled
         FROM llm_models m
@@ -567,9 +565,9 @@ export class SQLiteLLMConfigStorage implements ILLMConfigStorage {
               `
               INSERT INTO llm_models (
                 provider_id, model_key, model_name, model_type,
-                model_config, api_endpoint_suffix, enabled, is_default, is_ace_evolution,
+                model_config, api_endpoint_suffix, enabled, is_default,
                 display_order, created_at, updated_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               ON CONFLICT(provider_id, model_key) DO UPDATE SET
                 model_name = excluded.model_name,
                 model_type = excluded.model_type,
@@ -577,7 +575,6 @@ export class SQLiteLLMConfigStorage implements ILLMConfigStorage {
                 api_endpoint_suffix = excluded.api_endpoint_suffix,
                 enabled = excluded.enabled,
                 is_default = excluded.is_default,
-                is_ace_evolution = excluded.is_ace_evolution,
                 display_order = excluded.display_order,
                 updated_at = excluded.updated_at
             `
@@ -591,7 +588,6 @@ export class SQLiteLLMConfigStorage implements ILLMConfigStorage {
               model.apiEndpointSuffix || null,
               model.enabled ? 1 : 0,
               model.isDefault ? 1 : 0,
-              model.isAceEvolution ? 1 : 0,
               model.displayOrder || 0,
               now,
               now
@@ -604,19 +600,6 @@ export class SQLiteLLMConfigStorage implements ILLMConfigStorage {
                 `
                 UPDATE llm_models
                 SET is_default = 1, updated_at = ?
-                WHERE provider_id = ? AND model_key = ?
-              `
-              )
-              .run(now, providerId, model.modelKey);
-          }
-
-          if (model.isAceEvolution) {
-            this.clearAceEvolutionModel();
-            this.db
-              .prepare(
-                `
-                UPDATE llm_models
-                SET is_ace_evolution = 1, updated_at = ?
                 WHERE provider_id = ? AND model_key = ?
               `
               )
@@ -664,43 +647,5 @@ export class SQLiteLLMConfigStorage implements ILLMConfigStorage {
       `
       )
       .run(Date.now(), modelType);
-  }
-
-  private clearAceEvolutionModel(): void {
-    this.db
-      .prepare(
-        `
-        UPDATE llm_models
-        SET is_ace_evolution = 0, updated_at = ?
-        WHERE is_ace_evolution = 1
-      `
-      )
-      .run(Date.now());
-  }
-
-  async getAceEvolutionModel(): Promise<LLMModelFull | null> {
-    try {
-      const row = this.db
-        .prepare(
-          `
-        SELECT 
-          m.id, m.provider_id, m.model_key, m.model_name, m.model_type,
-          m.model_config, m.api_endpoint_suffix, m.enabled, m.is_default, m.is_ace_evolution,
-          m.display_order, m.created_at, m.updated_at,
-          p.provider, p.name as provider_name, p.base_config, p.enabled as provider_enabled
-        FROM llm_models m
-        JOIN llm_providers p ON m.provider_id = p.id
-        WHERE m.is_ace_evolution = 1
-          AND m.enabled = 1
-          AND p.enabled = 1
-        LIMIT 1
-      `
-        )
-        .get() as ModelFullRow | undefined;
-      return row ? this.mapModelFullRow(row) : null;
-    } catch (error: unknown) {
-      logger.error("[SQLite] Failed to get ACE evolution model:", { error });
-      throw error;
-    }
   }
 }

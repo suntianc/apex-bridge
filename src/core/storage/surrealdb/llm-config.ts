@@ -36,6 +36,13 @@ interface ModelRecord {
   key: string;
   name: string;
   type: string;
+  model_config?: Record<string, unknown> | string;
+  api_endpoint_suffix?: string | null;
+  enabled?: boolean;
+  is_default?: boolean;
+  display_order?: number;
+  created_at?: number;
+  updated_at?: number;
   [key: string]: unknown;
 }
 
@@ -277,6 +284,8 @@ export class SurrealDBLLMConfigStorage implements ILLMConfigStorage {
   }
 
   async getModelsByProvider(providerId: string): Promise<LLMModelV2[]> {
+    await this.ensureConnected();
+
     try {
       const result = await this.client
         .query<
@@ -308,6 +317,8 @@ export class SurrealDBLLMConfigStorage implements ILLMConfigStorage {
   }
 
   async getModelByKey(providerId: string, modelKey: string): Promise<LLMModelV2 | null> {
+    await this.ensureConnected();
+
     try {
       const result = await this.client
         .query<
@@ -331,6 +342,8 @@ export class SurrealDBLLMConfigStorage implements ILLMConfigStorage {
   }
 
   async getDefaultModelByType(modelType: string): Promise<LLMModelV2 | null> {
+    await this.ensureConnected();
+
     try {
       const result = await this.client
         .query<
@@ -360,12 +373,21 @@ export class SurrealDBLLMConfigStorage implements ILLMConfigStorage {
       for (const model of models) {
         const modelId = String(model.id && model.id > 0 ? model.id : Date.now());
         const recordId = `llm_models:${modelId}`;
+
         const modelRecord: Omit<ModelRecord, "id"> = {
           provider_id: providerId,
           key: model.modelKey,
           name: model.modelName,
           type: model.modelType,
+          model_config: model.modelConfig ?? {},
+          api_endpoint_suffix: model.apiEndpointSuffix ?? null,
+          enabled: model.enabled,
+          is_default: model.isDefault,
+          display_order: model.displayOrder,
+          created_at: model.createdAt,
+          updated_at: model.updatedAt,
         };
+
         await this.client.upsert(recordId, modelRecord);
       }
 
@@ -385,58 +407,6 @@ export class SurrealDBLLMConfigStorage implements ILLMConfigStorage {
       }
       logger.error("[SurrealDB] Failed to delete model:", { modelId, error });
       return false;
-    }
-  }
-
-  async getAceEvolutionModel(): Promise<LLMModelFull | null> {
-    try {
-      const result = await this.client
-        .query<ModelRecord[]>("SELECT * FROM llm_models WHERE is_ace_evolution = true LIMIT 1")
-        .then((r) => r.flat());
-      if (result.length === 0) {
-        return null;
-      }
-      const record = result[0];
-
-      const providerId = record.provider_id;
-      const providerResult = await this.client
-        .query<
-          ProviderRecord[]
-        >(`SELECT * FROM ${TABLE_PROVIDERS} WHERE id = $providerId LIMIT 1`, { providerId })
-        .then((r) => r.flat());
-
-      const provider = providerResult.length > 0 ? this.recordToProvider(providerResult[0]) : null;
-
-      const providerBaseConfig = provider?.baseConfig ?? { baseURL: "" };
-
-      return {
-        id: parseStorageIdAsNumber(
-          String(record.id || "")
-            .split(":")
-            .pop() || "0"
-        ),
-        providerId: parseStorageIdAsNumber(providerId),
-        modelKey: record.key,
-        modelName: record.name,
-        modelType: record.type as LLMModelV2["modelType"],
-        modelConfig: {},
-        enabled: true,
-        isDefault: false,
-        isAceEvolution: true,
-        displayOrder: 0,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        provider: provider?.provider || "",
-        providerName: provider?.name || "",
-        providerBaseConfig,
-        providerEnabled: provider?.enabled ?? false,
-      };
-    } catch (error: unknown) {
-      if (isSurrealDBError(error)) {
-        throw error;
-      }
-      logger.error("[SurrealDB] Failed to get ACE evolution model:", { error });
-      throw wrapSurrealDBError(error, "getAceEvolutionModel", SurrealDBErrorCode.QUERY_FAILED);
     }
   }
 
@@ -476,19 +446,24 @@ export class SurrealDBLLMConfigStorage implements ILLMConfigStorage {
       idStr = idStr.split(":").pop() || "0";
     }
 
+    const modelConfig =
+      typeof record.model_config === "string"
+        ? (JSON.parse(record.model_config) as Record<string, unknown>)
+        : (record.model_config ?? {});
+
     return {
       id: parseStorageIdAsNumber(idStr),
       providerId: providerIdNum,
       modelKey: record.key,
       modelName: record.name,
       modelType: record.type as LLMModelV2["modelType"],
-      modelConfig: {},
-      enabled: true,
-      isDefault: false,
-      isAceEvolution: false,
-      displayOrder: 0,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      modelConfig: modelConfig as LLMModelV2["modelConfig"],
+      apiEndpointSuffix: record.api_endpoint_suffix ?? null,
+      enabled: record.enabled ?? true,
+      isDefault: record.is_default ?? false,
+      displayOrder: record.display_order ?? 0,
+      createdAt: record.created_at ?? Date.now(),
+      updatedAt: record.updated_at ?? Date.now(),
     };
   }
 }

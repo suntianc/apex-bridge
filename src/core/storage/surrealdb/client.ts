@@ -363,7 +363,20 @@ class SurrealDBClient {
     }
   }
 
+  private areTransactionsEnabled(): boolean {
+    const raw = process.env.SURREALDB_ENABLE_TRANSACTIONS;
+    if (!raw) {
+      return false;
+    }
+    const value = raw.trim().toLowerCase();
+    return value === "1" || value === "true";
+  }
+
   async withTransaction<T>(fn: () => Promise<T>): Promise<T> {
+    if (!this.areTransactionsEnabled()) {
+      return fn();
+    }
+
     await this.beginTransaction();
     try {
       const result = await fn();

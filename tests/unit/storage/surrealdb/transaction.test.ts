@@ -69,6 +69,21 @@ describe("SurrealDBClient - Transaction", () => {
   });
 
   describe("withTransaction", () => {
+    let previousFlag: string | undefined;
+
+    beforeEach(() => {
+      previousFlag = process.env.SURREALDB_ENABLE_TRANSACTIONS;
+      process.env.SURREALDB_ENABLE_TRANSACTIONS = "true";
+    });
+
+    afterEach(() => {
+      if (previousFlag === undefined) {
+        delete process.env.SURREALDB_ENABLE_TRANSACTIONS;
+        return;
+      }
+      process.env.SURREALDB_ENABLE_TRANSACTIONS = previousFlag;
+    });
+
     it("should execute function within transaction", async () => {
       const querySpy = jest.spyOn(client as any, "query");
       querySpy.mockResolvedValue(undefined);

@@ -25,7 +25,6 @@ export interface ModelRow {
   api_endpoint_suffix: string | null;
   enabled: number;
   is_default: number;
-  is_ace_evolution: number;
   display_order: number;
   created_at: number;
   updated_at: number;

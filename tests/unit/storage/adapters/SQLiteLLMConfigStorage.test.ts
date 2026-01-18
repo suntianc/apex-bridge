@@ -282,7 +282,7 @@ class TestSQLiteLLMConfigStorage {
       apiEndpointSuffix: row.api_endpoint_suffix,
       enabled: row.enabled === 1,
       isDefault: row.is_default === 1,
-      isAceEvolution: row.is_ace_evolution === 1,
+
       displayOrder: row.display_order,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -294,7 +294,8 @@ class TestSQLiteLLMConfigStorage {
     const row = this.db
       .prepare(
         `SELECT m.id, m.provider_id, m.model_key, m.model_name, m.model_type, m.model_config,
-                m.api_endpoint_suffix, m.enabled, m.is_default, m.is_ace_evolution,
+                 m.api_endpoint_suffix, m.enabled, m.is_default,
+
                 m.display_order, m.created_at, m.updated_at
          FROM llm_models m
          WHERE m.provider_id = ? AND m.model_key = ?`
@@ -313,7 +314,7 @@ class TestSQLiteLLMConfigStorage {
       apiEndpointSuffix: row.api_endpoint_suffix,
       enabled: row.enabled === 1,
       isDefault: row.is_default === 1,
-      isAceEvolution: row.is_ace_evolution === 1,
+
       displayOrder: row.display_order,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -324,7 +325,8 @@ class TestSQLiteLLMConfigStorage {
     const row = this.db
       .prepare(
         `SELECT m.id, m.provider_id, m.model_key, m.model_name, m.model_type, m.model_config,
-                m.api_endpoint_suffix, m.enabled, m.is_default, m.is_ace_evolution,
+                 m.api_endpoint_suffix, m.enabled, m.is_default,
+
                 m.display_order, m.created_at, m.updated_at
          FROM llm_models m
          JOIN llm_providers p ON m.provider_id = p.id
@@ -345,7 +347,7 @@ class TestSQLiteLLMConfigStorage {
       apiEndpointSuffix: row.api_endpoint_suffix,
       enabled: row.enabled === 1,
       isDefault: row.is_default === 1,
-      isAceEvolution: row.is_ace_evolution === 1,
+
       displayOrder: row.display_order,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -375,8 +377,8 @@ class TestSQLiteLLMConfigStorage {
     for (const model of models) {
       this.db
         .prepare(
-          `INSERT INTO llm_models (provider_id, model_key, model_name, model_type, model_config, api_endpoint_suffix, enabled, is_default, is_ace_evolution, display_order, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO llm_models (provider_id, model_key, model_name, model_type, model_config, api_endpoint_suffix, enabled, is_default, display_order, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           providerId,
@@ -387,7 +389,6 @@ class TestSQLiteLLMConfigStorage {
           model.apiEndpointSuffix || null,
           model.enabled ? 1 : 0,
           model.isDefault ? 1 : 0,
-          model.isAceEvolution ? 1 : 0,
           model.displayOrder || 0,
           now,
           now
@@ -982,7 +983,6 @@ describe("SQLiteLLMConfigStorage", () => {
           modelConfig: {},
           enabled: true,
           isDefault: false,
-          isAceEvolution: false,
           displayOrder: 0,
           createdAt: Date.now(),
           updatedAt: Date.now(),
@@ -1022,7 +1022,6 @@ describe("SQLiteLLMConfigStorage", () => {
           modelConfig: {},
           enabled: true,
           isDefault: false,
-          isAceEvolution: false,
           displayOrder: 0,
           createdAt: Date.now(),
           updatedAt: Date.now(),
@@ -1036,7 +1035,6 @@ describe("SQLiteLLMConfigStorage", () => {
           modelConfig: {},
           enabled: true,
           isDefault: false,
-          isAceEvolution: false,
           displayOrder: 1,
           createdAt: Date.now(),
           updatedAt: Date.now(),

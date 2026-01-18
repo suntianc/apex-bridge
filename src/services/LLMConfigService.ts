@@ -338,7 +338,6 @@ export class LLMConfigService {
       apiEndpointSuffix: input.apiEndpointSuffix || null,
       enabled: input.enabled !== false,
       isDefault: input.isDefault || false,
-      isAceEvolution: input.isAceEvolution || false,
       displayOrder: input.displayOrder || 0,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -381,7 +380,6 @@ export class LLMConfigService {
       apiEndpointSuffix: input.apiEndpointSuffix ?? model.apiEndpointSuffix,
       enabled: input.enabled ?? model.enabled,
       isDefault: input.isDefault ?? model.isDefault,
-      isAceEvolution: input.isAceEvolution ?? model.isAceEvolution,
       displayOrder: input.displayOrder ?? model.displayOrder,
       updatedAt: Date.now(),
     };
@@ -430,13 +428,6 @@ export class LLMConfigService {
     }
 
     return map;
-  }
-
-  public async getAceEvolutionModel(): Promise<LLMModelFull | null> {
-    if (typeof this.storage.getAceEvolutionModel === "function") {
-      return this.storage.getAceEvolutionModel();
-    }
-    return null;
   }
 
   private validateProviderInput(input: CreateProviderInput): void {
