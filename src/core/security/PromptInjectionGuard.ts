@@ -138,10 +138,10 @@ export class PromptInjectionGuard {
     { regex: /<!DOCTYPE/gi, severity: "medium" as const },
     { regex: /<svg/gi, severity: "high" as const },
     { regex: /<math/gi, severity: "high" as const },
-    // 控制字符检测 patterns (使用字符串定义避免 ESLint 解析问题)
+    // 控制字符检测 patterns 移到 CONTROL_CHAR_PATTERNS
   ];
 
-  // 控制字符检测 patterns - 作为单独的数组
+  // 控制字符检测 patterns - 移到独立数组避免 ESLint 解析问题
   private readonly CONTROL_CHAR_PATTERNS: Array<{
     regex: RegExp;
     severity: "low" | "medium" | "high" | "critical";
@@ -199,10 +199,7 @@ export class PromptInjectionGuard {
     { regex: /<!DOCTYPE/gi, severity: "medium" as const },
     { regex: /<svg/gi, severity: "high" as const },
     { regex: /<math/gi, severity: "high" as const },
-    { regex: /\x00/g, severity: "critical" as const },
-    { regex: /%00/g, severity: "critical" as const },
-    { regex: /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, severity: "high" as const },
-    { regex: /[\u200B-\u200D\u2060\uFEFF]/g, severity: "medium" as const }, // Zero-width characters
+    // 控制字符检测使用 CONTROL_CHAR_PATTERNS
   ];
 
   // ========================================
@@ -403,7 +400,10 @@ export class PromptInjectionGuard {
     }
 
     // 清理 null 字节和控制字符
-    sanitized = sanitized.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u200B-\u200D\u2060\uFEFF]/g, "");
+    sanitized = sanitized.replace(
+      /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u200B-\u200D\u2060\uFEFF]/g,
+      ""
+    );
 
     // 规范化空白
     sanitized = sanitized.replace(/\s+/g, " ").trim();
