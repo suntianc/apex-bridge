@@ -430,7 +430,9 @@ describe("SQLiteLLMConfigStorage", () => {
     if (storage) {
       try {
         storage.close();
-      } catch (e) {}
+      } catch (e) {
+        // Ignore cleanup errors
+      }
     }
     cleanupTestDb();
   });
@@ -438,7 +440,9 @@ describe("SQLiteLLMConfigStorage", () => {
   afterAll(() => {
     try {
       fs.rmSync(TEST_DB_DIR, { recursive: true });
-    } catch (e) {}
+    } catch (e) {
+      // Ignore cleanup errors
+    }
   });
 
   describe("Constructor", () => {

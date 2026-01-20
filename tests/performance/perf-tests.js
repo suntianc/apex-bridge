@@ -83,7 +83,10 @@ async function runTests() {
 
   for (let i = 0; i < 100; i++) {
     try {
-    } catch (e) {}
+      // Empty try-catch to test overhead
+    } catch (e) {
+      // Ignore
+    }
   }
 
   if (global.gc) {

@@ -118,7 +118,9 @@ describe("SurrealDBClient - Transaction", () => {
         await client.withTransaction(async () => {
           throw new Error("Test error");
         });
-      } catch (e) {}
+      } catch (e) {
+        // Expected: error is caught by withTransaction, not thrown
+      }
 
       expect((client as any).transactionDepth).toBe(0);
     });
