@@ -156,6 +156,19 @@ export class DoomLoopDetectorImpl implements DoomLoopDetector {
 }
 
 export class ReActEngine {
+  private static readonly MAX_TOOL_OUTPUT_CHARS = 8000;
+
+  private truncateToolOutput(content: string): string {
+    if (!content || typeof content !== "string") {
+      return "";
+    }
+
+    if (content.length <= ReActEngine.MAX_TOOL_OUTPUT_CHARS) {
+      return content;
+    }
+
+    return `${content.slice(0, ReActEngine.MAX_TOOL_OUTPUT_CHARS)}\n[TRUNCATED]`;
+  }
   private defaultOptions: Required<ReActOptions>;
   private toolDispatcher: ToolDispatcher;
   public tools: any[] = [];
@@ -462,15 +475,17 @@ export class ReActEngine {
 
       const toolMessages = toolCalls.map((call, index) => {
         const result = toolResults[index];
+        const rawContent = result.success
+          ? typeof result.result === "string"
+            ? result.result
+            : JSON.stringify(result.result)
+          : result.error;
+
         return {
           role: "tool" as const,
           tool_call_id: call.id,
           name: call.function.name,
-          content: result.success
-            ? typeof result.result === "string"
-              ? result.result
-              : JSON.stringify(result.result)
-            : result.error,
+          content: this.truncateToolOutput(String(rawContent || "")),
         };
       });
 
@@ -558,8 +573,9 @@ export class ReActEngine {
               ? result.result
               : JSON.stringify(result.result)
             : result.error;
-          // 增强的 XML 转义：处理所有特殊字符
-          const safeResultContent = this.escapeXmlContent(resultContent);
+
+          const truncated = this.truncateToolOutput(String(resultContent || ""));
+          const safeResultContent = this.escapeXmlContent(truncated);
 
           return `[SYSTEM_FEEDBACK]
                 <tool_output name="${action.name}" status="${status}">
