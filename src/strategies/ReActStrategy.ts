@@ -323,7 +323,7 @@ export class ReActStrategy implements ChatStrategy {
     content: string;
     rawThinkingProcess: string[];
   }): AsyncIterableIterator<{ content: string; rawThinkingProcess: string[] }> {
-    return result;
+    yield result;
   }
 
   /**

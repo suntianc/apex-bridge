@@ -74,24 +74,82 @@ export class PromptInjectionGuard {
   private readonly MAX_CACHE_SIZE = 1000;
 
   // ========================================
-  // 编译的正则表达式 patterns - Direct Injection
+  // 直接注入 patterns - SQL, Code, Shell
   // ========================================
 
-  /** 直接注入 pattern - 忽略之前指令 */
-  private readonly DIRECT_PATTERNS = [
-    { regex: /ignore\s+previous\s+instructions/gi, severity: "critical" as const },
-    { regex: /ignore\s+all\s+previous\s+instructions/gi, severity: "critical" as const },
-    { regex: /forget\s+all\s+instructions/gi, severity: "critical" as const },
-    { regex: /you\s+are\s+now\s+/gi, severity: "high" as const },
-    { regex: /system\s+override/gi, severity: "critical" as const },
-    { regex: /new\s+instructions/gi, severity: "high" as const },
-    { regex: /override\s+system/gi, severity: "critical" as const },
-    { regex: /ignore\s+all\s+previous\s+rules/gi, severity: "critical" as const },
-    { regex: /disregard\s+previous\s+(?:instructions|rules)/gi, severity: "critical" as const },
-    { regex: /act\s+as\s+(?:if\s+)?you\s+(?:are|were)/gi, severity: "high" as const },
-    { regex: /pretend\s+to\s+be/gi, severity: "high" as const },
-    { regex: /bypass\s+(?:your\s+)?(?:safety|security)/gi, severity: "critical" as const },
-    { regex: /disable\s+(?:your\s+)?(?:safety|security)/gi, severity: "critical" as const },
+  /** 直接注入 patterns - SQL 注入 */
+  private readonly DIRECT_PATTERNS: Array<{
+    regex: RegExp;
+    severity: "low" | "medium" | "high" | "critical";
+  }> = [
+    // SQL 注入 patterns
+    {
+      regex: /(\b(SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE)\b)/gi,
+      severity: "high" as const,
+    },
+    {
+      regex:
+        /(\b(UNION|SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE)\b.*\b(ALL|DISTINCT|INTO|FROM|WHERE)\b)/gi,
+      severity: "high" as const,
+    },
+    {
+      regex: /(\'\ OR \'1\'=\'1)|(\"\ OR \"1\"=\"1)|(\'\ OR 1=1)|(\" OR 1=1)/gi,
+      severity: "critical" as const,
+    },
+    { regex: /(\-\-|\#|\/\*|\*\/)/g, severity: "high" as const }, // SQL 注释
+    { regex: /(EXEC|EXECUTE)\s*\(/gi, severity: "critical" as const }, // SQL Server 执行
+    { regex: /(xp_cmdshell|xp_)/gi, severity: "critical" as const }, // SQL Server 危险扩展
+    { regex: /(LOAD_FILE|INTO OUTFILE|INTO DUMPFILE)/gi, severity: "critical" as const }, // 文件操作
+    { regex: /(\w+)\s*=\s*(\w+)\s*OR\s*(\w+)\s*=\s*(\w+)/gi, severity: "medium" as const }, // OR 条件注入
+    { regex: /(\'\;.*)/g, severity: "high" as const }, // 分号注入
+    { regex: /(SLEEP\(|BENCHMARK\()/gi, severity: "high" as const }, // 时间盲注
+
+    // 代码注入 patterns
+    {
+      regex: /(eval|exec|system|popen|shell_exec|passthru|proc_open|popen)\s*\(/gi,
+      severity: "critical" as const,
+    },
+    {
+      regex: /(require|include|require_once|include_once)\s*[\(\'\"]/gi,
+      severity: "high" as const,
+    },
+    { regex: /\$_(GET|POST|REQUEST|SERVER|FILES|ENV)/g, severity: "medium" as const }, // 全局变量访问
+    { regex: /(document\.|window\.|location\.|navigator\.)/gi, severity: "medium" as const }, // DOM 访问
+    { regex: /(\.innerHTML|\.outerHTML|\.innerText|\.outerText)/g, severity: "high" as const }, // DOM 注入
+    { regex: /(<script|javascript:|vbscript:|data:)/gi, severity: "critical" as const }, // XSS
+    { regex: /(\bon\w+\s*=|expression\()/gi, severity: "critical" as const }, // 事件处理器
+    { regex: /(<iframe|<object|<embed|<link)/gi, severity: "high" as const }, // 嵌入元素
+    { regex: /(\$\$|\$GLOBALS|\$HTTP_RAW_POST_DATA)/g, severity: "high" as const }, // PHP 全局变量
+
+    // Shell 命令 patterns
+    {
+      regex: /(\b(rm|cp|mv|chmod|chown|mkdir|rmdir|tar|gzip|bzip2|zip|unzip)\b)/gi,
+      severity: "high" as const,
+    },
+    { regex: /(\||;|&|\$\(|\`)/g, severity: "high" as const }, // Shell 元字符
+    { regex: /(sudo|su|passwd|shadow|etc\/passwd|etc\/shadow)/gi, severity: "critical" as const }, // 提权尝试
+    { regex: /(\/etc\/|\/var\/log\/|\/root\/.ssh\/)/gi, severity: "high" as const }, // 敏感路径
+    { regex: /\.\.\/|\.\.\\/g, severity: "medium" as const }, // 路径遍历
+    { regex: /(%2e%2e|\.\.%2f|\.%2e\/)/gi, severity: "medium" as const }, // URL 编码遍历
+    { regex: /(\/proc\/|\/sys\/|\/dev\/)/gi, severity: "high" as const }, // Linux 敏感路径
+    { regex: /win\.ini|boot\.ini|autoexec\.bat/gi, severity: "high" as const }, // Windows 敏感文件
+
+    // XML/HTML 注入 patterns
+    { regex: /<!DOCTYPE/gi, severity: "medium" as const },
+    { regex: /<svg/gi, severity: "high" as const },
+    { regex: /<math/gi, severity: "high" as const },
+    // 控制字符检测 patterns (使用字符串定义避免 ESLint 解析问题)
+  ];
+
+  // 控制字符检测 patterns - 作为单独的数组
+  private readonly CONTROL_CHAR_PATTERNS: Array<{
+    regex: RegExp;
+    severity: "low" | "medium" | "high" | "critical";
+  }> = [
+    { regex: /\x00/g, severity: "critical" as const },
+    { regex: /%00/g, severity: "critical" as const },
+    { regex: /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, severity: "high" as const },
+    { regex: /[\u200B-\u200D\u2060\uFEFF]/g, severity: "medium" as const }, // Zero-width characters
   ];
 
   // ========================================
@@ -345,7 +403,7 @@ export class PromptInjectionGuard {
     }
 
     // 清理 null 字节和控制字符
-    sanitized = sanitized.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\u200B-\u200D\u2060\uFEFF]/g, "");
+    sanitized = sanitized.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u200B-\u200D\u2060\uFEFF]/g, "");
 
     // 规范化空白
     sanitized = sanitized.replace(/\s+/g, " ").trim();

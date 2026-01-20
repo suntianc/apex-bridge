@@ -281,6 +281,7 @@ export class ReActEngine {
 
       throw new Error("Max iterations reached");
     } finally {
+      // Cleanup is handled by the signal.abort event listener
     }
   }
 

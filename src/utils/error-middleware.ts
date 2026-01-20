@@ -35,16 +35,6 @@ export interface HandledError {
   originalError?: unknown;
 }
 
-export interface HandledError {
-  code: string;
-  type: ErrorType;
-  message: string;
-  suggestion: string;
-  context: string;
-  timestamp: number;
-  originalError?: unknown;
-}
-
 export function createErrorHandler<T = unknown>(
   options: ErrorHandlerOptions
 ): (promise: Promise<T>) => Promise<T> {

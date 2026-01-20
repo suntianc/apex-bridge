@@ -197,7 +197,7 @@ export function validateWithinWorkDir(filePath: string): string {
  */
 export function sanitizeFileName(fileName: string): string {
   return fileName
-    .replace(/[\x00-\x1f\x7f]/g, "") // Remove control characters
+    .replace(/[\u0000-\u001f\u007f]/g, "") // Remove control characters
     .replace(/[<>:"/\\|?*]/g, "_") // Replace invalid chars
     .trim();
 }
