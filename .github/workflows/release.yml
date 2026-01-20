@@ -29,58 +29,61 @@ jobs:
 
       - name: Extract version
         id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "${GITHUB_OUTPUT}"
 
       - name: Generate changelog
         id: changelog
         run: |
-          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
-          echo "# Changelog" >> $GITHUB_OUTPUT
-          echo "" >> $GITHUB_OUTPUT
-          echo "## Version ${{ steps.version.outputs.VERSION }}" >> $GITHUB_OUTPUT
-          echo "" >> $GITHUB_OUTPUT
-          echo "### 📋 变更" >> $GITHUB_OUTPUT
-          echo "" >> $GITHUB_OUTPUT
+          {
+            echo "CHANGELOG<<EOF"
+            echo "# Changelog"
+            echo ""
+            echo "## Version ${VERSION}"
+            echo ""
+            echo "### Changes"
+            echo ""
 
-          # 获取自上次发布以来的提交
-          if [ -n "$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null)" ]; then
-            PREV_TAG=$(git describe --tags --abbrev=0 HEAD~1)
-            echo "#### 🚀 新功能" >> $GITHUB_OUTPUT
-            git log ${PREV_TAG}..HEAD --grep="^feat:" --oneline --format="- %s" | sed 's/^feat: //' | head -10 >> $GITHUB_OUTPUT
-            echo "" >> $GITHUB_OUTPUT
-            echo "#### 🐛 Bug 修复" >> $GITHUB_OUTPUT
-            git log ${PREV_TAG}..HEAD --grep="^fix:" --oneline --format="- %s" | sed 's/^fix: //' | head -10 >> $GITHUB_OUTPUT
-            echo "" >> $GITHUB_OUTPUT
-            echo "#### 🔧 改进" >> $GITHUB_OUTPUT
-            git log ${PREV_TAG}..HEAD --grep="^refactor\|^perf\|^style:" --oneline --format="- %s" | sed 's/^[a-z]*: //' | head -5 >> $GITHUB_OUTPUT
-          else
-            echo "#### 🎉 初始发布" >> $GITHUB_OUTPUT
-            echo "这是 ApexBridge 的第一个稳定版本！" >> $GITHUB_OUTPUT
-          fi
+            # 获取自上次发布以来的提交
+            if [ -n "$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null)" ]; then
+              PREV_TAG=$(git describe --tags --abbrev=0 HEAD~1)
+              echo "#### New Features"
+              git log "${PREV_TAG}"..HEAD --grep="^feat:" --oneline --format="- %s" | sed 's/^feat: //' | head -10
+              echo ""
+              echo "#### Bug Fixes"
+              git log "${PREV_TAG}"..HEAD --grep="^fix:" --oneline --format="- %s" | sed 's/^fix: //' | head -10
+              echo ""
+              echo "#### Improvements"
+              git log "${PREV_TAG}"..HEAD --grep="^refactor\|^perf\|^style:" --oneline --format="- %s" | sed 's/^[a-z]*: //' | head -5
+            else
+              echo "#### Initial Release"
+              echo "This is the first stable version of ApexBridge!"
+            fi
 
-          echo "" >> $GITHUB_OUTPUT
-          echo "#### 📦 包版本" >> $GITHUB_OUTPUT
-          echo "- ApexBridge 主系统: ${{ steps.version.outputs.VERSION }}" >> $GITHUB_OUTPUT
-          echo "" >> $GITHUB_OUTPUT
-          echo "#### 🙏 贡献者" >> $GITHUB_OUTPUT
-          git log --format="- %an" | sort | uniq -c | sort -nr | head -10 >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+            echo ""
+            echo "#### Package Versions"
+            echo "- ApexBridge Main: ${VERSION}"
+            echo ""
+            echo "#### Contributors"
+            git log --format="- %an" | sort | uniq -c | sort -nr | head -10
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
 
       - name: Create Release
         id: create_release
-        uses: actions/create-release@v1
+        uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ github.ref }}
-          release_name: Release ${{ steps.version.outputs.VERSION }}
+          name: Release ${{ steps.version.outputs.VERSION }}
           body: ${{ steps.changelog.outputs.CHANGELOG }}
           draft: false
           prerelease: false
 
   build-and-publish:
     name: Build and Publish
-    needs: create-release
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -112,25 +115,30 @@ jobs:
           cd ${{ matrix.package }}
           npm test
 
-      - name: Build package
+      - name: Build and Publish Package
         run: |
           cd ${{ matrix.package }}
+          npm ci
+          npm test
           npm run build
-
-      - name: Publish to npm
-        run: |
-          cd ${{ matrix.package }}
           npm publish --access public
 
-      - name: Create GitHub Release Asset
-        uses: actions/upload-release-asset@v1
+      - name: Create GitHub Release with Assets
+        uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ${{ matrix.package }}/dist/
-          asset_name: ${{ matrix.package }}-${{ github.ref_name }}.tar.gz
-          asset_content_type: application/gzip
+          tag_name: ${{ github.ref }}
+          name: Release ${{ github.ref_name }}
+          body: |
+            Release ${{ github.ref_name }} published successfully!
+            
+            ## Published Packages
+            - ${{ matrix.package }}@${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          files: |
+            ${{ matrix.package }}/dist/**
 
   update-docs:
     name: Update Documentation
@@ -183,17 +191,17 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Extract metadata
         id: meta
-        uses: docker/metadata-action@v4
+        uses: docker/metadata-action@v5
         with:
           images: ${{ secrets.DOCKER_USERNAME }}/${{ matrix.service }}
           tags: |
@@ -203,7 +211,7 @@ jobs:
             latest
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           context: ${{ matrix.service }}
           platforms: linux/amd64,linux/arm64
@@ -224,7 +232,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+        uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./docs/build
@@ -240,14 +248,14 @@ jobs:
       - name: Notify on Success
         if: needs.build-and-publish.result == 'success'
         run: |
-          echo "🎉 Release ${{ github.ref_name }} published successfully!"
-          echo "📦 All packages published to npm"
-          echo "🐳 Docker images built and pushed"
-          echo "📚 Documentation updated"
+          echo "Release ${{ github.ref_name }} published successfully!"
+          echo "All packages published to npm"
+          echo "Docker images built and pushed"
+          echo "Documentation updated"
 
       - name: Notify on Failure
         if: needs.build-and-publish.result == 'failure'
         run: |
-          echo "❌ Release failed!"
+          echo "Release failed!"
           echo "Please check the logs and fix the issues"
           exit 1

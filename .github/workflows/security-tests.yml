@@ -27,46 +27,38 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
-          cache-dependency-path: apex-bridge/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        working-directory: ./apex-bridge
         run: npm ci
 
       - name: Run security test suite
-        working-directory: ./apex-bridge
         run: npm test -- --testPathPattern="security|rateLimit|validation|sanitization|audit|concurrency" --coverage --coveragePathIgnorePatterns="node_modules|dist"
 
       - name: Upload coverage reports
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
-          file: ./apex-bridge/coverage/coverage-final.json
+          file: ./coverage/coverage-final.json
           flags: security
           name: security-tests
           fail_ci_if_error: false
 
       - name: Run rate limiting tests
-        working-directory: ./apex-bridge
         run: npm test -- rateLimit
 
       - name: Run validation tests
-        working-directory: ./apex-bridge
         run: npm test -- validation
 
       - name: Run sanitization tests
-        working-directory: ./apex-bridge
         run: npm test -- sanitization
 
       - name: Run audit logging tests
-        working-directory: ./apex-bridge
         run: npm test -- auditLogger
 
       - name: Run concurrency tests
-        working-directory: ./apex-bridge
         run: npm test -- concurrency
 
       - name: Check for security vulnerabilities
-        working-directory: ./apex-bridge
         run: npm audit --audit-level=moderate || true
 
   security-scan:
