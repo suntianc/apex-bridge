@@ -6,7 +6,7 @@
 
 import { createClient, RedisClientType } from "redis";
 import { logger } from "../../utils/logger";
-import { metricsService } from "../monitoring/MetricsService";
+import { metricsService } from "@/services/monitoring/MetricsService";
 import { ConfigService } from "../../services/ConfigService";
 
 interface CacheEntry {

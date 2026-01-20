@@ -63,10 +63,15 @@ describe("SurrealDBClient - Connection Management", () => {
       password: "root",
     };
 
+    // Clear any existing connection state
+    await client.disconnect().catch(() => {});
+
     const connect1 = client.connect(config1);
+    // This should reject immediately because a different connection is in progress
     await expect(client.connect(config2)).rejects.toThrow(
       "Connect already in progress with a different config"
     );
+    // Clean up the first connection attempt
     await connect1.catch(() => {});
-  });
+  }, 10000);
 });

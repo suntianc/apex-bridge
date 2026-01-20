@@ -30,7 +30,6 @@ trash
 ## IDE and editor files
 .vscode/
 .claude/
-.github/
 .idea/
 *.swp
 *.swo

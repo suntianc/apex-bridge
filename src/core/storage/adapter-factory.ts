@@ -282,11 +282,12 @@ export function createStorageConfig(env: NodeJS.ProcessEnv): StorageConfig {
 
   if (backend === StorageBackend.SurrealDB) {
     config.surrealdb = {
-      url: env.SURREALDB_URL || "ws://127.0.0.1:12470/rpc",
-      namespace: env.SURREALDB_NAMESPACE || "apexbridge",
-      database: env.SURREALDB_DATABASE || "production",
-      username: env.SURREALDB_USER || "root",
-      password: env.SURREALDB_PASS || "root",
+      // Support both SURREALDB_URL and legacy SURREAL_URL
+      url: env.SURREALDB_URL || env.SURREAL_URL || "ws://127.0.0.1:12470/rpc",
+      namespace: env.SURREALDB_NAMESPACE || env.SURREAL_NS || "apexbridge",
+      database: env.SURREALDB_DATABASE || env.SURREAL_DB || "production",
+      username: env.SURREALDB_USER || env.SURREAL_USER || "root",
+      password: env.SURREALDB_PASS || env.SURREAL_PASS || "root",
       timeout: parseEnvInt(env.SURREAL_CONNECTION_TIMEOUT, 5000),
       maxRetries: parseEnvInt(env.SURREAL_MAX_RETRIES, 3),
     };
