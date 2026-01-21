@@ -1,12 +1,12 @@
 /**
  * ApexBridge Performance Benchmark Runner
- * 
+ *
  * Comprehensive benchmark runner that executes all performance tests
  * and generates detailed reports.
- * 
+ *
  * Usage:
  *   npx ts-node scripts/run-benchmark.ts [options]
- *   
+ *
  * Options:
  *   --type <latency|throughput|recall|all>  Test type to run (default: all)
  *   --output <path>                          Output path for reports (default: ./benchmark-reports)
@@ -14,11 +14,13 @@
  *   --samples <number>                       Number of samples (default: 500)
  *   --verbose                                Enable verbose output
  *   --help                                   Show help
- * 
+ *
  * Examples:
  *   npx ts-node scripts/run-benchmark.ts                    # Run all tests
  *   npx ts-node scripts/run-benchmark.ts --type latency     # Run latency tests only
  *   npx ts-node scripts/run-benchmark.ts --format json      # Generate JSON report
+ *
+ * @packageDocumentation
  */
 
 import * as fs from 'fs';

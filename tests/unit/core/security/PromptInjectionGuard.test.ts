@@ -39,7 +39,7 @@ describe("PromptInjectionGuard - Direct Injection Detection", () => {
 
   beforeEach(() => {
     PromptInjectionGuard.resetInstance();
-    guard = PromptInjectionGuard.getInstance({ enableDirectDetection: true });
+    guard = PromptInjectionGuard.getInstance({ enableJailbreakDetection: true });
   });
 
   it("should detect ignore previous instructions", () => {
@@ -47,7 +47,7 @@ describe("PromptInjectionGuard - Direct Injection Detection", () => {
     const result = guard.detect(maliciousInput);
 
     expect(result.isClean).toBe(false);
-    expect(result.detectedPatterns.some((p) => p.type === "direct")).toBe(true);
+    expect(result.detectedPatterns.some((p) => p.type === "jailbreak")).toBe(true);
   });
 
   it("should detect forget all instructions", () => {
@@ -55,7 +55,7 @@ describe("PromptInjectionGuard - Direct Injection Detection", () => {
     const result = guard.detect(maliciousInput);
 
     expect(result.isClean).toBe(false);
-    expect(result.detectedPatterns.some((p) => p.type === "direct")).toBe(true);
+    expect(result.detectedPatterns.some((p) => p.type === "jailbreak")).toBe(true);
   });
 
   it("should detect you are now pattern", () => {
@@ -157,6 +157,7 @@ describe("PromptInjectionGuard - XML Injection Detection", () => {
   let guard: PromptInjectionGuard;
 
   beforeEach(() => {
+    PromptInjectionGuard.resetInstance();
     guard = PromptInjectionGuard.getInstance({ enableXmlDetection: true });
   });
 

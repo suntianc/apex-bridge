@@ -146,8 +146,11 @@ export class PromptInjectionGuard {
     regex: RegExp;
     severity: "low" | "medium" | "high" | "critical";
   }> = [
+    // eslint-disable-next-line no-control-regex
     { regex: /\u0000/g, severity: "critical" as const },
-    { regex: /%00/g, severity: "critical" as const },
+    // eslint-disable-next-line no-control-regex
+    { regex: /%00/g, severity: "critical" as const }, // URL-encoded null byte
+    // eslint-disable-next-line no-control-regex
     { regex: /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, severity: "high" as const },
     { regex: /[\u200B-\u200D\u2060\uFEFF]/g, severity: "medium" as const }, // Zero-width characters
   ];
@@ -167,6 +170,18 @@ export class PromptInjectionGuard {
     { regex: /unrestricted\s+mode/gi, severity: "critical" as const },
     { regex: /evil\s+(?:mode|bot)/gi, severity: "critical" as const },
     { regex: /no\s+(?:ethics|rules|limits)/gi, severity: "critical" as const },
+    { regex: /ignore\s+(?:all\s+)?(?:previous\s+)?instructions/gi, severity: "critical" as const },
+    {
+      regex: /forget\s+all\s+(?:previous\s+)?(?:instructions|rules)/gi,
+      severity: "critical" as const,
+    },
+    { regex: /you\s+are\s+now\s+(?:a\s+)?/gi, severity: "critical" as const },
+    {
+      regex: /bypass\s+(?:your\s+)?(?:safety|guidelines|restrictions)/gi,
+      severity: "critical" as const,
+    },
+    { regex: /new\s+instructions\s+(?:from\s+(?:user|me|the))/gi, severity: "high" as const },
+    { regex: /act\s+as\s+if\s+you\s+were\s+(?:a\s+)?/gi, severity: "high" as const },
     { regex: /ignore\s+all\s+(?:content|guidelines)/gi, severity: "critical" as const },
     { regex: /evil\s+version/gi, severity: "critical" as const },
     { regex: /hypothetical\s+(?:scenario|response)/gi, severity: "medium" as const },
@@ -401,6 +416,7 @@ export class PromptInjectionGuard {
 
     // 清理 null 字节和控制字符
     sanitized = sanitized.replace(
+      // eslint-disable-next-line no-control-regex
       /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u200B-\u200D\u2060\uFEFF]/g,
       ""
     );
@@ -494,6 +510,26 @@ export class PromptInjectionGuard {
     const results: DetectedPattern[] = [];
 
     for (const { regex, severity } of this.XML_PATTERNS) {
+      let match: RegExpExecArray | null;
+
+      regex.lastIndex = 0;
+
+      while ((match = regex.exec(content)) !== null) {
+        results.push({
+          type: "xml",
+          pattern: match[0],
+          position: match.index,
+          severity,
+        });
+
+        if (match.index === regex.lastIndex) {
+          regex.lastIndex++;
+        }
+      }
+    }
+
+    // Also scan for control characters when XML detection is enabled
+    for (const { regex, severity } of this.CONTROL_CHAR_PATTERNS) {
       let match: RegExpExecArray | null;
 
       regex.lastIndex = 0;

@@ -125,6 +125,7 @@ export default [
       "vendor/",
       "public/",
       "opencode/",
+      "scripts/",  // Scripts are not part of main build
     ],
   },
 ];

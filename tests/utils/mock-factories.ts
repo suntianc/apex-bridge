@@ -3,7 +3,7 @@
  * 提供统一的 Mock 创建工具，简化测试代码
  */
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 type AnyFunction = (...args: any[]) => any;
 
 /**
@@ -58,7 +58,7 @@ export class MockLLMAdapter {
   }
 
   static createStreamResponse(chunks: string[]) {
-    // eslint-disable-next-line generator-star-spacing
+     
     return function* () {
       for (const chunk of chunks) {
         yield chunk;
