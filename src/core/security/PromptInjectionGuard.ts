@@ -146,7 +146,7 @@ export class PromptInjectionGuard {
     regex: RegExp;
     severity: "low" | "medium" | "high" | "critical";
   }> = [
-    { regex: /\x00/g, severity: "critical" as const },
+    { regex: /\u0000/g, severity: "critical" as const },
     { regex: /%00/g, severity: "critical" as const },
     { regex: /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, severity: "high" as const },
     { regex: /[\u200B-\u200D\u2060\uFEFF]/g, severity: "medium" as const }, // Zero-width characters

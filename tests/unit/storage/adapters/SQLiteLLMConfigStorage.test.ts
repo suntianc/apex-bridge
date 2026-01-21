@@ -18,7 +18,9 @@ function cleanupTestDb() {
         }
       }
     }
-  } catch (e) {}
+  } catch (e) {
+    // Ignore cleanup errors - file may not exist or permission issues
+  }
 }
 
 class TestSQLiteLLMConfigStorage {
