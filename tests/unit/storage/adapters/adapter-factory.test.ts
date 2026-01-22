@@ -2,6 +2,22 @@
  * Storage Adapter Factory Tests
  */
 
+// Mock LanceDB to prevent native module loading issues in test environment
+vi.mock("@lancedb/lancedb", () => ({
+  LanceDB: class MockLanceDB {
+    connect() {
+      return Promise.resolve({});
+    }
+    close() {
+      return Promise.resolve();
+    }
+  },
+  EmbeddingFunction: class MockEmbeddingFunction {
+    constructor() {}
+  },
+}));
+
+import { vi, describe, it, expect, afterEach, beforeEach } from "vitest";
 import {
   StorageAdapterFactory,
   createStorageConfig,

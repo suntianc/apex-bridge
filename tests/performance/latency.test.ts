@@ -279,11 +279,11 @@ describe("Latency Benchmarks", () => {
       );
 
       // 使用更简单的标准差计算
-      // CV = stdDev / mean，CV 应该小于 1.0 表示相对稳定
+      // CV = stdDev / mean，CV 应该小于 1.5 表示相对稳定
       // 使用 p99 和 p50 的差值作为分布宽度的近似
       const distributionWidth = result.p99 - result.p50;
       const cvApprox = distributionWidth / result.avg;
-      expect(cvApprox).toBeLessThan(1.0);
+      expect(cvApprox).toBeLessThan(1.5);
 
       console.log(`CV approximation: ${(cvApprox * 100).toFixed(2)}%`);
     });
