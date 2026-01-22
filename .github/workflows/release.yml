@@ -3,10 +3,10 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 env:
-  NODE_VERSION: '18'
+  NODE_VERSION: "18"
 
 jobs:
   create-release:
@@ -97,8 +97,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          registry-url: 'https://registry.npmjs.org'
-          scope: '@${{ github.repository_owner }}'
+          registry-url: "https://registry.npmjs.org"
+          scope: "@${{ github.repository_owner }}"
 
       - name: Configure npm
         run: |
@@ -132,7 +132,7 @@ jobs:
           name: Release ${{ github.ref_name }}
           body: |
             Release ${{ github.ref_name }} published successfully!
-            
+
             ## Published Packages
             - ${{ matrix.package }}@${{ github.ref_name }}
           draft: false

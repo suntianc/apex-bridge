@@ -175,7 +175,7 @@ export class ToolExecutorFactory {
    */
   static createBuiltInExecutor(): IToolExecutor {
     // 使用延迟导入避免循环依赖
-     
+
     const { getBuiltInToolsRegistry } = require("../BuiltInToolsRegistry");
     return getBuiltInToolsRegistry();
   }

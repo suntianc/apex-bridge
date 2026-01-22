@@ -1,7 +1,7 @@
 # PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-01-17
-**Commit:** d2f457e (refactor/surreal-db)
+**Generated:** 2026-01-21
+**Commit:** 61f1442 (fix: 修复 CI/CD issues)
 
 ---
 
@@ -98,27 +98,31 @@ ApexBridge is an enterprise-grade AI Agent framework with multi-model support (O
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
 | SurrealDB Phase 1 TypeScript errors | ModelController.ts, ProviderController.ts, LLMManager.ts, MCPIntegrationService.ts, ModelRegistry.ts, adapter.ts, llm-config.ts | ✅ FIXED (2026-01-16)    |
 | Phase 0: 存储接口抽象层重构         | `src/services/LLMConfigService.ts`, `MCPConfigService.ts`, `ConversationHistoryService.ts`, `TrajectoryStore.ts`                | ✅ COMPLETE (2026-01-16) |
+| CI/CD anti-patterns                 | `.github/workflows/release.yml`, `ci.yml`, `security-tests.yml`                                                                 | 🔴 PENDING               |
 
 ### Technical Debt
 
 The following issues are known limitations that have been addressed or are by design:
 
-| Issue                                   | Status                      | Notes                                                                                             |
-| --------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------- |
-| Phase 0: 存储接口抽象层重构             | ✅ COMPLETE (2026-01-16)    | 4个服务重构，100% 测试通过                                                                        |
-| SurrealDB Vector Storage implementation | ✅ COMPLETE (2026-01-16)    | Implemented SurrealDBVectorStorage for LanceDB deprecation                                        |
-| Context compression never runs          | ✅ FIXED (2026-01-15)       | `parseConfig()` now properly defaults `enabled: true`                                             |
-| ReActStrategy usage tracking broken     | ✅ FIXED (2026-01-15)       | `usage` field now properly populated with token counts                                            |
-| PromptInjectionGuard singleton          | ✅ FIXED (2026-01-15)       | Added `resetInstance()` method for test isolation                                                 |
-| Shell command regex malformed           | ✅ FIXED (2026-01-15)       | Corrected `\$\([[^\)]+\]\)` → `\$\([^)]+\)`                                                       |
-| Missing "ignore all previous" pattern   | ✅ FIXED (2026-01-15)       | Added pattern for "ignore all previous instructions"                                              |
-| Server startup time (~60s)              | ✅ OPTIMIZED (2026-01-15)   | Parallelized initialization, reduced warmup timeout to 30s                                        |
-| Ollama embedding fallback               | ✅ IMPLEMENTED (2026-01-15) | Keyword search fallback now works when embedding fails                                            |
-| LanceDB vector index non-blocking       | ✅ BY DESIGN                | Index errors are logged but don't block server startup                                            |
-| Empty catch blocks in tests             | 🔴 PENDING                  | 4+ violations in tests (ProcessPool.ts, SQLiteLLMConfigStorage.test.ts, surrealdb/client.test.ts) |
-| `as any` type assertions                | 🔴 PENDING                  | 109 violations across 24 files (mostly tests, some production)                                    |
-| Config in two places                    | 🔴 PENDING                  | `config/` AND `src/config/` directories both exist                                                |
-| Duplicate HTTP response patterns        | 🔴 PENDING                  | 33 violations using inline res.status().json() instead of http-response.ts utilities              |
+| Issue                                   | Status                      | Notes                                                                                                     |
+| --------------------------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Phase 0: 存储接口抽象层重构             | ✅ COMPLETE (2026-01-16)    | 4个服务重构，100% 测试通过                                                                                |
+| SurrealDB Vector Storage implementation | ✅ COMPLETE (2026-01-16)    | Implemented SurrealDBVectorStorage for LanceDB deprecation                                                |
+| Context compression never runs          | ✅ FIXED (2026-01-15)       | `parseConfig()` now properly defaults `enabled: true`                                                     |
+| ReActStrategy usage tracking broken     | ✅ FIXED (2026-01-15)       | `usage` field now properly populated with token counts                                                    |
+| PromptInjectionGuard singleton          | ✅ FIXED (2026-01-15)       | Added `resetInstance()` method for test isolation                                                         |
+| Shell command regex malformed           | ✅ FIXED (2026-01-15)       | Corrected `\$\([[^\)]+\]\)` → `\$\([^)]+\)`                                                               |
+| Missing "ignore all previous" pattern   | ✅ FIXED (2026-01-15)       | Added pattern for "ignore all previous instructions"                                                      |
+| Server startup time (~60s)              | ✅ OPTIMIZED (2026-01-15)   | Parallelized initialization, reduced warmup timeout to 30s                                                |
+| Ollama embedding fallback               | ✅ IMPLEMENTED (2026-01-15) | Keyword search fallback now works when embedding fails                                                    |
+| LanceDB vector index non-blocking       | ✅ BY DESIGN                | Index errors are logged but don't block server startup                                                    |
+| Empty catch blocks in tests             | 🔴 PENDING                  | 4+ violations in tests (ProcessPool.ts, SQLiteLLMConfigStorage.test.ts, surrealdb/client.test.ts)         |
+| `as any` type assertions                | 🔴 PENDING                  | 130 violations across 23 files (4 production, 109 tests)                                                  |
+| Config in two places                    | 🔴 PENDING                  | `config/` AND `src/config/` directories both exist                                                        |
+| Duplicate HTTP response patterns        | 🔴 PENDING                  | 44+ violations using inline res.status().json() instead of http-response.ts utilities                     |
+| Duplicate ChatController                | 🔴 PENDING                  | `api/controllers/ChatController.ts` (1155 lines) AND `api/controllers/chat/ChatController.ts` (461 lines) |
+| Legacy SkillManager wrapper             | 🔴 PENDING                  | `services/SkillManager.ts` wrapper re-exports from `services/skill/SkillManager.ts`                       |
+| Mixed TS/JS scripts                     | 🔴 PENDING                  | 6 .ts and 14 .js files in `scripts/` directory                                                            |
 
 ### Debug Code (Should Be Removed)
 
