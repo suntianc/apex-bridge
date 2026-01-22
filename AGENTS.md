@@ -330,4 +330,5 @@ describe("SurrealDBAdapterFactory", () => {
 - MCP servers stored in SQLite, tools indexed in LanceDB
 - Entry point is `src/server.ts` (not `index.ts`)
 - `opencode/` is a SEPARATE nested project (ignore for main development)
+
 # CI Fix
