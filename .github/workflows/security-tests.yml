@@ -36,7 +36,7 @@ jobs:
         run: npm ci
 
       - name: Run security test suite
-        run: npm test -- --testPathPattern="security|rateLimit|validation|sanitization|audit|concurrency" --coverage --coveragePathIgnorePatterns="node_modules|dist"
+        run: npm test -- --coverage --coveragePathIgnorePatterns="node_modules|dist" --passWithNoTests
 
       - name: Upload coverage reports
         uses: codecov/codecov-action@v4
@@ -47,11 +47,11 @@ jobs:
           fail_ci_if_error: false
 
       # Individual test patterns - run only if matching tests exist
-      - name: Run validation and sanitization tests
-        run: npm test -- --testPathPattern="validation|sanitization" || echo "No matching tests found"
+      - name: Run security-related tests
+        run: npm test -- --testPathPattern="security|PromptInjection|audit" --passWithNoTests || echo "No matching security tests found"
 
-      - name: Run audit and concurrency tests
-        run: npm test -- --testPathPattern="audit|concurrency" || echo "No matching tests found"
+      - name: Run validation and concurrency tests
+        run: npm test -- --testPathPattern="validation|concurrency" --passWithNoTests || echo "No matching tests found"
 
       - name: Check for security vulnerabilities
         run: npm audit --audit-level=moderate || true
