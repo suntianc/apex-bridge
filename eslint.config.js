@@ -1,10 +1,10 @@
-// ESLint v9 flat config
-import js from "@eslint/js";
-import tseslint from "typescript-eslint";
-import pluginImport from "eslint-plugin-import";
-import reactHooks from "eslint-plugin-react-hooks";
+// ESLint v9 flat config (CommonJS format for Jest compatibility)
+const js = require("@eslint/js");
+const tseslint = require("typescript-eslint");
+const pluginImport = require("eslint-plugin-import");
+const reactHooks = require("eslint-plugin-react-hooks");
 
-export default [
+module.exports = [
   js.configs.recommended,
   {
     files: ["**/*.ts", "**/*.tsx"],
@@ -113,7 +113,7 @@ export default [
       "no-undef": "off",
     },
   },
-  // Project-wide ignores (migrate from .eslintignore)
+  // Project-wide ignores
   {
     ignores: [
       "dist/",
@@ -125,7 +125,7 @@ export default [
       "vendor/",
       "public/",
       "opencode/",
-      "scripts/",  // Scripts are not part of main build
+      "scripts/",
     ],
   },
 ];

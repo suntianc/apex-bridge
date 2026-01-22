@@ -1,7 +1,0 @@
-# Ignore legacy plugin samples and build outputs
-plugins/**
-admin/dist/**
-dist/**
-node_modules/**
-
-
