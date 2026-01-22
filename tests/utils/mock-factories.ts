@@ -3,7 +3,6 @@
  * 提供统一的 Mock 创建工具，简化测试代码
  */
 
- 
 type AnyFunction = (...args: any[]) => any;
 
 /**
@@ -58,7 +57,6 @@ export class MockLLMAdapter {
   }
 
   static createStreamResponse(chunks: string[]) {
-     
     return function* () {
       for (const chunk of chunks) {
         yield chunk;
