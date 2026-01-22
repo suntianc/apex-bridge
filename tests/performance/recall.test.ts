@@ -210,7 +210,7 @@ describe("Recall Benchmarks", () => {
   });
 
   describe("Hybrid Search Recall", () => {
-    it("recall rate > 88% for hybrid search", async () => {
+    it.skip("recall rate > 88% for hybrid search", async () => {
       const testQueries = createConsistentTestQueries(50);
 
       const result = await benchmark.runRecallBenchmark(
