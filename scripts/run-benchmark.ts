@@ -23,15 +23,15 @@
  * @packageDocumentation
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
-import { fileURLToPath } from 'url';
+import * as fs from "fs";
+import * as path from "path";
+import { fileURLToPath } from "url";
 
 // Type definitions
 interface BenchmarkOptions {
-  type: 'latency' | 'throughput' | 'recall' | 'all';
+  type: "latency" | "throughput" | "recall" | "all";
   output: string;
-  format: 'json' | 'markdown' | 'html';
+  format: "json" | "markdown" | "html";
   samples: number;
   verbose: boolean;
   help: boolean;
@@ -70,7 +70,7 @@ interface LatencyReportSection {
     p99: number;
     avg: number;
     throughput: number;
-    status: 'pass' | 'fail';
+    status: "pass" | "fail";
   }>;
 }
 
@@ -83,7 +83,7 @@ interface ThroughputReportSection {
     throughput: number;
     avgLatency: number;
     duration: number;
-    status: 'pass' | 'fail';
+    status: "pass" | "fail";
   }>;
 }
 
@@ -96,20 +96,20 @@ interface RecallReportSection {
     recall: number;
     precision: number;
     f1: number;
-    status: 'pass' | 'fail';
+    status: "pass" | "fail";
   }>;
 }
 
 // ANSI colors for terminal output
 const COLORS = {
-  reset: '\x1b[0m',
-  bright: '\x1b[1m',
-  dim: '\x1b[2m',
-  red: '\x1b[31m',
-  green: '\x1b[32m',
-  yellow: '\x1b[33m',
-  blue: '\x1b[34m',
-  cyan: '\x1b[36m',
+  reset: "\x1b[0m",
+  bright: "\x1b[1m",
+  dim: "\x1b[2m",
+  red: "\x1b[31m",
+  green: "\x1b[32m",
+  yellow: "\x1b[33m",
+  blue: "\x1b[34m",
+  cyan: "\x1b[36m",
 };
 
 // Logger
@@ -118,15 +118,15 @@ function log(message: string, color: string = COLORS.reset): void {
 }
 
 function logSection(title: string): void {
-  console.log('\n' + '='.repeat(60));
+  console.log("\n" + "=".repeat(60));
   log(title, COLORS.bright + COLORS.cyan);
-  console.log('='.repeat(60));
+  console.log("=".repeat(60));
 }
 
 function logSubsection(title: string): void {
-  console.log('\n' + '-'.repeat(40));
+  console.log("\n" + "-".repeat(40));
   log(title, COLORS.bright + COLORS.blue);
-  console.log('-'.repeat(40));
+  console.log("-".repeat(40));
 }
 
 function logSuccess(message: string): void {
@@ -149,9 +149,9 @@ function logInfo(message: string): void {
 function parseArgs(): BenchmarkOptions {
   const args = process.argv.slice(2);
   const options: BenchmarkOptions = {
-    type: 'all',
-    output: './benchmark-reports',
-    format: 'markdown',
+    type: "all",
+    output: "./benchmark-reports",
+    format: "markdown",
     samples: 500,
     verbose: false,
     help: false,
@@ -159,54 +159,54 @@ function parseArgs(): BenchmarkOptions {
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    
+
     switch (arg) {
-      case '--type':
+      case "--type":
         i++;
         if (args[i]) {
           const type = args[i].toLowerCase();
-          if (['latency', 'throughput', 'recall', 'all'].includes(type)) {
-            options.type = type as BenchmarkOptions['type'];
+          if (["latency", "throughput", "recall", "all"].includes(type)) {
+            options.type = type as BenchmarkOptions["type"];
           } else {
             logError(`Invalid type: ${type}`);
             process.exit(1);
           }
         }
         break;
-      case '--output':
+      case "--output":
         i++;
         if (args[i]) {
           options.output = args[i];
         }
         break;
-      case '--format':
+      case "--format":
         i++;
         if (args[i]) {
           const format = args[i].toLowerCase();
-          if (['json', 'markdown', 'html'].includes(format)) {
-            options.format = format as BenchmarkOptions['format'];
+          if (["json", "markdown", "html"].includes(format)) {
+            options.format = format as BenchmarkOptions["format"];
           } else {
             logError(`Invalid format: ${format}`);
             process.exit(1);
           }
         }
         break;
-      case '--samples':
+      case "--samples":
         i++;
         if (args[i] && !isNaN(parseInt(args[i]))) {
           options.samples = parseInt(args[i]);
         }
         break;
-      case '--verbose':
-      case '-v':
+      case "--verbose":
+      case "-v":
         options.verbose = true;
         break;
-      case '--help':
-      case '-h':
+      case "--help":
+      case "-h":
         options.help = true;
         break;
       default:
-        if (arg.startsWith('--')) {
+        if (arg.startsWith("--")) {
           logWarning(`Unknown option: ${arg}`);
         }
     }
@@ -259,12 +259,17 @@ ${COLORS.bright}Performance Thresholds:${COLORS.reset}
 }
 
 // Get environment information
-function getEnvironment(): { nodeVersion: string; platform: string; cpuCount: number; memoryTotal: number } {
+function getEnvironment(): {
+  nodeVersion: string;
+  platform: string;
+  cpuCount: number;
+  memoryTotal: number;
+} {
   const memUsage = process.memoryUsage();
   return {
     nodeVersion: process.version,
     platform: process.platform,
-    cpuCount: require('os').cpus().length,
+    cpuCount: require("os").cpus().length,
     memoryTotal: memUsage.heapTotal + memUsage.external,
   };
 }
@@ -306,27 +311,27 @@ function createMockRetrievalService(avgLatencyMs: number = 5) {
       const latency = avgLatencyMs + (Math.random() - 0.5) * 2 * avgLatencyMs;
       await new Promise((resolve) => setTimeout(resolve, latency));
       return [
-        { id: 'tool-1', score: 0.95 },
-        { id: 'tool-2', score: 0.88 },
-        { id: 'tool-3', score: 0.82 },
+        { id: "tool-1", score: 0.95 },
+        { id: "tool-2", score: 0.88 },
+        { id: "tool-3", score: 0.82 },
       ];
     },
     async searchByKeyword(keyword: string) {
       const latency = avgLatencyMs * 0.4 + (Math.random() - 0.5) * avgLatencyMs * 0.4;
       await new Promise((resolve) => setTimeout(resolve, latency));
       return [
-        { id: 'tool-1', score: 0.92 },
-        { id: 'tool-4', score: 0.85 },
+        { id: "tool-1", score: 0.92 },
+        { id: "tool-4", score: 0.85 },
       ];
     },
     async hybridSearch(query: string) {
       const latency = avgLatencyMs * 1.2 + (Math.random() - 0.5) * avgLatencyMs * 0.6;
       await new Promise((resolve) => setTimeout(resolve, latency));
       return [
-        { id: 'tool-1', score: 0.94 },
-        { id: 'tool-2', score: 0.89 },
-        { id: 'tool-3', score: 0.85 },
-        { id: 'tool-4', score: 0.78 },
+        { id: "tool-1", score: 0.94 },
+        { id: "tool-2", score: 0.89 },
+        { id: "tool-3", score: 0.85 },
+        { id: "tool-4", score: 0.78 },
       ];
     },
   };
@@ -334,84 +339,89 @@ function createMockRetrievalService(avgLatencyMs: number = 5) {
 
 // Run latency benchmarks
 async function runLatencyBenchmarks(samples: number): Promise<LatencyReportSection> {
-  logSection('Latency Benchmarks');
-  
+  logSection("Latency Benchmarks");
+
   const mockService = createMockRetrievalService(5);
-  const details: LatencyReportSection['details'] = [];
+  const details: LatencyReportSection["details"] = [];
   let passed = 0;
   let failed = 0;
 
   // Vector search latency test
-  logSubsection('Vector Search Latency');
+  logSubsection("Vector Search Latency");
   const vectorStart = Date.now();
   for (let i = 0; i < samples; i++) {
-    await mockService.findRelevantSkills('test query');
+    await mockService.findRelevantSkills("test query");
   }
   const vectorDuration = Date.now() - vectorStart;
   const vectorAvg = vectorDuration / samples;
   const vectorPassed = vectorAvg < 10;
-  if (vectorPassed) passed++; else failed++;
-  
+  if (vectorPassed) passed++;
+  else failed++;
+
   details.push({
-    name: 'Vector Search',
+    name: "Vector Search",
     p50: vectorAvg * 0.8,
     p95: vectorAvg * 1.5,
     p99: vectorAvg * 2.0,
     avg: vectorAvg,
     throughput: 1000 / vectorAvg,
-    status: vectorPassed ? 'pass' : 'fail',
+    status: vectorPassed ? "pass" : "fail",
   });
-  
+
   logInfo(`Average: ${vectorAvg.toFixed(2)}ms, Throughput: ${(1000 / vectorAvg).toFixed(2)} req/s`);
-  log(vectorPassed ? '✓ PASS' : '✗ FAIL', vectorPassed ? COLORS.green : COLORS.red);
+  log(vectorPassed ? "✓ PASS" : "✗ FAIL", vectorPassed ? COLORS.green : COLORS.red);
 
   // Keyword search latency test
-  logSubsection('Keyword Search Latency');
+  logSubsection("Keyword Search Latency");
   const keywordStart = Date.now();
   for (let i = 0; i < samples; i++) {
-    await mockService.searchByKeyword('test');
+    await mockService.searchByKeyword("test");
   }
   const keywordDuration = Date.now() - keywordStart;
   const keywordAvg = keywordDuration / samples;
   const keywordPassed = keywordAvg < 5;
-  if (keywordPassed) passed++; else failed++;
-  
+  if (keywordPassed) passed++;
+  else failed++;
+
   details.push({
-    name: 'Keyword Search',
+    name: "Keyword Search",
     p50: keywordAvg * 0.8,
     p95: keywordAvg * 1.5,
     p99: keywordAvg * 2.0,
     avg: keywordAvg,
     throughput: 1000 / keywordAvg,
-    status: keywordPassed ? 'pass' : 'fail',
+    status: keywordPassed ? "pass" : "fail",
   });
-  
-  logInfo(`Average: ${keywordAvg.toFixed(2)}ms, Throughput: ${(1000 / keywordAvg).toFixed(2)} req/s`);
-  log(keywordPassed ? '✓ PASS' : '✗ FAIL', keywordPassed ? COLORS.green : COLORS.red);
+
+  logInfo(
+    `Average: ${keywordAvg.toFixed(2)}ms, Throughput: ${(1000 / keywordAvg).toFixed(2)} req/s`
+  );
+  log(keywordPassed ? "✓ PASS" : "✗ FAIL", keywordPassed ? COLORS.green : COLORS.red);
 
   // Hybrid search latency test
-  logSubsection('Hybrid Search Latency');
+  logSubsection("Hybrid Search Latency");
   const hybridStart = Date.now();
   for (let i = 0; i < samples; i++) {
-    await mockService.hybridSearch('test query');
+    await mockService.hybridSearch("test query");
   }
   const hybridDuration = Date.now() - hybridStart;
   const hybridAvg = hybridDuration / samples;
   const hybridPassed = hybridAvg < 15;
-  if (hybridPassed) passed++; else failed++;
-  
+  if (hybridPassed) passed++;
+  else failed++;
+
   details.push({
-    name: 'Hybrid Search',
+    name: "Hybrid Search",
     p50: hybridAvg * 0.8,
     p95: hybridAvg * 1.5,
     p99: hybridAvg * 2.0,
     avg: hybridAvg,
     throughput: 1000 / hybridAvg,
-    status: hybridPassed ? 'pass' : 'fail',
+    status: hybridPassed ? "pass" : "fail",
   });
-  
+
   logInfo(`Average: ${hybridAvg.toFixed(2)}ms, Throughput: ${(1000 / hybridAvg).toFixed(2)} req/s`);
-  log(hybridPassed ? '✓ PASS' : '✗ FAIL', hybridPassed ? COLORS.green : COLORS.red);
+  log(hybridPassed ? "✓ PASS" : "✗ FAIL", hybridPassed ? COLORS.green : COLORS.red);
 
   return {
     tests: 3,
@@ -423,85 +433,88 @@ async function runLatencyBenchmarks(samples: number): Promise<LatencyReportSecti
 
 // Run throughput benchmarks
 async function runThroughputBenchmarks(): Promise<ThroughputReportSection> {
-  logSection('Throughput Benchmarks');
-  
+  logSection("Throughput Benchmarks");
+
   const mockService = createMockRetrievalService(5);
-  const details: ThroughputReportSection['details'] = [];
+  const details: ThroughputReportSection["details"] = [];
   let passed = 0;
   let failed = 0;
   const testDuration = 1000; // 1 second per test
 
   // Vector search throughput
-  logSubsection('Vector Search Throughput');
+  logSubsection("Vector Search Throughput");
   const vectorStart = Date.now();
   let vectorCount = 0;
   while (Date.now() - vectorStart < testDuration) {
-    await mockService.findRelevantSkills('throughput test');
+    await mockService.findRelevantSkills("throughput test");
     vectorCount++;
   }
   const vectorDuration = Date.now() - vectorStart;
   const vectorThroughput = (vectorCount / vectorDuration) * 1000;
   const vectorTpPassed = vectorThroughput > 100;
-  if (vectorTpPassed) passed++; else failed++;
-  
+  if (vectorTpPassed) passed++;
+  else failed++;
+
   details.push({
-    name: 'Vector Search',
+    name: "Vector Search",
     throughput: vectorThroughput,
     avgLatency: 1000 / vectorThroughput,
     duration: vectorDuration,
-    status: vectorTpPassed ? 'pass' : 'fail',
+    status: vectorTpPassed ? "pass" : "fail",
   });
-  
+
   logInfo(`Throughput: ${vectorThroughput.toFixed(2)} req/s`);
-  log(vectorTpPassed ? '✓ PASS' : '✗ FAIL', vectorTpPassed ? COLORS.green : COLORS.red);
+  log(vectorTpPassed ? "✓ PASS" : "✗ FAIL", vectorTpPassed ? COLORS.green : COLORS.red);
 
   // Keyword search throughput
-  logSubsection('Keyword Search Throughput');
+  logSubsection("Keyword Search Throughput");
   const keywordStart = Date.now();
   let keywordCount = 0;
   while (Date.now() - keywordStart < testDuration) {
-    await mockService.searchByKeyword('throughput');
+    await mockService.searchByKeyword("throughput");
     keywordCount++;
   }
   const keywordDuration = Date.now() - keywordStart;
   const keywordThroughput = (keywordCount / keywordDuration) * 1000;
   const keywordTpPassed = keywordThroughput > 200;
-  if (keywordTpPassed) passed++; else failed++;
-  
+  if (keywordTpPassed) passed++;
+  else failed++;
+
   details.push({
-    name: 'Keyword Search',
+    name: "Keyword Search",
     throughput: keywordThroughput,
     avgLatency: 1000 / keywordThroughput,
     duration: keywordDuration,
-    status: keywordTpPassed ? 'pass' : 'fail',
+    status: keywordTpPassed ? "pass" : "fail",
   });
-  
+
   logInfo(`Throughput: ${keywordThroughput.toFixed(2)} req/s`);
-  log(keywordTpPassed ? '✓ PASS' : '✗ FAIL', keywordTpPassed ? COLORS.green : COLORS.red);
+  log(keywordTpPassed ? "✓ PASS" : "✗ FAIL", keywordTpPassed ? COLORS.green : COLORS.red);
 
   // Hybrid search throughput
-  logSubsection('Hybrid Search Throughput');
+  logSubsection("Hybrid Search Throughput");
   const hybridStart = Date.now();
   let hybridCount = 0;
   while (Date.now() - hybridStart < testDuration) {
-    await mockService.hybridSearch('throughput test');
+    await mockService.hybridSearch("throughput test");
     hybridCount++;
   }
   const hybridDuration = Date.now() - hybridStart;
   const hybridThroughput = (hybridCount / hybridDuration) * 1000;
   const hybridTpPassed = hybridThroughput > 80;
-  if (hybridTpPassed) passed++; else failed++;
-  
+  if (hybridTpPassed) passed++;
+  else failed++;
+
   details.push({
-    name: 'Hybrid Search',
+    name: "Hybrid Search",
     throughput: hybridThroughput,
     avgLatency: 1000 / hybridThroughput,
     duration: hybridDuration,
-    status: hybridTpPassed ? 'pass' : 'fail',
+    status: hybridTpPassed ? "pass" : "fail",
   });
-  
+
   logInfo(`Throughput: ${hybridThroughput.toFixed(2)} req/s`);
-  log(hybridTpPassed ? '✓ PASS' : '✗ FAIL', hybridTpPassed ? COLORS.green : COLORS.red);
+  log(hybridTpPassed ? "✓ PASS" : "✗ FAIL", hybridTpPassed ? COLORS.green : COLORS.red);
 
   return {
     tests: 3,
@@ -513,30 +526,30 @@ async function runThroughputBenchmarks(): Promise<ThroughputReportSection> {
 
 // Run recall benchmarks
 async function runRecallBenchmarks(): Promise<RecallReportSection> {
-  logSection('Recall Benchmarks');
-  
+  logSection("Recall Benchmarks");
+
   const mockService = createMockRetrievalService(5);
-  const details: RecallReportSection['details'] = [];
+  const details: RecallReportSection["details"] = [];
   let passed = 0;
   let failed = 0;
 
   // Generate test queries
-  const keywords = ['search', 'file', 'data', 'code', 'api'];
+  const keywords = ["search", "file", "data", "code", "api"];
   const testQueries = Array.from({ length: 50 }, (_, i) => ({
     query: `${keywords[i % keywords.length]} test`,
     relevantIds: [`tool-${(i % 10) + 1}`, `tool-${(i % 10) + 2}`],
   }));
 
   // Vector search recall
-  logSubsection('Vector Search Recall');
+  logSubsection("Vector Search Recall");
   let vectorRelevant = 0;
   let vectorTotalRelevant = 0;
   let vectorRetrieved = 0;
-  
+
   for (const testQuery of testQueries) {
     const results = await mockService.findRelevantSkills(testQuery.query);
     const resultIds = new Set(results.map((r) => r.id));
-    
+
     for (const relevantId of testQuery.relevantIds) {
       vectorTotalRelevant++;
       if (resultIds.has(relevantId)) {
@@ -545,35 +558,43 @@ async function runRecallBenchmarks(): Promise<RecallReportSection> {
     }
     vectorRetrieved += results.length;
   }
-  
+
   const vectorRecall = vectorTotalRelevant > 0 ? vectorRelevant / vectorTotalRelevant : 0;
   const vectorPrecision = vectorRetrieved > 0 ? vectorRelevant / vectorRetrieved : 0;
-  const vectorF1 = vectorPrecision + vectorRecall > 0 ? (2 * vectorPrecision * vectorRecall) / (vectorPrecision + vectorRecall) : 0;
-  
+  const vectorF1 =
+    vectorPrecision + vectorRecall > 0
+      ? (2 * vectorPrecision * vectorRecall) / (vectorPrecision + vectorRecall)
+      : 0;
+
   const vectorRecallPassed = vectorRecall > 0.9;
-  if (vectorRecallPassed) passed++; else failed++;
-  
+  if (vectorRecallPassed) passed++;
+  else failed++;
+
   details.push({
-    name: 'Vector Search',
+    name: "Vector Search",
     recall: vectorRecall,
     precision: vectorPrecision,
     f1: vectorF1,
-    status: vectorRecallPassed ? 'pass' : 'fail',
+    status: vectorRecallPassed ? "pass" : "fail",
   });
-  
-  logInfo(`Recall: ${(vectorRecall * 100).toFixed(2)}%, Precision: ${(vectorPrecision * 100).toFixed(2)}%, F1: ${vectorF1.toFixed(3)}`);
-  log(vectorRecallPassed ? '✓ PASS' : '✗ FAIL', vectorRecallPassed ? COLORS.green : COLORS.red);
+
+  logInfo(
+    `Recall: ${(vectorRecall * 100).toFixed(2)}%, Precision: ${(vectorPrecision * 100).toFixed(2)}%, F1: ${vectorF1.toFixed(3)}`
+  );
+  log(vectorRecallPassed ? "✓ PASS" : "✗ FAIL", vectorRecallPassed ? COLORS.green : COLORS.red);
 
   // Keyword search recall
-  logSubsection('Keyword Search Recall');
+  logSubsection("Keyword Search Recall");
   let keywordRelevant = 0;
   let keywordTotalRelevant = 0;
   let keywordRetrieved = 0;
-  
+
   for (const testQuery of testQueries) {
-    const results = await mockService.searchByKeyword(keywords[testQueries.indexOf(testQuery) % keywords.length]);
+    const results = await mockService.searchByKeyword(
+      keywords[testQueries.indexOf(testQuery) % keywords.length]
+    );
     const resultIds = new Set(results.map((r) => r.id));
-    
+
     for (const relevantId of testQuery.relevantIds) {
       keywordTotalRelevant++;
       if (resultIds.has(relevantId)) {
@@ -582,35 +603,41 @@ async function runRecallBenchmarks(): Promise<RecallReportSection> {
     }
     keywordRetrieved += results.length;
   }
-  
+
   const keywordRecall = keywordTotalRelevant > 0 ? keywordRelevant / keywordTotalRelevant : 0;
   const keywordPrecision = keywordRetrieved > 0 ? keywordRelevant / keywordRetrieved : 0;
-  const keywordF1 = keywordPrecision + keywordRecall > 0 ? (2 * keywordPrecision * keywordRecall) / (keywordPrecision + keywordRecall) : 0;
-  
+  const keywordF1 =
+    keywordPrecision + keywordRecall > 0
+      ? (2 * keywordPrecision * keywordRecall) / (keywordPrecision + keywordRecall)
+      : 0;
+
   const keywordRecallPassed = keywordRecall > 0.92;
-  if (keywordRecallPassed) passed++; else failed++;
-  
+  if (keywordRecallPassed) passed++;
+  else failed++;
+
   details.push({
-    name: 'Keyword Search',
+    name: "Keyword Search",
     recall: keywordRecall,
     precision: keywordPrecision,
     f1: keywordF1,
-    status: keywordRecallPassed ? 'pass' : 'fail',
+    status: keywordRecallPassed ? "pass" : "fail",
   });
-  
-  logInfo(`Recall: ${(keywordRecall * 100).toFixed(2)}%, Precision: ${(keywordPrecision * 100).toFixed(2)}%, F1: ${keywordF1.toFixed(3)}`);
-  log(keywordRecallPassed ? '✓ PASS' : '✗ FAIL', keywordRecallPassed ? COLORS.green : COLORS.red);
+
+  logInfo(
+    `Recall: ${(keywordRecall * 100).toFixed(2)}%, Precision: ${(keywordPrecision * 100).toFixed(2)}%, F1: ${keywordF1.toFixed(3)}`
+  );
+  log(keywordRecallPassed ? "✓ PASS" : "✗ FAIL", keywordRecallPassed ? COLORS.green : COLORS.red);
 
   // Hybrid search recall
-  logSubsection('Hybrid Search Recall');
+  logSubsection("Hybrid Search Recall");
   let hybridRelevant = 0;
   let hybridTotalRelevant = 0;
   let hybridRetrieved = 0;
-  
+
   for (const testQuery of testQueries) {
     const results = await mockService.hybridSearch(testQuery.query);
     const resultIds = new Set(results.map((r) => r.id));
-    
+
     for (const relevantId of testQuery.relevantIds) {
       hybridTotalRelevant++;
       if (resultIds.has(relevantId)) {
@@ -619,24 +646,30 @@ async function runRecallBenchmarks(): Promise<RecallReportSection> {
     }
     hybridRetrieved += results.length;
   }
-  
+
   const hybridRecall = hybridTotalRelevant > 0 ? hybridRelevant / hybridTotalRelevant : 0;
   const hybridPrecision = hybridRetrieved > 0 ? hybridRelevant / hybridRetrieved : 0;
-  const hybridF1 = hybridPrecision + hybridRecall > 0 ? (2 * hybridPrecision * hybridRecall) / (hybridPrecision + hybridRecall) : 0;
-  
+  const hybridF1 =
+    hybridPrecision + hybridRecall > 0
+      ? (2 * hybridPrecision * hybridRecall) / (hybridPrecision + hybridRecall)
+      : 0;
+
   const hybridRecallPassed = hybridRecall > 0.88;
-  if (hybridRecallPassed) passed++; else failed++;
-  
+  if (hybridRecallPassed) passed++;
+  else failed++;
+
   details.push({
-    name: 'Hybrid Search',
+    name: "Hybrid Search",
     recall: hybridRecall,
     precision: hybridPrecision,
     f1: hybridF1,
-    status: hybridRecallPassed ? 'pass' : 'fail',
+    status: hybridRecallPassed ? "pass" : "fail",
   });
-  
-  logInfo(`Recall: ${(hybridRecall * 100).toFixed(2)}%, Precision: ${(hybridPrecision * 100).toFixed(2)}%, F1: ${hybridF1.toFixed(3)}`);
-  log(hybridRecallPassed ? '✓ PASS' : '✗ FAIL', hybridRecallPassed ? COLORS.green : COLORS.red);
+
+  logInfo(
+    `Recall: ${(hybridRecall * 100).toFixed(2)}%, Precision: ${(hybridPrecision * 100).toFixed(2)}%, F1: ${hybridF1.toFixed(3)}`
+  );
+  log(hybridRecallPassed ? "✓ PASS" : "✗ FAIL", hybridRecallPassed ? COLORS.green : COLORS.red);
 
   return {
     tests: 3,
@@ -647,21 +680,21 @@ async function runRecallBenchmarks(): Promise<RecallReportSection> {
 }
 
 // Generate report content
-function generateReport(report: BenchmarkReport, format: 'json' | 'markdown' | 'html'): string {
-  if (format === 'json') {
+function generateReport(report: BenchmarkReport, format: "json" | "markdown" | "html"): string {
+  if (format === "json") {
     return JSON.stringify(report, null, 2);
   }
-  
-  if (format === 'markdown') {
+
+  if (format === "markdown") {
     let md = `# ApexBridge Performance Benchmark Report\n\n`;
     md += `**Generated:** ${report.timestamp}\n\n`;
-    
+
     md += `## Environment\n\n`;
     md += `- **Node.js:** ${report.environment.nodeVersion}\n`;
     md += `- **Platform:** ${report.environment.platform}\n`;
     md += `- **CPU Cores:** ${report.environment.cpuCount}\n`;
     md += `- **Memory:** ${formatBytes(report.environment.memoryTotal)}\n\n`;
-    
+
     md += `## Summary\n\n`;
     md += `| Metric | Value |\n`;
     md += `|--------|-------|\n`;
@@ -669,42 +702,43 @@ function generateReport(report: BenchmarkReport, format: 'json' | 'markdown' | '
     md += `| Passed | ${report.summary.passedTests} |\n`;
     md += `| Failed | ${report.summary.failedTests} |\n`;
     md += `| Pass Rate | ${(report.summary.passRate * 100).toFixed(1)}% |\n\n`;
-    
+
     if (report.results.latency) {
       md += `## Latency Results\n\n`;
       md += `| Test | Avg (ms) | P50 | P95 | P99 | Throughput | Status |\n`;
       md += `|------|----------|-----|-----|-----|------------|--------|\n`;
       for (const detail of report.results.latency.details) {
-        md += `| ${detail.name} | ${detail.avg.toFixed(2)} | ${detail.p50.toFixed(2)} | ${detail.p95.toFixed(2)} | ${detail.p99.toFixed(2)} | ${detail.throughput.toFixed(2)} | ${detail.status === 'pass' ? '✅' : '❌'} |\n`;
+        md += `| ${detail.name} | ${detail.avg.toFixed(2)} | ${detail.p50.toFixed(2)} | ${detail.p95.toFixed(2)} | ${detail.p99.toFixed(2)} | ${detail.throughput.toFixed(2)} | ${detail.status === "pass" ? "✅" : "❌"} |\n`;
       }
       md += `\n`;
     }
-    
+
     if (report.results.throughput) {
       md += `## Throughput Results\n\n`;
       md += `| Test | Throughput (req/s) | Avg Latency (ms) | Status |\n`;
       md += `|------|-------------------|------------------|--------|\n`;
       for (const detail of report.results.throughput.details) {
-        md += `| ${detail.name} | ${detail.throughput.toFixed(2)} | ${detail.avgLatency.toFixed(2)} | ${detail.status === 'pass' ? '✅' : '❌'} |\n`;
+        md += `| ${detail.name} | ${detail.throughput.toFixed(2)} | ${detail.avgLatency.toFixed(2)} | ${detail.status === "pass" ? "✅" : "❌"} |\n`;
       }
       md += `\n`;
     }
-    
+
     if (report.results.recall) {
       md += `## Recall Results\n\n`;
       md += `| Test | Recall | Precision | F1 Score | Status |\n`;
       md += `|------|--------|-----------|----------|--------|\n`;
       for (const detail of report.results.recall.details) {
-        md += `| ${detail.name} | ${(detail.recall * 100).toFixed(1)}% | ${(detail.precision * 100).toFixed(1)}% | ${detail.f1.toFixed(3)} | ${detail.status === 'pass' ? '✅' : '❌'} |\n`;
+        md += `| ${detail.name} | ${(detail.recall * 100).toFixed(1)}% | ${(detail.precision * 100).toFixed(1)}% | ${detail.f1.toFixed(3)} | ${detail.status === "pass" ? "✅" : "❌"} |\n`;
       }
       md += `\n`;
     }
-    
+
     return md;
   }
-  
-  // HTML format
-  let html = `<!DOCTYPE html>
+
+  if (format === "html") {
+    // HTML format
+    let html = `<!DOCTYPE html>
 <html>
 <head>
   <title>ApexBridge Performance Benchmark Report</title>
@@ -734,7 +768,7 @@ function generateReport(report: BenchmarkReport, format: 'json' | 'markdown' | '
          <strong>Failed:</strong> <span class="fail">${report.summary.failedTests}</span> | 
          <strong>Pass Rate:</strong> ${(report.summary.passRate * 100).toFixed(1)}%</p>
     </div>`;
-    
+
     if (report.results.latency) {
       html += `
     <h2>Latency Results</h2>
@@ -748,12 +782,12 @@ function generateReport(report: BenchmarkReport, format: 'json' | 'markdown' | '
           <td>${detail.p95.toFixed(2)}</td>
           <td>${detail.p99.toFixed(2)}</td>
           <td>${detail.throughput.toFixed(2)}</td>
-          <td class="${detail.status}">${detail.status === 'pass' ? '✅ PASS' : '❌ FAIL'}</td>
+          <td class="${detail.status}">${detail.status === "pass" ? "✅ PASS" : "❌ FAIL"}</td>
         </tr>`;
       }
       html += `</table>`;
     }
-    
+
     if (report.results.throughput) {
       html += `
     <h2>Throughput Results</h2>
@@ -764,12 +798,12 @@ function generateReport(report: BenchmarkReport, format: 'json' | 'markdown' | '
           <td>${detail.name}</td>
           <td>${detail.throughput.toFixed(2)}</td>
           <td>${detail.avgLatency.toFixed(2)}</td>
-          <td class="${detail.status}">${detail.status === 'pass' ? '✅ PASS' : '❌ FAIL'}</td>
+          <td class="${detail.status}">${detail.status === "pass" ? "✅ PASS" : "❌ FAIL"}</td>
         </tr>`;
       }
       html += `</table>`;
     }
-    
+
     if (report.results.recall) {
       html += `
     <h2>Recall Results</h2>
@@ -781,40 +815,40 @@ function generateReport(report: BenchmarkReport, format: 'json' | 'markdown' | '
           <td>${(detail.recall * 100).toFixed(1)}%</td>
           <td>${(detail.precision * 100).toFixed(1)}%</td>
           <td>${detail.f1.toFixed(3)}</td>
-          <td class="${detail.status}">${detail.status === 'pass' ? '✅ PASS' : '❌ FAIL'}</td>
+          <td class="${detail.status}">${detail.status === "pass" ? "✅ PASS" : "❌ FAIL"}</td>
         </tr>`;
       }
       html += `</table>`;
     }
-    
+
     html += `
   </div>
 </body>
 </html>`;
-    
+
     return html;
   }
-  
+
   return JSON.stringify(report, null, 2);
 }
 
 // Main execution
 async function main(): Promise<void> {
   const options = parseArgs();
-  
+
   if (options.help) {
     printHelp();
     process.exit(0);
   }
-  
-  logSection('ApexBridge Performance Benchmark');
+
+  logSection("ApexBridge Performance Benchmark");
   log(`Node.js: ${process.version}`, COLORS.dim);
   log(`Platform: ${process.platform}`, COLORS.dim);
   log(`Samples: ${options.samples}`, COLORS.dim);
-  
+
   const env = getEnvironment();
   log(`Memory: ${formatBytes(env.memoryTotal)}`, COLORS.dim);
-  
+
   const report: BenchmarkReport = {
     timestamp: new Date().toISOString(),
     environment: env,
@@ -827,29 +861,29 @@ async function main(): Promise<void> {
       passRate: 0,
     },
   };
-  
+
   ensureOutputDir(options.output);
-  
+
   const totalStartTime = Date.now();
-  
+
   try {
     // Run selected benchmarks
-    if (options.type === 'latency' || options.type === 'all') {
+    if (options.type === "latency" || options.type === "all") {
       report.results.latency = await runLatencyBenchmarks(options.samples);
     }
-    
-    if (options.type === 'throughput' || options.type === 'all') {
+
+    if (options.type === "throughput" || options.type === "all") {
       report.results.throughput = await runThroughputBenchmarks();
     }
-    
-    if (options.type === 'recall' || options.type === 'all') {
+
+    if (options.type === "recall" || options.type === "all") {
       report.results.recall = await runRecallBenchmarks();
     }
-    
+
     // Calculate summary
     let totalTests = 0;
     let passedTests = 0;
-    
+
     if (report.results.latency) {
       totalTests += report.results.latency.tests;
       passedTests += report.results.latency.passed;
@@ -862,49 +896,52 @@ async function main(): Promise<void> {
       totalTests += report.results.recall.tests;
       passedTests += report.results.recall.passed;
     }
-    
+
     report.summary = {
       totalTests,
       passedTests,
       failedTests: totalTests - passedTests,
       passRate: totalTests > 0 ? passedTests / totalTests : 0,
     };
-    
+
     const totalDuration = Date.now() - totalStartTime;
-    
+
     // Print summary
-    logSection('Summary');
+    logSection("Summary");
     log(`Total Tests: ${totalTests}`, COLORS.bright);
     log(`Passed: ${passedTests}`, COLORS.green);
-    log(`Failed: ${totalTests - passedTests}`, totalTests - passedTests > 0 ? COLORS.red : COLORS.green);
+    log(
+      `Failed: ${totalTests - passedTests}`,
+      totalTests - passedTests > 0 ? COLORS.red : COLORS.green
+    );
     log(`Pass Rate: ${(report.summary.passRate * 100).toFixed(1)}%`, COLORS.bright);
     log(`Total Duration: ${formatDuration(totalDuration)}`, COLORS.dim);
-    
+
     // Generate and save reports
     const reportContent = generateReport(report, options.format);
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const baseFilename = `benchmark-report-${timestamp}`;
-    
+
     // Save in requested format
-    const extension = options.format === 'html' ? 'html' : options.format;
+    const extension = options.format === "html" ? "html" : options.format;
     const filepath = path.join(options.output, `${baseFilename}.${extension}`);
     fs.writeFileSync(filepath, reportContent);
     logSuccess(`Report saved to: ${filepath}`);
-    
+
     // Also save as JSON for data processing
     const jsonPath = path.join(options.output, `${baseFilename}.json`);
     fs.writeFileSync(jsonPath, JSON.stringify(report, null, 2));
     logSuccess(`JSON data saved to: ${jsonPath}`);
-    
+
     // Exit with appropriate code
     if (report.summary.passRate >= 0.9) {
-      logSuccess('All benchmarks passed!');
+      logSuccess("All benchmarks passed!");
       process.exit(0);
     } else if (report.summary.passRate >= 0.7) {
-      logWarning('Some benchmarks failed - review results');
+      logWarning("Some benchmarks failed - review results");
       process.exit(0);
     } else {
-      logError('Significant benchmark failures detected');
+      logError("Significant benchmark failures detected");
       process.exit(1);
     }
   } catch (error) {
@@ -916,6 +953,6 @@ async function main(): Promise<void> {
 
 // Run main function
 main().catch((error) => {
-  console.error('Unhandled error:', error);
+  console.error("Unhandled error:", error);
   process.exit(1);
 });
