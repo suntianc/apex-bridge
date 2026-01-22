@@ -2,12 +2,28 @@
  * CacheWarmupManager 单元测试
  */
 
+// Mock LanceDB to prevent native module loading issues in test environment
+vi.mock("@lancedb/lancedb", () => ({
+  LanceDB: class MockLanceDB {
+    connect() {
+      return Promise.resolve({});
+    }
+    close() {
+      return Promise.resolve();
+    }
+  },
+  EmbeddingFunction: class MockEmbeddingFunction {
+    constructor() {}
+  },
+}));
+
 import {
   CacheWarmupManager,
   type EmbeddingCacheWarmupConfig,
   type SearchCacheWarmupConfig,
   type CacheWarmupResult,
 } from "@/services/warmup/CacheWarmupManager";
+import { vi, describe, it, expect } from "vitest";
 
 describe("CacheWarmupManager", () => {
   let manager: CacheWarmupManager;

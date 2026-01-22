@@ -2,29 +2,29 @@
  * SurrealDB Client Wrapper Tests
  */
 
-// Mock surrealdb module before any imports
-const MockSurrealClass = jest.fn().mockImplementation(() => {
-  return {
-    connect: jest.fn().mockResolvedValue(true),
-    signin: jest.fn().mockResolvedValue({}),
-    use: jest.fn().mockResolvedValue({}),
-    query: jest.fn().mockResolvedValue([]),
-    select: jest.fn().mockResolvedValue([]),
-    create: jest.fn().mockResolvedValue([]),
-    update: jest.fn().mockResolvedValue([]),
-    delete: jest.fn().mockResolvedValue(true),
-    close: jest.fn().mockResolvedValue(undefined),
-    health: jest.fn().mockResolvedValue(true),
-  };
-});
+import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
+import { SurrealDBClient } from "@/core/storage/surrealdb/client";
 
-MockSurrealClass.prototype = {};
+// Create mock implementation
+const mockSurrealInstance = {
+  connect: vi.fn().mockResolvedValue(true),
+  signin: vi.fn().mockResolvedValue({}),
+  use: vi.fn().mockResolvedValue({}),
+  query: vi.fn().mockResolvedValue([]),
+  select: vi.fn().mockResolvedValue([]),
+  create: vi.fn().mockResolvedValue([]),
+  update: vi.fn().mockResolvedValue([]),
+  delete: vi.fn().mockResolvedValue(true),
+  close: vi.fn().mockResolvedValue(undefined),
+  health: vi.fn().mockResolvedValue(true),
+};
 
-jest.mock("surrealdb", () => {
+// Mock surrealdb module
+vi.mock("surrealdb", () => {
   return {
     __esModule: true,
-    Surreal: MockSurrealClass,
-    createRemoteEngines: jest.fn(() => ({})),
+    Surreal: vi.fn().mockImplementation(() => mockSurrealInstance),
+    createRemoteEngines: vi.fn(() => ({})),
     Table: class Table {
       constructor(public value: string) {}
     },
@@ -37,13 +37,13 @@ jest.mock("surrealdb", () => {
   };
 });
 
-import { SurrealDBClient } from "@/core/storage/surrealdb/client";
-
 describe("SurrealDBClient", () => {
   let client: SurrealDBClient;
 
   beforeEach(() => {
     client = SurrealDBClient.getInstance();
+    // Reset all mocks between tests
+    vi.clearAllMocks();
   });
 
   afterEach(async () => {
@@ -79,6 +79,7 @@ describe("SurrealDBClient - Connection Management", () => {
   afterEach(async () => {
     const client = SurrealDBClient.getInstance();
     await client.disconnect();
+    vi.clearAllMocks();
   });
 
   it("should not allow concurrent connect with different configs", async () => {

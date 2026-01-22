@@ -2,6 +2,21 @@
  * ApplicationWarmupService 单元测试
  */
 
+// Mock LanceDB to prevent native module loading issues in test environment
+vi.mock("@lancedb/lancedb", () => ({
+  LanceDB: class MockLanceDB {
+    connect() {
+      return Promise.resolve({});
+    }
+    close() {
+      return Promise.resolve();
+    }
+  },
+  EmbeddingFunction: class MockEmbeddingFunction {
+    constructor() {}
+  },
+}));
+
 import {
   ApplicationWarmupService,
   getWarmupService,
@@ -9,6 +24,7 @@ import {
   type WarmupConfig,
   type WarmupStatus,
 } from "@/services/warmup/ApplicationWarmupService";
+import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 
 describe("ApplicationWarmupService", () => {
   let service: ApplicationWarmupService;
