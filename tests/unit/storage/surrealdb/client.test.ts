@@ -2,6 +2,41 @@
  * SurrealDB Client Wrapper Tests
  */
 
+// Mock surrealdb module before any imports
+const MockSurrealClass = jest.fn().mockImplementation(() => {
+  return {
+    connect: jest.fn().mockResolvedValue(true),
+    signin: jest.fn().mockResolvedValue({}),
+    use: jest.fn().mockResolvedValue({}),
+    query: jest.fn().mockResolvedValue([]),
+    select: jest.fn().mockResolvedValue([]),
+    create: jest.fn().mockResolvedValue([]),
+    update: jest.fn().mockResolvedValue([]),
+    delete: jest.fn().mockResolvedValue(true),
+    close: jest.fn().mockResolvedValue(undefined),
+    health: jest.fn().mockResolvedValue(true),
+  };
+});
+
+MockSurrealClass.prototype = {};
+
+jest.mock("surrealdb", () => {
+  return {
+    __esModule: true,
+    Surreal: MockSurrealClass,
+    createRemoteEngines: jest.fn(() => ({})),
+    Table: class Table {
+      constructor(public value: string) {}
+    },
+    RecordId: class RecordId {
+      constructor(
+        public table: string,
+        public id: string
+      ) {}
+    },
+  };
+});
+
 import { SurrealDBClient } from "@/core/storage/surrealdb/client";
 
 describe("SurrealDBClient", () => {
@@ -60,7 +95,7 @@ describe("SurrealDBClient - Connection Management", () => {
       namespace: "apexbridge",
       database: "staging",
       username: "root",
-      password: "root",
+      password: "different", // Different password to trigger rejection
     };
 
     // Clear any existing connection state

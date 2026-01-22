@@ -4,6 +4,8 @@
  * 测试对话历史保存器的格式化、清理和保存功能
  */
 
+import { vi, Mocked } from "vitest";
+
 import { ConversationSaver, SaveMetadata } from "@/services/chat/ConversationSaver";
 import { Message } from "@/types";
 import { ConversationHistoryService } from "@/services/ConversationHistoryService";
@@ -11,18 +13,18 @@ import { SessionManager } from "@/services/SessionManager";
 
 describe("ConversationSaver", () => {
   let conversationSaver: ConversationSaver;
-  let mockConversationHistoryService: jest.Mocked<ConversationHistoryService>;
-  let mockSessionManager: jest.Mocked<SessionManager>;
+  let mockConversationHistoryService: Mocked<ConversationHistoryService>;
+  let mockSessionManager: Mocked<SessionManager>;
 
   beforeEach(() => {
     // 创建模拟服务
     mockConversationHistoryService = {
-      getMessageCount: jest.fn(),
-      saveMessages: jest.fn(),
+      getMessageCount: vi.fn(),
+      saveMessages: vi.fn(),
     } as any;
 
     mockSessionManager = {
-      updateMetadata: jest.fn(),
+      updateMetadata: vi.fn(),
     } as any;
 
     conversationSaver = new ConversationSaver(mockConversationHistoryService, mockSessionManager);

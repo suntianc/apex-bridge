@@ -96,7 +96,6 @@ describe("ApplicationWarmupService", () => {
 
   describe("warmup() - State Management", () => {
     it("should reset isRunning flag after successful warmup", async () => {
-      jest.setTimeout(60000);
       // Disable warmup to test state management without actual warmup operations
       const disabledService = new ApplicationWarmupService({ enabled: false });
       await disabledService.warmup();
@@ -106,7 +105,6 @@ describe("ApplicationWarmupService", () => {
     }, 60000);
 
     it("should reset isRunning flag after failed warmup", async () => {
-      jest.setTimeout(60000);
       const failingService = new ApplicationWarmupService({
         enabled: true,
         timeoutMs: 1000,

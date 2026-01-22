@@ -2,7 +2,7 @@
  * 安全序列化测试
  */
 
-import { describe, it, expect } from "@jest/globals";
+import { describe, it, expect } from "vitest";
 
 // 复制 safeStringify 函数进行测试
 function safeStringify(obj: any): string {

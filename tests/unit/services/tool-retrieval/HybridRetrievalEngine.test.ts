@@ -2,6 +2,8 @@
  * HybridRetrievalEngine Test Suite
  */
 
+import { vi } from "vitest";
+
 import { HybridRetrievalEngine } from "../../../../src/services/tool-retrieval/HybridRetrievalEngine";
 import { HybridRetrievalConfig, DisclosureStrategy } from "../../../../src/types/enhanced-skill";
 
@@ -35,13 +37,13 @@ describe("HybridRetrievalEngine", () => {
     // Create mock dependencies
     const mockConfig = createMockConfig();
     const mockSearchEngine = {
-      search: jest.fn().mockResolvedValue([]),
+      search: vi.fn().mockResolvedValue([]),
     };
     const mockConnection = {
-      query: jest.fn(),
+      query: vi.fn(),
     };
     const mockEmbeddingGenerator = {
-      generateForText: jest.fn(),
+      generateForText: vi.fn(),
     };
 
     engine = new HybridRetrievalEngine({
@@ -105,7 +107,7 @@ describe("HybridRetrievalEngine", () => {
           },
         },
         searchEngine: {
-          search: jest.fn().mockResolvedValue(mockResults),
+          search: vi.fn().mockResolvedValue(mockResults),
         } as any,
         connection: {} as any,
         embeddingGenerator: {} as any,
@@ -153,7 +155,7 @@ describe("HybridRetrievalEngine", () => {
           },
         },
         searchEngine: {
-          search: jest.fn().mockResolvedValue(mockResults),
+          search: vi.fn().mockResolvedValue(mockResults),
         } as any,
         connection: {} as any,
         embeddingGenerator: {} as any,

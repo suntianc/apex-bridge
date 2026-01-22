@@ -2,6 +2,8 @@
  * LanceDBConnectionPool Test Suite
  */
 
+import { vi } from "vitest";
+
 import {
   LanceDBConnectionPool,
   PoolConfig,
@@ -9,8 +11,8 @@ import {
 } from "../../../../src/services/tool-retrieval/LanceDBConnectionPool";
 
 // Mock lancedb module
-jest.mock("@lancedb/lancedb", () => ({
-  connect: jest.fn(),
+vi.mock("@lancedb/lancedb", () => ({
+  connect: vi.fn(),
 }));
 
 import * as lancedb from "@lancedb/lancedb";
@@ -18,12 +20,12 @@ import * as lancedb from "@lancedb/lancedb";
 describe("LanceDBConnectionPool", () => {
   let pool: LanceDBConnectionPool;
   const mockConnection = {
-    tableNames: jest.fn().mockResolvedValue([]),
+    tableNames: vi.fn().mockResolvedValue([]),
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
-    (lancedb.connect as jest.Mock).mockResolvedValue(mockConnection);
+    vi.clearAllMocks();
+    (lancedb.connect as ReturnType<typeof vi.fn>).mockResolvedValue(mockConnection);
   });
 
   afterEach(async () => {
@@ -278,7 +280,9 @@ describe("LanceDBConnectionPool", () => {
   describe("error handling", () => {
     it("should handle connection failure gracefully", async () => {
       pool = new LanceDBConnectionPool();
-      (lancedb.connect as jest.Mock).mockRejectedValueOnce(new Error("Connection failed"));
+      (lancedb.connect as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new Error("Connection failed")
+      );
 
       await expect(pool.getConnection("/tmp/test-lancedb-21")).rejects.toThrow("Connection failed");
     });
@@ -287,8 +291,8 @@ describe("LanceDBConnectionPool", () => {
       pool = new LanceDBConnectionPool();
       const dbPath = "/tmp/test-lancedb-22";
 
-      (lancedb.connect as jest.Mock).mockResolvedValue({
-        tableNames: jest.fn().mockRejectedValue(new Error("Health check failed")),
+      (lancedb.connect as ReturnType<typeof vi.fn>).mockResolvedValue({
+        tableNames: vi.fn().mockRejectedValue(new Error("Health check failed")),
       });
 
       try {

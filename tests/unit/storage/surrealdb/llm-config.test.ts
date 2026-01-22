@@ -1,34 +1,36 @@
+import { vi, Mocked } from "vitest";
+
 import { SurrealDBClient } from "@/core/storage/surrealdb/client";
 import { SurrealDBLLMConfigStorage } from "@/core/storage/surrealdb/llm-config";
 import { LLMModelType } from "@/types/llm-models";
 
-jest.mock("@/core/storage/surrealdb/client");
+vi.mock("@/core/storage/surrealdb/client");
 
 describe("SurrealDBLLMConfigStorage", () => {
   let storage: SurrealDBLLMConfigStorage;
-  let client: jest.Mocked<SurrealDBClient>;
+  let client: Mocked<SurrealDBClient>;
 
   beforeEach(() => {
-    (SurrealDBClient.getInstance as unknown as jest.Mock).mockReturnValue({
-      isConnected: jest.fn().mockReturnValue(true),
-      connect: jest.fn().mockResolvedValue(undefined),
-      query: jest.fn(),
-      select: jest.fn(),
-      selectById: jest.fn(),
-      create: jest.fn(),
-      update: jest.fn(),
-      upsert: jest.fn().mockResolvedValue(undefined),
-      delete: jest.fn(),
-      withTransaction: jest.fn(async (fn: () => Promise<unknown>) => fn()),
-      getConnectionInfo: jest.fn(),
-    } as unknown as jest.Mocked<SurrealDBClient>);
+    (SurrealDBClient.getInstance as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
+      isConnected: vi.fn().mockReturnValue(true),
+      connect: vi.fn().mockResolvedValue(undefined),
+      query: vi.fn(),
+      select: vi.fn(),
+      selectById: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      upsert: vi.fn().mockResolvedValue(undefined),
+      delete: vi.fn(),
+      withTransaction: vi.fn(async (fn: () => Promise<unknown>) => fn()),
+      getConnectionInfo: vi.fn(),
+    } as unknown as Mocked<SurrealDBClient>);
 
     storage = new SurrealDBLLMConfigStorage();
-    client = SurrealDBClient.getInstance() as unknown as jest.Mocked<SurrealDBClient>;
+    client = SurrealDBClient.getInstance() as unknown as Mocked<SurrealDBClient>;
   });
 
   afterEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it("should persist model_config and related fields in createProviderWithModels", async () => {

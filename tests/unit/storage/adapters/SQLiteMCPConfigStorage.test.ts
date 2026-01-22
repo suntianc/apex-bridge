@@ -5,20 +5,22 @@
  * the IMCPConfigStorage interface.
  */
 
+import { vi } from "vitest";
+
 import type { IMCPConfigStorage, MCPConfigQuery, MCPServerRecord } from "@/core/storage/interfaces";
 import type { MCPServerConfig } from "@/types/mcp";
 
-jest.mock("@/services/MCPConfigService", () => ({
+vi.mock("@/services/MCPConfigService", () => ({
   MCPConfigService: {
-    getInstance: jest.fn(() => mockService),
+    getInstance: vi.fn(() => mockService),
   },
 }));
 
 const mockService = {
-  getServer: jest.fn(),
-  getAllServers: jest.fn(),
-  saveServer: jest.fn(),
-  deleteServer: jest.fn(),
+  getServer: vi.fn(),
+  getAllServers: vi.fn(),
+  saveServer: vi.fn(),
+  deleteServer: vi.fn(),
 };
 
 import { SQLiteMCPConfigStorage } from "@/core/storage/sqlite/mcp-config";
@@ -27,7 +29,7 @@ describe("SQLiteMCPConfigStorage", () => {
   let storage: SQLiteMCPConfigStorage;
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     storage = new SQLiteMCPConfigStorage();
   });
 
