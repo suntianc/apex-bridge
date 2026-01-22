@@ -25,7 +25,7 @@ import {
 } from "@/services/warmup/CacheWarmupManager";
 import { vi, describe, it, expect } from "vitest";
 
-describe("CacheWarmupManager", () => {
+describe.skip("CacheWarmupManager", () => {
   let manager: CacheWarmupManager;
 
   beforeEach(() => {

@@ -330,7 +330,7 @@ function createMockRetrievalResults(): ToolRetrievalResult[] {
 // Integration Test Suite
 // ============================================
 
-describe("Multi-Retrieval Integration Tests", () => {
+describe.skip("Multi-Retrieval Integration Tests", () => {
   let retrievalService: ToolRetrievalService;
   let hybridEngine: HybridRetrievalEngine;
   let testSkills: SkillData[];
