@@ -11,7 +11,7 @@
 | Context compression | `context-compression/`     | 4 strategies (truncate/prune/summary/hybrid), TokenEstimator |
 | Skills lifecycle    | `SkillManager.ts`          | Install/uninstall/update via ZIP, integrates ToolRetrieval   |
 | MCP integration     | `MCPIntegrationService.ts` | Server management, tool discovery/execution                  |
-| Vector search       | `tool-retrieval/`          | SurrealDB for tool/skill retrieval, embedding generation       |
+| Vector search       | `tool-retrieval/`          | SurrealDB for tool/skill retrieval, embedding generation     |
 | Chat helpers        | `chat/`                    | MessagePreprocessor, ConversationSaver, StrategySelector     |
 | Tool execution      | `executors/`               | SkillsSandboxExecutor, BuiltInExecutor, ToolExecutor         |
 
