@@ -36,7 +36,7 @@ jobs:
         run: npm ci
 
       - name: Run security test suite
-        run: npm test -- --coverage --coveragePathIgnorePatterns="node_modules|dist" --passWithNoTests
+        run: npm test -- --coverage --passWithNoTests
 
       - name: Upload coverage reports
         uses: codecov/codecov-action@v4
