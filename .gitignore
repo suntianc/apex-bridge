@@ -139,7 +139,7 @@ config/admin-config.json
 
 ## Monitoring and analytics data
 *.log.*
-monitoring/
+/monitoring/
 analytics/
 
 ## Security and audit files
