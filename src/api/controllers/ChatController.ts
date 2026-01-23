@@ -11,7 +11,13 @@ import { InterruptRequest, InterruptResponse } from "../../types/request-abort";
 import { LLMModelType } from "../../types/llm-models";
 import { Message } from "../../types";
 import { logger } from "../../utils/logger";
-import { badRequest, notFound, serverError, serviceUnavailable } from "../../utils/http-response";
+import {
+  badRequest,
+  notFound,
+  ok,
+  serverError,
+  serviceUnavailable,
+} from "../../utils/http-response";
 import { parseChatRequest } from "../../api/validators/chat-request-validator";
 import type { ChatRequestOptions } from "../../api/validators/chat-request-validator";
 import { normalizeUsage, buildChatResponse } from "../../api/utils/response-formatter";
@@ -462,7 +468,7 @@ export class ChatController {
     const usage = normalizeUsage(result.usage);
     const response = buildChatResponse(result.content, actualModel, usage, options.conversationId);
 
-    res.json(response);
+    ok(res, response);
     logger.info("Completed non-stream chat request");
   }
 
@@ -496,7 +502,7 @@ export class ChatController {
       const llmClient = await this.getLLMClient();
       const models = await llmClient.getAllModels();
 
-      res.json({
+      ok(res, {
         object: "list",
         data: models.map((m) => ({
           id: m.id,
@@ -549,7 +555,12 @@ export class ChatController {
         };
 
         logger.info(`Request interrupted: ${requestId}`);
-        res.json(response);
+        ok(res, {
+          success: true,
+          message: "Request interrupted successfully",
+          requestId: requestId,
+          interrupted: true,
+        });
       } else {
         const response: InterruptResponse = {
           success: false,
@@ -582,7 +593,7 @@ export class ChatController {
 
       await this.chatService.endSession(conversationId);
 
-      res.json({
+      ok(res, {
         success: true,
         message: "Session deleted successfully",
       });
@@ -628,7 +639,7 @@ export class ChatController {
         },
       };
 
-      res.json({
+      ok(res, {
         success: true,
         data: sessionState,
       });
@@ -675,7 +686,7 @@ export class ChatController {
 
       const activeSessions = sessions.filter((s) => s !== null);
 
-      res.json({
+      ok(res, {
         success: true,
         data: {
           sessions: activeSessions,
@@ -738,7 +749,7 @@ export class ChatController {
         history.note = "ACE directives deleted (2026-01-11)";
       }
 
-      res.json({
+      ok(res, {
         success: true,
         data: history,
       });
@@ -771,7 +782,7 @@ export class ChatController {
 
       const total = await this.chatService.getConversationMessageCount(conversationId);
 
-      res.json({
+      ok(res, {
         success: true,
         data: {
           messages,

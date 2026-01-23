@@ -48,8 +48,10 @@ This is a test skill for validating context mode execution.
     await executor.cleanup();
     try {
       await fs.rm(testSkillDir, { recursive: true, force: true });
-    } catch {
-      // 忽略清理错误
+    } catch (error) {
+      if (process.env.DEBUG_TESTS === "true") {
+        console.debug("Cleanup error (expected):", error);
+      }
     }
   });
 
@@ -161,8 +163,10 @@ This is a test skill for validating context mode execution.
       // Clean up test directory
       try {
         await fs.rm(tempDir, { recursive: true, force: true });
-      } catch {
-        // Ignore cleanup errors
+      } catch (error) {
+        if (process.env.DEBUG_TESTS === "true") {
+          console.debug("Cleanup error (expected):", error);
+        }
       }
     });
 
@@ -178,7 +182,12 @@ This is a test skill for validating context mode execution.
       const dirExists = await fs
         .access(testDir)
         .then(() => true)
-        .catch(() => false);
+        .catch((error) => {
+          if (process.env.DEBUG_TESTS === "true") {
+            console.debug("Expected error:", error);
+          }
+          return false;
+        });
       expect(dirExists).toBe(true);
 
       const tempExecutor = new ContextModeExecutor(testDir);
@@ -187,7 +196,12 @@ This is a test skill for validating context mode execution.
       const afterCleanup = await fs
         .access(testDir)
         .then(() => true)
-        .catch(() => false);
+        .catch((error) => {
+          if (process.env.DEBUG_TESTS === "true") {
+            console.debug("Expected error:", error);
+          }
+          return false;
+        });
     });
   });
 });

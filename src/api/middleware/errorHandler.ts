@@ -6,6 +6,7 @@
 import { Request, Response, NextFunction } from "express";
 import { logger } from "../../utils/logger";
 import { AppError, normalizeError, isAppError } from "../../utils/errors";
+import { dynamicStatus } from "../../utils/http-response";
 
 export function errorHandler(err: unknown, req: Request, res: Response, next: NextFunction): void {
   // 标准化错误
@@ -35,5 +36,5 @@ export function errorHandler(err: unknown, req: Request, res: Response, next: Ne
     }
   }
 
-  res.status(error.statusCode).json(response);
+  dynamicStatus(res, error.statusCode, response);
 }

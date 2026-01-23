@@ -60,8 +60,11 @@ describe("SurrealDBVectorStorage - Vector Operations", () => {
       let threw = false;
       try {
         await storage.upsert("test-id", vector, metadata);
-      } catch {
+      } catch (error) {
         threw = true;
+        if (process.env.DEBUG_TESTS === "true") {
+          console.debug("Expected error:", error);
+        }
       }
       expect(threw).toBe(true);
     });
@@ -88,8 +91,11 @@ describe("SurrealDBVectorStorage - Vector Operations", () => {
       let threw = false;
       try {
         await storage.upsertBatch(records);
-      } catch {
+      } catch (error) {
         threw = true;
+        if (process.env.DEBUG_TESTS === "true") {
+          console.debug("Expected error:", error);
+        }
       }
       expect(threw).toBe(true);
     });
@@ -101,8 +107,11 @@ describe("SurrealDBVectorStorage - Vector Operations", () => {
       let threw = false;
       try {
         await storage.search(queryVector);
-      } catch {
+      } catch (error) {
         threw = true;
+        if (process.env.DEBUG_TESTS === "true") {
+          console.debug("Expected error:", error);
+        }
       }
       expect(threw).toBe(true);
     });
@@ -113,8 +122,11 @@ describe("SurrealDBVectorStorage - Vector Operations", () => {
       let threw = false;
       try {
         await storage.search(queryVector, options);
-      } catch {
+      } catch (error) {
         threw = true;
+        if (process.env.DEBUG_TESTS === "true") {
+          console.debug("Expected error:", error);
+        }
       }
       expect(threw).toBe(true);
     });
@@ -139,8 +151,11 @@ describe("SurrealDBVectorStorage - Vector Operations", () => {
       let result: number | undefined;
       try {
         result = await storage.count();
-      } catch {
+      } catch (error) {
         threw = true;
+        if (process.env.DEBUG_TESTS === "true") {
+          console.debug("Expected error:", error);
+        }
       }
       if (!threw) {
         expect(typeof result).toBe("number");

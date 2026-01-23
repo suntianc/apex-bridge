@@ -273,3 +273,7 @@ export function withErrorHandlerSync<T>(res: Response, action: string, handler: 
     return null;
   }
 }
+
+export function dynamicStatus(res: Response, status: number, data: Record<string, unknown>): void {
+  res.status(status).json(data);
+}

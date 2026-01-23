@@ -20,8 +20,10 @@ describe("Context Mode Parsing", () => {
   afterEach(async () => {
     try {
       await fs.rm(tempDir, { recursive: true, force: true });
-    } catch {
-      // 忽略清理错误
+    } catch (error) {
+      if (process.env.DEBUG_TESTS === "true") {
+        console.debug("Cleanup error (expected):", error);
+      }
     }
   });
 

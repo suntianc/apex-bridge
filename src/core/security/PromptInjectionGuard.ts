@@ -62,7 +62,7 @@ export interface InjectionDetectionResult {
  */
 export class PromptInjectionGuard {
   /** 单例实例 */
-  private static instance: PromptInjectionGuard;
+  private static instance: PromptInjectionGuard | null = null;
 
   /** 配置选项 */
   private options: Required<InjectionGuardOptions>;
@@ -263,7 +263,7 @@ export class PromptInjectionGuard {
    * 重置单例实例（仅用于测试）
    */
   static resetInstance(): void {
-    PromptInjectionGuard.instance = undefined as any;
+    PromptInjectionGuard.instance = null;
   }
 
   /**

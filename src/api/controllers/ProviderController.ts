@@ -22,6 +22,7 @@ import {
   ok,
   serverError,
   handleErrorWithAutoDetection,
+  dynamicStatus,
 } from "../../utils/http-response";
 import { toString } from "../../utils/request-parser";
 
@@ -96,7 +97,7 @@ export async function listProviders(req: Request, res: Response): Promise<void> 
       })
     );
 
-    res.json({
+    ok(res, {
       success: true,
       providers: providersWithStats,
     });
@@ -384,7 +385,7 @@ export async function testProviderConnection(req: Request, res: Response) {
     await adapter.getModels();
 
     // 5. 成功返回
-    res.json({
+    ok(res, {
       success: true,
       latency: Date.now() - start,
       message: "连接成功",
@@ -398,10 +399,10 @@ export async function testProviderConnection(req: Request, res: Response) {
     const status = parseErrorStatus(error);
     const hint = getFailureHint(status, req.body.provider, req.body.baseConfig?.baseURL);
 
-    res.status(status).json({
+    dynamicStatus(res, status, {
       success: false,
       message: error.message || "Connection failed",
-      hint, //这字段可以让前端展示给用户，例如 "请检查 Ollama 是否启动"
+      hint,
     });
   }
 }
@@ -438,7 +439,7 @@ export async function validateModelBeforeAdd(req: Request, res: Response) {
     });
 
     // 4. 成功返回
-    res.json({
+    ok(res, {
       success: true,
       latency: Date.now() - start,
       message: "连接成功",
@@ -446,7 +447,7 @@ export async function validateModelBeforeAdd(req: Request, res: Response) {
   } catch (error: any) {
     // 5. 错误收敛：将所有异常统一由辅助函数解析状态码
     const status = parseErrorStatus(error);
-    res.status(status).json({ success: false, message: "Connection failed" });
+    dynamicStatus(res, status, { success: false, message: "Connection failed" });
   }
 }
 

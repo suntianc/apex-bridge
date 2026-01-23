@@ -38,7 +38,7 @@ import { ProtocolEngine, ExtendedAdminConfig } from "./core/ProtocolEngine";
 import { LLMManager as LLMClient } from "./core/LLMManager";
 import { EventBus } from "./core/EventBus";
 import { ChatService } from "./services/ChatService";
-import { ChatController } from "./api/controllers/ChatController";
+import { ChatController, createChatController } from "./api/controllers/chat";
 import { authMiddleware } from "./api/middleware/authMiddleware";
 import { rateLimitMiddleware } from "./api/middleware/rateLimitMiddleware";
 import { errorHandler } from "./api/middleware/errorHandler";
@@ -71,6 +71,8 @@ import { createAuditLoggerMiddleware } from "./api/middleware/auditLoggerMiddlew
 import skillRoutes from "./api/routes/skillRoutes";
 // MCP管理路由
 import mcpRoutes from "./api/routes/mcpRoutes";
+// HTTP响应工具
+import { ok } from "./utils/http-response";
 // Swagger API文档
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./api/swagger";
@@ -337,7 +339,7 @@ export class ABPIntelliCore {
 
     // 注册聊天API
     // 创建控制器（LLMClient采用懒加载）
-    const chatController = new ChatController(this.chatService, null as LLMClient | undefined);
+    const chatController = createChatController(this.chatService);
 
     // 聊天API（临时禁用 AJV 验证中间件，只使用 parseChatRequest）
     this.app.post(
@@ -429,7 +431,7 @@ export class ABPIntelliCore {
      * 健康检查
      */
     this.app.get("/health", (req, res) => {
-      res.json({
+      ok(res, {
         status: "ok",
         version: "2.0.0",
         uptime: process.uptime(),
@@ -530,7 +532,7 @@ export class ABPIntelliCore {
     // JSON格式指标端点（用于调试和监控）
     this.app.get("/metrics/json", (req, res) => {
       const { metricsService } = require("./services/monitoring/MetricsService");
-      res.json(metricsService.getSnapshot());
+      ok(res, metricsService.getSnapshot());
     });
 
     // 错误处理（必须最后注册）

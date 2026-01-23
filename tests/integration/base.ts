@@ -200,7 +200,10 @@ export class HttpClient {
           let body: unknown;
           try {
             body = data ? JSON.parse(data) : undefined;
-          } catch {
+          } catch (error) {
+            if (process.env.DEBUG_TESTS === "true") {
+              console.debug("JSON parse error (expected):", error);
+            }
             body = data;
           }
           resolve({
@@ -243,8 +246,10 @@ export async function waitForServer(
       if (response.ok) {
         return true;
       }
-    } catch {
-      // 服务器还未就绪
+    } catch (error) {
+      if (process.env.DEBUG_TESTS === "true") {
+        console.debug("Server not ready (expected):", error);
+      }
     }
     await new Promise((resolve) => setTimeout(resolve, interval));
   }

@@ -39,13 +39,26 @@ module.exports = [
       "no-unreachable": "off",
       "no-undef": "off",
       "no-unused-vars": "off",
-      // React hooks rules - disable exhaustive-deps for now to avoid plugin errors
+      "prefer-const": "error",
+      "no-console": ["warn", { allow: ["warn", "error", "debug", "info"] }],
+      "no-restricted-syntax": [
+        "error",
+        {
+          "selector": "CallExpression[callee.property.name='json'][callee.object.name='res']",
+          "message": "Use http-response utility instead of direct res.json()"
+        },
+        {
+          "selector": "CallExpression[callee.property.name='status'][callee.object.name='res']",
+          "message": "Use http-response utility instead of direct res.status()"
+        }
+      ],
       "react-hooks/rules-of-hooks": "off",
       "react-hooks/exhaustive-deps": "off",
-      // Disable typed rules that require type information for now
       "@typescript-eslint/no-floating-promises": "off",
       "@typescript-eslint/await-thenable": "off",
-      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/no-explicit-any": ["warn", {
+        "ignoreRestArgs": false
+      }],
       "@typescript-eslint/no-unused-vars": [
         "warn",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" },

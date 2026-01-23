@@ -666,11 +666,14 @@ export function getMCPIntegrationService(): MCPIntegrationService {
   return _instance;
 }
 
+interface MCPInstanceProxy {
+  [key: PropertyKey]: unknown;
+}
+
 // 懒加载代理对象 - 首次访问时才创建实例
 export const mcpIntegration = new Proxy({} as unknown as MCPIntegrationService, {
   get(_target, prop) {
     const instance = getMCPIntegrationService();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (instance as any)[prop];
+    return (instance as unknown as MCPInstanceProxy)[prop];
   },
 });

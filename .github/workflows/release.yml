@@ -43,7 +43,7 @@ jobs:
             echo "### Changes"
             echo ""
 
-            # 获取自上次发布以来的提交
+            # Get commits since last release
             if [ -n "$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null)" ]; then
               PREV_TAG=$(git describe --tags --abbrev=0 HEAD~1)
               echo "#### New Features"
@@ -159,11 +159,11 @@ jobs:
 
       - name: Update package.json versions
         run: |
-          # 无需更新已移除的旧依赖，保持占位以便后续文档步骤
+          # No need to update removed legacy dependencies, keep placeholder for documentation steps
 
       - name: Update README with published versions
         run: |
-          # 更新 README 中的版本号徽章（仅 ApexBridge）
+          # Update version badges in README (ApexBridge only)
           VERSION=${GITHUB_REF#refs/tags/v}
 
           sed -i "s|Version-v[0-9]\+\.[0-9]\+\.[0-9]\+-blue|Version-v$VERSION-blue|g" README.md

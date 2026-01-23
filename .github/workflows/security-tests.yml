@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [main, develop]
   schedule:
-    # 每天凌晨2点运行安全测试
+    # Run security tests daily at 2 AM
     - cron: "0 2 * * *"
 
 jobs:
