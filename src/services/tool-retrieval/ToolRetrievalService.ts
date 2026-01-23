@@ -17,7 +17,8 @@ import {
   SkillTool,
   ToolType,
 } from "./types";
-import { LanceDBConnection, ILanceDBConnection } from "./LanceDBConnection";
+// Lazy import to avoid loading LanceDB native module at startup
+import type { LanceDBConnection, ILanceDBConnection } from "./LanceDBConnection";
 import { EmbeddingGenerator, IEmbeddingGenerator } from "./EmbeddingGenerator";
 import { SkillIndexer, ISkillIndexer } from "./SkillIndexer";
 import { SearchEngine, ISearchEngine } from "./SearchEngine";
@@ -51,41 +52,33 @@ export interface IToolRetrievalService {
  */
 export class ToolRetrievalService implements IToolRetrievalService {
   private readonly config: ToolRetrievalConfig;
-  private connection: ILanceDBConnection;
+  private connection: ILanceDBConnection | null = null; // Lazy initialization
   private embeddingGenerator: IEmbeddingGenerator;
-  private skillIndexer: ISkillIndexer;
-  private searchEngine: ISearchEngine;
-  private mcpToolSupport: IMCPToolSupport;
+  private skillIndexer: ISkillIndexer | null = null; // Lazy initialization
+  private searchEngine: ISearchEngine | null = null; // Lazy initialization
+  private mcpToolSupport: IMCPToolSupport | null = null; // Lazy initialization
   private isInitialized = false;
   private readonly startTime = Date.now();
 
   /**
    * Create ToolRetrievalService with dependencies
+   * Note: LanceDB connection is lazily initialized in initialize() to avoid native module load at startup
    */
   constructor(config: ToolRetrievalConfig) {
     this.config = config;
 
-    // Use singleton LanceDBConnection to ensure all services share the same connection
-    this.connection = LanceDBConnection.getInstance();
     this.embeddingGenerator = new EmbeddingGenerator({
       provider: "openai", // Will be determined dynamically
       model: config.model,
       dimensions: config.dimensions,
     });
-    this.skillIndexer = new SkillIndexer(this.connection, this.embeddingGenerator);
-    const maxResults = this.config.maxResults ?? 10;
-    this.searchEngine = new SearchEngine(this.connection, this.embeddingGenerator, {
-      defaultLimit: maxResults,
-      defaultThreshold: config.similarityThreshold,
-    });
-    this.mcpToolSupport = new MCPToolSupport(this.embeddingGenerator, this.connection);
 
     logger.info("[ToolRetrievalService] Created with config:", {
       vectorDbPath: config.vectorDbPath,
       model: config.model,
       dimensions: config.dimensions,
       similarityThreshold: config.similarityThreshold,
-      maxResults: maxResults,
+      maxResults: config.maxResults ?? 10,
     });
   }
 
@@ -112,21 +105,46 @@ export class ToolRetrievalService implements IToolRetrievalService {
         this.config.dimensions = actualDimensions;
       }
 
-      // Connect to LanceDB
-      await this.connection.connect({
-        databasePath: this.config.vectorDbPath,
-        tableName: "skills",
-        vectorDimensions: this.config.dimensions,
-      });
+      // Lazy import to avoid loading LanceDB native module at startup
+      try {
+        const { LanceDBConnection } = await import("./LanceDBConnection");
+        this.connection = LanceDBConnection.getInstance();
 
-      // Initialize table
-      await this.connection.initializeTable();
+        // Connect to LanceDB
+        await this.connection.connect({
+          databasePath: this.config.vectorDbPath,
+          tableName: "skills",
+          vectorDimensions: this.config.dimensions,
+        });
+
+        // Initialize table
+        await this.connection.initializeTable();
+
+        // Initialize dependent services with connection
+        const maxResults = this.config.maxResults ?? 10;
+        this.skillIndexer = new SkillIndexer(this.connection, this.embeddingGenerator);
+        this.searchEngine = new SearchEngine(this.connection, this.embeddingGenerator, {
+          defaultLimit: maxResults,
+          defaultThreshold: this.config.similarityThreshold,
+        });
+        this.mcpToolSupport = new MCPToolSupport(this.embeddingGenerator, this.connection);
+      } catch (lanceDbError: any) {
+        // Graceful degradation: LanceDB native module not available
+        logger.warn(
+          `[ToolRetrievalService] LanceDB initialization failed (native module issue): ${lanceDbError?.message || lanceDbError}`
+        );
+        logger.warn(
+          "[ToolRetrievalService] Vector search will be unavailable. Tool indexing will be skipped."
+        );
+        // Do NOT throw - allow server to start without vector search
+      }
 
       this.isInitialized = true;
 
       const duration = Date.now() - startTime;
       logger.debug(`[ToolRetrievalService] Initialized in ${duration}ms`);
     } catch (error) {
+      // Non-LanceDB errors should still fail initialization
       logger.error("[ToolRetrievalService] Initialization failed:", error);
       throw new ToolError(
         `ToolRetrievalService initialization failed: ${this.formatError(error)}`,
@@ -164,6 +182,13 @@ export class ToolRetrievalService implements IToolRetrievalService {
       }
 
       // Try vector search (with internal fallback to keyword search)
+      // Check if searchEngine is available (may be null if LanceDB failed to initialize)
+      if (!this.searchEngine) {
+        logger.warn(
+          "[ToolRetrievalService] Search engine not available, using fallback keyword search"
+        );
+        throw new ToolError("Vector search engine not initialized", ToolErrorCode.VECTOR_DB_ERROR);
+      }
       const results = await this.searchEngine.search(query, { limit, minScore: threshold });
 
       // Cache the results (only successful results)
@@ -240,6 +265,14 @@ export class ToolRetrievalService implements IToolRetrievalService {
     limit?: number,
     threshold?: number
   ): Promise<ToolRetrievalResult[]> {
+    // Check if searchEngine is available
+    if (!this.searchEngine) {
+      logger.warn(
+        "[ToolRetrievalService] Keyword search fallback skipped - search engine not available"
+      );
+      return [];
+    }
+
     const effectiveLimit = limit || this.config.maxResults;
     const effectiveThreshold = threshold || this.config.similarityThreshold;
 
@@ -345,6 +378,11 @@ export class ToolRetrievalService implements IToolRetrievalService {
       }
 
       if (records.length > 0) {
+        // Check if connection is available
+        if (!this.connection) {
+          logger.warn("[ToolRetrievalService] Cannot index tools - connection not available");
+          return;
+        }
         // Remove existing
         for (const record of records) {
           await this.connection.deleteById(record.id);
@@ -356,7 +394,7 @@ export class ToolRetrievalService implements IToolRetrievalService {
       }
     } catch (error) {
       logger.error("[ToolRetrievalService] Failed to index tools:", error);
-      throw error;
+      // Don't throw - allow server to continue
     }
   }
 
@@ -364,6 +402,10 @@ export class ToolRetrievalService implements IToolRetrievalService {
    * Remove a tool from the index
    */
   async removeTool(toolId: string): Promise<void> {
+    if (!this.connection) {
+      logger.warn("[ToolRetrievalService] Cannot remove tool - connection not available");
+      return;
+    }
     await this.connection.deleteById(toolId);
   }
 
@@ -371,6 +413,13 @@ export class ToolRetrievalService implements IToolRetrievalService {
    * Get service statistics
    */
   async getStatistics(): Promise<Record<string, unknown>> {
+    if (!this.connection) {
+      return {
+        isInitialized: this.isInitialized,
+        databaseConnected: false,
+        error: "Connection not available",
+      };
+    }
     const dbStatus = this.connection.getStatus();
     return {
       isInitialized: this.isInitialized,

@@ -17,7 +17,6 @@ import {
 } from "./interfaces";
 import { logger } from "../../utils/logger";
 
-import { LanceDBVectorStorage } from "./lance/vector-storage";
 import { SurrealDBVectorStorage } from "./surrealdb/vector-storage";
 
 import { SQLiteLLMConfigStorage } from "./sqlite/llm-config";
@@ -111,14 +110,14 @@ class StorageAdapterFactory {
   /**
    * Get vector storage adapter
    */
-  static getVectorStorage(): IVectorStorage {
+  static async getVectorStorage(): Promise<IVectorStorage> {
     const key = `vector-${this.config?.backend || "unknown"}`;
 
     if (this.instances.has(key)) {
       return this.instances.get(key) as IVectorStorage;
     }
 
-    const adapter = this.createVectorAdapter();
+    const adapter = await this.createVectorAdapter();
     this.instances.set(key, adapter);
     return adapter;
   }
@@ -127,13 +126,16 @@ class StorageAdapterFactory {
    * Create vector storage adapter
    * Default: SurrealDB for new projects (no legacy data migration needed)
    * Legacy: LanceDB (via APEX_USE_LANCEDB_VECTOR=true for backward compatibility)
+   * Uses dynamic import to avoid loading native modules at startup
    */
-  private static createVectorAdapter(): IVectorStorage {
+  private static async createVectorAdapter(): Promise<IVectorStorage> {
     // Default to SurrealDB for new projects (no legacy data migration needed)
     const useLanceDB = process.env.APEX_USE_LANCEDB_VECTOR === "true";
 
     if (useLanceDB) {
-      logger.info("[StorageAdapterFactory] Using legacy LanceDB vector storage");
+      logger.info("[StorageAdapterFactory] Using legacy LanceDB vector storage (dynamic import)");
+      // Dynamic import to avoid native module load at startup
+      const { LanceDBVectorStorage } = await import("./lance/vector-storage");
       return new LanceDBVectorStorage();
     }
 
