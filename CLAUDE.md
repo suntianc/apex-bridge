@@ -63,8 +63,8 @@ src/
 
 ### Data Storage
 
-- **SQLite**: Structured data (LLM config, MCP servers, chat history)
-- **LanceDB**: Vector index for semantic tool matching
+- **SurrealDB**: Structured + vector data (LLM config, MCP servers, chat history)
+- SurrealDB: Vector index for semantic tool matching
 - **Redis**: Caching and session management
 
 ## Key Entry Points

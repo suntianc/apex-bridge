@@ -24,7 +24,7 @@ ApexBridge is an enterprise-grade AI Agent framework with multi-model support (O
 ├── config/                   # JSON config files
 ├── tests/                    # Unit + integration tests
 ├── scripts/                  # DB migration + validation scripts
-└── .data/                    # SQLite + LanceDB (hidden directory)
+└── .data/                    # SurrealDB (hidden directory)
 ```
 
 ---
@@ -37,7 +37,7 @@ ApexBridge is an enterprise-grade AI Agent framework with multi-model support (O
 | Chat logic          | `src/services/ChatService.ts`                        | Core message processing                                         |
 | Context compression | `src/services/context-compression/`                  | 4 strategies (truncate/prune/summary/hybrid)                    |
 | LLM adapters        | `src/core/llm/adapters/`                             | OpenAI, Claude, DeepSeek, Ollama                                |
-| Tool retrieval      | `src/services/tool-retrieval/`                       | LanceDB vector search                                           |
+| Tool retrieval      | `src/services/tool-retrieval/`                       | SurrealDB vector search                                         |
 | MCP integration     | `src/services/MCPIntegrationService.ts`              | MCP protocol client                                             |
 | API routes          | `src/api/routes/`                                    | REST endpoints                                                  |
 | **Utility modules** | `src/utils/`                                         | HTTP response, error, stream events, request parser, path utils |
@@ -79,7 +79,7 @@ ApexBridge is an enterprise-grade AI Agent framework with multi-model support (O
 - `as any`, `@ts-ignore` → Forbidden, use explicit types (1 instance remaining in comments only)
 - No `src/index.ts` → Entry is `src/server.ts`
 - Config in two places → `config/` AND `src/config/` (confusing)
-- `.data/` hidden directory → Contains SQLite + LanceDB
+- `.data/` hidden directory → Contains SurrealDB data
 - **Duplicate HTTP response patterns** → Use `src/utils/http-response.ts` (33 violations found)
 - **Duplicate error handling** → Use `src/utils/error-utils.ts`
 - **Duplicate stream event serialization** → Use `src/utils/stream-events.ts`
@@ -107,7 +107,7 @@ The following issues are known limitations that have been addressed or are by de
 | Issue                                   | Status                      | Notes                                                                                                     |
 | --------------------------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------- |
 | Phase 0: 存储接口抽象层重构             | ✅ COMPLETE (2026-01-16)    | 4个服务重构，100% 测试通过                                                                                |
-| SurrealDB Vector Storage implementation | ✅ COMPLETE (2026-01-16)    | Implemented SurrealDBVectorStorage for LanceDB deprecation                                                |
+| SurrealDB Vector Storage implementation | ✅ COMPLETE (2026-01-16)    | Implemented SurrealDBVectorStorage for SurrealDB migration                                                |
 | Context compression never runs          | ✅ FIXED (2026-01-15)       | `parseConfig()` now properly defaults `enabled: true`                                                     |
 | ReActStrategy usage tracking broken     | ✅ FIXED (2026-01-15)       | `usage` field now properly populated with token counts                                                    |
 | PromptInjectionGuard singleton          | ✅ FIXED (2026-01-15)       | Added `resetInstance()` method for test isolation                                                         |
@@ -116,7 +116,7 @@ The following issues are known limitations that have been addressed or are by de
 | Server startup time (~60s)              | ✅ OPTIMIZED (2026-01-15)   | Parallelized initialization, reduced warmup timeout to 30s                                                |
 | Ollama embedding fallback               | ✅ IMPLEMENTED (2026-01-15) | Keyword search fallback now works when embedding fails                                                    |
 | LanceDB vector index non-blocking       | ✅ BY DESIGN                | Index errors are logged but don't block server startup                                                    |
-| Empty catch blocks in tests             | 🔴 PENDING                  | 4+ violations in tests (ProcessPool.ts, SQLiteLLMConfigStorage.test.ts, surrealdb/client.test.ts)         |
+| Empty catch blocks in tests             | 🔴 PENDING                  | 4+ violations in tests (ProcessPool.ts, surrealdb/client.test.ts)                                         |
 | `as any` type assertions                | 🔴 PENDING                  | 130 violations across 23 files (4 production, 109 tests)                                                  |
 | Config in two places                    | 🔴 PENDING                  | `config/` AND `src/config/` directories both exist                                                        |
 | Duplicate HTTP response patterns        | 🔴 PENDING                  | 44+ violations using inline res.status().json() instead of http-response.ts utilities                     |
@@ -199,14 +199,14 @@ npm run migrations   # Run migrations
 
 ### Quality Improvements (2026-01-15)
 
-| Improvement                      | Status                       | Files Modified                                                                                                                                   |
-| -------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Removed `as any` type assertions | ✅ COMPLETE (10 of 10 fixed) | PlatformDetectorTool.ts, DeepSeekAdapter.ts, ReActEngine.ts, UnifiedScoringEngine.ts (2), LanceDBConnectionPool.ts, SkillsSandboxExecutor.ts (2) |
-| Server startup parallelization   | ✅ COMPLETE                  | server.ts:96-137                                                                                                                                 |
-| Warmup timeout reduction         | ✅ COMPLETE                  | ApplicationWarmupService.ts:64 (60000 → 30000ms)                                                                                                 |
-| Ollama embedding retry logic     | ✅ COMPLETE                  | OllamaAdapter.ts:58-127 (exponential backoff, 3 retries)                                                                                         |
-| Keyword search fallback          | ✅ COMPLETE                  | ToolRetrievalService.ts:226-251, SearchEngine.ts:269-396                                                                                         |
-| Updated AGENTS.md documentation  | ✅ COMPLETE                  | AGENTS.md                                                                                                                                        |
+| Improvement                      | Status                       | Files Modified                                                                                                                              |
+| -------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Removed `as any` type assertions | ✅ COMPLETE (10 of 10 fixed) | PlatformDetectorTool.ts, DeepSeekAdapter.ts, ReActEngine.ts, UnifiedScoringEngine.ts (2), SurrealDBStorage.ts, SkillsSandboxExecutor.ts (2) |
+| Server startup parallelization   | ✅ COMPLETE                  | server.ts:96-137                                                                                                                            |
+| Warmup timeout reduction         | ✅ COMPLETE                  | ApplicationWarmupService.ts:64 (60000 → 30000ms)                                                                                            |
+| Ollama embedding retry logic     | ✅ COMPLETE                  | OllamaAdapter.ts:58-127 (exponential backoff, 3 retries)                                                                                    |
+| Keyword search fallback          | ✅ COMPLETE                  | ToolRetrievalService.ts:226-251, SearchEngine.ts:269-396                                                                                    |
+| Updated AGENTS.md documentation  | ✅ COMPLETE                  | AGENTS.md                                                                                                                                   |
 
 ### Quality Improvements (2026-01-16)
 
@@ -221,7 +221,7 @@ npm run migrations   # Run migrations
 - Fixed 50+ TypeScript compilation errors from Phase 0 migration
 - Added missing `await` keywords in controllers and services
 - Changed synchronous methods to async where required
-- Implemented SurrealDBVectorStorage for LanceDB deprecation
+- Implemented SurrealDBVectorStorage for SurrealDB migration
 - Added adapter factory tests for SurrealDB storage adapters
 
 - Parallelized server initialization (SkillManager, MCP, ToolRetrievalService)
@@ -327,7 +327,7 @@ describe("SurrealDBAdapterFactory", () => {
 - Config is JSON-based (`config/admin-config.json`), NOT `.env`
 - `.env` only for system-level (API keys, port)
 - Context compression: 4 strategies, enabled via `contextCompression.enabled`
-- MCP servers stored in SQLite, tools indexed in LanceDB
+- MCP servers stored in SurrealDB, tools indexed in SurrealDB
 - Entry point is `src/server.ts` (not `index.ts`)
 - `opencode/` is a SEPARATE nested project (ignore for main development)
 

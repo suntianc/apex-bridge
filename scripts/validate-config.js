@@ -52,8 +52,8 @@ if (!fs.existsSync(envPath)) {
       console.log('   ✅ 所有必需的环境变量已配置');
     }
 
-    // LLM API 密钥已迁移到 SQLite，不再从 .env 检查
-    console.log('   💡 LLM 配置存储在 SQLite 中，运行 `node scripts/init-llm-config-v2.js` 初始化');
+    // LLM 配置存储在 SurrealDB
+    console.log('   💡 LLM 配置存储在 SurrealDB 中，请确保 SurrealDB 可访问');
   } catch (error) {
     console.log(`   ❌ 读取 .env 文件失败: ${error.message}`);
     allValid = false;

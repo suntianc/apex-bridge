@@ -35,6 +35,5 @@ export type {
   PathsConfig,
   SystemSecurityConfig,
   EnvironmentConfig,
-  DatabaseConfig,
   // PlaybookConfig 已移除
 } from "./admin";

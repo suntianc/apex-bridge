@@ -23,7 +23,7 @@ graph TD
     B --> B2["服务集成"];
     B --> B3["WebSocket管理"];
 
-    C --> C1["SQLite配置"];
+C --> C1["SurrealDB配置"];
     C --> C2["提供商管理"];
     C --> C3["模型管理"];
 
@@ -59,7 +59,7 @@ graph TD
 
 - **职责**: LLM配置管理（提供商+模型两级结构）
 - **关键功能**:
-  - SQLite数据库存储配置
+- SurrealDB数据库存储配置
   - 提供商生命周期管理
   - 模型配置和默认设置
   - 运行时热更新支持
@@ -125,7 +125,7 @@ graph TD
 
 1. **PathService**: 确保目录结构
 2. **ConfigService**: 加载系统配置
-3. **LLMConfigService**: 初始化SQLite数据库
+3. **LLMConfigService**: 初始化SurrealDB数据库
 4. **AceService**: 初始化ACE引擎
 5. **ConversationHistoryService**: 初始化历史服务
 6. **ChatService**: 协调各服务，初始化策略
@@ -150,7 +150,7 @@ ChatService
 
 ### 外部依赖
 
-- `better-sqlite3`: SQLite数据库支持
+- `surrealdb`: SurrealDB数据库支持
 - `winston`: 日志记录
 - `abp-rag-sdk`: RAG服务集成
 

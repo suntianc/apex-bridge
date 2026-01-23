@@ -47,12 +47,11 @@
 **风险**: 可能掩盖真实的回归问题  
 **验证结果**: ✅ **已确认存在** - 实际测试结果显示 5 个失败测试（不是文档记录的 4 个）
 
-| 文件                                                         | 行号 | 问题描述                                                             | 修复方案             | 验证状态  |
-| ------------------------------------------------------------ | ---- | -------------------------------------------------------------------- | -------------------- | --------- |
-| `tests/unit/storage/adapters/adapter-factory.test.ts`        | 308  | `VectorDualWriteAdapter` 断言失败，实际返回 `SurrealDBVectorStorage` | 根据实际实现调整预期 | ✅ 确认   |
-| `tests/unit/storage/adapters/adapter-factory.test.ts`        | 318  | `VectorReadWriteSplitAdapter` 断言失败                               | 根据实际实现调整预期 | ✅ 新发现 |
-| `tests/unit/storage/adapters/adapter-factory.test.ts`        | 329  | `VectorReadWriteSplitAdapter` 断言失败                               | 根据实际实现调整预期 | ✅ 新发现 |
-| `tests/unit/storage/adapters/SQLiteLLMConfigStorage.test.ts` | 1068 | 接口方法检查失败，部分方法返回 `undefined`                           | 检查接口实现是否完整 | ✅ 确认   |
+| 文件                                                  | 行号 | 问题描述                                                             | 修复方案             | 验证状态  |
+| ----------------------------------------------------- | ---- | -------------------------------------------------------------------- | -------------------- | --------- |
+| `tests/unit/storage/adapters/adapter-factory.test.ts` | 308  | `VectorDualWriteAdapter` 断言失败，实际返回 `SurrealDBVectorStorage` | 根据实际实现调整预期 | ✅ 确认   |
+| `tests/unit/storage/adapters/adapter-factory.test.ts` | 318  | `VectorReadWriteSplitAdapter` 断言失败                               | 根据实际实现调整预期 | ✅ 新发现 |
+| `tests/unit/storage/adapters/adapter-factory.test.ts` | 329  | `VectorReadWriteSplitAdapter` 断言失败                               | 根据实际实现调整预期 | ✅ 新发现 |
 
 **负责人**: 待分配  
 **截止日期**: 2026-01-24  
@@ -73,7 +72,6 @@ Tests:       5 failed, 1499 passed, 1504 total
 | 文件 | 行号 | 问题代码 | 修复方案 | 验证状态 |
 |------|------|----------|----------|----------|
 | `src/services/executors/ProcessPool.ts` | 410 | `.catch(() => {})` | 添加错误日志记录 | ✅ 确认存在 |
-| `tests/unit/storage/adapters/SQLiteLLMConfigStorage.test.ts` | 21, 426, 434 | `} catch (e) {}` | 添加错误日志或重新抛出 | ✅ 确认存在（测试文件） |
 | `tests/unit/storage/surrealdb/transaction.test.ts` | 106 | `} catch (e) {}` | 添加错误日志或重新抛出 | ✅ 确认存在（测试文件） |
 
 **修复模板**:

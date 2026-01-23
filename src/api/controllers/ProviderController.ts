@@ -23,6 +23,7 @@ import {
   serverError,
   handleErrorWithAutoDetection,
 } from "../../utils/http-response";
+import { toString } from "../../utils/request-parser";
 
 const configService = LLMConfigService.getInstance();
 const modelRegistry = ModelRegistry.getInstance();
@@ -140,7 +141,7 @@ export async function listProviders(req: Request, res: Response): Promise<void> 
  */
 export async function getProvider(req: Request, res: Response): Promise<void> {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(toString(req.params.id), 10);
 
     if (isNaN(id)) {
       badRequest(res, "Provider ID must be a number");
@@ -274,7 +275,7 @@ export async function createProvider(req: Request, res: Response): Promise<void>
  */
 export async function updateProvider(req: Request, res: Response): Promise<void> {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(toString(req.params.id), 10);
 
     if (isNaN(id)) {
       badRequest(res, "Provider ID must be a number");
@@ -326,7 +327,7 @@ export async function updateProvider(req: Request, res: Response): Promise<void>
  */
 export async function deleteProvider(req: Request, res: Response): Promise<void> {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(toString(req.params.id), 10);
 
     if (isNaN(id)) {
       badRequest(res, "Provider ID must be a number");

@@ -57,23 +57,23 @@
       "l1": {
         "enabled": true,
         "constitutionPath": "./config/constitution.md",
-        "modelSource": "sqlite"
+        "modelSource": "surrealdb"
       },
       "l2": {
         "enabled": true,
-        "modelSource": "sqlite"
+        "modelSource": "surrealdb"
       },
       "l3": {
         "enabled": true,
-        "modelSource": "sqlite"
+        "modelSource": "surrealdb"
       },
       "l4": {
         "enabled": true,
-        "modelSource": "sqlite"
+        "modelSource": "surrealdb"
       },
       "l5": {
         "enabled": true,
-        "modelSource": "sqlite",
+        "modelSource": "surrealdb",
         "fallbackToEvolution": true
       },
       "l6": {
@@ -103,8 +103,7 @@
         "maxSessionAge": 86400000
       },
       "useEventBus": true,
-      "useLLMManager": true,
-      "useSQLiteConfig": true
+      "useLLMManager": true
     }
   }
 }

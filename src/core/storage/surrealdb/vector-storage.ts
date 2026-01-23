@@ -166,7 +166,7 @@ export class SurrealDBVectorStorage implements IVectorStorage {
         case "cosine":
           searchQuery = `
             SELECT id, metadata,
-                   tf::cosine_similarity(vector, $queryVector) AS score
+                   vector::similarity::cosine(vector, $queryVector) AS score
             FROM ${TABLE_VECTORS}
             WHERE score > $threshold
             ORDER BY score DESC
@@ -194,7 +194,7 @@ export class SurrealDBVectorStorage implements IVectorStorage {
         default:
           searchQuery = `
             SELECT id, metadata,
-                   tf::cosine_similarity(vector, $queryVector) AS score
+                   vector::similarity::cosine(vector, $queryVector) AS score
             FROM ${TABLE_VECTORS}
             WHERE score > $threshold
             ORDER BY score DESC

@@ -67,7 +67,7 @@ apex-bridge/
 ├── config/                   # 配置文件目录
 ├── tests/                    # 测试文件
 ├── scripts/                  # 数据库迁移脚本
-├── .data/                    # 数据存储（SQLite + LanceDB）
+├── .data/                    # 数据存储（SurrealDB）
 └── package.json
 ```
 

@@ -1,6 +1,6 @@
 /**
  * Trajectory 存储服务
- * 负责 Trajectory 的 SQLite 数据库操作
+ * 负责 Trajectory 的 SurrealDB 数据库操作
  */
 
 import type { ITrajectoryStorage, TrajectoryStats } from "../core/storage/interfaces";

@@ -23,7 +23,7 @@ graph TD
 
     C --> C1["适配器工厂"];
     C --> C2["模型注册表"];
-    C --> C3["SQLite配置"];
+C --> C3["SurrealDB配置"];
 
     D --> D1["TimeProvider"];
     D --> D2["PlaceholderProvider"];
@@ -53,7 +53,7 @@ graph TD
 - **职责**: 多LLM提供商统一管理
 - **关键功能**:
   - 适配器模式支持多提供商（OpenAI、DeepSeek、智谱、Ollama、Claude）
-  - SQLite数据库加载配置，支持运行时热更新
+- SurrealDB数据库加载配置，支持运行时热更新
   - 智能重试机制和错误处理
   - 流式聊天支持
 - **架构**: 两级配置结构（提供商 + 模型）
@@ -110,16 +110,17 @@ graph TD
    - 注册变量提供者
 
 2. **LLMManager初始化**:
-   - 从SQLite加载提供商配置
-   - 创建适配器实例
-   - 注册到内部映射表
+
+- 从SurrealDB加载提供商配置
+  - 创建适配器实例
+  - 注册到内部映射表
 
 ## 🔧 关键依赖
 
 ### 外部依赖
 
 - `abp-rag-sdk`: RAG向量检索服务
-- `better-sqlite3`: SQLite数据库支持
+- `surrealdb`: SurrealDB数据库支持
 - `p-limit`: 并发控制
 - `winston`: 日志记录
 

@@ -22,7 +22,7 @@ import {
   ok,
   handleErrorWithAutoDetection,
 } from "../../utils/http-response";
-import { parseIdParam, parseBooleanParam } from "../../utils/request-parser";
+import { parseIdParam, parseBooleanParam, toString } from "../../utils/request-parser";
 
 const configService = LLMConfigService.getInstance();
 const modelRegistry = ModelRegistry.getInstance();
@@ -191,8 +191,8 @@ export async function listProviderModels(req: Request, res: Response): Promise<v
  */
 export async function getModel(req: Request, res: Response): Promise<void> {
   try {
-    const providerId = parseInt(req.params.providerId, 10);
-    const modelId = parseInt(req.params.modelId, 10);
+    const providerId = parseInt(toString(req.params.providerId), 10);
+    const modelId = parseInt(toString(req.params.modelId), 10);
 
     if (isNaN(providerId) || isNaN(modelId)) {
       badRequest(res, "Provider ID and Model ID must be numbers", { code: "INVALID_ID" });
@@ -305,7 +305,7 @@ export async function getModel(req: Request, res: Response): Promise<void> {
  */
 export async function createModel(req: Request, res: Response): Promise<void> {
   try {
-    const providerId = parseInt(req.params.providerId, 10);
+    const providerId = parseInt(toString(req.params.providerId), 10);
 
     if (isNaN(providerId)) {
       badRequest(res, "Provider ID must be a number");
@@ -411,8 +411,8 @@ export async function createModel(req: Request, res: Response): Promise<void> {
  */
 export async function updateModel(req: Request, res: Response): Promise<void> {
   try {
-    const providerId = parseInt(req.params.providerId, 10);
-    const modelId = parseInt(req.params.modelId, 10);
+    const providerId = parseInt(toString(req.params.providerId), 10);
+    const modelId = parseInt(toString(req.params.modelId), 10);
 
     if (isNaN(providerId) || isNaN(modelId)) {
       badRequest(res, "Provider ID and Model ID must be numbers", { code: "INVALID_ID" });
@@ -497,8 +497,8 @@ export async function updateModel(req: Request, res: Response): Promise<void> {
  */
 export async function deleteModel(req: Request, res: Response): Promise<void> {
   try {
-    const providerId = parseInt(req.params.providerId, 10);
-    const modelId = parseInt(req.params.modelId, 10);
+    const providerId = parseInt(toString(req.params.providerId), 10);
+    const modelId = parseInt(toString(req.params.modelId), 10);
 
     if (isNaN(providerId) || isNaN(modelId)) {
       badRequest(res, "Provider ID and Model ID must be numbers");

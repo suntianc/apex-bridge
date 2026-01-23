@@ -14,6 +14,7 @@ import {
   serverError,
   serviceUnavailable,
 } from "../../utils/http-response";
+import { toString } from "../../utils/request-parser";
 
 const router = Router();
 
@@ -87,7 +88,7 @@ router.post("/servers", async (req: Request, res: Response) => {
  */
 router.get("/servers/:serverId", async (req: Request, res: Response) => {
   try {
-    const { serverId } = req.params;
+    const serverId = toString(req.params.serverId);
     const server = mcpIntegration.getServer(serverId);
 
     if (!server) {
@@ -113,7 +114,7 @@ router.get("/servers/:serverId", async (req: Request, res: Response) => {
  */
 router.delete("/servers/:serverId", async (req: Request, res: Response) => {
   try {
-    const { serverId } = req.params;
+    const serverId = toString(req.params.serverId);
     const success = await mcpIntegration.unregisterServer(serverId);
 
     if (!success) {
@@ -137,7 +138,7 @@ router.delete("/servers/:serverId", async (req: Request, res: Response) => {
  */
 router.post("/servers/:serverId/restart", async (req: Request, res: Response) => {
   try {
-    const { serverId } = req.params;
+    const serverId = toString(req.params.serverId);
     const success = await mcpIntegration.restartServer(serverId);
 
     if (!success) {
@@ -161,7 +162,7 @@ router.post("/servers/:serverId/restart", async (req: Request, res: Response) =>
  */
 router.get("/servers/:serverId/status", async (req: Request, res: Response) => {
   try {
-    const { serverId } = req.params;
+    const serverId = toString(req.params.serverId);
     const status = mcpIntegration.getServerStatus(serverId);
 
     if (!status) {
@@ -185,7 +186,7 @@ router.get("/servers/:serverId/status", async (req: Request, res: Response) => {
  */
 router.get("/servers/:serverId/tools", async (req: Request, res: Response) => {
   try {
-    const { serverId } = req.params;
+    const serverId = toString(req.params.serverId);
     const server = mcpIntegration.getServer(serverId);
 
     if (!server) {
@@ -287,11 +288,12 @@ function validateToolCallRequest(
  */
 router.post("/servers/:serverId/tools/:toolName/call", async (req: Request, res: Response) => {
   try {
-    const { serverId, toolName } = req.params;
+    const serverId = toString(req.params.serverId);
+    const toolName = toString(req.params.toolName);
     const arguments_ = req.body;
 
     // Validate request parameters
-    const validation = validateToolCallRequest(serverId, toolName, arguments_);
+    const validation = validateToolCallRequest(serverId!, toolName!, arguments_);
     if (!validation.valid) {
       return badRequest(res, validation.error!.message, { code: validation.error!.code });
     }

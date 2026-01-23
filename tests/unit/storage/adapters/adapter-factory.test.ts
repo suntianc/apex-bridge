@@ -60,14 +60,6 @@ describe("StorageAdapterFactory", () => {
       expect(config.surrealdb?.namespace).toBe("test_ns");
       expect(config.surrealdb?.database).toBe("test_db");
     });
-
-    it("should create SQLite config when explicitly specified", () => {
-      const config = createStorageConfig({
-        STORAGE_BACKEND: "sqlite",
-      });
-      expect(config.backend).toBe(StorageBackend.SQLite);
-      expect(config.sqlite).toBeDefined();
-    });
   });
 
   describe("initialize", () => {
@@ -92,14 +84,6 @@ describe("StorageAdapterFactory", () => {
 
   describe("isSurrealDBEnabled", () => {
     it("should return false when not configured", () => {
-      expect(StorageAdapterFactory.isSurrealDBEnabled()).toBe(false);
-    });
-
-    it("should return false when backend is SQLite", () => {
-      const config = createStorageConfig({
-        STORAGE_BACKEND: "sqlite",
-      });
-      StorageAdapterFactory.initialize(config);
       expect(StorageAdapterFactory.isSurrealDBEnabled()).toBe(false);
     });
 

@@ -6,7 +6,7 @@ ApexBridge 原生支持 Model Context Protocol (MCP)，可无缝集成外部 MCP
 
 ApexBridge 的 MCP 集成提供完整的 MCP 协议支持，包括服务器注册与生命周期管理、工具发现与索引、统一的工具调用接口、以及持久化存储。系统采用模块化设计，`MCPIntegrationService` 作为核心协调器，`MCPServerManager` 负责单服务器管理，`MCPConfigService` 处理配置持久化，而 `MCPToolSupport` 则提供向量索引支持。
 
-技术栈方面，ApexBridge 使用 `@modelcontextprotocol/sdk` (版本 ^1.24.3) 实现标准 MCP 协议通信，支持 JSON-RPC 2.0 消息格式。工具向量索引基于 LanceDB (版本 ^0.22.3)，使用余弦相似度进行语义搜索。服务器配置持久化存储于 `.data/mcp_servers.db` SQLite 数据库，采用 WAL 模式提升并发性能。
+技术栈方面，ApexBridge 使用 `@modelcontextprotocol/sdk` (版本 ^1.24.3) 实现标准 MCP 协议通信，支持 JSON-RPC 2.0 消息格式。工具向量索引基于 SurrealDB，使用余弦相似度进行语义搜索。服务器配置持久化存储于 SurrealDB，采用事务保证一致性。
 
 ## 什么是 MCP
 
@@ -300,7 +300,7 @@ MCP 集成模块实现了完整的事件系统，用于监控服务器状态变�
 
 ApexBridge 的 `ChatService` 与 MCP 工具深度集成。当用户请求需要调用 MCP 工具时，系统会自动发现合适的工具并执行。工具执行结果会包含在聊天响应中，支持流式和非流式两种模式。
 
-工具发现基于语义搜索，系统会分析用户意图并匹配最相关的 MCP 工具。搜索使用 LanceDB 向量数据库，计算工具描述与用户查询的余弦相似度。
+工具发现基于语义搜索，系统会分析用户意图并匹配最相关的 MCP 工具。搜索使用 SurrealDB 向量数据库，计算工具描述与用户查询的余弦相似度。
 
 ### 与工具注册表集成
 
@@ -310,7 +310,7 @@ MCP 工具会自动注册到 `ToolRegistry`，与本地技能 (Skills) 和内置
 
 ### 向量索引与搜索
 
-MCP 工具会自动索引到 LanceDB 向量数据库，实现语义搜索功能。索引过程在服务器注册时自动进行，无需手动干预。工具的描述、名称和元数据会被转换为向量存储。索引使用余弦相似度计算工具与查询的语义相关性，支持灵活的相似度阈值过滤。
+MCP 工具会自动索引到 SurrealDB 向量数据库，实现语义搜索功能。索引过程在服务器注册时自动进行，无需手动干预。工具的描述、名称和元数据会被转换为向量存储。索引使用余弦相似度计算工具与查询的语义相关性，支持灵活的相似度阈值过滤。
 
 搜索 MCP 工具时，系统会：
 
@@ -321,9 +321,9 @@ MCP 工具会自动索引到 LanceDB 向量数据库，实现语义搜索功能�
 
 索引维度取决于配置的 Embedding 模型，默认为 1536 维（OpenAI text-embedding-3-small）。
 
-### LanceDB Schema
+### SurrealDB Schema
 
-MCP 工具在 LanceDB 中的存储结构采用 Arrow 格式定义，字段包括：`id`（MD5 哈希值，格式为 `mcp:{source}:{toolName}`）、`name`（工具名称）、`description`（工具描述）、`tags`（标签数组，包含 `mcp:{source}` 格式标签）、`path`（null，MCP 工具无文件路径）、`version`（null）、`source`（服务器 ID）、`toolType`（固定为 'mcp'）、`metadata`（JSON 字符串，包含 inputSchema 等元数据）、`vector`（向量数组）、`indexedAt`（索引时间戳）。
+MCP 工具在 SurrealDB 中的存储结构定义如下：`id`（MD5 哈希值，格式为 `mcp:{source}:{toolName}`）、`name`（工具名称）、`description`（工具描述）、`tags`（标签数组，包含 `mcp:{source}` 格式标签）、`path`（null，MCP 工具无文件路径）、`version`（null）、`source`（服务器 ID）、`toolType`（固定为 'mcp'）、`metadata`（JSON 字符串，包含 inputSchema 等元数据）、`vector`（向量数组）、`indexedAt`（索引时间戳）。
 
 ### 工具转换
 
@@ -418,7 +418,7 @@ MCP 功能相关的环境变量包括：`EMBEDDING_PROVIDER`（设置 Embedding 
 
 ### 配置文件
 
-MCP 服务器配置存储在 `config/admin-config.json` 中，但服务器配置通过 API 动态管理。服务器配置持久化存储在 `.data/mcp_servers.db` SQLite 数据库中，包含服务器 ID、配置 JSON、启用状态和创建/更新时间戳。
+MCP 服务器配置存储在 `config/admin-config.json` 中，但服务器配置通过 API 动态管理。服务器配置持久化存储在 SurrealDB 中，包含服务器 ID、配置 JSON、启用状态和创建/更新时间戳。
 
 ### 传输类型配置
 
@@ -432,7 +432,7 @@ MCP 服务器配置存储在 `config/admin-config.json` 中，但服务器配置
 
 ### 服务器生命周期管理
 
-在 ApexBridge 服务器启动时，所有已注册的 MCP 服务器会自动从 SQLite 数据库恢复。恢复过程按数据库中服务器的注册顺序依次执行，每个服务器会重新初始化 `MCPServerManager` 实例、建立 MCP 客户端连接、执行工具发现。恢复过程中的任何错误不会阻止其他服务器的加载，系统会记录错误并继续处理下一个服务器。
+在 ApexBridge 服务器启动时，所有已注册的 MCP 服务器会自动从 SurrealDB 恢复。恢复过程按数据库中服务器的注册顺序依次执行，每个服务器会重新初始化 `MCPServerManager` 实例、建立 MCP 客户端连接、执行工具发现。恢复过程中的任何错误不会阻止其他服务器的加载，系统会记录错误并继续处理下一个服务器。
 
 在服务器关闭时，系统执行优雅关闭流程：向所有 MCP 服务器发送关闭信号、等待服务器完成清理工作（超时 3 秒）、必要时强制终止未响应的进程、关闭 MCP 客户端连接和传输层、清理向量索引和工具缓存。关闭过程按注册顺序逆序执行，确保资源正确释放。
 
@@ -442,7 +442,7 @@ MCP 服务器配置存储在 `config/admin-config.json` 中，但服务器配置
 
 ### 已知限制
 
-当前版本存在以下已知限制：向量索引失败会静默跳过，不影响服务器注册和工具调用，但可能导致工具语义搜索结果不完整；SSE 和 WebSocket 传输类型已定义配置结构但尚未完整实现；向量维度变更会导致 LanceDB 表重建，可能短暂影响搜索功能。
+当前版本存在以下已知限制：向量索引失败会静默跳过，不影响服务器注册和工具调用，但可能导致工具语义搜索结果不完整；SSE 和 WebSocket 传输类型已定义配置结构但尚未完整实现。
 
 ## 完整示例
 
@@ -593,7 +593,7 @@ curl http://localhost:8088/api/mcp/servers/{serverId}/status
 
 ### 数据库问题
 
-如果服务器配置无法持久化或加载失败，检查 `.data/mcp_servers.db` 文件是否存在且可写。SQLite 数据库损坏时，删除数据库文件后重启服务，系统会自动重建。
+如果服务器配置无法持久化或加载失败，检查 SurrealDB 连接配置是否正确。SurrealDB 数据库损坏或不可用时，修复连接后重启服务。
 
 ### 日志查看
 

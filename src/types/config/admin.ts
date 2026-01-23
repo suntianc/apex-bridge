@@ -180,14 +180,6 @@ export interface EnvironmentConfig {
 }
 
 /**
- * 数据库配置
- */
-export interface DatabaseConfig {
-  /** SQLite 数据库路径 */
-  sqlitePath: string;
-}
-
-/**
  * 系统级配置接口
  */
 export interface SystemConfig {
@@ -201,8 +193,6 @@ export interface SystemConfig {
   security: SystemSecurityConfig;
   /** 环境配置 */
   environment: EnvironmentConfig;
-  /** 数据库配置 */
-  database: DatabaseConfig;
 }
 
 /**
@@ -215,7 +205,6 @@ export interface FullConfig {
   paths: PathsConfig;
   systemSecurity: SystemSecurityConfig;
   environment: EnvironmentConfig;
-  database: DatabaseConfig;
   /** 应用级配置 */
   setup_completed?: boolean;
   api?: ApiConfig;

@@ -71,9 +71,7 @@ graph TD
         Storage[(存储层)] <--> Context
 
         subgraph "存储层"
-            SQLite[(SQLite)]
             SurrealDB[(SurrealDB)]
-            LanceDB[(LanceDB ⚠️ 已废弃)]
         end
     end
 
@@ -96,7 +94,7 @@ graph TD
 | **ChatService**               | 聊天协调器，处理消息流和压缩逻辑                                  | `src/services/ChatService.ts`           |
 | **LLMManager**                | 多模型适配器管理，支持 OpenAI/Claude/DeepSeek/Ollama/Zhipu/Custom | `src/core/LLMManager.ts`                |
 | **ContextCompressionService** | 4 层上下文压缩引擎（Truncate/Prune/Summary/Hybrid）               | `src/services/context-compression/`     |
-| **ToolRetrievalService**      | 基于向量检索的工具匹配（LanceDB → SurrealDB 迁移中）              | `src/services/tool-retrieval/`          |
+| **ToolRetrievalService**      | 基于向量检索的工具匹配（SurrealDB 向量存储）                      | `src/services/tool-retrieval/`          |
 | **SkillManager**              | 本地技能管理和索引                                                | `src/services/skill/SkillManager.ts`    |
 | **MCPIntegrationService**     | MCP 协议客户端和服务端                                            | `src/services/MCPIntegrationService.ts` |
 | **ProtocolEngine**            | ABP 协议解析和编排                                                | `src/core/ProtocolEngine.ts`            |
@@ -282,8 +280,7 @@ apex-bridge/
 │   │   ├── storage/                  # 存储层（抽象接口 + 实现）
 │   │   │   ├── interfaces/           # 存储接口定义
 │   │   │   ├── surrealdb/            # SurrealDB 实现（主）
-│   │   │   ├── sqlite/               # SQLite 实现
-│   │   │   └── lance/                # LanceDB 实现（⚠️ 废弃）
+│   │   │   └── lance/                # SurrealDB 实现
 │   │   └── tool-action/              # 工具操作模块（11 子目录）
 │   │
 │   ├── services/                     # 业务服务
@@ -331,11 +328,10 @@ apex-bridge/
 │   ├── api-reference.md              # API 参考
 │   ├── context-compression.md        # 上下文压缩
 │   ├── mcp-integration.md            # MCP 集成指南
-│   └── LANCEDB_DEPRECATION.md        # LanceDB 废弃说明
+│   └── LANCEDB_DEPRECATION.md (已废弃)        # LanceDB 废弃说明
 │
 ├── .data/                            # 数据存储（隐藏目录）
-│   ├── *.sqlite                     # SQLite 数据库
-│   └── *.lance                      # LanceDB 向量索引
+│   └── *.surreal                      # LanceDB 向量索引
 │
 └── package.json                      # 项目配置
 ```
@@ -349,7 +345,6 @@ apex-bridge/
 ![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?style=for-the-badge&logo=node.js&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.0%2B-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
 ![Express](https://img.shields.io/badge/Express.js-000000?style=for-the-badge&logo=express&logoColor=white)
-![SQLite](https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white)
 ![SurrealDB](https://img.shields.io/badge/SurrealDB-Vector-FF6C37?style=for-the-badge)
 ![Redis](https://img.shields.io/badge/Redis-Cache-DC382D?style=for-the-badge&logo=redis&logoColor=white)
 
@@ -358,9 +353,8 @@ apex-bridge/
 **主要依赖**：
 
 - `@modelcontextprotocol/sdk` - MCP 协议实现
-- `@lancedb/lancedb` - 向量数据库（⚠️ 迁移中）
+- `）
 - `surrealdb` - 下一代数据库（迁移目标）
-- `better-sqlite3` - SQLite 绑定
 - `redis` - 缓存层
 - `swagger-jsdoc` + `swagger-ui-express` - API 文档
 - `winston` - 日志
@@ -370,16 +364,16 @@ apex-bridge/
 
 ## 📚 文档
 
-| 文档                                            | 说明                    |
-| ----------------------------------------------- | ----------------------- |
-| [快速开始](docs/getting-started.md)             | 入门指南和安装配置      |
-| [架构设计](docs/architecture.md)                | 系统设计深度解析        |
-| [API 参考](docs/api-reference.md)               | 完整的 API 文档         |
-| [上下文压缩](docs/context-compression.md)       | 4 层压缩策略详解        |
-| [MCP 集成指南](docs/mcp-integration.md)         | MCP 服务器配置和使用    |
-| [性能优化](docs/performance-guide.md)           | 性能调优指南            |
-| [用户指南](docs/user-guide.md)                  | 使用指南和最佳实践      |
-| [LanceDB 废弃说明](docs/LANCEDB_DEPRECATION.md) | 迁移到 SurrealDB 的说明 |
+| 文档                                                     | 说明                    |
+| -------------------------------------------------------- | ----------------------- |
+| [快速开始](docs/getting-started.md)                      | 入门指南和安装配置      |
+| [架构设计](docs/architecture.md)                         | 系统设计深度解析        |
+| [API 参考](docs/api-reference.md)                        | 完整的 API 文档         |
+| [上下文压缩](docs/context-compression.md)                | 4 层压缩策略详解        |
+| [MCP 集成指南](docs/mcp-integration.md)                  | MCP 服务器配置和使用    |
+| [性能优化](docs/performance-guide.md)                    | 性能调优指南            |
+| [用户指南](docs/user-guide.md)                           | 使用指南和最佳实践      |
+| [LanceDB 废弃说明](docs/LANCEDB_DEPRECATION.md "已废弃") | 迁移到 SurrealDB 的说明 |
 
 **在线文档**：
 

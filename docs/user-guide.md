@@ -624,7 +624,7 @@ const warmupService = new ApplicationWarmupService({
   timeoutMs: 60000,
   databaseWarmup: {
     enabled: true,
-    priority: ["sqlite"],
+    priority: ["surrealdb"],
   },
   indexWarmup: {
     enabled: true,
@@ -669,9 +669,9 @@ console.log("Optimal config:", config);
 ### 连接池配置
 
 ```typescript
-import { LanceDBConnectionPool } from "./services/tool-retrieval/LanceDBConnectionPool";
+import { SurrealDBStorage } from "./services/tool-retrieval/SurrealDBStorage";
 
-const pool = new LanceDBConnectionPool({
+const pool = new SurrealDBStorage({
   maxInstances: 4, // 最大连接数
   instanceTTL: 300000, // 连接存活时间（毫秒）
   healthCheckInterval: 60000, // 健康检查间隔

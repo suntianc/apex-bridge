@@ -155,9 +155,6 @@ export const API = {
 // ==================== 数据库常量 ====================
 
 export const DATABASE = {
-  /** SQLite 数据库文件名 */
-  DB_FILENAME: "apex-bridge.db",
-
   /** 向量数据库路径 */
   VECTOR_DB_PATH: "./.data",
 

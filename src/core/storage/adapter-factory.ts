@@ -2,7 +2,7 @@
  * Storage Adapter Factory
  *
  * Creates storage adapter instances based on configuration.
- * Supports SurrealDB and SQLite backends.
+ * Supports SurrealDB backend.
  */
 
 import {
@@ -19,9 +19,6 @@ import { logger } from "../../utils/logger";
 
 import { SurrealDBVectorStorage } from "./surrealdb/vector-storage";
 
-import { SQLiteLLMConfigStorage } from "./sqlite/llm-config";
-import { SQLiteConversationStorage } from "./sqlite/conversation";
-import { SQLiteTrajectoryStorage } from "./sqlite/trajectory";
 import { SurrealDBLLMConfigStorage } from "./surrealdb/llm-config";
 import { SurrealDBConversationStorage } from "./surrealdb/conversation";
 import { SurrealDBMCPConfigStorage } from "./surrealdb/mcp-config";
@@ -143,9 +140,6 @@ class StorageAdapterFactory {
       case StorageBackend.SurrealDB:
         return this.createSurrealAdapter<T>(interfaceName);
 
-      case StorageBackend.SQLite:
-        return this.createSQLiteAdapter<T>(interfaceName);
-
       default:
         throw new Error(`[StorageAdapterFactory] Unknown backend: ${this.config.backend}`);
     }
@@ -175,27 +169,6 @@ class StorageAdapterFactory {
       default: {
         const { SurrealDBStorageAdapter } = require("./surrealdb/adapter");
         return new SurrealDBStorageAdapter(this.config.surrealdb) as T;
-      }
-    }
-  }
-
-  /**
-   * Create SQLite adapter
-   */
-  private static createSQLiteAdapter<T>(interfaceName: string): T {
-    switch (interfaceName) {
-      case "ILLMConfigStorage": {
-        return new SQLiteLLMConfigStorage() as T;
-      }
-      case "IConversationStorage": {
-        return new SQLiteConversationStorage() as T;
-      }
-      case "ITrajectoryStorage": {
-        return new SQLiteTrajectoryStorage() as T;
-      }
-      default: {
-        const { SQLiteStorageAdapter } = require("./sqlite/adapter");
-        return new SQLiteStorageAdapter() as T;
       }
     }
   }
@@ -251,7 +224,8 @@ export function parseFeatureFlags(env: NodeJS.ProcessEnv): StorageFeatureFlags {
  */
 export function createStorageConfig(env: NodeJS.ProcessEnv): StorageConfig {
   // Default to SurrealDB (dual-write removed)
-  const backend = (env.STORAGE_BACKEND as StorageBackend) || StorageBackend.SurrealDB;
+  const backend =
+    env.STORAGE_BACKEND === "surrealdb" ? StorageBackend.SurrealDB : StorageBackend.SurrealDB;
   const features = parseFeatureFlags(env);
 
   const config: StorageConfig = {
@@ -269,14 +243,6 @@ export function createStorageConfig(env: NodeJS.ProcessEnv): StorageConfig {
       password: env.SURREALDB_PASS || env.SURREAL_PASS || "root",
       timeout: parseEnvInt(env.SURREAL_CONNECTION_TIMEOUT, 5000),
       maxRetries: parseEnvInt(env.SURREAL_MAX_RETRIES, 3),
-    };
-  }
-
-  if (backend === StorageBackend.SQLite) {
-    config.sqlite = {
-      path: env.SQLITE_PATH || "./.data/apexbridge.db",
-      walMode: true,
-      foreignKeys: true,
     };
   }
 

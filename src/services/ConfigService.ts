@@ -24,7 +24,6 @@ import type {
   FullConfig,
   SystemSecurityConfig,
   EnvironmentConfig,
-  DatabaseConfig,
   PathsConfig,
   ApiKeyInfo,
   RateLimitSettings,
@@ -215,7 +214,6 @@ export class ConfigService {
       paths: this.getPathsConfig(),
       security: this.getSystemSecurityConfig(),
       environment: this.getEnvironmentConfig(),
-      database: this.getDatabaseConfig(),
     };
   }
 
@@ -248,7 +246,6 @@ export class ConfigService {
       paths: systemConfig.paths,
       systemSecurity: systemConfig.security,
       environment: systemConfig.environment,
-      database: systemConfig.database,
       setup_completed: appConfig.setup_completed,
       api: appConfig.api,
       auth: {
@@ -299,12 +296,6 @@ export class ConfigService {
       securityLogLevel: process.env.SECURITY_LOG_LEVEL || "warn",
       securityLogEnabled: process.env.SECURITY_LOG_ENABLED !== "false",
       verboseLogging: process.env.VERBOSE_LOGGING === "true",
-    };
-  }
-
-  private getDatabaseConfig(): DatabaseConfig {
-    return {
-      sqlitePath: process.env.SQLITE_PATH || "./.data/llm_providers.db",
     };
   }
 

@@ -16,6 +16,7 @@ import { parseChatRequest } from "../../api/validators/chat-request-validator";
 import type { ChatRequestOptions } from "../../api/validators/chat-request-validator";
 import { normalizeUsage, buildChatResponse } from "../../api/utils/response-formatter";
 import { parseLLMChunk } from "../../api/utils/stream-parser";
+import { toString } from "../../utils/request-parser";
 
 /**
  * @swagger
@@ -572,7 +573,7 @@ export class ChatController {
    */
   async deleteSession(req: Request, res: Response): Promise<void> {
     try {
-      const conversationId = req.params.conversationId;
+      const conversationId = toString(req.params.conversationId);
 
       if (!conversationId) {
         badRequest(res, "conversationId is required");
@@ -597,7 +598,7 @@ export class ChatController {
    */
   async getSession(req: Request, res: Response): Promise<void> {
     try {
-      const conversationId = req.params.conversationId;
+      const conversationId = toString(req.params.conversationId);
 
       if (!conversationId) {
         badRequest(res, "conversationId is required");
@@ -693,8 +694,9 @@ export class ChatController {
    */
   async getSessionHistory(req: Request, res: Response): Promise<void> {
     try {
-      const { conversationId } = req.params;
-      const { type = "all", limit = "100" } = req.query;
+      const conversationId = toString(req.params.conversationId);
+      const type = toString(req.query.type) || "all";
+      const limit = toString(req.query.limit) || "100";
 
       if (!conversationId) {
         badRequest(res, "conversationId is required");
@@ -752,8 +754,9 @@ export class ChatController {
    */
   async getConversationMessages(req: Request, res: Response): Promise<void> {
     try {
-      const { conversationId } = req.params;
-      const { limit = "100", offset = "0" } = req.query;
+      const conversationId = toString(req.params.conversationId);
+      const limitStr = toString(req.query.limit) || "100";
+      const offsetStr = toString(req.query.offset) || "0";
 
       if (!conversationId) {
         badRequest(res, "conversationId is required");
@@ -762,8 +765,8 @@ export class ChatController {
 
       const messages = await this.chatService.getConversationHistory(
         conversationId,
-        parseInt(limit as string) || 100,
-        parseInt(offset as string) || 0
+        parseInt(limitStr) || 100,
+        parseInt(offsetStr) || 0
       );
 
       const total = await this.chatService.getConversationMessageCount(conversationId);
@@ -773,8 +776,8 @@ export class ChatController {
         data: {
           messages,
           total,
-          limit: parseInt(limit as string) || 100,
-          offset: parseInt(offset as string) || 0,
+          limit: parseInt(limitStr) || 100,
+          offset: parseInt(offsetStr) || 0,
         },
       });
     } catch (error: any) {

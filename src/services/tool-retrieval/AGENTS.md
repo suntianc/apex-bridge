@@ -1,7 +1,7 @@
 # AGENTS.md - src/services/tool-retrieval
 
 **Generated:** 2026-01-17
-**Vector search & tool embedding** - LanceDB (being deprecated for SurrealDB)
+**Vector search & tool embedding** - SurrealDB
 
 ## WHERE TO LOOK
 
@@ -11,7 +11,7 @@
 | Embedding gen  | `EmbeddingGenerator.ts`   | LLM embedding via `LLMManager.embed()`, lazy import pattern            |
 | Skill indexing | `SkillIndexer.ts`         | Scan SKILL.md files, `.vectorized` file tracking, MD5 change detection |
 | MCP tools      | `MCPToolSupport.ts`       | MCP tool indexing, tag extraction (`mcp:{source}`)                     |
-| DB connection  | `LanceDBConnection.ts`    | LanceDB connect, IVF_PQ index, schema migration                        |
+| DB connection  | `LanceDBConnection.ts`    | SurrealDB connect, HNSW index, schema migration                        |
 | Main service   | `ToolRetrievalService.ts` | Orchestrates search + indexing, singleton pattern                      |
 
 ## KEY PATTERNS
@@ -19,13 +19,13 @@
 **Vector Search Flow**
 
 ```
-query → EmbeddingGenerator.generateForText() → SearchEngine.search() → LanceDB query(nearestTo)
+query → EmbeddingGenerator.generateForText() → SearchEngine.search() → SurrealDB query
 ```
 
 **Skill Indexing**
 
 ```
-SKILL.md (YAML frontmatter) → md5 hash → .vectorized file → LanceDB upsert
+SKILL.md (YAML frontmatter) → md5 hash → .vectorized file → SurrealDB upsert
 ```
 
 **Lazy Import (circular dependency avoidance)**
@@ -47,8 +47,8 @@ Same as root: single quotes, 2-space indent, semicolons, 100-char width, `_` pre
 
 ## ANTI-PATTERNS (THIS SUBDIR)
 
-- **Requires EMBEDDING_PROVIDER + EMBEDDING_MODEL** env vars or SQLite LLMConfig lookup
+- **Requires EMBEDDING_PROVIDER + EMBEDDING_MODEL** env vars or SurrealDB LLMConfig lookup
 - **Singleton instantiation**: `ToolRetrievalService.getInstance()` creates on first call - no lazy initialization hook
-- **Vector dimensions mismatch**: LanceDB recreates table if embedding dimensions change
+- **Vector dimensions mismatch**: SurrealDB handles dimension changes
 - **Silent vectorization failures**: `MCPToolSupport` errors are logged but don't block tool registration
 - **LanceDB deprecation**: Being replaced by SurrealDBVectorStorage (Phase 4 migration pending)

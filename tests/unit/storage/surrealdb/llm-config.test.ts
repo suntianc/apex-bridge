@@ -69,7 +69,7 @@ describe("SurrealDBLLMConfigStorage", () => {
 
     expect(client.upsert).toHaveBeenCalledTimes(1);
 
-    const [, modelRecord] = (client.upsert as jest.Mock).mock.calls[0];
+    const [, modelRecord] = (client.upsert as unknown as jest.Mock).mock.calls[0];
 
     expect(modelRecord).toMatchObject({
       provider_id: "123",
@@ -89,7 +89,7 @@ describe("SurrealDBLLMConfigStorage", () => {
   it("should parse model_config string if returned as JSON string", async () => {
     const now = Date.now();
 
-    (client.query as jest.Mock).mockResolvedValue([
+    (client.query as unknown as jest.Mock).mockResolvedValue([
       [
         {
           id: "llm_models:1",

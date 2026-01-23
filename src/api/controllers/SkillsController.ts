@@ -23,6 +23,7 @@ import {
   serviceUnavailable,
   handleErrorWithAutoDetection,
 } from "../../utils/http-response";
+import { toString } from "../../utils/request-parser";
 
 const skillManager = SkillManager.getInstance();
 
@@ -190,7 +191,7 @@ export async function installSkill(req: Request, res: Response): Promise<void> {
  */
 export async function uninstallSkill(req: Request, res: Response): Promise<void> {
   try {
-    const { name } = req.params;
+    const name = toString(req.params.name);
     const startTime = Date.now();
 
     logger.info(`🗑️ Uninstalling skill: ${name}`);
@@ -268,7 +269,7 @@ export async function uninstallSkill(req: Request, res: Response): Promise<void>
  */
 export async function updateSkillDescription(req: Request, res: Response): Promise<void> {
   try {
-    const { name } = req.params;
+    const name = toString(req.params.name);
     const { description } = req.body;
     const startTime = Date.now();
 
@@ -406,7 +407,7 @@ export async function listSkills(req: Request, res: Response): Promise<void> {
  */
 export async function getSkill(req: Request, res: Response): Promise<void> {
   try {
-    const { name } = req.params;
+    const name = toString(req.params.name);
     const startTime = Date.now();
 
     logger.debug(`🔍 Getting skill details: ${name}`);
@@ -462,7 +463,7 @@ export async function getSkill(req: Request, res: Response): Promise<void> {
  */
 export async function checkSkillExists(req: Request, res: Response): Promise<void> {
   try {
-    const { name } = req.params;
+    const name = toString(req.params.name);
 
     logger.debug(`🔍 Checking if skill exists: ${name}`);
 

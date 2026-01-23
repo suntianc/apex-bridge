@@ -333,7 +333,7 @@ export class ABPIntelliCore {
     }
 
     // LLMClient采用懒加载机制，不在启动时初始化
-    // 首次使用时（如聊天请求）会自动创建 LLMManager 实例（从 SQLite 加载配置）
+    // 首次使用时（如聊天请求）会自动创建 LLMManager 实例（从 SurrealDB 加载配置）
 
     // 注册聊天API
     // 创建控制器（LLMClient采用懒加载）

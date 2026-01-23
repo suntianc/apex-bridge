@@ -2,7 +2,7 @@
  * Storage Interface Abstraction Layer
  *
  * This module defines the storage interfaces that abstract away
- * the underlying database implementation (SQLite, SurrealDB).
+ * the underlying database implementation (SurrealDB).
  * All business services should depend on these interfaces, not concrete implementations.
  */
 
@@ -277,7 +277,6 @@ export interface StorageFeatureFlags {
  * Storage backend type enumeration
  */
 export enum StorageBackend {
-  SQLite = "sqlite",
   SurrealDB = "surrealdb",
 }
 
@@ -291,9 +290,6 @@ export interface StorageConfig {
   /** SurrealDB specific configuration */
   surrealdb?: SurrealDBConfig;
 
-  /** SQLite specific configuration */
-  sqlite?: SQLiteConfig;
-
   /** Feature flags */
   features: StorageFeatureFlags;
 }
@@ -306,10 +302,4 @@ export interface SurrealDBConfig {
   password: string;
   timeout?: number;
   maxRetries?: number;
-}
-
-export interface SQLiteConfig {
-  path: string;
-  walMode?: boolean;
-  foreignKeys?: boolean;
 }

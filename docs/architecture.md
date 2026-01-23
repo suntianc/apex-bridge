@@ -118,7 +118,7 @@ ApexBridge 是一个高性能的企业级 AI Agent 框架，旨在构建孤立�
 │                            Data Layer (数据层)                                │
 │                                                                               │
 │  ┌─────────────────────┐  ┌───────────────────────────────────────────────┐  │
-│  │       SQLite        │  │                   LanceDB                      │  │
+│  │       SurrealDB                               │  │
 │  │  (LLM配置、模型信息)  │  │             (向量数据库、工具检索)              │  │
 │  │  - providers表      │  │                                               │  │
 │  │  - models表         │  │  - skills表 (支持skill/mcp/builtin类型)        │  │
@@ -162,7 +162,7 @@ apex-bridge/
 │   ├── services/                           # 服务层
 │   │   ├── ChatService.ts                  # 聊天服务（协调器）
 │   │   ├── ConfigService.ts                # 配置服务
-│   │   ├── LLMConfigService.ts             # LLM配置服务（SQLite）
+│   │   ├── LLMConfigService.ts             # LLM配置服务（SurrealDB）
 │   │   ├── SkillManager.ts                 # 技能管理器
 │   │   ├── MCPIntegrationService.ts        # MCP集成服务
 │   │   ├── ConversationHistoryService.ts   # 对话历史服务
@@ -177,7 +177,7 @@ apex-bridge/
 │   │   │       ├── SummaryStrategy.ts      # 摘要策略
 │   │   │       └── HybridStrategy.ts       # 混合策略
 │   │   ├── tool-retrieval/                 # 工具检索
-│   │   │   └── ToolRetrievalService.ts     # LanceDB向量检索服务
+│   │   │   └── ToolRetrievalService.ts     # SurrealDB向量检索服务
 │   │   ├── executors/                      # 执行器
 │   │   │   ├── SkillsSandboxExecutor.ts    # 技能沙箱执行器
 │   │   │   └── BuiltInExecutor.ts          # 内置工具执行器
@@ -234,8 +234,8 @@ apex-bridge/
 │   └── admin-config.json                   # 管理配置（JSON格式）
 │
 ├── .data/                                  # 数据目录（隐藏）
-│   ├── apexbridge.db                       # SQLite数据库
-│   └── vector_store/                       # LanceDB向量存储
+│   ├── surrealdb                           # SurrealDB数据库
+│   └── vector_store/                       # SurrealDB向量存储
 │       └── skills.lance                    # 技能向量表
 │
 ├── scripts/                                # 脚本目录
@@ -306,7 +306,7 @@ const abpConfig: ABPProtocolConfig = {
 
 **文件位置:** `src/core/LLMManager.ts`
 
-LLMManager 采用两级配置结构（提供商+模型），支持多模型类型（NLP、Embedding、Rerank等），配置从 SQLite 数据库加载，支持运行时热更新。
+LLMManager 采用两级配置结构（提供商+模型），支持多模型类型（NLP、Embedding、Rerank等），配置从 SurrealDB 数据库加载，支持运行时热更新。
 
 **核心特性:**
 
@@ -565,7 +565,7 @@ interface CompressionStats {
 
 **文件位置:** `src/services/tool-retrieval/ToolRetrievalService.ts`
 
-ToolRetrievalService 基于 LanceDB 提供向量数据库能力，支持 Skills 和 MCP 工具的语义检索。
+ToolRetrievalService 基于 SurrealDB 提供向量数据库能力，支持 Skills 和 MCP 工具的语义检索。
 
 **数据模型:**
 
@@ -593,7 +593,7 @@ interface ToolsTable {
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                      │
 │  1. 初始化 (懒加载)                                                  │
-│     └─> 连接LanceDB → 创建/打开skills表 → 创建IVF_PQ索引             │
+│     └─> 连接SurrealDB → 创建IVF_PQ索引             │
 │                                                                      │
 │  2. 生成查询向量                                                     │
 │     └─> 使用embedding模型将查询文本向量化                              │
@@ -705,7 +705,7 @@ MCPIntegrationService 实现 Model Context Protocol 的客户端功能，管理 
 | 工具发现   | 自动发现服务器工具，注册到 ToolRegistry |
 | 工具执行   | 调用 MCP 工具，处理返回结果             |
 | 向量索引   | 将 MCP 工具向量化，集成到工具检索系统   |
-| 持久化     | 从 SQLite 数据库加载已注册的服务器      |
+| 持久化     | 从 SurrealDB 数据库加载已注册的服务器   |
 
 **服务器状态:**
 
@@ -999,9 +999,9 @@ interface WSServerMessage {
 
 ### 4.5 Data Layer（数据层）
 
-数据层负责持久化存储，包括 SQLite（结构化数据）和 LanceDB（向量数据）。
+数据层负责持久化存储，统一使用 SurrealDB（结构化 + 向量数据）。
 
-#### 4.5.1 SQLite 数据库
+#### 4.5.1 SurrealDB 数据库
 
 **文件位置:** `.data/apexbridge.db`
 
@@ -1043,7 +1043,7 @@ CREATE TABLE mcp_servers (
 );
 ```
 
-#### 4.5.2 LanceDB 向量数据库
+#### 4.5.2 SurrealDB 向量数据库
 
 **文件位置:** `.data/vector_store/skills.lance`
 
@@ -1330,7 +1330,7 @@ ApexBridge 使用 JSON 配置文件和环境变量相结合的配置管理方式
 ### 6.3 配置优先级
 
 ```
-环境变量 > SQLite数据库 > 配置文件 (config/admin-config.json)
+环境变量 > SurrealDB数据库 > 配置文件 (config/admin-config.json)
 ```
 
 ---
@@ -1355,7 +1355,7 @@ ApexBridge 使用 JSON 配置文件和环境变量相结合的配置管理方式
 │                                                                      │
 │  4. 初始化LLM配置服务                                                 │
 │     └─> LLMConfigService.getInstance()                              │
-│         └─> SQLite数据库和表初始化                                    │
+│         └─> SurrealDB数据库和表初始化                                │
 │                                                                      │
 │  5. 初始化SkillManager                                               │
 │     └─> SkillManager.getInstance()                                  │
@@ -1371,7 +1371,7 @@ ApexBridge 使用 JSON 配置文件和环境变量相结合的配置管理方式
 │                                                                      │
 │  8. 初始化LLM管理器                                                   │
 │     └─> LLMManager.getInstance()                                    │
-│         └─> 从SQLite加载提供商配置                                     │
+│         └─> 从SurrealDB加载提供商配置                                 │
 │         └─> 创建提供商适配器                                           │
 │                                                                      │
 │  9. 创建ChatService                                                  │
@@ -1420,7 +1420,7 @@ ApexBridge 是一个设计良好、架构清晰的 AI Agent 框架，通过模�
 3. **智能上下文压缩** - 4 层压缩策略确保长对话场景下的高效 token 利用
 4. **灵活的策略模式** - 支持多种聊天处理模式（ReAct、SingleRound）
 5. **完善的工具系统** - 内置工具、Skills、MCP 工具的统一管理
-6. **可靠的数据持久化** - SQLite + LanceDB 的双层存储架构
+6. **可靠的数据持久化** - SurrealDB 统一存储架构
 
 框架采用 TypeScript 开发，充分利用了类型系统带来的安全性，同时保持了良好的代码可读性和可维护性。
 

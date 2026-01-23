@@ -19,7 +19,7 @@
 #### IndexPrewarmService.ts
 
 - **功能**: 向量索引预热服务
-- **职责**: 预热 LanceDB 向量索引，减少首次查询延迟
+- **职责**: 预热 SurrealDB 向量索引，减少首次查询延迟
 - **机制**: 执行模拟查询覆盖所有数据分区
 - **配置项**:
   - `queryCount`: 预热查询数量（默认100）
@@ -140,7 +140,7 @@ const warmupService = new ApplicationWarmupService({
   timeoutMs: 120000,
   databaseWarmup: {
     enabled: true,
-    priority: ["sqlite"],
+    priority: ["surrealdb"],
   },
   indexWarmup: {
     enabled: true,
@@ -164,11 +164,11 @@ const warmupService = new ApplicationWarmupService({
   ↓
 1. 数据库连接预热 (databaseWarmup)
    ├─ LLMConfigService 初始化
-   └─ SQLite 连接验证
+└─ SurrealDB 连接验证
   ↓
 2. 向量索引预热 (indexWarmup)
    ├─ ToolRetrievalService 初始化
-   ├─ LanceDB 连接和表初始化
+   ├─ SurrealDB 连接和表初始化
    └─ 执行 100 个预热查询
   ↓
 3. 嵌入缓存预热 (embeddingCacheWarmup)

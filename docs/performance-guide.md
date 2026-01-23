@@ -73,7 +73,7 @@ const warmupService = new ApplicationWarmupService({
   timeoutMs: 60000,
   databaseWarmup: {
     enabled: true,
-    priority: ["sqlite"],
+    priority: ["surrealdb"],
   },
   indexWarmup: {
     enabled: true,
@@ -115,7 +115,7 @@ import { DatabaseManager } from "./services/DatabaseManager";
 async function warmupDatabase() {
   const dbManager = DatabaseManager.getInstance();
 
-  // 预热 SQLite 连接
+  // 预热 SurrealDB 连接
   await dbManager.ensureConnection();
 
   // 预热查询常用表
@@ -383,12 +383,12 @@ monitor.on("critical", (usage) => {
 
 ## 连接池管理
 
-### LanceDB 连接池
+### 连接池配置
 
 ```typescript
-import { LanceDBConnectionPool } from "./services/tool-retrieval/LanceDBConnectionPool";
+import { SurrealDBConnection } from "./services/tool-retrieval/SurrealDBConnection";
 
-const pool = new LanceDBConnectionPool({
+const pool = new SurrealDBConnection({
   maxInstances: 4, // 最大连接数
   instanceTTL: 300000, // 连接存活时间（5分钟）
   healthCheckInterval: 60000, // 健康检查间隔（1分钟）

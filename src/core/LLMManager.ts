@@ -3,7 +3,7 @@
  *
  * 使用两级配置结构（提供商 + 模型）
  * 支持多模型类型（NLP, Embedding, Rerank 等）
- * 配置从 SQLite 数据库加载，支持运行时热更新
+ * 配置从 SurrealDB 数据库加载，支持运行时热更新
  */
 
 import { Message, ChatOptions, LLMResponse } from "../types";
@@ -371,13 +371,13 @@ export class LLMManager {
   /**
    * 文本向量化（使用 Embedding 模型）
    * 采用三级优先级选择模型：
-   * 1. 优先级1：SQLite 中配置的默认 embedding 模型（is_default = 1）
+   * 1. 优先级1：SurrealDB 中配置的默认 embedding 模型（is_default = 1）
    * 2. 优先级2：.env 配置中的 EMBEDDING_PROVIDER 和 EMBEDDING_MODEL
    * 3. 优先级3：直接使用 Ollama 适配器（无需注册）
    */
   async embed(texts: string[]): Promise<number[][]> {
     try {
-      // 1. 优先级1：SQLite 全局默认 embedding 模型
+      // 1. 优先级1：SurrealDB 全局默认 embedding 模型
       let model = this.modelRegistry.getDefaultModel(LLMModelType.EMBEDDING);
       let adapter = model ? this.adapters.get(model.provider) : null;
 
@@ -436,7 +436,7 @@ export class LLMManager {
       if (!adapter) {
         throw new Error(
           "No embedding model available. " +
-            "Please configure an embedding model in SQLite (set is_default=1) or set EMBEDDING_PROVIDER and EMBEDDING_MODEL in .env"
+            "Please configure an embedding model in SurrealDB (set is_default=1) or set EMBEDDING_PROVIDER and EMBEDDING_MODEL in .env"
         );
       }
 

@@ -2,7 +2,7 @@
  * Task Queue Types - Playbook 反思任务队列类型定义
  *
  * 用于支持 Stage 0.5: 任务队列基础设施
- * - 事件驱动 + SQLite 持久化任务队列 + 闲时调度模式
+ * - 事件驱动 + SurrealDB 持久化任务队列 + 闲时调度模式
  */
 
 /**
@@ -109,7 +109,7 @@ export interface IdleSchedulerOptions {
 }
 
 /**
- * SQLite 数据库行映射类型
+ * SurrealDB 数据库行映射类型
  */
 export interface ReflectionQueueRow {
   id: string;

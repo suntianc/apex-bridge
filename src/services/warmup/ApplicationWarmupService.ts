@@ -64,7 +64,7 @@ const DEFAULT_CONFIG: WarmupConfig = {
   timeoutMs: 30000,
   databaseWarmup: {
     enabled: true,
-    priority: ["sqlite"],
+    priority: ["surrealdb"],
   },
   indexWarmup: {
     enabled: true,
@@ -191,11 +191,11 @@ export class ApplicationWarmupService {
     try {
       logger.info("[ApplicationWarmupService] Warming up database connections...");
 
-      if (this.config.databaseWarmup.priority.includes("sqlite")) {
+      if (this.config.databaseWarmup.priority.includes("surrealdb")) {
         const llmConfigService = LLMConfigService.getInstance();
         const providers = await llmConfigService.listProviders();
         logger.debug(
-          `[ApplicationWarmupService] SQLite connection warmed up (${providers.length} providers)`
+          `[ApplicationWarmupService] SurrealDB connection warmed up (${providers.length} providers)`
         );
       }
 

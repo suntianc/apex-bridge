@@ -6,6 +6,28 @@
 import { Request, Response } from "express";
 
 /**
+ * Query string parsed object type from Express
+ */
+type ParsedQueryValue = string | string[] | undefined;
+
+/**
+ * Normalize a string | string[] value to a single string
+ * Express can return arrays for params/query/headers in certain routing scenarios
+ */
+export function toString(value: string | string[] | undefined): string | undefined;
+export function toString(value: any): string | undefined;
+export function toString(value: string | string[] | undefined | any): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (Array.isArray(value)) {
+    const first = value[0];
+    return typeof first === "string" ? first : undefined;
+  }
+  return typeof value === "string" ? value : undefined;
+}
+
+/**
  * Parse integer from string with default fallback
  */
 export function parseIntParam(value: string | undefined, defaultValue: number): number {
@@ -20,7 +42,7 @@ export function parseIntParam(value: string | undefined, defaultValue: number): 
  * Parse integer ID from request path parameter
  */
 export function parseIdParam(req: Request, paramName: string): number | null {
-  const value = req.params[paramName];
+  const value = toString(req.params[paramName]);
   if (!value) {
     return null;
   }
@@ -36,7 +58,7 @@ export function parseIdParamWithDefault(
   paramName: string,
   defaultValue: number
 ): number {
-  const value = req.params[paramName];
+  const value = toString(req.params[paramName]);
   return parseIntParam(value, defaultValue);
 }
 
