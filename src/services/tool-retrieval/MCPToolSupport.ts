@@ -8,7 +8,11 @@ import { createHash } from "crypto";
 import { logger } from "../../utils/logger";
 import { MCPTool, MCPToolRetrievalResult, EmbeddingVector, ToolsTable } from "./types";
 import { IEmbeddingGenerator } from "./EmbeddingGenerator";
-import { ILanceDBConnection } from "./LanceDBConnection";
+import type {
+  IVectorStorage,
+  VectorRecord,
+  VectorSearchResult,
+} from "../../core/storage/interfaces";
 
 /**
  * MCPToolSupport interface
@@ -25,16 +29,16 @@ export interface IMCPToolSupport {
  */
 export class MCPToolSupport implements IMCPToolSupport {
   private readonly embeddingGenerator: IEmbeddingGenerator;
-  private readonly connection: ILanceDBConnection;
+  private readonly storage: IVectorStorage;
   private readonly defaultLimit: number;
 
   constructor(
     embeddingGenerator: IEmbeddingGenerator,
-    connection: ILanceDBConnection,
+    storage: IVectorStorage,
     defaultLimit: number = 5
   ) {
     this.embeddingGenerator = embeddingGenerator;
-    this.connection = connection;
+    this.storage = storage;
     this.defaultLimit = defaultLimit;
   }
 
@@ -83,7 +87,8 @@ export class MCPToolSupport implements IMCPToolSupport {
         }
 
         // Batch insert
-        await this.connection.addRecords(records);
+        const vectorRecords = records.map((record) => this.toVectorRecord(record));
+        await this.storage.upsertBatch(vectorRecords);
         logger.info(`[MCPToolSupport] Successfully indexed ${records.length} MCP tools`);
       } else {
         logger.warn("[MCPToolSupport] No tools were indexed");
@@ -118,7 +123,7 @@ export class MCPToolSupport implements IMCPToolSupport {
    */
   private async removeToolById(toolId: string): Promise<void> {
     try {
-      await this.connection.deleteById(toolId);
+      await this.storage.delete(toolId);
       logger.debug(`[MCPToolSupport] Removed tool: ${toolId}`);
     } catch (error) {
       logger.error(`[MCPToolSupport] Failed to remove tool ${toolId}:`, error);
@@ -137,22 +142,11 @@ export class MCPToolSupport implements IMCPToolSupport {
       // Generate query embedding
       const vector = await this.embeddingGenerator.generateForText(query);
 
-      // Get table and search
-      const table = await this.connection.getTable();
-      if (!table) {
-        logger.warn("[MCPToolSupport] Table not initialized");
-        return [];
-      }
-
       // Execute search
-      const queryBuilder = table
-        .query()
-        .nearestTo(vector.values)
-        .distanceType("cosine")
-        .limit(effectiveLimit * 2);
-
-      // Filter by MCP tools
-      const results = await queryBuilder.toArray();
+      const results = await this.storage.search(vector.values, {
+        limit: effectiveLimit * 2,
+        distanceType: "cosine",
+      });
 
       // Format results
       const formatted: MCPToolRetrievalResult[] = [];
@@ -193,13 +187,6 @@ export class MCPToolSupport implements IMCPToolSupport {
   }
 
   /**
-   * Extract tags from tool
-   */
-  private extractTags(tool: MCPTool): string[] {
-    return (tool.metadata?.tags as string[]) || [];
-  }
-
-  /**
    * Extract tool tags (internal)
    */
   private extractToolTags(tool: MCPTool): string[] {
@@ -220,11 +207,17 @@ export class MCPToolSupport implements IMCPToolSupport {
   /**
    * Extract parameters from metadata
    */
-  private extractParameters(metadata: string): Record<string, unknown> {
+  private extractParameters(metadata: string | Record<string, unknown>): Record<string, unknown> {
     try {
       if (typeof metadata === "string") {
         const parsed = JSON.parse(metadata);
         return parsed.inputSchema?.properties || {};
+      }
+      if (metadata && typeof metadata === "object") {
+        const data = metadata as Record<string, unknown>;
+        const inputSchema = data.inputSchema as Record<string, unknown> | undefined;
+        const properties = inputSchema?.properties as Record<string, unknown> | undefined;
+        return properties || {};
       }
       return {};
     } catch {
@@ -241,6 +234,9 @@ export class MCPToolSupport implements IMCPToolSupport {
       if ("item" in r) {
         return r.item as ToolsTable;
       }
+      if ("metadata" in r && "id" in r && !("name" in r)) {
+        return this.mapVectorResultToToolsTable(r as unknown as VectorSearchResult);
+      }
     }
     return result as ToolsTable;
   }
@@ -251,13 +247,64 @@ export class MCPToolSupport implements IMCPToolSupport {
   private calculateScore(result: unknown): number {
     if (result && typeof result === "object") {
       const r = result as Record<string, number>;
-      if (r._distance !== undefined) {
-        return Math.max(0, 1 - r._distance);
-      }
       if (r.score !== undefined) {
         return r.score;
       }
     }
     return 0;
+  }
+
+  private toVectorRecord(record: ToolsTable): VectorRecord {
+    return {
+      id: record.id,
+      vector: record.vector,
+      metadata: {
+        name: record.name,
+        description: record.description,
+        tags: record.tags,
+        path: record.path,
+        version: record.version,
+        source: record.source,
+        toolType: record.toolType,
+        metadata: record.metadata,
+        indexedAt: record.indexedAt.getTime(),
+      },
+    };
+  }
+
+  private mapVectorResultToToolsTable(result: VectorSearchResult): ToolsTable {
+    const metadata = (result.metadata || {}) as Record<string, unknown>;
+    const indexedAt = this.parseIndexedAt(metadata.indexedAt);
+    const metadataValue = metadata.metadata ?? {};
+
+    return {
+      id: result.id,
+      name: (metadata.name as string) || result.id,
+      description: (metadata.description as string) || "",
+      tags: (metadata.tags as string[]) || [],
+      path: metadata.path as string | undefined,
+      source: metadata.source as string | undefined,
+      version: metadata.version as string | undefined,
+      toolType: (metadata.toolType as "skill" | "mcp" | "builtin") || "mcp",
+      metadata: metadataValue as string | Record<string, unknown>,
+      vector: (metadata.vector as number[]) || [],
+      indexedAt,
+    };
+  }
+
+  private parseIndexedAt(value: unknown): Date {
+    if (value instanceof Date) {
+      return value;
+    }
+    if (typeof value === "number") {
+      return new Date(value);
+    }
+    if (typeof value === "string") {
+      const parsed = Date.parse(value);
+      if (!Number.isNaN(parsed)) {
+        return new Date(parsed);
+      }
+    }
+    return new Date();
   }
 }

@@ -48,7 +48,7 @@ afterAll(async () => {
       // Remove test database files
       const files = fs.readdirSync(testDataDir);
       for (const file of files) {
-        if (file.endsWith(".db") || file.endsWith(".lance")) {
+        if (file.endsWith(".db")) {
           const filePath = path.join(testDataDir, file);
           try {
             fs.unlinkSync(filePath);

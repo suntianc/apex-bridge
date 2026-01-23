@@ -82,8 +82,8 @@
       }
     },
     "memory": {
-      "provider": "lancedb",
-      "vectorDbPath": "./.data",
+      "provider": "surrealdb",
+      "vectorDbPath": "./.data/vector-store",
       "collectionPrefix": "apex_bridge"
     },
     "optimization": {

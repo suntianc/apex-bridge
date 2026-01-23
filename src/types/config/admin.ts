@@ -185,8 +185,6 @@ export interface EnvironmentConfig {
 export interface DatabaseConfig {
   /** SQLite 数据库路径 */
   sqlitePath: string;
-  /** LanceDB 路径 */
-  lancedbPath: string;
 }
 
 /**

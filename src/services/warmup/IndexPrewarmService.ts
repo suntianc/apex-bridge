@@ -1,7 +1,7 @@
 /**
  * IndexPrewarmService - 向量索引预热服务
  *
- * 负责预热 LanceDB 向量索引，减少首次查询延迟
+ * 负责预热向量索引，减少首次查询延迟
  */
 
 import { logger } from "../../utils/logger";
@@ -96,7 +96,7 @@ export class IndexPrewarmService {
       // 初始化 ToolRetrievalService
       if (!this.toolRetrievalService) {
         const retrievalConfig: ToolRetrievalConfig = {
-          vectorDbPath: "./.data/skills.lance",
+          vectorDbPath: "./.data/vector-store",
           model: "nomic-embed-text:latest",
           dimensions: 768,
           similarityThreshold: 0.4,

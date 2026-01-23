@@ -139,18 +139,6 @@ export interface EmbeddingVector {
 // ==================== Database Configuration ====================
 
 /**
- * LanceDB configuration
- */
-export interface LanceDBConfig {
-  /** Database path */
-  databasePath: string;
-  /** Table name */
-  tableName: string;
-  /** Vector dimensions */
-  vectorDimensions: number;
-}
-
-/**
  * Database connection status
  */
 export interface ConnectionStatus {
@@ -313,7 +301,7 @@ export interface SkillTool {
 // ==================== Internal Types ====================
 
 /**
- * Internal tools table interface (for LanceDB schema)
+ * Internal tools table interface (vector storage schema)
  */
 export interface ToolsTable {
   id: string;
@@ -324,7 +312,7 @@ export interface ToolsTable {
   source?: string;
   version?: string;
   toolType: "skill" | "mcp" | "builtin";
-  metadata: string;
+  metadata: string | Record<string, unknown>;
   vector: number[];
   indexedAt: Date;
 }

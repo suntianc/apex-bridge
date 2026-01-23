@@ -68,7 +68,7 @@ export class SkillManager {
     const dataDir = pathService.getDataDir();
     this.skillsBasePath = skillsBasePath || path.join(dataDir, "skills");
 
-    const vectorDbPath = path.join(dataDir, "skills.lance");
+    const vectorDbPath = path.join(dataDir, "vector-store");
     this.retrievalService = getToolRetrievalService({
       vectorDbPath,
       model: "nomic-embed-text:latest",

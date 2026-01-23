@@ -40,7 +40,7 @@ export class SurrealDBVectorStorage implements IVectorStorage {
     this.dimension = dimension;
   }
 
-  getBackendType(): "lance" | "surrealdb" {
+  getBackendType(): "surrealdb" {
     return "surrealdb";
   }
 

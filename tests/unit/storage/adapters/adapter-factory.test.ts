@@ -2,22 +2,7 @@
  * Storage Adapter Factory Tests
  */
 
-// Mock LanceDB to prevent native module loading issues in test environment
-vi.mock("@lancedb/lancedb", () => ({
-  LanceDB: class MockLanceDB {
-    connect() {
-      return Promise.resolve({});
-    }
-    close() {
-      return Promise.resolve();
-    }
-  },
-  EmbeddingFunction: class MockEmbeddingFunction {
-    constructor() {}
-  },
-}));
-
-import { vi, describe, it, expect, afterEach, beforeEach } from "vitest";
+import { describe, it, expect, afterEach, beforeEach } from "vitest";
 import {
   StorageAdapterFactory,
   createStorageConfig,
@@ -82,16 +67,6 @@ describe("StorageAdapterFactory", () => {
       });
       expect(config.backend).toBe(StorageBackend.SQLite);
       expect(config.sqlite).toBeDefined();
-    });
-
-    it("should create LanceDB config when backend is lance", () => {
-      const config = createStorageConfig({
-        STORAGE_BACKEND: "lance",
-        LANCEDB_PATH: "/custom/path",
-      });
-      expect(config.backend).toBe(StorageBackend.LanceDB);
-      expect(config.lance).toBeDefined();
-      expect(config.lance?.path).toBe("/custom/path");
     });
   });
 
@@ -185,24 +160,12 @@ describe("StorageAdapterFactory", () => {
       expect(adapter).toBeDefined();
     });
 
-    it("should return Vector storage adapter", () => {
+    it("should return Vector storage adapter", async () => {
       const config = createStorageConfig({});
       StorageAdapterFactory.initialize(config);
 
-      const adapter = StorageAdapterFactory.getVectorStorage();
+      const adapter = await StorageAdapterFactory.getVectorStorage();
       expect(adapter).toBeDefined();
-    });
-
-    it("should return LanceDB vector storage when env var set", () => {
-      process.env.APEX_USE_LANCEDB_VECTOR = "true";
-      const config = createStorageConfig({});
-      StorageAdapterFactory.initialize(config);
-
-      const adapter = StorageAdapterFactory.getVectorStorage();
-      expect(adapter).toBeDefined();
-      expect(adapter.getBackendType()).toBe("lance");
-
-      delete process.env.APEX_USE_LANCEDB_VECTOR;
     });
   });
 });

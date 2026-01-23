@@ -131,10 +131,10 @@ export const VectorDbPaths = {
   baseDir: (dataDir: string) => path.join(dataDir, "vector"),
 
   /** Skills vector index */
-  skillsIndex: (dataDir: string) => path.join(dataDir, "vector", "skills.lance"),
+  skillsIndex: (dataDir: string) => path.join(dataDir, "vector", "skills.index"),
 
   /** MCP tools vector index */
-  mcpToolsIndex: (dataDir: string) => path.join(dataDir, "vector", "mcp-tools.lance"),
+  mcpToolsIndex: (dataDir: string) => path.join(dataDir, "vector", "mcp-tools.index"),
 
   /** Embedding cache directory */
   cacheDir: (dataDir: string) => path.join(dataDir, "vector", "cache"),

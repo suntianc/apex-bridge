@@ -58,7 +58,6 @@
   },
   "homepage": "https://github.com/suntianc/apex-bridge#readme",
   "dependencies": {
-    "@lancedb/lancedb": "^0.22.3",
     "@modelcontextprotocol/sdk": "^1.24.3",
     "@types/better-sqlite3": "^7.6.13",
     "@types/multer": "^2.0.0",

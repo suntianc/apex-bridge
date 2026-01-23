@@ -157,7 +157,7 @@ export class CacheWarmupManager {
       // 初始化 ToolRetrievalService
       if (!this.toolRetrievalService) {
         const retrievalConfig: ToolRetrievalConfig = {
-          vectorDbPath: "./.data/skills.lance",
+          vectorDbPath: "./.data/vector-store",
           model: "nomic-embed-text:latest",
           dimensions: 768,
           similarityThreshold: 0.4,

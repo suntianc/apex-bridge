@@ -9,8 +9,8 @@ import * as path from "path";
 import { createHash } from "crypto";
 import matter from "gray-matter";
 import { logger } from "../../utils/logger";
-import { SkillData, ToolsTable, VectorizedFileData, ToolError, ToolErrorCode } from "./types";
-import { ILanceDBConnection } from "./LanceDBConnection";
+import { SkillData, ToolsTable, VectorizedFileData } from "./types";
+import type { IVectorStorage, VectorRecord } from "../../core/storage/interfaces";
 import { IEmbeddingGenerator } from "./EmbeddingGenerator";
 
 /**
@@ -31,16 +31,16 @@ export interface ISkillIndexer {
  * SkillIndexer implementation
  */
 export class SkillIndexer implements ISkillIndexer {
-  private readonly connection: ILanceDBConnection;
+  private readonly storage: IVectorStorage;
   private readonly embeddingGenerator: IEmbeddingGenerator;
   private readonly defaultSkillsDir: string;
 
   constructor(
-    connection: ILanceDBConnection,
+    storage: IVectorStorage,
     embeddingGenerator: IEmbeddingGenerator,
     defaultSkillsDir: string = "./.data/skills"
   ) {
-    this.connection = connection;
+    this.storage = storage;
     this.embeddingGenerator = embeddingGenerator;
     this.defaultSkillsDir = defaultSkillsDir;
   }
@@ -64,14 +64,10 @@ export class SkillIndexer implements ISkillIndexer {
       // Remove existing skill (update mode)
       await this.removeSkill(skillId);
 
-      // Add to table
-      const table = await this.connection.getTable();
-      if (table) {
-        await table.add([record as unknown as Record<string, unknown>]);
-        logger.info(
-          `[SkillIndexer] Skill indexed: ${skill.name} (${vector.values.length} dimensions)`
-        );
-      }
+      await this.storage.upsert(record.id, record.vector, this.buildVectorMetadata(record));
+      logger.info(
+        `[SkillIndexer] Skill indexed: ${skill.name} (${vector.values.length} dimensions)`
+      );
     } catch (error) {
       logger.error(`[SkillIndexer] Failed to add skill ${skill.name}:`, error);
       throw error;
@@ -84,7 +80,7 @@ export class SkillIndexer implements ISkillIndexer {
   async removeSkill(skillId: string): Promise<void> {
     try {
       logger.debug(`[SkillIndexer] Removing skill: ${skillId}`);
-      await this.connection.deleteById(skillId);
+      await this.storage.delete(skillId);
     } catch (error) {
       logger.warn(`[SkillIndexer] Failed to remove skill ${skillId}:`, error);
     }
@@ -115,7 +111,8 @@ export class SkillIndexer implements ISkillIndexer {
     }
 
     if (records.length > 0) {
-      await this.connection.addRecords(records);
+      const vectorRecords = records.map((record) => this.toVectorRecord(record));
+      await this.storage.upsertBatch(vectorRecords);
       logger.info(`[SkillIndexer] Batch indexed ${records.length} skills`);
     }
   }
@@ -309,6 +306,28 @@ export class SkillIndexer implements ISkillIndexer {
       }),
       vector,
       indexedAt: new Date(),
+    };
+  }
+
+  private buildVectorMetadata(record: ToolsTable): Record<string, unknown> {
+    return {
+      name: record.name,
+      description: record.description,
+      tags: record.tags,
+      path: record.path,
+      version: record.version,
+      source: record.source,
+      toolType: record.toolType,
+      metadata: record.metadata,
+      indexedAt: record.indexedAt.getTime(),
+    };
+  }
+
+  private toVectorRecord(record: ToolsTable): VectorRecord {
+    return {
+      id: record.id,
+      vector: record.vector,
+      metadata: this.buildVectorMetadata(record),
     };
   }
 

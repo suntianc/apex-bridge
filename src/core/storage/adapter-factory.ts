@@ -2,7 +2,7 @@
  * Storage Adapter Factory
  *
  * Creates storage adapter instances based on configuration.
- * Supports SurrealDB, SQLite, and LanceDB backends.
+ * Supports SurrealDB and SQLite backends.
  */
 
 import {
@@ -110,37 +110,25 @@ class StorageAdapterFactory {
   /**
    * Get vector storage adapter
    */
-  static async getVectorStorage(): Promise<IVectorStorage> {
-    const key = `vector-${this.config?.backend || "unknown"}`;
+  static async getVectorStorage(dimension?: number): Promise<IVectorStorage> {
+    const dimensionKey = dimension ? `-${dimension}` : "";
+    const key = `vector-${this.config?.backend || "unknown"}${dimensionKey}`;
 
     if (this.instances.has(key)) {
       return this.instances.get(key) as IVectorStorage;
     }
 
-    const adapter = await this.createVectorAdapter();
+    const adapter = await this.createVectorAdapter(dimension);
     this.instances.set(key, adapter);
     return adapter;
   }
 
   /**
    * Create vector storage adapter
-   * Default: SurrealDB for new projects (no legacy data migration needed)
-   * Legacy: LanceDB (via APEX_USE_LANCEDB_VECTOR=true for backward compatibility)
-   * Uses dynamic import to avoid loading native modules at startup
+   * Default: SurrealDB vector storage
    */
-  private static async createVectorAdapter(): Promise<IVectorStorage> {
-    // Default to SurrealDB for new projects (no legacy data migration needed)
-    const useLanceDB = process.env.APEX_USE_LANCEDB_VECTOR === "true";
-
-    if (useLanceDB) {
-      logger.info("[StorageAdapterFactory] Using legacy LanceDB vector storage (dynamic import)");
-      // Dynamic import to avoid native module load at startup
-      const { LanceDBVectorStorage } = await import("./lance/vector-storage");
-      return new LanceDBVectorStorage();
-    }
-
-    // Default: SurrealDB vector storage
-    return new SurrealDBVectorStorage();
+  private static async createVectorAdapter(dimension?: number): Promise<IVectorStorage> {
+    return new SurrealDBVectorStorage(dimension);
   }
 
   /**
@@ -157,9 +145,6 @@ class StorageAdapterFactory {
 
       case StorageBackend.SQLite:
         return this.createSQLiteAdapter<T>(interfaceName);
-
-      case StorageBackend.LanceDB:
-        return this.createLanceAdapter<T>(interfaceName);
 
       default:
         throw new Error(`[StorageAdapterFactory] Unknown backend: ${this.config.backend}`);
@@ -213,14 +198,6 @@ class StorageAdapterFactory {
         return new SQLiteStorageAdapter() as T;
       }
     }
-  }
-
-  /**
-   * Create LanceDB adapter
-   */
-  private static createLanceAdapter<T>(interfaceName: string): T {
-    const { LanceDBStorageAdapter } = require("./lance/adapter");
-    return new LanceDBStorageAdapter() as T;
   }
 
   /**
@@ -300,12 +277,6 @@ export function createStorageConfig(env: NodeJS.ProcessEnv): StorageConfig {
       path: env.SQLITE_PATH || "./.data/apexbridge.db",
       walMode: true,
       foreignKeys: true,
-    };
-  }
-
-  if (backend === StorageBackend.LanceDB) {
-    config.lance = {
-      path: env.LANCEDB_PATH || "./.data/vectors",
     };
   }
 

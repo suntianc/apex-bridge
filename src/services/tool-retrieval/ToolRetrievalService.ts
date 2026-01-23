@@ -17,8 +17,8 @@ import {
   SkillTool,
   ToolType,
 } from "./types";
-// Lazy import to avoid loading LanceDB native module at startup
-import type { LanceDBConnection, ILanceDBConnection } from "./LanceDBConnection";
+import type { IVectorStorage, VectorRecord } from "../../core/storage/interfaces";
+import { StorageAdapterFactory } from "../../core/storage/adapter-factory";
 import { EmbeddingGenerator, IEmbeddingGenerator } from "./EmbeddingGenerator";
 import { SkillIndexer, ISkillIndexer } from "./SkillIndexer";
 import { SearchEngine, ISearchEngine } from "./SearchEngine";
@@ -52,17 +52,18 @@ export interface IToolRetrievalService {
  */
 export class ToolRetrievalService implements IToolRetrievalService {
   private readonly config: ToolRetrievalConfig;
-  private connection: ILanceDBConnection | null = null; // Lazy initialization
+  private storage: IVectorStorage | null = null;
   private embeddingGenerator: IEmbeddingGenerator;
   private skillIndexer: ISkillIndexer | null = null; // Lazy initialization
   private searchEngine: ISearchEngine | null = null; // Lazy initialization
   private mcpToolSupport: IMCPToolSupport | null = null; // Lazy initialization
   private isInitialized = false;
   private readonly startTime = Date.now();
+  private lastConnected: Date | null = null;
+  private lastError: string | null = null;
 
   /**
    * Create ToolRetrievalService with dependencies
-   * Note: LanceDB connection is lazily initialized in initialize() to avoid native module load at startup
    */
   constructor(config: ToolRetrievalConfig) {
     this.config = config;
@@ -74,7 +75,6 @@ export class ToolRetrievalService implements IToolRetrievalService {
     });
 
     logger.info("[ToolRetrievalService] Created with config:", {
-      vectorDbPath: config.vectorDbPath,
       model: config.model,
       dimensions: config.dimensions,
       similarityThreshold: config.similarityThreshold,
@@ -105,47 +105,27 @@ export class ToolRetrievalService implements IToolRetrievalService {
         this.config.dimensions = actualDimensions;
       }
 
-      // Lazy import to avoid loading LanceDB native module at startup
-      try {
-        const { LanceDBConnection } = await import("./LanceDBConnection");
-        this.connection = LanceDBConnection.getInstance();
+      this.storage = await StorageAdapterFactory.getVectorStorage(this.config.dimensions);
+      await this.initializeStorage(this.storage);
 
-        // Connect to LanceDB
-        await this.connection.connect({
-          databasePath: this.config.vectorDbPath,
-          tableName: "skills",
-          vectorDimensions: this.config.dimensions,
-        });
+      const maxResults = this.config.maxResults ?? 10;
+      this.skillIndexer = new SkillIndexer(this.storage, this.embeddingGenerator);
+      this.searchEngine = new SearchEngine(this.storage, this.embeddingGenerator, {
+        defaultLimit: maxResults,
+        defaultThreshold: this.config.similarityThreshold,
+      });
+      this.mcpToolSupport = new MCPToolSupport(this.embeddingGenerator, this.storage);
 
-        // Initialize table
-        await this.connection.initializeTable();
-
-        // Initialize dependent services with connection
-        const maxResults = this.config.maxResults ?? 10;
-        this.skillIndexer = new SkillIndexer(this.connection, this.embeddingGenerator);
-        this.searchEngine = new SearchEngine(this.connection, this.embeddingGenerator, {
-          defaultLimit: maxResults,
-          defaultThreshold: this.config.similarityThreshold,
-        });
-        this.mcpToolSupport = new MCPToolSupport(this.embeddingGenerator, this.connection);
-      } catch (lanceDbError: any) {
-        // Graceful degradation: LanceDB native module not available
-        logger.warn(
-          `[ToolRetrievalService] LanceDB initialization failed (native module issue): ${lanceDbError?.message || lanceDbError}`
-        );
-        logger.warn(
-          "[ToolRetrievalService] Vector search will be unavailable. Tool indexing will be skipped."
-        );
-        // Do NOT throw - allow server to start without vector search
-      }
+      this.lastConnected = new Date();
+      this.lastError = null;
 
       this.isInitialized = true;
 
       const duration = Date.now() - startTime;
       logger.debug(`[ToolRetrievalService] Initialized in ${duration}ms`);
     } catch (error) {
-      // Non-LanceDB errors should still fail initialization
       logger.error("[ToolRetrievalService] Initialization failed:", error);
+      this.lastError = this.formatError(error);
       throw new ToolError(
         `ToolRetrievalService initialization failed: ${this.formatError(error)}`,
         ToolErrorCode.VECTOR_DB_ERROR
@@ -182,7 +162,6 @@ export class ToolRetrievalService implements IToolRetrievalService {
       }
 
       // Try vector search (with internal fallback to keyword search)
-      // Check if searchEngine is available (may be null if LanceDB failed to initialize)
       if (!this.searchEngine) {
         logger.warn(
           "[ToolRetrievalService] Search engine not available, using fallback keyword search"
@@ -378,18 +357,16 @@ export class ToolRetrievalService implements IToolRetrievalService {
       }
 
       if (records.length > 0) {
-        // Check if connection is available
-        if (!this.connection) {
-          logger.warn("[ToolRetrievalService] Cannot index tools - connection not available");
+        if (!this.storage) {
+          logger.warn("[ToolRetrievalService] Cannot index tools - storage not available");
           return;
         }
-        // Remove existing
         for (const record of records) {
-          await this.connection.deleteById(record.id);
+          await this.storage.delete(record.id);
         }
 
-        // Add new
-        await this.connection.addRecords(records);
+        const vectorRecords = records.map((record) => this.toVectorRecord(record));
+        await this.storage.upsertBatch(vectorRecords);
         logger.info(`[ToolRetrievalService] Successfully indexed ${records.length} tools`);
       }
     } catch (error) {
@@ -402,30 +379,31 @@ export class ToolRetrievalService implements IToolRetrievalService {
    * Remove a tool from the index
    */
   async removeTool(toolId: string): Promise<void> {
-    if (!this.connection) {
-      logger.warn("[ToolRetrievalService] Cannot remove tool - connection not available");
+    if (!this.storage) {
+      logger.warn("[ToolRetrievalService] Cannot remove tool - storage not available");
       return;
     }
-    await this.connection.deleteById(toolId);
+    await this.storage.delete(toolId);
   }
 
   /**
    * Get service statistics
    */
   async getStatistics(): Promise<Record<string, unknown>> {
-    if (!this.connection) {
+    if (!this.storage) {
       return {
         isInitialized: this.isInitialized,
         databaseConnected: false,
-        error: "Connection not available",
+        error: this.lastError || "Vector storage not available",
       };
     }
-    const dbStatus = this.connection.getStatus();
+    const recordCount = await this.storage.count();
     return {
       isInitialized: this.isInitialized,
-      databaseConnected: dbStatus.connected,
+      databaseConnected: true,
       uptime: Date.now() - this.startTime,
-      lastError: dbStatus.error,
+      lastError: this.lastError,
+      recordCount,
     };
   }
 
@@ -433,7 +411,12 @@ export class ToolRetrievalService implements IToolRetrievalService {
    * Get service status
    */
   getStatus(): ServiceStatus {
-    const dbStatus = this.connection.getStatus();
+    const connected = this.isInitialized && this.storage !== null;
+    const dbStatus = {
+      connected,
+      lastConnected: this.lastConnected || undefined,
+      error: this.lastError || undefined,
+    };
     return {
       databaseStatus: dbStatus,
       indexStatus: {
@@ -441,8 +424,8 @@ export class ToolRetrievalService implements IToolRetrievalService {
         indexingCount: 0,
         pendingCount: 0,
       },
-      ready: this.isInitialized && dbStatus.connected,
-      healthy: this.isInitialized && dbStatus.connected,
+      ready: connected,
+      healthy: connected,
     };
   }
 
@@ -453,11 +436,7 @@ export class ToolRetrievalService implements IToolRetrievalService {
     logger.info("[ToolRetrievalService] Cleaning up...");
 
     try {
-      // 关闭数据库连接
-      if (this.connection) {
-        await this.connection.disconnect();
-        logger.debug("[ToolRetrievalService] Database connection closed");
-      }
+      this.storage = null;
 
       // 清理状态
       this.isInitialized = false;
@@ -493,6 +472,31 @@ export class ToolRetrievalService implements IToolRetrievalService {
       .digest("hex");
   }
 
+  private async initializeStorage(storage: IVectorStorage): Promise<void> {
+    const storageWithInit = storage as { initialize?: () => Promise<void> };
+    if (typeof storageWithInit.initialize === "function") {
+      await storageWithInit.initialize();
+    }
+  }
+
+  private toVectorRecord(record: import("./types").ToolsTable): VectorRecord {
+    return {
+      id: record.id,
+      vector: record.vector,
+      metadata: {
+        name: record.name,
+        description: record.description,
+        tags: record.tags,
+        path: record.path,
+        version: record.version,
+        source: record.source,
+        toolType: record.toolType,
+        metadata: record.metadata,
+        indexedAt: record.indexedAt.getTime(),
+      },
+    };
+  }
+
   /**
    * Format error message
    */
@@ -521,7 +525,7 @@ export function getToolRetrievalService(config?: ToolRetrievalConfig): ToolRetri
       const dataDir = pathService.getDataDir();
 
       config = {
-        vectorDbPath: path.join(dataDir, "skills.lance"),
+        vectorDbPath: path.join(dataDir, "vector-store"),
         model: "nomic-embed-text:latest",
         cacheSize: 1000,
         dimensions: 768,

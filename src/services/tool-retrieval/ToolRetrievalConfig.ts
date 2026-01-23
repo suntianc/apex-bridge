@@ -18,7 +18,7 @@ export type { SkillTool, ToolRetrievalResult, ToolErrorCode, ToolError, ToolType
 
 // Legacy DEFAULT_TOOL_RETRIEVAL_CONFIG for callers that depend on it
 export const DEFAULT_TOOL_RETRIEVAL_CONFIG: _ToolRetrievalConfig = {
-  vectorDbPath: "./.data/skills.lance",
+  vectorDbPath: "./.data/vector-store",
   model: "nomic-embed-text:latest",
   dimensions: 768,
   cacheSize: 1000,

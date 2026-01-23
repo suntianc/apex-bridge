@@ -16,13 +16,6 @@ export {
 } from "./ToolRetrievalService";
 
 // Sub-modules
-export { LanceDBConnection, ILanceDBConnection } from "./LanceDBConnection";
-export {
-  IndexConfigOptimizer,
-  IndexConfig,
-  OptimizationResult,
-  INDEX_PRESETS,
-} from "./IndexConfigOptimizer";
 export {
   EmbeddingGenerator,
   IEmbeddingGenerator,

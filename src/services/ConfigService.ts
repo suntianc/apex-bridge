@@ -277,7 +277,8 @@ export class ConfigService {
       configDir: process.env.APEX_BRIDGE_CONFIG_DIR || `${process.cwd()}/config`,
       dataDir: process.env.APEX_BRIDGE_DATA_DIR || `${process.cwd()}/.data`,
       logDir: process.env.APEX_BRIDGE_LOG_DIR || `${process.cwd()}/logs`,
-      vectorStoreDir: process.env.APEX_BRIDGE_VECTOR_STORE_DIR || `${process.cwd()}/.data/lancedb`,
+      vectorStoreDir:
+        process.env.APEX_BRIDGE_VECTOR_STORE_DIR || `${process.cwd()}/.data/vector-store`,
     };
   }
 
@@ -304,7 +305,6 @@ export class ConfigService {
   private getDatabaseConfig(): DatabaseConfig {
     return {
       sqlitePath: process.env.SQLITE_PATH || "./.data/llm_providers.db",
-      lancedbPath: process.env.LANCEDB_PATH || "./.data/lancedb",
     };
   }
 

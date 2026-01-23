@@ -51,7 +51,6 @@ export { ToolRetrievalService, getToolRetrievalService } from "./tool-retrieval"
 export { SearchEngine } from "./tool-retrieval";
 export { EmbeddingGenerator } from "./tool-retrieval";
 export { SkillIndexer } from "./tool-retrieval";
-export { LanceDBConnection } from "./tool-retrieval";
 export * from "./tool-retrieval";
 
 // Compression

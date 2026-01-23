@@ -13,10 +13,10 @@ import {
   ToolsTable,
   ToolType,
 } from "./types";
-import { ILanceDBConnection } from "./LanceDBConnection";
+import type { IVectorStorage, VectorSearchResult } from "../../core/storage/interfaces";
 import { IEmbeddingGenerator } from "./EmbeddingGenerator";
 import { THRESHOLDS } from "../../constants";
-import { SemanticCache, type SemanticSearchResult } from "../cache/SemanticCache";
+import { SemanticCache } from "../cache/SemanticCache";
 
 /**
  * Search options extended with caching control
@@ -36,7 +36,7 @@ export interface SearchOptions {
 export interface ISearchEngine {
   search(query: string, options?: SearchOptions): Promise<ToolRetrievalResult[]>;
   keywordSearch(query: string, limit?: number, threshold?: number): Promise<ToolRetrievalResult[]>;
-  formatResults(results: unknown[]): ToolRetrievalResult[];
+  formatResults(results: VectorSearchResult[]): ToolRetrievalResult[];
   applyFilters(results: ToolRetrievalResult[], filters: RetrievalFilter[]): ToolRetrievalResult[];
   sortResults(
     results: ToolRetrievalResult[],
@@ -50,14 +50,15 @@ export interface ISearchEngine {
  * SearchEngine implementation
  */
 export class SearchEngine implements ISearchEngine {
-  private readonly connection: ILanceDBConnection;
+  private readonly storage: IVectorStorage;
   private readonly embeddingGenerator: IEmbeddingGenerator;
   private readonly defaultLimit: number;
   private readonly defaultThreshold: number;
   private readonly semanticCache: SemanticCache | null;
+  private readonly dimension: number;
 
   constructor(
-    connection: ILanceDBConnection,
+    storage: IVectorStorage,
     embeddingGenerator: IEmbeddingGenerator,
     options?: {
       defaultLimit?: number;
@@ -65,11 +66,12 @@ export class SearchEngine implements ISearchEngine {
       semanticCache?: SemanticCache;
     }
   ) {
-    this.connection = connection;
+    this.storage = storage;
     this.embeddingGenerator = embeddingGenerator;
     this.defaultLimit = options?.defaultLimit ?? 5;
     this.defaultThreshold = options?.defaultThreshold ?? THRESHOLDS.RELEVANT_SKILLS;
     this.semanticCache = options?.semanticCache ?? null;
+    this.dimension = storage.getDimension();
 
     // Set up embedding service for cache if available
     if (this.semanticCache) {
@@ -105,21 +107,12 @@ export class SearchEngine implements ISearchEngine {
       // Generate query vector
       const queryVector = await this.embeddingGenerator.generateForText(query);
 
-      // Get table
-      const table = await this.connection.getTable();
-      if (!table) {
-        logger.warn("[SearchEngine] Table not initialized, using fallback search");
-        return this.fallbackKeywordSearch(query, effectiveLimit, effectiveThreshold);
-      }
-
       // Execute vector search
-      const vectorQuery = table
-        .query()
-        .nearestTo(queryVector.values)
-        .distanceType("cosine")
-        .limit(effectiveLimit * 2);
-
-      const results = await vectorQuery.toArray();
+      const results = await this.storage.search(queryVector.values, {
+        limit: effectiveLimit * 2,
+        threshold: effectiveThreshold,
+        distanceType: "cosine",
+      });
 
       // Format and filter results
       const formattedResults = this.formatSearchResults(
@@ -159,24 +152,13 @@ export class SearchEngine implements ISearchEngine {
     try {
       logger.info(`[SearchEngine] Executing fallback keyword search for: "${query}"`);
 
-      // Get table for keyword matching
-      const table = await this.connection.getTable();
-      if (!table) {
-        logger.warn("[SearchEngine] Table not available for fallback search");
-        return [];
-      }
-
       // Get all tools for keyword matching
       const searchTerms = query
         .toLowerCase()
         .split(/\s+/)
         .filter((t) => t.length > 0);
 
-      // Use LanceDB query to get candidates (without vector search)
-      const allRecords = await table
-        .query()
-        .limit(limit * 3)
-        .toArray();
+      const allRecords = await this.getAllRecordsForKeywordSearch(limit * 3);
 
       // Filter by keyword matching
       const results: ToolRetrievalResult[] = [];
@@ -284,13 +266,6 @@ export class SearchEngine implements ISearchEngine {
     try {
       logger.info(`[SearchEngine] Executing keyword search for: "${query}"`);
 
-      // Get table for keyword matching
-      const table = await this.connection.getTable();
-      if (!table) {
-        logger.warn("[SearchEngine] Table not available for keyword search");
-        return [];
-      }
-
       // Get all tools for keyword matching
       const searchTerms = query
         .toLowerCase()
@@ -301,11 +276,7 @@ export class SearchEngine implements ISearchEngine {
         return [];
       }
 
-      // Use LanceDB query to get candidates (without vector search)
-      const allRecords = await table
-        .query()
-        .limit(effectiveLimit * 3)
-        .toArray();
+      const allRecords = await this.getAllRecordsForKeywordSearch(effectiveLimit * 3);
 
       // Filter by keyword matching
       const results: ToolRetrievalResult[] = [];
@@ -366,7 +337,7 @@ export class SearchEngine implements ISearchEngine {
   /**
    * Format search results
    */
-  formatResults(results: unknown[]): ToolRetrievalResult[] {
+  formatResults(results: VectorSearchResult[]): ToolRetrievalResult[] {
     return this.formatSearchResults(results, this.defaultLimit, this.defaultThreshold);
   }
 
@@ -374,13 +345,12 @@ export class SearchEngine implements ISearchEngine {
    * Format search results (internal)
    */
   private formatSearchResults(
-    results: unknown[],
+    results: VectorSearchResult[],
     limit: number,
     threshold: number
   ): ToolRetrievalResult[] {
     const formatted: ToolRetrievalResult[] = [];
 
-    // Handle LanceDB result format
     const resultArray = Array.isArray(results) ? results : [results];
 
     for (const result of resultArray.slice(0, limit)) {
@@ -422,13 +392,16 @@ export class SearchEngine implements ISearchEngine {
   }
 
   /**
-   * Extract result data from LanceDB response
+   * Extract result data from vector search response
    */
   private extractResultData(result: unknown): ToolsTable {
     if (result && typeof result === "object") {
       const r = result as Record<string, unknown>;
       if ("item" in r) {
         return r.item as ToolsTable;
+      }
+      if ("metadata" in r && "id" in r && !("name" in r)) {
+        return this.mapVectorResultToToolsTable(r as unknown as VectorSearchResult);
       }
     }
     return result as ToolsTable;
@@ -441,11 +414,6 @@ export class SearchEngine implements ISearchEngine {
     if (result && typeof result === "object") {
       const r = result as Record<string, number>;
 
-      if (r._distance !== undefined) {
-        // LanceDB returns cosine distance, convert to similarity
-        // Cosine distance range [0, 2], so similarity = 1 - distance
-        return Math.max(0, 1 - r._distance);
-      }
       if (r.score !== undefined) {
         return r.score;
       }
@@ -454,6 +422,65 @@ export class SearchEngine implements ISearchEngine {
       }
     }
     return 0;
+  }
+
+  private mapVectorResultToToolsTable(result: VectorSearchResult): ToolsTable {
+    const metadata = (result.metadata || {}) as Record<string, unknown>;
+    const indexedAt = this.parseIndexedAt(metadata.indexedAt);
+    const metadataValue = metadata.metadata ?? {};
+
+    return {
+      id: result.id,
+      name: (metadata.name as string) || result.id,
+      description: (metadata.description as string) || "",
+      tags: (metadata.tags as string[]) || [],
+      path: metadata.path as string | undefined,
+      source: metadata.source as string | undefined,
+      version: metadata.version as string | undefined,
+      toolType: (metadata.toolType as "skill" | "mcp" | "builtin") || "skill",
+      metadata: metadataValue as string | Record<string, unknown>,
+      vector: (metadata.vector as number[]) || [],
+      indexedAt,
+    };
+  }
+
+  private parseIndexedAt(value: unknown): Date {
+    if (value instanceof Date) {
+      return value;
+    }
+    if (typeof value === "number") {
+      return new Date(value);
+    }
+    if (typeof value === "string") {
+      const parsed = Date.parse(value);
+      if (!Number.isNaN(parsed)) {
+        return new Date(parsed);
+      }
+    }
+    return new Date();
+  }
+
+  private async getAllRecordsForKeywordSearch(limit: number): Promise<VectorSearchResult[]> {
+    try {
+      const totalCount = await this.storage.count();
+
+      if (totalCount === 0) {
+        return [];
+      }
+
+      if (totalCount > 10000) {
+        logger.warn("[SearchEngine] Too many records for keyword search");
+        return [];
+      }
+
+      const queryVector = new Array(this.dimension).fill(0);
+      return await this.storage.search(queryVector, {
+        limit: Math.min(totalCount, limit),
+      });
+    } catch (error) {
+      logger.error("[SearchEngine] Failed to load records for keyword search:", error);
+      return [];
+    }
   }
 
   /**

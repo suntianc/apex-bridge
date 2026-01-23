@@ -1,6 +1,6 @@
 /**
  * VectorSearchTool - 向量搜索内置工具
- * 使用LanceDB搜索相关的Skills工具
+ * 使用向量检索搜索相关的Skills工具
  */
 
 import { ToolResult, BuiltInTool, ToolType } from "../../../types/tool-system";

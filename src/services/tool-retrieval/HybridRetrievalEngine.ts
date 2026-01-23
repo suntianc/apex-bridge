@@ -35,7 +35,7 @@ import {
 } from "./DisclosureManager";
 import { DisclosureConfigLoader } from "../../utils/config/disclosure-config";
 import { ISearchEngine } from "./SearchEngine";
-import { ILanceDBConnection } from "./LanceDBConnection";
+import type { IVectorStorage, VectorSearchResult } from "../../core/storage/interfaces";
 import { IEmbeddingGenerator } from "./EmbeddingGenerator";
 
 // ==================== Phase 2: New Interfaces ====================
@@ -117,7 +117,7 @@ export interface HybridRetrievalEngineConfig {
   /** Search engine instance */
   searchEngine: ISearchEngine;
   /** Database connection */
-  connection: ILanceDBConnection;
+  connection: IVectorStorage;
   /** Embedding generator */
   embeddingGenerator: IEmbeddingGenerator;
 }
@@ -812,27 +812,63 @@ export class HybridRetrievalEngine implements IHybridRetrievalEngine {
    */
   private async getAllTools(): Promise<ToolsTable[]> {
     try {
-      const table = await this.config.connection.getTable();
-      if (!table) {
-        this._logger.warn("[HybridRetrievalEngine] Table not available for getAllTools");
+      const totalCount = await this.config.connection.count();
+      if (totalCount === 0) {
         return [];
       }
 
-      const records = await table.query().limit(1000).toArray();
+      if (totalCount > 10000) {
+        this._logger.warn("[HybridRetrievalEngine] Too many records for keyword search");
+        return [];
+      }
 
-      return records.map((record) => {
-        if (record && typeof record === "object") {
-          const r = record as Record<string, unknown>;
-          if ("item" in r) {
-            return r.item as ToolsTable;
-          }
-        }
-        return record as ToolsTable;
+      const dimension = this.config.connection.getDimension();
+      const queryVector = new Array(dimension).fill(0);
+      const records = await this.config.connection.search(queryVector, {
+        limit: Math.min(totalCount, 1000),
       });
+
+      return records.map((record) => this.mapVectorResultToToolsTable(record));
     } catch (error) {
       this._logger.error("[HybridRetrievalEngine] Failed to get all tools:", error);
       return [];
     }
+  }
+
+  private mapVectorResultToToolsTable(result: VectorSearchResult): ToolsTable {
+    const metadata = (result.metadata || {}) as Record<string, unknown>;
+    const indexedAt = this.parseIndexedAt(metadata.indexedAt);
+    const metadataValue = metadata.metadata ?? {};
+
+    return {
+      id: result.id,
+      name: (metadata.name as string) || result.id,
+      description: (metadata.description as string) || "",
+      tags: (metadata.tags as string[]) || [],
+      path: metadata.path as string | undefined,
+      source: metadata.source as string | undefined,
+      version: metadata.version as string | undefined,
+      toolType: (metadata.toolType as "skill" | "mcp" | "builtin") || "skill",
+      metadata: metadataValue as string | Record<string, unknown>,
+      vector: (metadata.vector as number[]) || [],
+      indexedAt,
+    };
+  }
+
+  private parseIndexedAt(value: unknown): Date {
+    if (value instanceof Date) {
+      return value;
+    }
+    if (typeof value === "number") {
+      return new Date(value);
+    }
+    if (typeof value === "string") {
+      const parsed = Date.parse(value);
+      if (!Number.isNaN(parsed)) {
+        return new Date(parsed);
+      }
+    }
+    return new Date();
   }
 
   /**

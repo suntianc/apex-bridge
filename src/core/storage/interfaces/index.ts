@@ -2,7 +2,7 @@
  * Storage Interface Abstraction Layer
  *
  * This module defines the storage interfaces that abstract away
- * the underlying database implementation (SQLite, LanceDB, SurrealDB).
+ * the underlying database implementation (SQLite, SurrealDB).
  * All business services should depend on these interfaces, not concrete implementations.
  */
 
@@ -206,11 +206,11 @@ export interface TrajectoryStats {
 }
 
 /**
- * Vector Storage Interface (for LanceDB replacement)
+ * Vector Storage Interface
  */
 export interface IVectorStorage {
   /** Get storage backend type identifier */
-  getBackendType(): "lance" | "surrealdb";
+  getBackendType(): "surrealdb";
 
   /** Upsert a single vector record */
   upsert(id: string, vector: number[], metadata: Record<string, unknown>): Promise<void>;
@@ -279,7 +279,6 @@ export interface StorageFeatureFlags {
 export enum StorageBackend {
   SQLite = "sqlite",
   SurrealDB = "surrealdb",
-  LanceDB = "lance",
 }
 
 /**
@@ -294,9 +293,6 @@ export interface StorageConfig {
 
   /** SQLite specific configuration */
   sqlite?: SQLiteConfig;
-
-  /** LanceDB specific configuration */
-  lance?: LanceConfig;
 
   /** Feature flags */
   features: StorageFeatureFlags;
@@ -316,8 +312,4 @@ export interface SQLiteConfig {
   path: string;
   walMode?: boolean;
   foreignKeys?: boolean;
-}
-
-export interface LanceConfig {
-  path: string;
 }
