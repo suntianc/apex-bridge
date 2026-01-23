@@ -49,13 +49,13 @@ src/
 
 ### Code Style (Mandatory)
 
-| Rule | Requirement |
-|------|-------------|
-| **File Length** | Services/Utils max 500 lines; Components max 300 lines |
-| **Nesting Depth** | Max 4 levels - extract to functions if deeper |
-| **Explicit Imports** | NEVER use `import *` - list imports explicitly |
-| **No Type Suppression** | NEVER use `as any`, `@ts-ignore`, `@ts-expect-error` |
-| **Naming** | PascalCase (Components/Services), camelCase (functions), SCREAMING_SNAKE_CASE (constants) |
+| Rule                    | Requirement                                                                               |
+| ----------------------- | ----------------------------------------------------------------------------------------- |
+| **File Length**         | Services/Utils max 500 lines; Components max 300 lines                                    |
+| **Nesting Depth**       | Max 4 levels - extract to functions if deeper                                             |
+| **Explicit Imports**    | NEVER use `import *` - list imports explicitly                                            |
+| **No Type Suppression** | NEVER use `as any`, `@ts-ignore`, `@ts-expect-error`                                      |
+| **Naming**              | PascalCase (Components/Services), camelCase (functions), SCREAMING_SNAKE_CASE (constants) |
 
 ### Code Quality (Mandatory)
 
@@ -79,6 +79,7 @@ src/
 ### Documentation Sync (Mandatory)
 
 When code changes affect architecture, API, or user behavior:
+
 - Update `docs/API.md` for API changes
 - Update `docs/ARCHITECTURE.md` for architecture changes
 - Update `.env.template` for new environment variables
@@ -87,6 +88,7 @@ When code changes affect architecture, API, or user behavior:
 ### Context7 Query (Mandatory)
 
 When using unfamiliar libraries or APIs:
+
 - Query Context7 documentation first
 - If unavailable, use GitHub examples
 - Inform user before proceeding with implementation
@@ -94,6 +96,7 @@ When using unfamiliar libraries or APIs:
 ### Refactoring Triggers
 
 Alert user when:
+
 - File exceeds 500 lines (services) or 300 lines (components)
 - Duplicate code detected (>3 similar lines)
 - Code nesting exceeds 4 levels
@@ -108,9 +111,9 @@ Alert user when:
 
 ## Design Patterns
 
-| Pattern | Usage |
-|---------|-------|
-| **Adapter** | Unified LLM provider interface (OpenAI, Claude, DeepSeek, Zhipu, Ollama) |
-| **Strategy** | Runtime switch between ReActStrategy and SingleRoundStrategy |
-| **Factory** | Adapter and executor instantiation |
-| **Observer** | EventBus for MCP state monitoring |
+| Pattern      | Usage                                                                    |
+| ------------ | ------------------------------------------------------------------------ |
+| **Adapter**  | Unified LLM provider interface (OpenAI, Claude, DeepSeek, Zhipu, Ollama) |
+| **Strategy** | Runtime switch between ReActStrategy and SingleRoundStrategy             |
+| **Factory**  | Adapter and executor instantiation                                       |
+| **Observer** | EventBus for MCP state monitoring                                        |
