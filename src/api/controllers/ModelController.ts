@@ -103,7 +103,7 @@ export async function listProviderModels(req: Request, res: Response): Promise<v
 
     const models = await configService.listModels({ providerId });
 
-    res.json({
+    ok(res, {
       success: true,
       provider: {
         id: provider.id,
@@ -206,7 +206,7 @@ export async function getModel(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    res.json({
+    ok(res, {
       success: true,
       model: {
         id: model.id,
@@ -594,7 +594,7 @@ export async function queryModels(req: Request, res: Response): Promise<void> {
 
     const models = await configService.listModels(params);
 
-    res.json({
+    ok(res, {
       success: true,
       count: models.length,
       models: models.map((m) => ({
@@ -691,7 +691,7 @@ export async function getDefaultModel(req: Request, res: Response): Promise<void
       return;
     }
 
-    res.json({
+    ok(res, {
       success: true,
       model: {
         id: model.id,

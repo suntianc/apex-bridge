@@ -100,7 +100,11 @@ describe("SurrealDBClient - Connection Management", () => {
     };
 
     // Clear any existing connection state
-    await client.disconnect().catch(() => {});
+    await client.disconnect().catch((error) => {
+      if (process.env.DEBUG_TESTS === "true") {
+        console.debug("Disconnect error (expected):", error);
+      }
+    });
 
     const connect1 = client.connect(config1);
     // This should reject immediately because a different connection is in progress
@@ -108,6 +112,10 @@ describe("SurrealDBClient - Connection Management", () => {
       "Connect already in progress with a different config"
     );
     // Clean up the first connection attempt
-    await connect1.catch(() => {});
+    await connect1.catch((error) => {
+      if (process.env.DEBUG_TESTS === "true") {
+        console.debug("Connect error (expected):", error);
+      }
+    });
   }, 10000);
 });

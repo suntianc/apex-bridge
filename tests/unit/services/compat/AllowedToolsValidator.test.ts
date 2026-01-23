@@ -261,8 +261,10 @@ describe("AllowedToolsValidator", () => {
     it("应该记录拒绝日志当抛出异常", () => {
       try {
         validator.validateOrThrow("dangerous-tool", ["read-file"]);
-      } catch {
-        // 预期会抛出异常
+      } catch (error) {
+        if (process.env.DEBUG_TESTS === "true") {
+          console.debug("Expected error thrown:", error);
+        }
       }
 
       expect(logger.warn).toHaveBeenCalledWith(

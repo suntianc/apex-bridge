@@ -181,7 +181,8 @@ export class ProcessPool {
           }
           resolve();
         }, 5000);
-      } catch {
+      } catch (error) {
+        logger.warn(`Process ${proc.id} termination error:`, error);
         resolve();
       }
     });
@@ -257,8 +258,12 @@ export class ProcessPool {
         this.updateMetrics();
       });
 
-      proc.stdout?.on("data", () => {});
-      proc.stderr?.on("data", () => {});
+      proc.stdout?.on("data", (data: Buffer) => {
+        logger.debug(`Process ${pooledProc.id} stdout: ${data.toString().substring(0, 200)}`);
+      });
+      proc.stderr?.on("data", (data: Buffer) => {
+        logger.warn(`Process ${pooledProc.id} stderr: ${data.toString().substring(0, 200)}`);
+      });
 
       resolve(pooledProc);
     });
@@ -407,7 +412,9 @@ export class ProcessPool {
     while (this.taskQueue.length > 0 && this.activeCount < this.config.maxConcurrent) {
       const waiting = this.taskQueue.shift();
       if (waiting) {
-        this.execute(waiting.task).catch(() => {});
+        this.execute(waiting.task).catch((error: Error) => {
+          logger.error(`Queued task ${waiting.task.taskId} execution failed:`, error);
+        });
       }
     }
   }

@@ -324,14 +324,9 @@ apex-bridge/
 ├── scripts/                          # 数据库迁移脚本
 ├── docs/                             # 文档
 │   ├── getting-started.md            # 快速开始
-│   ├── architecture.md               # 架构设计
-│   ├── api-reference.md              # API 参考
-│   ├── context-compression.md        # 上下文压缩
-│   ├── mcp-integration.md            # MCP 集成指南
-│   └── LANCEDB_DEPRECATION.md (已废弃)        # LanceDB 废弃说明
 │
 ├── .data/                            # 数据存储（隐藏目录）
-│   └── *.surreal                      # LanceDB 向量索引
+│   └── *.surreal                      # SurrealDB 向量索引
 │
 └── package.json                      # 项目配置
 ```
@@ -364,16 +359,15 @@ apex-bridge/
 
 ## 📚 文档
 
-| 文档                                                     | 说明                    |
-| -------------------------------------------------------- | ----------------------- |
-| [快速开始](docs/getting-started.md)                      | 入门指南和安装配置      |
-| [架构设计](docs/architecture.md)                         | 系统设计深度解析        |
-| [API 参考](docs/api-reference.md)                        | 完整的 API 文档         |
-| [上下文压缩](docs/context-compression.md)                | 4 层压缩策略详解        |
-| [MCP 集成指南](docs/mcp-integration.md)                  | MCP 服务器配置和使用    |
-| [性能优化](docs/performance-guide.md)                    | 性能调优指南            |
-| [用户指南](docs/user-guide.md)                           | 使用指南和最佳实践      |
-| [LanceDB 废弃说明](docs/LANCEDB_DEPRECATION.md "已废弃") | 迁移到 SurrealDB 的说明 |
+| 文档                                      | 说明                 |
+| ----------------------------------------- | -------------------- |
+| [快速开始](docs/getting-started.md)       | 入门指南和安装配置   |
+| [架构设计](docs/architecture.md)          | 系统设计深度解析     |
+| [API 参考](docs/api-reference.md)         | 完整的 API 文档      |
+| [上下文压缩](docs/context-compression.md) | 4 层压缩策略详解     |
+| [MCP 集成指南](docs/mcp-integration.md)   | MCP 服务器配置和使用 |
+| [性能优化](docs/performance-guide.md)     | 性能调优指南         |
+| [用户指南](docs/user-guide.md)            | 使用指南和最佳实践   |
 
 **在线文档**：
 

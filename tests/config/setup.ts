@@ -30,7 +30,9 @@ beforeAll(async () => {
         fs.mkdirSync(dir, { recursive: true });
       }
     } catch (error) {
-      // Ignore directory creation errors
+      if (process.env.DEBUG_TESTS === "true") {
+        console.debug("Directory creation error (expected):", error);
+      }
     }
   }
 });
@@ -53,13 +55,17 @@ afterAll(async () => {
           try {
             fs.unlinkSync(filePath);
           } catch (error) {
-            // Ignore file deletion errors
+            if (process.env.DEBUG_TESTS === "true") {
+              console.debug("File deletion error (expected):", error);
+            }
           }
         }
       }
     }
   } catch (error) {
-    // Ignore cleanup errors
+    if (process.env.DEBUG_TESTS === "true") {
+      console.debug("Cleanup error (expected):", error);
+    }
   }
 });
 

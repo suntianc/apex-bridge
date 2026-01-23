@@ -13,6 +13,7 @@ import {
   notFound,
   serverError,
   serviceUnavailable,
+  dynamicStatus,
 } from "../../utils/http-response";
 import { toString } from "../../utils/request-parser";
 
@@ -363,7 +364,7 @@ router.get("/health", async (req: Request, res: Response) => {
 
     const statusCode = health.healthy ? 200 : 503;
 
-    res.status(statusCode).json({
+    dynamicStatus(res, statusCode, {
       success: health.healthy,
       data: health,
     });

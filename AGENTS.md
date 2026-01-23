@@ -99,11 +99,11 @@ ApexBridge is an enterprise-grade AI Agent framework with multi-model support (O
 
 ## CI/CD ANTI-PATTERNS
 
-| Workflow                               | Issues                                   |
-| -------------------------------------- | ---------------------------------------- |
-| `.github/workflows/ci.yml`             | Chinese comments, manual artifact checks |
-| `.github/workflows/release.yml`        | Deprecated actions (create-release@v1)   |
-| `.github/workflows/security-tests.yml` | Working-directory inconsistency          |
+| Workflow                               | Issues                                 | Status   |
+| -------------------------------------- | -------------------------------------- | -------- |
+| `.github/workflows/ci.yml`             | Chinese comments                       | RESOLVED |
+| `.github/workflows/release.yml`        | Deprecated actions (create-release@v1) | RESOLVED |
+| `.github/workflows/security-tests.yml` | Working-directory inconsistency        | VERIFIED |
 
 ---
 

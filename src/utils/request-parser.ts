@@ -4,6 +4,7 @@
  */
 
 import { Request, Response } from "express";
+import { badRequest } from "./http-response";
 
 /**
  * Query string parsed object type from Express
@@ -174,12 +175,8 @@ export function validateRequiredParams(req: Request, params: string[], res: Resp
   }
 
   if (missing.length > 0) {
-    res.status(400).json({
-      error: {
-        message: `Missing required parameters: ${missing.join(", ")}`,
-        type: "invalid_request",
-        code: "MISSING_PARAMS",
-      },
+    badRequest(res, `Missing required parameters: ${missing.join(", ")}`, {
+      code: "MISSING_PARAMS",
     });
     return false;
   }
