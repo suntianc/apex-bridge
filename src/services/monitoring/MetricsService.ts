@@ -78,12 +78,7 @@ class MetricsService extends EventEmitter {
   /**
    * 记录请求指标
    */
-  recordRequest(
-    method: string,
-    path: string,
-    statusCode: number,
-    duration: number
-  ): void {
+  recordRequest(method: string, path: string, statusCode: number, duration: number): void {
     const success = statusCode >= 200 && statusCode < 400;
     const metric: RequestMetric = {
       timestamp: Date.now(),
@@ -154,7 +149,8 @@ class MetricsService extends EventEmitter {
       .map((m) => m.duration)
       .sort((a, b) => a - b);
 
-    const avgLatency = latencies.length > 0 ? latencies.reduce((a, b) => a + b, 0) / latencies.length : 0;
+    const avgLatency =
+      latencies.length > 0 ? latencies.reduce((a, b) => a + b, 0) / latencies.length : 0;
     const p50 = this.percentile(latencies, 50);
     const p95 = this.percentile(latencies, 95);
     const p99 = this.percentile(latencies, 99);
@@ -217,10 +213,13 @@ class MetricsService extends EventEmitter {
    * 定期清理旧指标
    */
   private startCleanupInterval(): void {
-    setInterval(() => {
-      const oneHourAgo = Date.now() - 60 * 60 * 1000;
-      this.requestMetrics = this.requestMetrics.filter((m) => m.timestamp > oneHourAgo);
-    }, 10 * 60 * 1000); // 每10分钟清理一次
+    setInterval(
+      () => {
+        const oneHourAgo = Date.now() - 60 * 60 * 1000;
+        this.requestMetrics = this.requestMetrics.filter((m) => m.timestamp > oneHourAgo);
+      },
+      10 * 60 * 1000
+    ); // 每10分钟清理一次
   }
 
   /**
