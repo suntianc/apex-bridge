@@ -66,3 +66,71 @@ export function wrapSurrealDBError(
   const message = error instanceof Error ? error.message : String(error);
   return new SurrealDBError(code, message, operation, details);
 }
+
+// ============================================================================
+// Error Pattern Matching (统一错误映射)
+// ============================================================================
+
+const SURREALDB_ERROR_PATTERNS: Array<{
+  pattern: RegExp;
+  code: SurrealDBErrorCode;
+}> = [
+  { pattern: /not connected/i, code: SurrealDBErrorCode.NOT_CONNECTED },
+  { pattern: /timeout|timed out/i, code: SurrealDBErrorCode.CONNECTION_TIMEOUT },
+  { pattern: /already exists|already registered/i, code: SurrealDBErrorCode.RECORD_ALREADY_EXISTS },
+  { pattern: /not found|record not found|no such/i, code: SurrealDBErrorCode.RECORD_NOT_FOUND },
+  { pattern: /connection failed/i, code: SurrealDBErrorCode.CONNECTION_FAILED },
+];
+
+const SURREALDB_CONFLICT_PATTERNS = [
+  /read or write conflict/i,
+  /can be retried/i,
+  /failed to commit transaction/i,
+];
+
+/**
+ * 判断 SurrealDB 错误是否可重试（读写冲突类错误）
+ */
+export function isSurrealDBConflictRetryable(error: unknown): boolean {
+  if (isSurrealDBError(error)) {
+    // 事务失败错误通常可重试
+    if (error.code === SurrealDBErrorCode.TRANSACTION_FAILED) {
+      return true;
+    }
+    // QUERY_FAILED 需要检查消息
+    if (error.code === SurrealDBErrorCode.QUERY_FAILED) {
+      const lowerMessage = error.message.toLowerCase();
+      return SURREALDB_CONFLICT_PATTERNS.some((pattern) => pattern.test(lowerMessage));
+    }
+    return false;
+  }
+
+  // 非 SurrealDBError，检查消息
+  const message = error instanceof Error ? error.message : String(error);
+  return SURREALDB_CONFLICT_PATTERNS.some((pattern) => pattern.test(message));
+}
+
+/**
+ * 通用错误映射函数（统一错误字符串匹配逻辑）
+ */
+export function mapToSurrealDBError(
+  error: unknown,
+  operation: string,
+  details?: unknown
+): SurrealDBError {
+  if (isSurrealDBError(error)) {
+    return error;
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  const lowerMessage = message.toLowerCase();
+
+  // 按优先级匹配模式
+  for (const { pattern, code } of SURREALDB_ERROR_PATTERNS) {
+    if (pattern.test(lowerMessage)) {
+      return wrapSurrealDBError(error, operation, code, details);
+    }
+  }
+
+  return wrapSurrealDBError(error, operation, SurrealDBErrorCode.QUERY_FAILED, details);
+}

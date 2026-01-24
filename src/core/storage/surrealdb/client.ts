@@ -13,6 +13,7 @@ import {
   SurrealDBErrorCode,
   isSurrealDBError,
   wrapSurrealDBError,
+  mapToSurrealDBError,
 } from "../../../utils/surreal-error";
 
 type ConnectionState = "disconnected" | "connecting" | "connected";
@@ -388,47 +389,6 @@ class SurrealDBClient {
     }
   }
 
-  private mapToSurrealDBError(
-    error: unknown,
-    operation: string,
-    details?: unknown
-  ): SurrealDBError {
-    if (isSurrealDBError(error)) {
-      return error;
-    }
-
-    const message = error instanceof Error ? error.message : String(error);
-    const lowerMessage = message.toLowerCase();
-
-    // Connection-related errors
-    if (lowerMessage.includes("not connected")) {
-      return wrapSurrealDBError(error, operation, SurrealDBErrorCode.NOT_CONNECTED, details);
-    }
-
-    if (lowerMessage.includes("timeout") || lowerMessage.includes("timed out")) {
-      return wrapSurrealDBError(error, operation, SurrealDBErrorCode.CONNECTION_TIMEOUT, details);
-    }
-
-    if (lowerMessage.includes("already exists") || lowerMessage.includes("already registered")) {
-      return wrapSurrealDBError(
-        error,
-        operation,
-        SurrealDBErrorCode.RECORD_ALREADY_EXISTS,
-        details
-      );
-    }
-
-    if (
-      lowerMessage.includes("not found") ||
-      lowerMessage.includes("record not found") ||
-      lowerMessage.includes("no such")
-    ) {
-      return wrapSurrealDBError(error, operation, SurrealDBErrorCode.RECORD_NOT_FOUND, details);
-    }
-
-    return wrapSurrealDBError(error, operation, SurrealDBErrorCode.QUERY_FAILED, details);
-  }
-
   private extractOperation(sql: string): string {
     const trimmed = sql.trim().toUpperCase();
     if (trimmed.startsWith("SELECT")) return "select";
@@ -449,7 +409,7 @@ class SurrealDBClient {
       const client = await this.getConnectedClient(operation);
       return (await client.query<T>(sql, vars).collect<T>()) as unknown as Promise<T>;
     } catch (error: unknown) {
-      const mappedError = this.mapToSurrealDBError(error, operation, {
+      const mappedError = mapToSurrealDBError(error, operation, {
         sqlLength: sql.length,
         varsKeys: vars ? Object.keys(vars) : [],
       });
@@ -486,7 +446,7 @@ class SurrealDBClient {
       const result = (await client.select<T>(table)) as T[];
       return Array.isArray(result) ? result : [result];
     } catch (error: unknown) {
-      const mappedError = this.mapToSurrealDBError(error, operation, { tableOrId });
+      const mappedError = mapToSurrealDBError(error, operation, { tableOrId });
       logger.error("[SurrealDB] Select failed", {
         operation,
         tableOrId,
@@ -538,7 +498,7 @@ class SurrealDBClient {
 
       return null;
     } catch (error: unknown) {
-      const mappedError = this.mapToSurrealDBError(error, operation, { fullId });
+      const mappedError = mapToSurrealDBError(error, operation, { fullId });
       logger.error("[SurrealDB] SelectById failed", {
         operation,
         fullId,
@@ -583,7 +543,7 @@ class SurrealDBClient {
       const value = Array.isArray(result) ? result[0] : result;
       return value as T;
     } catch (error: unknown) {
-      const mappedError = this.mapToSurrealDBError(error, operation, {
+      const mappedError = mapToSurrealDBError(error, operation, {
         tableOrId,
         dataKeys: Object.keys(data),
       });
@@ -619,7 +579,7 @@ class SurrealDBClient {
       const table = new Table(idOrTable);
       return (await client.update<T>(table).content(data)) as T | T[];
     } catch (error: unknown) {
-      const mappedError = this.mapToSurrealDBError(error, operation, {
+      const mappedError = mapToSurrealDBError(error, operation, {
         idOrTable,
         dataKeys: Object.keys(data),
       });
@@ -663,7 +623,7 @@ class SurrealDBClient {
       const value = Array.isArray(result) ? result[0] : result;
       return value as T;
     } catch (error: unknown) {
-      const mappedError = this.mapToSurrealDBError(error, operation, {
+      const mappedError = mapToSurrealDBError(error, operation, {
         tableOrId,
         dataKeys: Object.keys(data),
       });
@@ -689,7 +649,7 @@ class SurrealDBClient {
       await client.delete(table);
       return true;
     } catch (error: unknown) {
-      const mappedError = this.mapToSurrealDBError(error, operation, { id });
+      const mappedError = mapToSurrealDBError(error, operation, { id });
       logger.error("[SurrealDB] Delete failed", { operation, id, error: mappedError.message });
 
       if (isSurrealDBError(error) && error.code === SurrealDBErrorCode.NOT_CONNECTED) {
@@ -729,6 +689,18 @@ class SurrealDBClient {
       database: this.config.database,
       url: this.config.url,
     };
+  }
+
+  /**
+   * Map an error to a SurrealDBError with proper error code
+   * Delegates to the standalone function for consistency
+   */
+  mapToSurrealDBError(
+    error: unknown,
+    operation: string,
+    details?: Record<string, unknown>
+  ): SurrealDBError {
+    return mapToSurrealDBError(error, operation, details);
   }
 }
 

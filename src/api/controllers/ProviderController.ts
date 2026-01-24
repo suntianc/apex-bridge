@@ -25,6 +25,14 @@ import {
   dynamicStatus,
 } from "../../utils/http-response";
 import { toString } from "../../utils/request-parser";
+import {
+  isAppError,
+  getErrorCode,
+  getHttpStatus,
+  getStatusCodeForErrorCode,
+} from "../../types/errors";
+import { ErrorClassifier } from "../../utils/error-classifier";
+import { ErrorType } from "../../types/trajectory";
 
 const configService = LLMConfigService.getInstance();
 const modelRegistry = ModelRegistry.getInstance();
@@ -450,14 +458,46 @@ export async function validateModelBeforeAdd(req: Request, res: Response) {
 
 // --- 辅助函数：保持主逻辑干净 ---
 
-function parseErrorStatus(error: any): number {
-  const msg = error.message?.toLowerCase() || "";
-  if (msg.includes("401") || msg.includes("auth")) return 401;
-  if (msg.includes("403") || msg.includes("permission")) return 403;
-  if (msg.includes("404") || msg.includes("not found")) return 404;
-  if (msg.includes("429") || msg.includes("quota")) return 429;
-  if (msg.includes("timeout")) return 504;
-  return 500;
+/**
+ * 类型安全的错误状态码解析
+ *
+ * @param error - 任意错误对象
+ * @returns HTTP 状态码
+ */
+function parseErrorStatus(error: unknown): number {
+  // Priority 1: AppError type check (most reliable)
+  if (isAppError(error)) {
+    return error.getStatusCode();
+  }
+
+  // Priority 2: Extract ErrorCode
+  const code = getErrorCode(error);
+  if (code) {
+    return getStatusCodeForErrorCode(code);
+  }
+
+  // Priority 3: HTTP status code
+  const httpStatus = getHttpStatus(error);
+  if (httpStatus !== null) {
+    return httpStatus;
+  }
+
+  // Priority 4: ErrorClassifier fallback
+  const errorType = ErrorClassifier.classifyError(error);
+  switch (errorType) {
+    case ErrorType.PERMISSION_DENIED:
+      return 403;
+    case ErrorType.INVALID_INPUT:
+      return 400;
+    case ErrorType.RATE_LIMIT:
+      return 429;
+    case ErrorType.TIMEOUT:
+      return 504;
+    case ErrorType.NETWORK_ERROR:
+      return 502;
+    default:
+      return 500;
+  }
 }
 
 // --- 辅助函数：生成排查建议 (可选) ---

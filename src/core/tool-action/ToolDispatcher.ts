@@ -22,6 +22,7 @@ import type { Tool } from "../tool/tool";
 import { logger } from "../../utils/logger";
 import { ErrorClassifier } from "../../utils/error-classifier";
 import { ErrorType } from "../../types/trajectory";
+import { isNotFoundError } from "../../types/errors";
 
 /**
  * 默认配置常量
@@ -443,7 +444,7 @@ export class ToolDispatcher {
       const executionTime = Date.now() - startTime;
 
       // 如果 Skill 不存在，返回 null（让调度器继续尝试其他路径）
-      if (!result.success && result.error?.includes("not found")) {
+      if (!result.success && isNotFoundError(result.error)) {
         logger.debug(`[ToolDispatcher] Skill not found: ${name}`);
         return null;
       }
@@ -501,7 +502,7 @@ export class ToolDispatcher {
       const errorMessage = error instanceof Error ? error.message : String(error);
 
       // 如果是 Skill 不存在的错误，返回 null
-      if (errorMessage.includes("not found") || errorMessage.includes("does not exist")) {
+      if (isNotFoundError(error)) {
         logger.debug(`[ToolDispatcher] Skill does not exist: ${name}`);
         return null;
       }

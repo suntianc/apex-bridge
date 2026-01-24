@@ -13,42 +13,10 @@ import {
   SurrealDBErrorCode,
   isSurrealDBError,
   wrapSurrealDBError,
+  isSurrealDBConflictRetryable,
 } from "../../../utils/surreal-error";
 
 const TABLE_MCP_SERVERS = "mcp_servers";
-
-/**
- * 判断 SurrealDB 错误是否可重试（读写冲突类错误）
- */
-function isSurrealDBConflictRetryable(error: unknown): boolean {
-  if (!isSurrealDBError(error)) {
-    // 检查原始错误消息中是否包含 "read or write conflict" 或 "can be retried"
-    const message = error instanceof Error ? error.message : String(error);
-    const lowerMessage = message.toLowerCase();
-    return (
-      lowerMessage.includes("read or write conflict") ||
-      lowerMessage.includes("can be retried") ||
-      lowerMessage.includes("failed to commit transaction")
-    );
-  }
-
-  // SDB_QUERY_001 通常是查询执行失败，可能包含冲突
-  if (error.code === SurrealDBErrorCode.QUERY_FAILED) {
-    const message = error.message.toLowerCase();
-    return (
-      message.includes("read or write conflict") ||
-      message.includes("can be retried") ||
-      message.includes("failed to commit transaction")
-    );
-  }
-
-  // 事务失败错误通常可重试
-  if (error.code === SurrealDBErrorCode.TRANSACTION_FAILED) {
-    return true;
-  }
-
-  return false;
-}
 
 interface MCPServerSurrealRecord {
   id: string;
