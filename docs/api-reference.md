@@ -105,7 +105,7 @@ Create a chat completion request.
 
 **Method:** `POST`  
 **Path:** `/v1/chat/completions`  
-**File:** `src/api/controllers/ChatController.ts` (line 31)
+**File:** `src/api/controllers/chat/ChatController.ts` (line 31)
 
 **Request Body:**
 

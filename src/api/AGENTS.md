@@ -13,15 +13,15 @@ REST API layer - Controllers, Middleware, WebSocket, Routes.
 
 ## WHERE TO LOOK
 
-| Component    | Path                                | Role                                   |
-| ------------ | ----------------------------------- | -------------------------------------- |
-| Chat API     | `controllers/ChatController.ts`     | Chat completions, streaming            |
-| Model API    | `controllers/ModelController.ts`    | Model CRUD operations                  |
-| Provider API | `controllers/ProviderController.ts` | Provider CRUD operations               |
-| Skills API   | `controllers/SkillsController.ts`   | Skill management                       |
-| MCP Routes   | `routes/mcpRoutes.ts`               | MCP endpoint definitions               |
-| WebSocket    | `websocket/WebSocketManager.ts`     | Real-time communication                |
-| Middleware   | `middleware/`                       | Auth, validation, security, rate-limit |
+| Component    | Path                                 | Role                                   |
+| ------------ | ------------------------------------ | -------------------------------------- |
+| Chat API     | `controllers/chat/ChatController.ts` | Chat completions, streaming            |
+| Model API    | `controllers/ModelController.ts`     | Model CRUD operations                  |
+| Provider API | `controllers/ProviderController.ts`  | Provider CRUD operations               |
+| Skills API   | `controllers/SkillsController.ts`    | Skill management                       |
+| MCP Routes   | `routes/mcpRoutes.ts`                | MCP endpoint definitions               |
+| WebSocket    | `websocket/WebSocketManager.ts`      | Real-time communication                |
+| Middleware   | `middleware/`                        | Auth, validation, security, rate-limit |
 
 ---
 
@@ -35,4 +35,3 @@ Same as root.
 
 - **String-matching error handling**: ProviderController and ModelController use `error.message.includes('not found')` instead of `AppError`. This fragile pattern should be replaced with proper typed error handling.
 - **HTTP response duplicates**: 19 direct `res.status().json()` calls found, should use `src/utils/http-response.ts` utilities
-- **Debug code present**: ChatController.ts:79,94 have debug code that should be removed

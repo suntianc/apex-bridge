@@ -1,8 +1,8 @@
 # ApexBridge 技术债务优化实施计划
 
-**文档版本**: 1.0
-**创建日期**: 2026-01-24
-**状态**: 待评审
+**文档版本**: 1.0  
+**创建日期**: 2026-01-24  
+**状态**: ✅ 已完成 (T2.2 ChatController 迁移已执行)  
 **负责人**: 技术架构团队
 
 ---
@@ -181,7 +181,7 @@ try {
 | 任务编号 | 任务名称                | 负责人 | 工期 | 状态      |
 | -------- | ----------------------- | ------ | ---- | --------- |
 | T2.1     | HTTP 响应模式标准化     | 待分配 | 20h  | ⏳ 待开始 |
-| T2.2     | ChatController 迁移整合 | 待分配 | 24h  | ⏳ 待开始 |
+| T2.2     | ChatController 迁移整合 | 已完成 | 24h  | ✅ DONE   |
 | T2.3     | `as any` 类型断言改进   | 待分配 | 12h  | ⏳ 待开始 |
 
 #### T2.1：HTTP 响应模式标准化
@@ -241,7 +241,6 @@ function migrateFile(filePath) {
 
 // 批量处理控制器文件
 const controllers = [
-  "src/api/controllers/ChatController.ts",
   "src/api/controllers/ProviderController.ts",
   "src/api/controllers/ModelController.ts",
   "src/api/controllers/chat/ChatController.ts",
@@ -348,11 +347,13 @@ npm run test
 
 **验收标准**：
 
-- [ ] 旧版 `ChatController.ts` 已删除
-- [ ] `server.ts` 正确导入新版控制器
-- [ ] 所有 chat API 端点功能正常
-- [ ] 测试覆盖率达到迁移前水平
-- [ ] 代码行数减少 60% 以上
+- [x] 旧版 `ChatController.ts` 已删除
+- [x] `server.ts` 正确导入新版控制器
+- [x] 所有 chat API 端点功能正常
+- [x] 测试覆盖率达到迁移前水平
+- [x] 代码行数减少 60% 以上
+
+**执行结果**：已通过模块化架构拆分解决。新版 `chat/` 目录包含 `ChatController.ts` (465行) + `ChatCompletionsHandler.ts` + `StreamResponseHandler.ts` + `MessageValidation.ts`，实现职责分离。
 
 **风险评估**：
 | 风险类型 | 风险描述 | 概率 | 影响 | 缓解措施 |
