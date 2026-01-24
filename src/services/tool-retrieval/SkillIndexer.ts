@@ -127,8 +127,8 @@ export class SkillIndexer implements ISkillIndexer {
       // Check if directory exists
       try {
         await fs.access(dirPath);
-      } catch {
-        logger.warn(`[SkillIndexer] Skills directory does not exist: ${dirPath}`);
+      } catch (error) {
+        logger.warn(`[SkillIndexer] Skills directory does not exist: ${dirPath}`, error);
         return 0;
       }
 
@@ -207,7 +207,11 @@ export class SkillIndexer implements ISkillIndexer {
 
       // Compare hash and size
       return currentHash !== vectorizedData.skillHash || currentSize !== vectorizedData.skillSize;
-    } catch {
+    } catch (error) {
+      logger.debug(
+        `[SkillIndexer] Failed to read vectorized file, need to reindex: ${vectorizedFile}`,
+        error
+      );
       // File doesn't exist or parse failed, need to index
       return true;
     }
@@ -361,7 +365,8 @@ export class SkillIndexer implements ISkillIndexer {
     try {
       await fs.access(filePath);
       return true;
-    } catch {
+    } catch (error) {
+      logger.debug(`[SkillIndexer] File does not exist: ${filePath}`);
       return false;
     }
   }

@@ -492,8 +492,8 @@ export class SearchEngine implements ISearchEngine {
         return JSON.parse(data.metadata);
       }
       return data.metadata || {};
-    } catch {
-      logger.warn("[SearchEngine] Failed to parse metadata JSON");
+    } catch (error) {
+      logger.warn(`[SearchEngine] Failed to parse metadata JSON for tool: ${data.name}`, error);
       return {};
     }
   }

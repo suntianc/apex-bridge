@@ -258,7 +258,8 @@ export class LifecycleManager {
     try {
       await fs.access(filePath);
       return true;
-    } catch {
+    } catch (error) {
+      logger.debug(`[LifecycleManager] File does not exist: ${filePath}`);
       return false;
     }
   }

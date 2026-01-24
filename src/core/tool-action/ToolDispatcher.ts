@@ -563,14 +563,19 @@ export class ToolDispatcher {
         case "array":
           try {
             result[key] = JSON.parse(value);
-          } catch {
+          } catch (error) {
+            logger.debug(
+              `[ToolDispatcher] Failed to parse array parameter "${key}", using comma-split fallback`,
+              error
+            );
             result[key] = value.split(",").map((s) => s.trim());
           }
           break;
         case "object":
           try {
             result[key] = JSON.parse(value);
-          } catch {
+          } catch (error) {
+            logger.debug(`[ToolDispatcher] Failed to parse object parameter "${key}"`, error);
             result[key] = value;
           }
           break;

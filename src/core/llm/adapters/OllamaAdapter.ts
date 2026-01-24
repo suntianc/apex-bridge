@@ -279,38 +279,6 @@ export class OllamaAdapter extends BaseOpenAICompatibleAdapter {
         JSON.stringify(debugRequestBody, null, 2)
       );
 
-      // 🔍 额外验证：检查实际请求体中的图片数据是否完整
-      if (imageDetails.length > 0) {
-        console.log("\n==================== 🔍 调试信息 ====================");
-        console.log(`消息总数: ${requestBody.messages.length}`);
-        requestBody.messages.forEach((msg: any, idx: number) => {
-          console.log(`\n消息 #${idx}:`);
-          console.log(`  role: ${msg.role}`);
-          console.log(
-            `  content类型: ${Array.isArray(msg.content) ? "Array" : typeof msg.content}`
-          );
-
-          if (Array.isArray(msg.content)) {
-            console.log(`  content数组长度: ${msg.content.length}`);
-            msg.content.forEach((part: any, partIdx: number) => {
-              console.log(`    Part #${partIdx}: type=${part.type}`);
-              if (part.type === "text") {
-                console.log(`      text: ${part.text?.substring(0, 50)}...`);
-              } else if (part.type === "image_url" && part.image_url?.url) {
-                const actualUrl = part.image_url.url;
-                console.log(`      url长度: ${actualUrl.length}`);
-                console.log(`      url前缀: ${actualUrl.substring(0, 50)}`);
-                console.log(`      hasDataPrefix: ${actualUrl.startsWith("data:image/")}`);
-                console.log(`      hasBase64: ${actualUrl.includes(";base64,")}`);
-              }
-            });
-          } else if (typeof msg.content === "string") {
-            console.log(`  content: ${msg.content.substring(0, 100)}...`);
-          }
-        });
-        console.log("====================================================\n");
-      }
-
       const response = await this.client.post("/chat/completions", requestBody, {
         responseType: "stream",
         signal,

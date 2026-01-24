@@ -5,6 +5,7 @@
 
 import express, { Express, Request, Response, NextFunction } from "express";
 import supertest from "supertest";
+import { sendOk, sendCreated } from "@/utils/http-response";
 
 const request = supertest;
 
@@ -92,8 +93,8 @@ export function mockAuthMiddleware(config: TestConfig) {
       return;
     }
 
-    const token = authHeader.replace("Bearer ", "");
-    const matchedKey = config.apiKeys.find((apiKey) => apiKey.key === token);
+    const tsendOken = authHeader.replace("Bearer ", "");
+    const matchedKey = config.apiKeys.find((apiKey) => apiKey.key === tsendOken);
 
     if (!matchedKey || !matchedKey.enabled) {
       res.status(401).json({
@@ -128,7 +129,7 @@ export function createMockChatService() {
   return {
     processMessage: async () => ({
       content: "Test response",
-      usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+      usage: { prompt_tsendOkens: 10, completion_tsendOkens: 20, total_tsendOkens: 30 },
     }),
     streamMessage: async function* () {
       yield '__ANSWER__:{"content":"Test"}\n\n';
@@ -140,11 +141,11 @@ export function createMockChatService() {
     getConversationMessageCount: async () => 5,
     getConversationLastMessage: async () => ({
       content: "Last message",
-      created_at: Date.now(),
+      sendCreated_at: Date.now(),
     }),
     getConversationFirstMessage: async () => ({
       content: "First message",
-      created_at: Date.now() - 10000,
+      sendCreated_at: Date.now() - 10000,
     }),
     getAllConversationsWithHistory: async () => ["conv-1", "conv-2"],
     getConversationHistory: async () => [
@@ -170,7 +171,7 @@ export function createMockLLMConfigService() {
       const provider = {
         id: providerIdCounter++,
         ...input,
-        createdAt: new Date().toISOString(),
+        sendCreatedAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
       providers.set(provider.id, provider);
@@ -193,7 +194,7 @@ export function createMockLLMConfigService() {
         id: modelIdCounter++,
         providerId,
         ...input,
-        createdAt: new Date().toISOString(),
+        sendCreatedAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
       const providerModels = models.get(providerId) || [];
@@ -295,7 +296,7 @@ export function createMockLLMManager() {
     chat: async () => ({
       id: "test-id",
       object: "chat.completion",
-      created: Date.now(),
+      sendCreated: Date.now(),
       model: "test-model",
       choices: [
         {
@@ -304,7 +305,7 @@ export function createMockLLMManager() {
           finish_reason: "stop",
         },
       ],
-      usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+      usage: { prompt_tsendOkens: 10, completion_tsendOkens: 20, total_tsendOkens: 30 },
     }),
   };
 }
@@ -373,10 +374,6 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
   app.set("llmManager", mocks.llmManager);
   app.set("adapterFactory", mocks.adapterFactory);
 
-  function ok(res: Response, data: any) {
-    res.status(200).json({ data, success: true });
-  }
-
   function badRequest(res: Response, message: string) {
     res.status(400).json({
       error: { message, type: "invalid_request", code: "BAD_REQUEST" },
@@ -387,10 +384,6 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
     res.status(404).json({
       error: { message, type: "invalid_request", code: "NOT_FOUND" },
     });
-  }
-
-  function created(res: Response, data: any) {
-    res.status(201).json({ data, success: true });
   }
 
   function unauthorized(res: Response, message: string) {
@@ -421,10 +414,10 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
     if (!messages || !Array.isArray(messages)) {
       return badRequest(res, "messages is required and must be an array");
     }
-    ok(res, {
+    sendOk(res, {
       id: "chatcmpl-test",
       object: "chat.completion",
-      created: Date.now(),
+      sendCreated: Date.now(),
       model: model || "gpt-4",
       choices: [
         {
@@ -433,7 +426,7 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
           finish_reason: "stop",
         },
       ],
-      usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+      usage: { prompt_tsendOkens: 10, completion_tsendOkens: 20, total_tsendOkens: 30 },
     });
   });
 
@@ -441,7 +434,7 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
     if (!req.headers.authorization) {
       return unauthorized(res, "Missing Authorization header");
     }
-    ok(res, { object: "list", data: [] });
+    sendOk(res, { object: "list", data: [] });
   });
 
   app.post("/v1/interrupt", (req, res) => {
@@ -452,14 +445,14 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
     if (!requestId) {
       return badRequest(res, "Missing requestId");
     }
-    ok(res, { requestId, interrupted: true, success: true });
+    sendOk(res, { requestId, interrupted: true, success: true });
   });
 
   app.get("/v1/chat/sessions/active", (req, res) => {
     if (!req.headers.authorization) {
       return unauthorized(res, "Missing Authorization header");
     }
-    ok(res, { sessions: [], total: 0 });
+    sendOk(res, { sessions: [], total: 0 });
   });
 
   app.get("/v1/chat/sessions/:conversationId", (req, res) => {
@@ -470,7 +463,7 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
     if (!conversationId) {
       return badRequest(res, "conversationId is required");
     }
-    ok(res, {
+    sendOk(res, {
       conversationId,
       sessionId: "test-session-id",
       status: "active",
@@ -487,7 +480,7 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
     if (!conversationId) {
       return badRequest(res, "conversationId is required");
     }
-    ok(res, {
+    sendOk(res, {
       messages: [],
       total: 0,
       limit: Number(limit),
@@ -503,18 +496,18 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
     if (!conversationId) {
       return badRequest(res, "conversationId is required");
     }
-    ok(res, { success: true, message: "Session deleted" });
+    sendOk(res, { success: true, message: "Session deleted" });
   });
 
   app.get("/api/llm/providers", (req, res) => {
     if (!req.headers.authorization) {
       return unauthorized(res, "Missing Authorization header");
     }
-    ok(res, { providers: [] });
+    sendOk(res, { providers: [] });
   });
 
   app.get("/api/llm/providers/adapters", (_req, res) => {
-    ok(res, { adapters: mocks.adapterFactory.getSupportedAdapters() });
+    sendOk(res, { adapters: mocks.adapterFactory.getSupportedAdapters() });
   });
 
   app.get("/api/llm/providers/:id", (req, res) => {
@@ -528,7 +521,7 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
     if (id === 99999) {
       return notFound(res, `Provider with id ${id} not found`);
     }
-    ok(res, { provider: { id, name: "Test Provider" } });
+    sendOk(res, { provider: { id, name: "Test Provider" } });
   });
 
   app.post("/api/llm/providers", (req, res) => {
@@ -540,7 +533,7 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
       return badRequest(res, "provider, name, and baseConfig are required");
     }
     const newProvider = mocks.llmConfigService.createProvider(req.body);
-    created(res, { provider: newProvider });
+    sendCreated(res, { provider: newProvider });
   });
 
   app.put("/api/llm/providers/:id", (req, res) => {
@@ -554,7 +547,7 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
     if (Object.keys(req.body).length === 0) {
       return badRequest(res, "At least one field must be provided");
     }
-    ok(res, { provider: { id, ...req.body } });
+    sendOk(res, { provider: { id, ...req.body } });
   });
 
   app.delete("/api/llm/providers/:id", (req, res) => {
@@ -568,7 +561,7 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
     if (id === 99999) {
       return notFound(res, `Provider with id ${id} not found`);
     }
-    ok(res, { message: "Provider deleted" });
+    sendOk(res, { message: "Provider deleted" });
   });
 
   app.post("/api/llm/providers/test-connect", (req, res) => {
@@ -579,14 +572,14 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
     if (!provider || !baseConfig) {
       return badRequest(res, "Missing required parameters: provider or baseConfig");
     }
-    ok(res, { success: true, latency: 100, message: "Connection successful" });
+    sendOk(res, { success: true, latency: 100, message: "Connection successful" });
   });
 
   app.get("/api/llm/models", (req, res) => {
     if (!req.headers.authorization) {
       return unauthorized(res, "Missing Authorization header");
     }
-    ok(res, { models: [], count: 0 });
+    sendOk(res, { models: [], count: 0 });
   });
 
   app.get("/api/llm/models/default", (req, res) => {
@@ -601,7 +594,7 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
     if (!validTypes.includes(type as string)) {
       return badRequest(res, `Model type must be one of: ${validTypes.join(", ")}`);
     }
-    ok(res, { model: null });
+    sendOk(res, { model: null });
   });
 
   app.get("/api/llm/providers/:providerId/models", (req, res) => {
@@ -615,7 +608,7 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
     if (providerId === 99999) {
       return notFound(res, `Provider with id ${providerId} not found`);
     }
-    ok(res, { models: [] });
+    sendOk(res, { models: [] });
   });
 
   app.get("/api/llm/providers/:providerId/models/:modelId", (req, res) => {
@@ -630,7 +623,7 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
     if (modelId === 99999) {
       return notFound(res, `Model with id ${modelId} not found`);
     }
-    ok(res, { model: { id: modelId, providerId } });
+    sendOk(res, { model: { id: modelId, providerId } });
   });
 
   app.post("/api/llm/providers/:providerId/models", (req, res) => {
@@ -649,7 +642,7 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
       return notFound(res, `Provider with id ${providerId} not found`);
     }
     const newModel = mocks.llmConfigService.createModel(providerId, req.body);
-    created(res, newModel);
+    sendCreated(res, newModel);
   });
 
   app.put("/api/llm/providers/:providerId/models/:modelId", (req, res) => {
@@ -664,7 +657,7 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
     if (Object.keys(req.body).length === 0) {
       return badRequest(res, "At least one field must be provided");
     }
-    ok(res, { id: modelId, providerId, ...req.body });
+    sendOk(res, { id: modelId, providerId, ...req.body });
   });
 
   app.delete("/api/llm/providers/:providerId/models/:modelId", (req, res) => {
@@ -679,7 +672,7 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
     if (modelId === 99999) {
       return notFound(res, `Model with id ${modelId} not found`);
     }
-    ok(res, { message: "Model deleted" });
+    sendOk(res, { message: "Model deleted" });
   });
 
   app.get("/api/skills", (req, res) => {
@@ -687,7 +680,7 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
       return unauthorized(res, "Missing Authorization header");
     }
     const { page = 1, limit = 50, name } = req.query;
-    ok(res, {
+    sendOk(res, {
       skills: [],
       pagination: { total: 0, page: Number(page), limit: Number(limit), totalPages: 0 },
     });
@@ -697,14 +690,14 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
     if (!req.headers.authorization) {
       return unauthorized(res, "Missing Authorization header");
     }
-    ok(res, { totalSkills: 0, enabledSkills: 0, disabledSkills: 0 });
+    sendOk(res, { totalSkills: 0, enabledSkills: 0, disabledSkills: 0 });
   });
 
   app.get("/api/skills/:name/exists", (req, res) => {
     if (!req.headers.authorization) {
       return unauthorized(res, "Missing Authorization header");
     }
-    ok(res, { name: req.params.name, exists: true });
+    sendOk(res, { name: req.params.name, exists: true });
   });
 
   app.get("/api/skills/:name", (req, res) => {
@@ -715,14 +708,14 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
     if (name === "non-existent-skill") {
       return notFound(res, `Skill '${name}' not found`);
     }
-    ok(res, { name, description: "Test skill" });
+    sendOk(res, { name, description: "Test skill" });
   });
 
   app.post("/api/skills/reindex", (req, res) => {
     if (!req.headers.authorization) {
       return unauthorized(res, "Missing Authorization header");
     }
-    ok(res, { message: "All skills reindexed successfully" });
+    sendOk(res, { message: "All skills reindexed successfully" });
   });
 
   app.delete("/api/skills/:name", (req, res) => {
@@ -733,7 +726,7 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
     if (name === "non-existent-skill") {
       return notFound(res, `Skill '${name}' not found`);
     }
-    ok(res, { skillName: name });
+    sendOk(res, { skillName: name });
   });
 
   app.put("/api/skills/:name/description", (req, res) => {
@@ -744,11 +737,11 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
     if (!description) {
       return badRequest(res, "Description is required and must be a string");
     }
-    ok(res, { skillName: req.params.name, reindexed: true });
+    sendOk(res, { skillName: req.params.name, reindexed: true });
   });
 
   app.get("/api/mcp/servers", (_req, res) => {
-    ok(res, { servers: [], meta: { total: 0, timestamp: new Date().toISOString() } });
+    sendOk(res, { servers: [], meta: { total: 0, timestamp: new Date().toISOString() } });
   });
 
   app.get("/api/mcp/servers/:serverId", (req, res) => {
@@ -756,7 +749,7 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
     if (serverId === "non-existent") {
       return notFound(res, `Server ${serverId} not found`);
     }
-    ok(res, { server: { id: serverId } });
+    sendOk(res, { server: { id: serverId } });
   });
 
   app.post("/api/mcp/servers", (req, res) => {
@@ -764,7 +757,7 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
     if (!id || !type || !command) {
       return badRequest(res, "Missing required fields: id, type, command");
     }
-    created(res, { serverId: id });
+    sendCreated(res, { serverId: id });
   });
 
   app.delete("/api/mcp/servers/:serverId", (req, res) => {
@@ -772,7 +765,7 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
     if (serverId === "non-existent") {
       return notFound(res, `Server ${serverId} not found`);
     }
-    ok(res, { serverId });
+    sendOk(res, { serverId });
   });
 
   app.post("/api/mcp/servers/:serverId/restart", (req, res) => {
@@ -780,15 +773,15 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
     if (serverId === "non-existent") {
       return notFound(res, `Server ${serverId} not found`);
     }
-    ok(res, { serverId, message: "Server restarted" });
+    sendOk(res, { serverId, message: "Server restarted" });
   });
 
   app.get("/api/mcp/statistics", (_req, res) => {
-    ok(res, { totalServers: 0, runningServers: 0, totalTools: 0 });
+    sendOk(res, { totalServers: 0, runningServers: 0, totalTools: 0 });
   });
 
   app.get("/api/mcp/health", async (_req, res) => {
-    ok(res, { healthy: true, details: {} });
+    sendOk(res, { healthy: true, details: {} });
   });
 
   app.post("/api/mcp/servers/:serverId/tools/:toolName/call", (req, res) => {
@@ -796,7 +789,7 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
     if (!serverId || !toolName) {
       return badRequest(res, "Missing required parameters");
     }
-    ok(res, { result: "test-result" });
+    sendOk(res, { result: "test-result" });
   });
 
   app.use(mockErrorHandler);
@@ -839,7 +832,7 @@ export function generateTestModel() {
     isDefault: false,
     modelConfig: {
       temperature: 0.7,
-      maxTokens: 4096,
+      maxTsendOkens: 4096,
     },
     displayOrder: 1,
   };
@@ -854,7 +847,7 @@ export function generateTestChatRequest(overrides: Record<string, any> = {}) {
     model: "gpt-4",
     stream: false,
     temperature: 0.7,
-    max_tokens: 100,
+    max_tsendOkens: 100,
     ...overrides,
   };
 }

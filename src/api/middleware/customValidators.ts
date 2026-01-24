@@ -5,6 +5,7 @@
  */
 
 import { addCustomFormat } from "./validationMiddleware";
+import { logger } from "@/utils/logger";
 
 /**
  * 验证 API Key 格式
@@ -52,7 +53,11 @@ export function initializeCustomValidators(): void {
     validate: (value: string) => {
       try {
         return validateAPIKey(value);
-      } catch {
+      } catch (error) {
+        logger.debug(
+          `[customValidators] API key validation failed for value: ${value.substring(0, 10)}...`,
+          error
+        );
         return false;
       }
     },

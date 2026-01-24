@@ -220,7 +220,8 @@ export class MCPToolSupport implements IMCPToolSupport {
         return properties || {};
       }
       return {};
-    } catch {
+    } catch (error) {
+      logger.warn(`[MCPToolSupport] Failed to extract input schema from metadata`, error);
       return {};
     }
   }

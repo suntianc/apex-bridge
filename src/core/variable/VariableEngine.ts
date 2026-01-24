@@ -222,7 +222,6 @@ export class VariableEngine {
     // 直接从variables映射中查找
     if (key in variables) {
       const value = variables[key];
-      logger.debug(`[VariableEngine] Variable "${key}" resolved with value: ${value}`);
       return String(value);
     }
 

@@ -3,6 +3,8 @@
  * 将字符串参数转换为目标类型
  */
 
+import { logger } from "@/utils/logger";
+
 interface ParameterProperty {
   type: string;
   description?: string;
@@ -48,14 +50,19 @@ export class ParameterConverter {
       case "array":
         try {
           return JSON.parse(value);
-        } catch {
+        } catch (error) {
+          logger.debug(
+            `[ParameterConverter] Failed to parse array parameter, using comma-split fallback`,
+            error
+          );
           return value.split(",").map((s) => s.trim());
         }
 
       case "object":
         try {
           return JSON.parse(value);
-        } catch {
+        } catch (error) {
+          logger.debug(`[ParameterConverter] Failed to parse object parameter`, error);
           return value;
         }
 

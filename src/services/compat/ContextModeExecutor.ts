@@ -388,8 +388,8 @@ export class ContextModeExecutor {
       for (const entry of entries) {
         files.push(entry.name);
       }
-    } catch {
-      // 忽略读取错误
+    } catch (error) {
+      logger.warn(`[ContextModeExecutor] Failed to read skill directory: ${skillPath}`, error);
     }
 
     return {
@@ -448,7 +448,8 @@ export class ContextModeExecutor {
     try {
       fsSync.accessSync(filePath);
       return true;
-    } catch {
+    } catch (error) {
+      logger.debug(`[ContextModeExecutor] File does not exist (sync): ${filePath}`);
       return false;
     }
   }

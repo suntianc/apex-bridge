@@ -6,6 +6,7 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { Stats } from "fs";
+import { logger } from "@/utils/logger";
 
 /**
  * Check if a file exists
@@ -14,7 +15,8 @@ export async function fileExists(filePath: string): Promise<boolean> {
   try {
     await fs.access(filePath);
     return true;
-  } catch {
+  } catch (error) {
+    logger.debug(`[file-system] File does not exist: ${filePath}`);
     return false;
   }
 }
@@ -26,7 +28,8 @@ export async function directoryExists(dirPath: string): Promise<boolean> {
   try {
     const stat = await fs.stat(dirPath);
     return stat.isDirectory();
-  } catch {
+  } catch (error) {
+    logger.debug(`[file-system] Directory does not exist: ${dirPath}`);
     return false;
   }
 }
@@ -81,7 +84,8 @@ export async function readJsonFileIfExists<T>(filePath: string, fallback: T): Pr
     const content = await fs.readFile(filePath, "utf8");
     try {
       return JSON.parse(content) as T;
-    } catch {
+    } catch (error) {
+      logger.warn(`[file-system] Failed to parse JSON file: ${filePath}`, error);
       return fallback;
     }
   }
@@ -150,7 +154,8 @@ export async function removeDirectory(dirPath: string): Promise<void> {
 export async function getFileStats(filePath: string): Promise<Stats | null> {
   try {
     return await fs.stat(filePath);
-  } catch {
+  } catch (error) {
+    logger.debug(`[file-system] Failed to get file stats: ${filePath}`);
     return null;
   }
 }

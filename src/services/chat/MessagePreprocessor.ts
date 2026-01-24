@@ -38,9 +38,6 @@ export class MessagePreprocessor {
           { role: "system", content: systemPromptTemplate } as Message,
           ...processedMessages,
         ];
-        logger.debug(
-          `[MessagePreprocessor] Injected system prompt (${systemPromptTemplate.length} chars)`
-        );
       }
     }
 
@@ -49,9 +46,6 @@ export class MessagePreprocessor {
 
     // 3. 统一变量替换
     processedMessages = await this.variableEngine.resolveMessages(processedMessages, variables);
-    logger.debug(
-      `[MessagePreprocessor] Variable replacement completed with ${Object.keys(variables).length} variables`
-    );
 
     return {
       messages: processedMessages,

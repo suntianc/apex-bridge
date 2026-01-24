@@ -41,7 +41,8 @@ export class ClaudeCodeSkillParser {
 
     try {
       await fs.access(skillMdPath);
-    } catch {
+    } catch (error) {
+      logger.debug(`[ClaudeCodeSkillParser] SKILL.md not found at ${skillMdPath}`, error);
       throw new ParseError(`SKILL.md not found at ${skillMdPath}`, ParseErrorCode.FILE_NOT_FOUND);
     }
 

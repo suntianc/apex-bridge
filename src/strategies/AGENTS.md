@@ -25,4 +25,4 @@
 
 ## ANTI-PATTERNS (THIS SUBDIR)
 
-- **TODO: LLMClient usage tracking undefined** (`ReActStrategy.ts:149`) - `usage` field in return object is never populated
+- ✅ **usage tracking 已实现** (`ReActStrategy.ts:153-157`) - `usage` 字段在返回值中正确填充，包含 prompt_tokens、completion_tokens 和 total_tokens

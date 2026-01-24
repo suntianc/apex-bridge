@@ -8,6 +8,7 @@ import { SurrealDBClient } from "./client";
 import type { IMCPConfigStorage, MCPConfigQuery, MCPServerRecord } from "../interfaces";
 import type { MCPServerConfig } from "../../../types/mcp";
 import { logger } from "../../../utils/logger";
+import { retry } from "../../../utils/retry";
 import {
   SurrealDBErrorCode,
   isSurrealDBError,
@@ -15,6 +16,39 @@ import {
 } from "../../../utils/surreal-error";
 
 const TABLE_MCP_SERVERS = "mcp_servers";
+
+/**
+ * 判断 SurrealDB 错误是否可重试（读写冲突类错误）
+ */
+function isSurrealDBConflictRetryable(error: unknown): boolean {
+  if (!isSurrealDBError(error)) {
+    // 检查原始错误消息中是否包含 "read or write conflict" 或 "can be retried"
+    const message = error instanceof Error ? error.message : String(error);
+    const lowerMessage = message.toLowerCase();
+    return (
+      lowerMessage.includes("read or write conflict") ||
+      lowerMessage.includes("can be retried") ||
+      lowerMessage.includes("failed to commit transaction")
+    );
+  }
+
+  // SDB_QUERY_001 通常是查询执行失败，可能包含冲突
+  if (error.code === SurrealDBErrorCode.QUERY_FAILED) {
+    const message = error.message.toLowerCase();
+    return (
+      message.includes("read or write conflict") ||
+      message.includes("can be retried") ||
+      message.includes("failed to commit transaction")
+    );
+  }
+
+  // 事务失败错误通常可重试
+  if (error.code === SurrealDBErrorCode.TRANSACTION_FAILED) {
+    return true;
+  }
+
+  return false;
+}
 
 interface MCPServerSurrealRecord {
   id: string;
@@ -202,18 +236,29 @@ export class SurrealDBMCPConfigStorage implements IMCPConfigStorage {
   }
 
   async upsertServer(config: MCPServerConfig): Promise<void> {
-    const existing = await this.get(config.id);
     const now = Date.now();
 
-    const record: MCPServerRecord = {
-      id: config.id,
-      config,
-      enabled: 1,
-      created_at: existing?.created_at ?? now,
-      updated_at: now,
-    };
-
-    await this.save(record);
+    // 使用原子 UPSERT 语句，避免 read-modify-write 竞态
+    // created_at = created_at ?? $now 表示：如果已存在则保留原值，否则使用当前时间
+    await retry(
+      () =>
+        this.client.query(
+          `UPSERT ${TABLE_MCP_SERVERS}:${config.id} SET
+            config = $config,
+            enabled = 1,
+            created_at = created_at ?? $now,
+            updated_at = $now`,
+          { config, now }
+        ),
+      {
+        maxRetries: 3,
+        initialDelay: 100,
+        maxDelay: 5000,
+        backoffMultiplier: 2,
+        jitter: true,
+        shouldRetry: isSurrealDBConflictRetryable,
+      }
+    );
   }
 
   private recordToServerRecord(record: MCPServerSurrealRecord): MCPServerRecord {

@@ -1,19 +1,7 @@
 /**
  * Common result types
  * Unified interfaces for operation results across the codebase
- *
- * @deprecated Use Result<T> from src/types/api.ts instead
- * This interface has been replaced by the discriminated union type
  */
-
-/**
- * Generic operation result
- */
-export interface Result<T = void> {
-  success: boolean;
-  data?: T;
-  error?: string;
-}
 
 /**
  * Validation result with errors and warnings
@@ -34,20 +22,6 @@ export interface PaginatedResult<T> {
   page: number;
   limit: number;
   hasMore: boolean;
-}
-
-/**
- * Create a success result
- */
-export function successResult<T>(data: T): Result<T> {
-  return { success: true, data };
-}
-
-/**
- * Create an error result
- */
-export function errorResult<T>(error: string): Result<T> {
-  return { success: false, error };
 }
 
 /**

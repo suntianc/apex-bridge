@@ -92,8 +92,11 @@ export class ChatChannel {
       // 连接关闭时，如果有正在进行的请求，尝试自动中断
       if (ws.currentRequestId) {
         logger.info(`🔌 Connection closed, auto-interrupting request: ${ws.currentRequestId}`);
-        this.chatService.interruptRequest(ws.currentRequestId).catch(() => {
-          // 忽略中断失败的错误，因为连接已经关闭
+        this.chatService.interruptRequest(ws.currentRequestId).catch((error) => {
+          logger.warn(
+            `Failed to interrupt request on connection close: ${ws.currentRequestId}`,
+            error
+          );
         });
       }
       logger.info("💬 Chat WebSocket connection closed");

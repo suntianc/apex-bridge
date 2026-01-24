@@ -397,7 +397,11 @@ export class ChatService {
           if (parsed.content) {
             fullContent += parsed.content;
           }
-        } catch {
+        } catch (error) {
+          logger.debug(
+            `[ChatService] Failed to parse chunk as JSON, treating as plain text`,
+            error
+          );
           fullContent += chunk;
         }
 

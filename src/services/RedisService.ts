@@ -60,8 +60,11 @@ export class RedisService {
         if (client) {
           try {
             await client.disconnect();
-          } catch {
-            // ignore disconnect errors
+          } catch (error) {
+            logger.warn(
+              "[RedisService] Failed to disconnect Redis client after connection failure",
+              error
+            );
           }
         }
 

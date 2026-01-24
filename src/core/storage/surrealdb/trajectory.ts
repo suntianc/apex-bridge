@@ -343,7 +343,8 @@ export class SurrealDBTrajectoryStorage implements ITrajectoryStorage {
     let steps: TrajectoryType["steps"] = [];
     try {
       steps = JSON.parse(record.steps) as TrajectoryType["steps"];
-    } catch {
+    } catch (error) {
+      logger.warn(`[trajectory] Failed to parse trajectory steps for record: ${record.id}`, error);
       steps = [];
     }
 

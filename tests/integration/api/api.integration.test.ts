@@ -91,7 +91,7 @@ describe("API Integration Tests", () => {
           .get("/v1/chat/sessions/active")
           .set("Authorization", `Bearer ${TEST_API_KEY}`);
         expectSuccessResponse(response);
-        expect(response.body.data).toHaveProperty("sessions");
+        expect(response.body).toHaveProperty("sessions");
       });
 
       it("should return 401 without authorization", async () => {
@@ -106,7 +106,7 @@ describe("API Integration Tests", () => {
           .get("/v1/chat/sessions/test-conversation-id")
           .set("Authorization", `Bearer ${TEST_API_KEY}`);
         expectSuccessResponse(response);
-        expect(response.body.data).toHaveProperty("conversationId");
+        expect(response.body).toHaveProperty("conversationId");
       });
     });
 
@@ -116,7 +116,7 @@ describe("API Integration Tests", () => {
           .get("/v1/chat/sessions/test-conversation-id/messages")
           .set("Authorization", `Bearer ${TEST_API_KEY}`);
         expectSuccessResponse(response);
-        expect(response.body.data).toHaveProperty("messages");
+        expect(response.body).toHaveProperty("messages");
       });
     });
 
@@ -144,7 +144,7 @@ describe("API Integration Tests", () => {
           .get("/v1/models")
           .set("Authorization", `Bearer ${TEST_API_KEY}`);
         expectSuccessResponse(response);
-        expect(response.body.data).toHaveProperty("object", "list");
+        expect(response.body).toHaveProperty("object", "list");
       });
 
       it("should return 401 without authorization", async () => {
@@ -168,7 +168,7 @@ describe("API Integration Tests", () => {
           .set("Authorization", `Bearer ${TEST_API_KEY}`)
           .send({ requestId: "test-request-id" });
         expectSuccessResponse(response);
-        expect(response.body.data).toHaveProperty("requestId");
+        expect(response.body).toHaveProperty("requestId");
       });
 
       it("should return 400 with missing requestId", async () => {
@@ -194,7 +194,7 @@ describe("API Integration Tests", () => {
           .get("/api/llm/providers")
           .set("Authorization", `Bearer ${TEST_API_KEY}`);
         expectSuccessResponse(response);
-        expect(response.body.data).toHaveProperty("providers");
+        expect(response.body).toHaveProperty("providers");
       });
 
       it("should return 401 without authorization", async () => {
@@ -209,7 +209,7 @@ describe("API Integration Tests", () => {
           .get("/api/llm/providers/adapters")
           .set("Authorization", `Bearer ${TEST_API_KEY}`);
         expectSuccessResponse(response);
-        expect(response.body.data).toHaveProperty("adapters");
+        expect(response.body).toHaveProperty("adapters");
       });
     });
 
@@ -219,7 +219,7 @@ describe("API Integration Tests", () => {
           .get("/api/llm/providers/1")
           .set("Authorization", `Bearer ${TEST_API_KEY}`);
         expectSuccessResponse(response);
-        expect(response.body.data).toHaveProperty("provider");
+        expect(response.body).toHaveProperty("provider");
       });
 
       it("should return 404 with non-existent provider", async () => {
@@ -245,7 +245,7 @@ describe("API Integration Tests", () => {
           .set("Authorization", `Bearer ${TEST_API_KEY}`)
           .send(provider);
         expect(response.status).toBe(201);
-        expect(response.body.data).toHaveProperty("provider");
+        expect(response.body).toHaveProperty("provider");
       });
 
       it("should return 400 with missing required fields", async () => {
@@ -291,7 +291,7 @@ describe("API Integration Tests", () => {
           .set("Authorization", `Bearer ${TEST_API_KEY}`)
           .send(provider);
         expectSuccessResponse(response);
-        expect(response.body.data).toHaveProperty("latency");
+        expect(response.body).toHaveProperty("latency");
       });
     });
   });
@@ -309,7 +309,7 @@ describe("API Integration Tests", () => {
           .get("/api/llm/models")
           .set("Authorization", `Bearer ${TEST_API_KEY}`);
         expectSuccessResponse(response);
-        expect(response.body.data).toHaveProperty("models");
+        expect(response.body).toHaveProperty("models");
       });
     });
 
@@ -320,7 +320,7 @@ describe("API Integration Tests", () => {
           .query({ type: "nlp" })
           .set("Authorization", `Bearer ${TEST_API_KEY}`);
         expectSuccessResponse(response);
-        expect(response.body.data).toHaveProperty("model");
+        expect(response.body).toHaveProperty("model");
       });
 
       it("should return 400 without type parameter", async () => {
@@ -337,7 +337,7 @@ describe("API Integration Tests", () => {
           .get("/api/llm/providers/1/models")
           .set("Authorization", `Bearer ${TEST_API_KEY}`);
         expectSuccessResponse(response);
-        expect(response.body.data).toHaveProperty("models");
+        expect(response.body).toHaveProperty("models");
       });
     });
 
@@ -349,7 +349,7 @@ describe("API Integration Tests", () => {
           .set("Authorization", `Bearer ${TEST_API_KEY}`)
           .send(model);
         expect(response.status).toBe(201);
-        expect(response.body.data).toHaveProperty("id");
+        expect(response.body).toHaveProperty("id");
       });
     });
 
@@ -376,7 +376,7 @@ describe("API Integration Tests", () => {
           .get("/api/skills")
           .set("Authorization", `Bearer ${TEST_API_KEY}`);
         expectSuccessResponse(response);
-        expect(response.body.data).toHaveProperty("skills");
+        expect(response.body).toHaveProperty("skills");
       });
     });
 
@@ -402,7 +402,7 @@ describe("API Integration Tests", () => {
           .get("/api/skills/stats")
           .set("Authorization", `Bearer ${TEST_API_KEY}`);
         expectSuccessResponse(response);
-        expect(response.body.data).toHaveProperty("totalSkills");
+        expect(response.body).toHaveProperty("totalSkills");
       });
     });
 
@@ -446,7 +446,7 @@ describe("API Integration Tests", () => {
       it("should return 200 with server list", async () => {
         const response = await testApp.request.get("/api/mcp/servers");
         expectSuccessResponse(response);
-        expect(response.body.data).toHaveProperty("servers");
+        expect(response.body).toHaveProperty("servers");
       });
     });
 
@@ -454,7 +454,7 @@ describe("API Integration Tests", () => {
       it("should return 200 with valid server", async () => {
         const response = await testApp.request.get("/api/mcp/servers/test-server");
         expectSuccessResponse(response);
-        expect(response.body.data).toHaveProperty("server");
+        expect(response.body).toHaveProperty("server");
       });
 
       it("should return 404 with non-existent server", async () => {

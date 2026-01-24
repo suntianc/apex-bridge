@@ -1,4 +1,5 @@
 import type { RedisClientType } from "redis";
+import { logger } from "@/utils/logger";
 import {
   RateLimiter,
   RateLimiterContext,
@@ -123,8 +124,8 @@ export class RedisRateLimiter implements RateLimiter {
     const redisKey = this.composeKey(context.ruleId, context.key);
     try {
       await this.client.zRem(redisKey, context.value);
-    } catch {
-      // Silent failure; fallback limiter will handle eventual consistency.
+    } catch (error) {
+      logger.warn(`[RedisRateLimiter] Failed to undo rate limit for key: ${redisKey}`, error);
     }
   }
 

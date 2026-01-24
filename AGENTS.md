@@ -68,32 +68,139 @@ ApexBridge is an enterprise-grade AI Agent framework with multi-model support (O
 - **Config in two places** → `config/` AND `src/config/` (confusing)
 - **Duplicate ChatController** → `api/controllers/ChatController.ts` (1155 lines) AND `api/controllers/chat/ChatController.ts` (461 lines)
 - **Legacy SkillManager wrapper** → `services/SkillManager.ts` wrapper re-exports from `services/skill/SkillManager.ts`
-- **Mixed TS/JS scripts** → 6 .ts and 14 .js files in `scripts/`
+- **Mixed TS/JS scripts** → ✅ RESOLVED (5 .ts files in `scripts/`)
 
 ---
 
 ## TECHNICAL DEBT
 
-| Issue                            | Status    | Notes                                |
-| -------------------------------- | --------- | ------------------------------------ |
-| Empty catch blocks in tests      | 🔴PENDING | 4+ violations in ProcessPool.ts      |
-| `as any` type assertions         | 🔴PENDING | 130+ violations across files         |
-| Duplicate HTTP response patterns | 🔴PENDING | 44+ violations using inline patterns |
-| Duplicate ChatController         | 🔴PENDING | Should be consolidated               |
-| Config in two places             | 🔴PENDING | `config/` AND `src/config/`          |
-| Mixed TS/JS scripts              | 🔴PENDING | Convert .js to .ts                   |
+### Critical Issues (Should Fix Immediately)
+
+| Issue                       | Count | Files | Priority | Notes                                        |
+| --------------------------- | ----- | ----- | -------- | -------------------------------------------- |
+| Empty catch blocks          | 411   | 112   | Critical | ✅ All critical/high fixed, 30+ medium fixed |
+| `as any` type assertions    | 120   | 18    | Critical | Type safety violations, runtime errors       |
+| Direct HTTP responses       | 53    | 15    | High     | DRY violations, inconsistent error responses |
+| Console statements (source) | 17    | 12    | Medium   | Debug code in production                     |
+
+### Technical Debt (Should Refactor)
+
+| Issue                          | Status    | Files                                                                                                   | Impact                              |
+| ------------------------------ | --------- | ------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| Configuration duplication      | 🔴PENDING | `config/` + `src/config/`                                                                               | Maintenance burden, inconsistencies |
+| Duplicate ChatController       | 🔴PENDING | `api/controllers/ChatController.ts` (1155 lines) + `api/controllers/chat/ChatController.ts` (461 lines) | Code duplication, confusion         |
+| Legacy SkillManager wrapper    | 🔴PENDING | `services/SkillManager.ts` re-exports from `services/skill/SkillManager.ts`                             | Unnecessary indirection             |
+| TODO comments                  | 🟡PENDING | 27 items across 13 files                                                                                | Technical debt tracking             |
+| String-matching error handling | 🟡PENDING | `ProviderController.ts`, `ModelController.ts`                                                           | Brittle error handling, i18n issues |
+
+### Resolved Issues
+
+| Issue                   | Status     | Notes                                  |
+| ----------------------- | ---------- | -------------------------------------- |
+| Empty catch blocks      | ✅RESOLVED | 5 critical + 4 high + 30+ medium fixed |
+| Mixed TS/JS scripts     | ✅RESOLVED | 5 .ts files, 1 .sh file                |
+| Nested opencode project | ✅RESOLVED | Directory does not exist               |
+
+### Empty Catch Block Details
+
+**✅ RESOLVED - Critical (Promise.catch with empty handlers)**:
+
+- `config-loader.ts:138, 141-143` - ✅ Added error logging
+- `ChatChannel.ts:95` - ✅ Added error logging
+- `CacheWarmupManager.ts:274, 307` - ✅ Added error logging (2 locations)
+- `IndexPrewarmService.ts:190` - ✅ Added error logging
+
+**✅ RESOLVED - High (Parameterless catch with "silent failure" comments)**:
+
+- `redisRateLimiter.ts:126` - ✅ Added error logging
+- `config-loader.ts:141, 143` - ✅ Added error logging (2 locations)
+- `ContextModeExecutor.ts:233, 391` - ✅ Added error logging
+- `RedisService.ts:63` - ✅ Added error logging
+
+**✅ RESOLVED - Medium (Parameterless catch with fallback behavior)** (30+ files):
+
+- `file-system.ts` (4 locations) ✅
+- `error-utils.ts` (2 locations) ✅
+- `error-serializer.ts` ✅
+- `customValidators.ts` ✅
+- `ParameterConverter.ts` (2 locations) ✅
+- `ToolDispatcher.ts` (2 locations) ✅
+- `AllowedToolsValidator.ts` ✅
+- `SearchEngine.ts` ✅
+- `vector-storage.ts` ✅
+- `trajectory.ts` ✅
+- `stream-parser.ts` ✅
+- `mcpRoutes.ts` ✅
+- `MCPToolSupport.ts` ✅
+- `SkillIndexer.ts` (3 locations) ✅
+- `LifecycleManager.ts` ✅
+- `ScriptExecutor.ts` (2 locations) ✅
+- `ConversationSaver.ts` ✅
+- `ChatService.ts` ✅
+- `convert.ts` ✅
+- `SkillsSandboxExecutor.ts` (2 locations) ✅
+- `ContextModeExecutor.ts:451` ✅
+- `ClaudeCodeSkillParser.ts` ✅
+
+### `as any` Violation Details
+
+**Critical Priority Files** (highest concentration):
+
+- `OpenAIAdapter.ts` - 8+ occurrences (core LLM integration)
+- `ChatController.ts` - 8+ occurrences (primary API entry point)
+- `ClaudeAdapter.ts` - 6+ occurrences (core LLM integration)
+- `VariableEngine.ts` - 6+ occurrences (variable processing)
+- `LLMService.ts` - 5+ occurrences (central LLM orchestrator)
+
+**High Priority Files**:
+
+- `ChatService.ts` - 5+ occurrences (core chat logic)
+- `ContextCompressionService.ts` - 5+ occurrences (performance-critical)
+- `ReActStrategy.ts` - 4+ occurrences (agent reasoning)
+- `MCPIntegrationService.ts` - 4+ occurrences (protocol integration)
+
+**@ts-ignore occurrences**: 14+ across 7 files
+**@ts-expect-error occurrences**: 1 (minimal issue)
+
+### Direct HTTP Response Patterns
+
+**Files with violations** (should use `src/utils/http-response.ts`):
+
+- `server.ts:454, 529` - Direct response sending
+- Various controllers and route handlers - inline `res.json()` and `res.status().json()` patterns
+
+**Total violations**: 53+ (35 `res.json()` + 18 `res.status().json()`)
+
+### TODO Comments
+
+**Found 27 items across 13 files**:
+
+- `BuiltInToolsRegistry.ts:68` - "注册其他内置工具"
+- `AllowedToolsValidator.test.ts:347` - "Fix Vitest module reset behavior"
+- `SurrealDBClient.test.ts:108, 155, 191` - "Fix Vitest mock behavior" (3 locations)
+- Multiple test files with DEBUG_TESTS environment variable checks
+
+### Console Statement Usage (Source Code)
+
+**Found ~17 console statements in source code**:
+
+- `server.ts:18, 23` - Fatal error logging (should use logger)
+- `PlatformDetectorTool.ts:360` - Debug console.log
 
 ---
 
 ## DEBUG CODE (Should Be Removed)
 
-| File                        | Lines  |
-| --------------------------- | ------ |
-| `MessagePreprocessor.ts`    | 32, 59 |
-| `server.ts`                 | 248    |
-| `VariableEngine.ts`         | 324    |
-| `ChatController.ts`         | 79, 94 |
-| `ChatCompletionsHandler.ts` | 39     |
+| File                        | Lines  | Status                                                     |
+| --------------------------- | ------ | ---------------------------------------------------------- |
+| `VariableEngine.ts`         | 324    | ⚠️ Remove - Cache hit logging                              |
+| `ChatCompletionsHandler.ts` | 39     | ⚠️ Remove - Validation warning logging                     |
+| `server.ts`                 | 248    | ✅ Verified - Legitimate middleware setup (NOT debug code) |
+| `MessagePreprocessor.ts`    | 32, 59 | ✅ Verified - Legitimate business logic (NOT debug code)   |
+| `ChatController.ts`         | 79, 94 | ✅ Verified - Legitimate API handlers (NOT debug code)     |
+
+**Note**: Some previously listed "debug code" has been verified as legitimate business logic.
+The only confirmed debug logging that should be removed is in VariableEngine.ts and ChatCompletionsHandler.ts.
 
 ---
 

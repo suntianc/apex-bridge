@@ -3,6 +3,7 @@
  * 将 MCP 工具定义转换为统一工具框架格式
  */
 
+import { logger } from "@/utils/logger";
 import type { MCPTool } from "../../types/mcp";
 import type { Tool } from "../../core/tool/tool";
 
@@ -230,7 +231,8 @@ export function cleanMcpToolResult(rawResult: string): string {
 
       return cleaned;
     }
-  } catch {
+  } catch (error) {
+    logger.debug(`[convert] Failed to parse search result as JSON`, error);
     // 不是 JSON 格式，继续清理
   }
 

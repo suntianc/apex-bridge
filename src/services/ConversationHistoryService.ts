@@ -10,6 +10,19 @@ import type { Message } from "../types";
 
 export { ConversationMessage };
 
+interface Closeable {
+  close(): void;
+}
+
+function isCloseable(obj: unknown): obj is Closeable {
+  return (
+    typeof obj === "object" &&
+    obj !== null &&
+    "close" in obj &&
+    typeof (obj as Record<string, unknown>).close === "function"
+  );
+}
+
 /**
  * 对话历史服务
  */
@@ -219,8 +232,8 @@ export class ConversationHistoryService {
    * 关闭数据库连接
    */
   close(): void {
-    if (typeof (this.storage as any).close === "function") {
-      (this.storage as any).close();
+    if (isCloseable(this.storage)) {
+      this.storage.close();
       logger.info("[ConversationHistoryService] database closed");
     }
   }

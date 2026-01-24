@@ -335,8 +335,8 @@ export class AllowedToolsValidator {
           if (regex.test(toolName)) {
             return true;
           }
-        } catch {
-          // 正则表达式无效，跳过
+        } catch (error) {
+          logger.warn(`[AllowedToolsValidator] Invalid regex pattern: ${allowedTool}`, error);
           continue;
         }
       }

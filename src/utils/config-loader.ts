@@ -107,8 +107,11 @@ export class ConfigLoader {
         if (fs.existsSync(tempPath)) {
           fs.unlinkSync(tempPath);
         }
-      } catch {
-        // 忽略清理错误
+      } catch (error) {
+        logger.warn(
+          `[ConfigLoader] Failed to cleanup temp config file: ${this.configPath}.tmp`,
+          error
+        );
       }
       throw error;
     }
@@ -135,11 +138,11 @@ export class ConfigLoader {
       // 清理可能的临时文件
       try {
         const tempPath = `${this.configPath}.tmp`;
-        await fsPromises.unlink(tempPath).catch(() => {
-          // 忽略清理错误
+        await fsPromises.unlink(tempPath).catch((error) => {
+          logger.warn(`Failed to cleanup temp config file: ${tempPath}`, error);
         });
-      } catch {
-        // 忽略清理错误
+      } catch (error) {
+        logger.warn(`Failed to cleanup temp config file: ${this.configPath}.tmp`, error);
       }
       throw error;
     }

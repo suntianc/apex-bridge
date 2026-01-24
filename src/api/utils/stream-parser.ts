@@ -3,6 +3,12 @@
  * 处理LLM返回的嵌套JSON格式，提取推理内容和输出内容
  */
 
+import { logger } from "@/utils/logger";
+
+/**
+ * 解析LLM的chunk内容（支持嵌套JSON）
+ */
+
 /**
  * 解析LLM的chunk内容（支持嵌套JSON）
  * LLM返回格式：{"content":"{\\"reasoning_content\\":\\"\\n\\"}"}
@@ -29,7 +35,8 @@ export function parseLLMChunk(chunkContent: string): { isReasoning: boolean; con
         if (nested.content !== undefined && nested.content !== null) {
           return { isReasoning: false, content: nested.content };
         }
-      } catch {
+      } catch (error) {
+        logger.debug(`[stream-parser] Failed to parse nested JSON, using outer content`, error);
         // 内层解析失败，使用外层content作为普通文本
         return { isReasoning: false, content: parsed.content };
       }

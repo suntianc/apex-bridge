@@ -123,7 +123,8 @@ export class ScriptExecutor {
     try {
       // 检查文件是否存在
       await fs.access(scriptPath);
-    } catch {
+    } catch (error) {
+      logger.debug(`[ScriptExecutor] Script file not found: ${scriptPath}`, error);
       errors.push(`Script file not found: ${scriptPath}`);
       return {
         valid: false,
@@ -161,7 +162,8 @@ export class ScriptExecutor {
         warnings,
         capabilities,
       };
-    } catch {
+    } catch (error) {
+      logger.warn(`[ScriptExecutor] Script validation failed: ${scriptPath}`, error);
       return {
         valid: errors.length === 0,
         errors,

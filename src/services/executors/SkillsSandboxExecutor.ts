@@ -624,7 +624,8 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
     try {
       await fs.access(filePath);
       return true;
-    } catch {
+    } catch (error) {
+      logger.debug(`[SkillsSandboxExecutor] File does not exist: ${filePath}`);
       return false;
     }
   }
@@ -731,7 +732,8 @@ export class SkillsSandboxExecutor extends BaseToolExecutor {
             process.once("exit", () => resolve());
             try {
               process.kill("SIGKILL");
-            } catch {
+            } catch (error) {
+              logger.debug(`[SkillsSandboxExecutor] Failed to kill process ${process.pid}`, error);
               resolve();
             }
           })

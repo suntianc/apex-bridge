@@ -271,7 +271,8 @@ export class CacheWarmupManager {
             clearTimeout(timeout);
             resolve(true);
           })
-          .catch(() => {
+          .catch((error) => {
+            logger.warn(`[CacheWarmupManager] Embedding generation failed during warmup`, error);
             clearTimeout(timeout);
             resolve(false);
           });
@@ -304,7 +305,11 @@ export class CacheWarmupManager {
           clearTimeout(timeout);
           resolve(true);
         })
-        .catch(() => {
+        .catch((error) => {
+          logger.warn(
+            `[CacheWarmupManager] Search failed during warmup for query: "${query.substring(0, 30)}..."`,
+            error
+          );
           clearTimeout(timeout);
           resolve(false);
         });

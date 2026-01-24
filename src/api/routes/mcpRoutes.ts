@@ -267,7 +267,11 @@ function validateToolCallRequest(
     // Check for circular references in arguments
     try {
       JSON.stringify(arguments_);
-    } catch {
+    } catch (error) {
+      logger.warn(
+        `[mcpRoutes] Arguments contain circular references or are not serializable`,
+        error
+      );
       return {
         valid: false,
         error: {

@@ -120,9 +120,14 @@ export class MCPIntegrationService extends EventEmitter {
 
       this.serverManagers.set(serverId, manager);
 
-      // 保存到数据库
-      this.configService.saveServer(config);
-      logger.info(`[MCP] Server ${serverId} configuration saved to database`);
+      // 保存到数据库（加 await + try/catch 防止 unhandledRejection 导致进程崩溃）
+      try {
+        await this.configService.saveServer(config);
+        logger.info(`[MCP] Server ${serverId} configuration saved to database`);
+      } catch (saveError) {
+        logger.error(`[MCP] Failed to save server ${serverId} configuration:`, saveError);
+        // 不抛出异常，避免影响服务器注册流程（配置保存失败不应阻止服务器运行）
+      }
 
       // 向量化工具（容错处理：向量索引失败不影响服务器注册，但记录详细错误）
       try {

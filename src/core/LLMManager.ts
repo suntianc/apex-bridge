@@ -145,7 +145,7 @@ export class LLMManager {
     const cacheKey = `${model.provider}:${model.modelKey}`;
     const configHash = this.computeConfigHash(model);
 
-    let entry = this.modelAdapterCache.get(cacheKey);
+    const entry = this.modelAdapterCache.get(cacheKey);
 
     // 检查缓存是否有效
     if (

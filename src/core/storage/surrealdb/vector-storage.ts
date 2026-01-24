@@ -238,7 +238,8 @@ export class SurrealDBVectorStorage implements IVectorStorage {
   private parseMetadata(metadataStr: string): Record<string, unknown> {
     try {
       return JSON.parse(metadataStr || "{}");
-    } catch {
+    } catch (error) {
+      logger.warn(`[vector-storage] Failed to parse metadata JSON`, error);
       return {};
     }
   }

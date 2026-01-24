@@ -24,6 +24,19 @@ import type { ILLMConfigStorage, LLMConfigQuery } from "../core/storage/interfac
 import { logger } from "../utils/logger";
 import { LLMModelType as LLMModelTypeEnum } from "../types/llm-models";
 
+interface AsyncCloseable {
+  close(): Promise<void>;
+}
+
+function isAsyncCloseable(obj: unknown): obj is AsyncCloseable {
+  return (
+    typeof obj === "object" &&
+    obj !== null &&
+    "close" in obj &&
+    typeof (obj as Record<string, unknown>).close === "function"
+  );
+}
+
 export class LLMConfigService {
   private static instance: LLMConfigService;
   private storage: ILLMConfigStorage;
@@ -468,8 +481,8 @@ export class LLMConfigService {
   }
 
   public async close(): Promise<void> {
-    if (typeof (this.storage as any).close === "function") {
-      await (this.storage as any).close();
+    if (isAsyncCloseable(this.storage)) {
+      await this.storage.close();
     }
   }
 }

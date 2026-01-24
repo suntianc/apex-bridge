@@ -7,18 +7,6 @@
 import type { Message } from "./index";
 
 /**
- * 变量上下文信息（简化版，现为可选）
- * @deprecated 简化版中不再使用，保留用于向后兼容
- */
-export interface VariableContext {
-  userId?: string;
-  personaId?: string;
-  sessionId?: string;
-  messageId?: string;
-  [key: string]: any;
-}
-
-/**
  * 变量引擎接口（统一版）
  */
 export interface IVariableEngine {
@@ -61,24 +49,4 @@ export interface VariableEngineOptions {
 
   /** 占位符正则表达式模式 */
   placeholderPattern?: RegExp;
-}
-
-/**
- * @deprecated 提供者模式已移除，此接口不再使用
- */
-export interface IVariableProvider {
-  name: string;
-  resolve(key: string, context?: VariableContext): Promise<string | null>;
-  getSupportedKeys(): string[];
-  getDescription?(): string;
-}
-
-/**
- * @deprecated 循环依赖检测已移除，此类不再使用
- */
-export class CircularDependencyError extends Error {
-  constructor(public readonly path: string[]) {
-    super(`Circular dependency detected: ${path.join(" -> ")}`);
-    this.name = "CircularDependencyError";
-  }
 }

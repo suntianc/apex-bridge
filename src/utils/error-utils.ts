@@ -3,6 +3,8 @@
  * Shared helpers for error processing and type checking across the codebase
  */
 
+import { logger } from "@/utils/logger";
+
 /**
  * Format error to string message
  */
@@ -50,7 +52,8 @@ export function formatErrorData(error: unknown): string {
     try {
       const parsed = JSON.parse(err.response);
       return JSON.stringify(parsed, null, 2);
-    } catch {
+    } catch (error) {
+      logger.debug(`[error-utils] Failed to parse error response JSON`, error);
       return err.response;
     }
   }
@@ -148,7 +151,8 @@ export function safeCall<T, Args extends unknown[]>(
 ): T | null {
   try {
     return fn(...args);
-  } catch {
+  } catch (error) {
+    logger.debug(`[error-utils] safeCall failed`, error);
     return null;
   }
 }

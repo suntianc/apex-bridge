@@ -197,7 +197,8 @@ export class ConversationSaver {
             }
           }
         }
-      } catch {
+      } catch (error) {
+        logger.debug(`[ConversationSaver] Failed to extract reasoning content from chunk`, error);
         extracted.push(chunk);
       }
     }

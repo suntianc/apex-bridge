@@ -25,7 +25,8 @@ export function serializeErrorResponse(error: unknown): string {
     }
     const responseData = (err.response as { data: unknown })?.data;
     return responseData !== undefined ? String(responseData) : "无详细信息";
-  } catch {
+  } catch (error) {
+    logger.warn(`[error-serializer] Failed to serialize error response`, error);
     return "[无法序列化响应数据]";
   }
 }

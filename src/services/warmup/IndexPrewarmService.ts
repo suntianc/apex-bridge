@@ -187,7 +187,11 @@ export class IndexPrewarmService {
           clearTimeout(timeout);
           resolve(true);
         })
-        .catch(() => {
+        .catch((error) => {
+          logger.warn(
+            `[IndexPrewarmService] Skill index verification failed for query: "${query.substring(0, 30)}..."`,
+            error
+          );
           clearTimeout(timeout);
           resolve(false);
         });
