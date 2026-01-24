@@ -219,7 +219,7 @@ export class OllamaAdapter extends BaseOpenAICompatibleAdapter {
 
       // 打印请求详情（截断base64图片以避免日志过长）
       const debugRequestBody = JSON.parse(JSON.stringify(requestBody));
-      let imageDetails: Array<{
+      const imageDetails: Array<{
         index: number;
         length: number;
         truncated: boolean;

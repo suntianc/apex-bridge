@@ -5,7 +5,14 @@
 
 import express, { Express, Request, Response, NextFunction } from "express";
 import supertest from "supertest";
-import { sendOk, sendCreated } from "@/utils/http-response";
+import {
+  sendOk,
+  sendCreated,
+  badRequest,
+  unauthorized,
+  notFound,
+  serverError,
+} from "@/utils/http-response";
 
 const request = supertest;
 
@@ -83,28 +90,14 @@ export function mockAuthMiddleware(config: TestConfig) {
 
     const authHeader = req.headers.authorization;
     if (!authHeader) {
-      res.status(401).json({
-        error: {
-          message: "Missing Authorization header",
-          type: "authentication_error",
-          code: "UNAUTHORIZED",
-        },
-      });
-      return;
+      return unauthorized(res, "Missing Authorization header");
     }
 
     const tsendOken = authHeader.replace("Bearer ", "");
     const matchedKey = config.apiKeys.find((apiKey) => apiKey.key === tsendOken);
 
     if (!matchedKey || !matchedKey.enabled) {
-      res.status(401).json({
-        error: {
-          message: "Invalid API key",
-          type: "authentication_error",
-          code: "UNAUTHORIZED",
-        },
-      });
-      return;
+      return unauthorized(res, "Invalid API key");
     }
 
     (req as any).auth = { apiKeyId: matchedKey.id };
@@ -113,16 +106,13 @@ export function mockAuthMiddleware(config: TestConfig) {
 }
 
 function mockErrorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction): void {
-  const errorMessage = err instanceof Error ? err.message : "Unknown error";
   const statusCode = (err as any)?.statusCode || 500;
 
-  res.status(statusCode).json({
-    error: {
-      message: errorMessage,
-      type: statusCode >= 500 ? "server_error" : "invalid_request",
-      code: (err as any)?.code || "INTERNAL_ERROR",
-    },
-  });
+  if (statusCode >= 500) {
+    serverError(res, err);
+  } else {
+    badRequest(res, err instanceof Error ? err.message : "Unknown error");
+  }
 }
 
 export function createMockChatService() {
@@ -374,26 +364,8 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
   app.set("llmManager", mocks.llmManager);
   app.set("adapterFactory", mocks.adapterFactory);
 
-  function badRequest(res: Response, message: string) {
-    res.status(400).json({
-      error: { message, type: "invalid_request", code: "BAD_REQUEST" },
-    });
-  }
-
-  function notFound(res: Response, message: string) {
-    res.status(404).json({
-      error: { message, type: "invalid_request", code: "NOT_FOUND" },
-    });
-  }
-
-  function unauthorized(res: Response, message: string) {
-    res.status(401).json({
-      error: { message, type: "authentication_error", code: "UNAUTHORIZED" },
-    });
-  }
-
   app.get("/health", (_req, res) => {
-    res.json({
+    sendOk(res, {
       status: "ok",
       version: "2.0.0",
       uptime: 0,
@@ -403,7 +375,7 @@ export function createTestApp(config: TestConfig = defaultTestConfig): TestApp {
   });
 
   app.get("/openapi.json", (_req, res) => {
-    res.json({ openapi: "3.0.0", paths: {}, info: { title: "ApexBridge", version: "2.0.0" } });
+    sendOk(res, { openapi: "3.0.0", paths: {}, info: { title: "ApexBridge", version: "2.0.0" } });
   });
 
   app.post("/v1/chat/completions", (req, res) => {

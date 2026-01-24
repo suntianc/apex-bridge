@@ -126,7 +126,7 @@ export class HybridStrategy implements IContextCompressionStrategy {
       minMessageCount: config.minMessageCount,
     };
 
-    let pruneResult = await this.pruneStrategy.compress(messages, pruneConfig);
+    const pruneResult = await this.pruneStrategy.compress(messages, pruneConfig);
 
     if (pruneResult.compactedTokens <= config.maxTokens) {
       return pruneResult;
@@ -167,7 +167,7 @@ export class HybridStrategy implements IContextCompressionStrategy {
       minMessageCount: config.minMessageCount,
     };
 
-    let truncateResult = await this.truncateStrategy.compress(messages, truncateConfig);
+    const truncateResult = await this.truncateStrategy.compress(messages, truncateConfig);
 
     const pruneConfig: CompressionStrategyConfig = {
       maxTokens: config.maxTokens,

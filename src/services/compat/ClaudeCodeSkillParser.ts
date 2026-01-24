@@ -224,7 +224,7 @@ export class ClaudeCodeSkillParser {
   parseContentWithResult(rawContent: string): ParseResult {
     // 增强的 YAML 解析（容错）
     let frontmatter: any;
-    let yamlErrors: ParseError[] = [];
+    const yamlErrors: ParseError[] = [];
 
     try {
       const parsed = matter(rawContent);

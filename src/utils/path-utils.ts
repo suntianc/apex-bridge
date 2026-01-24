@@ -196,10 +196,13 @@ export function validateWithinWorkDir(filePath: string): string {
  * Sanitize file name (remove invalid characters)
  */
 export function sanitizeFileName(fileName: string): string {
-  return fileName
-    .replace(/[\u0000-\u001f\u007f]/g, "") // Remove control characters
-    .replace(/[<>:"/\\|?*]/g, "_") // Replace invalid chars
-    .trim();
+  return (
+    fileName
+      // eslint-disable-next-line no-control-regex -- Intentional removal of control characters for file sanitization
+      .replace(/[\u0000-\u001f\u007f]/g, "")
+      .replace(/[<>:"/\\|?*]/g, "_") // Replace invalid chars
+      .trim()
+  );
 }
 
 /**

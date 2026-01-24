@@ -311,15 +311,15 @@ export class ReActEngine {
       signal
     );
 
-    let assistantMessage = { role: "assistant", content: "" };
+    const assistantMessage = { role: "assistant", content: "" };
     let toolCalls: ToolCall[] = [];
     let inThinking = false;
     let thinkingBuffer = "";
-    let stepStartTime = Date.now();
+    const stepStartTime = Date.now();
 
     // 初始化流式标签检测器
     const streamDetector = options.enableToolActionParsing ? new StreamTagDetector() : null;
-    let detectedToolActions: ToolActionCall[] = [];
+    const detectedToolActions: ToolActionCall[] = [];
 
     for await (const chunk of llmStream) {
       if (signal.aborted) {

@@ -15,6 +15,7 @@ type ParsedQueryValue = string | string[] | undefined;
  * Normalize a string | string[] value to a single string
  * Express can return arrays for params/query/headers in certain routing scenarios
  */
+/* eslint-disable no-redeclare -- TypeScript function overloads are intentional */
 export function toString(value: string | string[] | undefined): string | undefined;
 export function toString(value: any): string | undefined;
 export function toString(value: string | string[] | undefined | any): string | undefined {
