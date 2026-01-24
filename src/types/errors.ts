@@ -171,6 +171,9 @@ export class AppError extends Error {
 /**
  * 函数式结果类型
  * 用于安全的错误处理
+ *
+ * @deprecated Use Result<T> from src/types/api.ts instead
+ * This type has been moved to src/types/api.ts for consistency
  */
 export type Result<T> = { success: true; data: T } | { success: false; error: AppError };
 

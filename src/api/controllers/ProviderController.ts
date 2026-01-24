@@ -18,8 +18,8 @@ import { LLMAdapterFactory } from "../../core/llm/adapters/LLMAdapterFactory";
 import {
   badRequest,
   notFound,
-  created,
-  ok,
+  sendCreated,
+  sendOk,
   serverError,
   handleErrorWithAutoDetection,
   dynamicStatus,
@@ -97,8 +97,7 @@ export async function listProviders(req: Request, res: Response): Promise<void> 
       })
     );
 
-    ok(res, {
-      success: true,
+    sendOk(res, {
       providers: providersWithStats,
     });
   } catch (error: any) {
@@ -158,7 +157,7 @@ export async function getProvider(req: Request, res: Response): Promise<void> {
 
     const models = await configService.getProviderModels(id);
 
-    ok(res, {
+    sendOk(res, {
       provider: toProviderDTO(provider, models.length),
     });
   } catch (error: any) {
@@ -229,7 +228,7 @@ export async function createProvider(req: Request, res: Response): Promise<void>
 
     modelRegistry.forceRefresh();
 
-    created(res, {
+    sendCreated(res, {
       provider: toProviderDTO(newProvider, 0),
     });
   } catch (error: any) {
@@ -296,7 +295,7 @@ export async function updateProvider(req: Request, res: Response): Promise<void>
 
     const models = await configService.getProviderModels(id);
 
-    ok(res, {
+    sendOk(res, {
       provider: toProviderDTO(updatedProvider, models.length),
     });
   } catch (error: any) {
@@ -339,7 +338,7 @@ export async function deleteProvider(req: Request, res: Response): Promise<void>
 
     modelRegistry.forceRefresh();
 
-    ok(res, { message: "Provider and associated models deleted successfully" });
+    sendOk(res, { message: "Provider and associated models deleted successfully" });
   } catch (error: any) {
     handleErrorWithAutoDetection(res, error, "delete provider");
   }
@@ -353,7 +352,7 @@ export async function listAdapters(req: Request, res: Response): Promise<void> {
   try {
     const adapters = LLMAdapterFactory.getSupportedAdapters();
 
-    ok(res, { adapters });
+    sendOk(res, { adapters });
   } catch (error: any) {
     logger.error("Failed to list adapters:", error);
     serverError(res, error, "Failed to list adapters");
@@ -385,7 +384,7 @@ export async function testProviderConnection(req: Request, res: Response) {
     await adapter.getModels();
 
     // 5. 成功返回
-    ok(res, {
+    sendOk(res, {
       success: true,
       latency: Date.now() - start,
       message: "连接成功",
@@ -417,9 +416,7 @@ export async function validateModelBeforeAdd(req: Request, res: Response) {
 
   // 1. 守卫语句：一行代码完成所有必填校验
   if (!provider || !baseConfig || !model) {
-    return res
-      .status(400)
-      .json({ success: false, message: "Missing: provider, baseConfig, or model" });
+    return badRequest(res, "Missing: provider, baseConfig, or model");
   }
 
   try {
@@ -439,7 +436,7 @@ export async function validateModelBeforeAdd(req: Request, res: Response) {
     });
 
     // 4. 成功返回
-    ok(res, {
+    sendOk(res, {
       success: true,
       latency: Date.now() - start,
       message: "连接成功",

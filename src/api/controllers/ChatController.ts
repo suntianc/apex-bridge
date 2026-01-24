@@ -14,7 +14,7 @@ import { logger } from "../../utils/logger";
 import {
   badRequest,
   notFound,
-  ok,
+  sendOk,
   serverError,
   serviceUnavailable,
 } from "../../utils/http-response";
@@ -468,7 +468,7 @@ export class ChatController {
     const usage = normalizeUsage(result.usage);
     const response = buildChatResponse(result.content, actualModel, usage, options.conversationId);
 
-    ok(res, response);
+    sendOk(res, response);
     logger.info("Completed non-stream chat request");
   }
 
@@ -502,7 +502,7 @@ export class ChatController {
       const llmClient = await this.getLLMClient();
       const models = await llmClient.getAllModels();
 
-      ok(res, {
+      sendOk(res, {
         object: "list",
         data: models.map((m) => ({
           id: m.id,
@@ -555,7 +555,7 @@ export class ChatController {
         };
 
         logger.info(`Request interrupted: ${requestId}`);
-        ok(res, {
+        sendOk(res, {
           success: true,
           message: "Request interrupted successfully",
           requestId: requestId,
@@ -593,7 +593,7 @@ export class ChatController {
 
       await this.chatService.endSession(conversationId);
 
-      ok(res, {
+      sendOk(res, {
         success: true,
         message: "Session deleted successfully",
       });
@@ -639,7 +639,7 @@ export class ChatController {
         },
       };
 
-      ok(res, {
+      sendOk(res, {
         success: true,
         data: sessionState,
       });
@@ -686,7 +686,7 @@ export class ChatController {
 
       const activeSessions = sessions.filter((s) => s !== null);
 
-      ok(res, {
+      sendOk(res, {
         success: true,
         data: {
           sessions: activeSessions,
@@ -749,7 +749,7 @@ export class ChatController {
         history.note = "ACE directives deleted (2026-01-11)";
       }
 
-      ok(res, {
+      sendOk(res, {
         success: true,
         data: history,
       });
@@ -782,7 +782,7 @@ export class ChatController {
 
       const total = await this.chatService.getConversationMessageCount(conversationId);
 
-      ok(res, {
+      sendOk(res, {
         success: true,
         data: {
           messages,

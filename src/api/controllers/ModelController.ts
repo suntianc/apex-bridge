@@ -18,8 +18,8 @@ import {
   badRequest,
   notFound,
   serverError,
-  created,
-  ok,
+  sendCreated,
+  sendOk,
   handleErrorWithAutoDetection,
 } from "../../utils/http-response";
 import { parseIdParam, parseBooleanParam, toString } from "../../utils/request-parser";
@@ -103,7 +103,7 @@ export async function listProviderModels(req: Request, res: Response): Promise<v
 
     const models = await configService.listModels({ providerId });
 
-    ok(res, {
+    sendOk(res, {
       success: true,
       provider: {
         id: provider.id,
@@ -206,7 +206,7 @@ export async function getModel(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    ok(res, {
+    sendOk(res, {
       success: true,
       model: {
         id: model.id,
@@ -323,7 +323,7 @@ export async function createModel(req: Request, res: Response): Promise<void> {
 
     modelRegistry.forceRefresh();
 
-    created(res, {
+    sendCreated(res, {
       id: newModel.id,
       providerId: newModel.providerId,
       modelKey: newModel.modelKey,
@@ -437,7 +437,7 @@ export async function updateModel(req: Request, res: Response): Promise<void> {
 
     modelRegistry.forceRefresh();
 
-    ok(res, {
+    sendOk(res, {
       id: updatedModel.id,
       providerId: updatedModel.providerId,
       modelKey: updatedModel.modelKey,
@@ -515,7 +515,7 @@ export async function deleteModel(req: Request, res: Response): Promise<void> {
 
     modelRegistry.forceRefresh();
 
-    ok(res, { message: "Model deleted successfully" });
+    sendOk(res, { message: "Model deleted successfully" });
   } catch (error: any) {
     handleErrorWithAutoDetection(res, error, "delete model");
   }
@@ -594,7 +594,7 @@ export async function queryModels(req: Request, res: Response): Promise<void> {
 
     const models = await configService.listModels(params);
 
-    ok(res, {
+    sendOk(res, {
       success: true,
       count: models.length,
       models: models.map((m) => ({
@@ -691,7 +691,7 @@ export async function getDefaultModel(req: Request, res: Response): Promise<void
       return;
     }
 
-    ok(res, {
+    sendOk(res, {
       success: true,
       model: {
         id: model.id,

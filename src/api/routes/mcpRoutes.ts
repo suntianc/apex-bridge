@@ -7,8 +7,8 @@ import { Router, Request, Response } from "express";
 import { mcpIntegration } from "../../services/MCPIntegrationService";
 import { logger } from "../../utils/logger";
 import {
-  ok,
-  created,
+  sendOk,
+  sendCreated,
   badRequest,
   notFound,
   serverError,
@@ -35,7 +35,7 @@ router.get("/servers", async (req: Request, res: Response) => {
       tools: server.tools,
     }));
 
-    ok(res, {
+    sendOk(res, {
       servers: sanitizedServers,
       meta: {
         total: sanitizedServers.length,
@@ -72,7 +72,7 @@ router.post("/servers", async (req: Request, res: Response) => {
       });
     }
 
-    created(res, {
+    sendCreated(res, {
       serverId: result.serverId,
       message: "Server registered successfully",
     });
@@ -96,7 +96,7 @@ router.get("/servers/:serverId", async (req: Request, res: Response) => {
       return notFound(res, `Server ${serverId} not found`);
     }
 
-    ok(res, {
+    sendOk(res, {
       server,
       meta: {
         timestamp: new Date().toISOString(),
@@ -122,7 +122,7 @@ router.delete("/servers/:serverId", async (req: Request, res: Response) => {
       return notFound(res, `Server ${serverId} not found`);
     }
 
-    ok(res, {
+    sendOk(res, {
       serverId,
       message: "Server unregistered successfully",
     });
@@ -146,7 +146,7 @@ router.post("/servers/:serverId/restart", async (req: Request, res: Response) =>
       return notFound(res, `Server ${serverId} not found`);
     }
 
-    ok(res, {
+    sendOk(res, {
       serverId,
       message: "Server restarted successfully",
     });
@@ -170,7 +170,7 @@ router.get("/servers/:serverId/status", async (req: Request, res: Response) => {
       return notFound(res, `Server ${serverId} not found`);
     }
 
-    ok(res, {
+    sendOk(res, {
       serverId,
       status,
     });
@@ -194,7 +194,7 @@ router.get("/servers/:serverId/tools", async (req: Request, res: Response) => {
       return notFound(res, `Server ${serverId} not found`);
     }
 
-    ok(res, {
+    sendOk(res, {
       serverId,
       tools: server.tools,
       count: server.tools.length,
@@ -305,7 +305,7 @@ router.post("/servers/:serverId/tools/:toolName/call", async (req: Request, res:
       serverId,
     });
 
-    ok(res, result);
+    sendOk(res, result);
   } catch (error: any) {
     logger.error("[MCP API] Failed to call tool:", error);
     serverError(res, error, "Call tool");
@@ -330,7 +330,7 @@ router.post("/tools/call", async (req: Request, res: Response) => {
       arguments: args || {},
     });
 
-    ok(res, result);
+    sendOk(res, result);
   } catch (error: any) {
     logger.error("[MCP API] Failed to call tool:", error);
     serverError(res, error, "Call tool");
@@ -346,7 +346,7 @@ router.get("/statistics", async (req: Request, res: Response) => {
   try {
     const stats = mcpIntegration.getStatistics();
 
-    ok(res, stats);
+    sendOk(res, stats);
   } catch (error: any) {
     logger.error("[MCP API] Failed to get statistics:", error);
     serverError(res, error, "Get statistics");

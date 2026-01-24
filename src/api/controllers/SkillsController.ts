@@ -18,8 +18,8 @@ import {
   notFound,
   conflict,
   serverError,
-  created,
-  ok,
+  sendCreated,
+  sendOk,
   serviceUnavailable,
   handleErrorWithAutoDetection,
 } from "../../utils/http-response";
@@ -139,7 +139,7 @@ export async function installSkill(req: Request, res: Response): Promise<void> {
       `✅ Skill installed successfully: ${result.skillName} (${Date.now() - startTime}ms)`
     );
 
-    created(res, {
+    sendCreated(res, {
       skillName: result.skillName,
       installedAt: result.installedAt,
       duration: result.duration,
@@ -200,7 +200,7 @@ export async function uninstallSkill(req: Request, res: Response): Promise<void>
 
     logger.info(`✅ Skill uninstalled successfully: ${name} (${Date.now() - startTime}ms)`);
 
-    ok(res, {
+    sendOk(res, {
       skillName: result.skillName,
       uninstalledAt: result.uninstalledAt,
       duration: result.duration,
@@ -284,7 +284,7 @@ export async function updateSkillDescription(req: Request, res: Response): Promi
 
     logger.info(`✅ Skill description updated: ${name} (${Date.now() - startTime}ms)`);
 
-    ok(res, {
+    sendOk(res, {
       skillName: result.skillName,
       updatedAt: result.updatedAt,
       duration: result.duration,
@@ -366,7 +366,7 @@ export async function listSkills(req: Request, res: Response): Promise<void> {
 
     logger.info(`✅ Listed ${result.skills.length} skills (${Date.now() - startTime}ms)`);
 
-    ok(res, {
+    sendOk(res, {
       skills: result.skills.map(toSkillDTO),
       pagination: {
         total: result.total,
@@ -421,7 +421,7 @@ export async function getSkill(req: Request, res: Response): Promise<void> {
 
     logger.info(`✅ Got skill details: ${name} (${Date.now() - startTime}ms)`);
 
-    ok(res, toSkillDTO(skill));
+    sendOk(res, toSkillDTO(skill));
   } catch (error) {
     handleErrorWithAutoDetection(res, error, "get skill");
   }
@@ -469,7 +469,7 @@ export async function checkSkillExists(req: Request, res: Response): Promise<voi
 
     const exists = await skillManager.isSkillExist(name);
 
-    ok(res, { name, exists });
+    sendOk(res, { name, exists });
   } catch (error) {
     handleErrorWithAutoDetection(res, error, "check skill existence");
   }
@@ -518,7 +518,7 @@ export async function getSkillStats(req: Request, res: Response): Promise<void> 
 
     logger.info(`✅ Got skill statistics (${Date.now() - startTime}ms)`);
 
-    ok(res, stats);
+    sendOk(res, stats);
   } catch (error) {
     handleErrorWithAutoDetection(res, error, "get skill statistics");
   }
@@ -558,7 +558,7 @@ export async function reindexAllSkills(req: Request, res: Response): Promise<voi
 
     logger.info(`✅ All skills reindexed (${Date.now() - startTime}ms)`);
 
-    ok(res, { message: "All skills reindexed successfully" });
+    sendOk(res, { message: "All skills reindexed successfully" });
   } catch (error) {
     handleErrorWithAutoDetection(res, error, "reindex skills");
   }

@@ -1,11 +1,45 @@
 /**
  * HTTP Response utilities
  * Unified helpers for common HTTP response patterns across controllers
+ *
+ * @version v2.0 - API response format optimized
+ * - Removed redundant 'success' field (HTTP status already indicates success)
+ * - Added sendOk()/sendCreated() for cleaner responses
+ * - Old functions (ok/created) marked @deprecated
  */
+/* eslint-disable no-restricted-syntax -- This file IS the http-response utility */
 
 import { Response } from "express";
 import { logger } from "./logger";
 import { formatErrorMessage } from "./error-utils";
+
+// ============================================================================
+// v2.0 API Response Functions (Recommended)
+// ============================================================================
+
+/**
+ * Send 200 OK response (v2.0 API - no success field)
+ * Use this instead of ok() for cleaner, more RESTful responses
+ *
+ * @example
+ * sendOk(res, { users: [...], total: 100 });
+ * // Returns: { users: [...], total: 100 }
+ */
+export function sendOk<T>(res: Response, data: T): void {
+  res.status(200).json(data);
+}
+
+/**
+ * Send 201 Created response (v2.0 API - no success field)
+ * Use this instead of created() for cleaner, more RESTful responses
+ *
+ * @example
+ * sendCreated(res, { id: 123, created: "2026-01-24" });
+ * // Returns: { id: 123, created: "2026-01-24" }
+ */
+export function sendCreated<T>(res: Response, data: T): void {
+  res.status(201).json(data);
+}
 
 /**
  * Standard error response format (OpenAI-compatible)
@@ -178,21 +212,41 @@ export function serviceUnavailable(
   });
 }
 
+// ============================================================================
+// Legacy Response Functions (Deprecated - to be removed in v2.0)
+// ============================================================================
+
 /**
- * Send 201 Created response
+ * @deprecated Use sendOk() instead - will be removed in v2.0
+ * Reason: success field is redundant (HTTP status already indicates success)
+ *
+ * @example
+ * // Legacy usage (avoid):
+ * ok(res, { data: result, success: true });
+ *
+ * // Recommended (v2.0):
+ * sendOk(res, result);
  */
-export function created<T>(res: Response, data: T): void {
-  res.status(201).json({
+export function ok<T>(res: Response, data: T): void {
+  res.status(200).json({
     data,
     success: true,
   });
 }
 
 /**
- * Send 200 OK response
+ * @deprecated Use sendCreated() instead - will be removed in v2.0
+ * Reason: success field is redundant (HTTP status already indicates success)
+ *
+ * @example
+ * // Legacy usage (avoid):
+ * created(res, { data: result, success: true });
+ *
+ * // Recommended (v2.0):
+ * sendCreated(res, result);
  */
-export function ok<T>(res: Response, data: T): void {
-  res.status(200).json({
+export function created<T>(res: Response, data: T): void {
+  res.status(201).json({
     data,
     success: true,
   });

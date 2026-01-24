@@ -72,7 +72,7 @@ import skillRoutes from "./api/routes/skillRoutes";
 // MCP管理路由
 import mcpRoutes from "./api/routes/mcpRoutes";
 // HTTP响应工具
-import { ok } from "./utils/http-response";
+import { sendOk } from "./utils/http-response";
 // Swagger API文档
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./api/swagger";
@@ -431,7 +431,7 @@ export class ABPIntelliCore {
      * 健康检查
      */
     this.app.get("/health", (req, res) => {
-      ok(res, {
+      sendOk(res, {
         status: "ok",
         version: "2.0.0",
         uptime: process.uptime(),
@@ -532,7 +532,7 @@ export class ABPIntelliCore {
     // JSON格式指标端点（用于调试和监控）
     this.app.get("/metrics/json", (req, res) => {
       const { metricsService } = require("./services/monitoring/MetricsService");
-      ok(res, metricsService.getSnapshot());
+      sendOk(res, metricsService.getSnapshot());
     });
 
     // 错误处理（必须最后注册）

@@ -1,6 +1,9 @@
 /**
  * Common result types
  * Unified interfaces for operation results across the codebase
+ *
+ * @deprecated Use Result<T> from src/types/api.ts instead
+ * This interface has been replaced by the discriminated union type
  */
 
 /**

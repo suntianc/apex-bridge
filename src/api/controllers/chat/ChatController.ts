@@ -9,7 +9,7 @@ import { ChatService } from "../../../services/ChatService";
 import { LLMManager } from "../../../core/LLMManager";
 import { logger } from "../../../utils/logger";
 import {
-  ok,
+  sendOk,
   badRequest,
   notFound,
   serverError,
@@ -83,7 +83,7 @@ export class ChatController {
         const actualModel = await this.getActualModel(req.body);
         const usage = normalizeUsage(result.response.usage);
         const response = buildChatResponse(result.response.content, actualModel, usage);
-        ok(res, response);
+        sendOk(res, response);
       }
     } catch (error: any) {
       logger.error("Error in chatCompletions:", error);
@@ -99,7 +99,7 @@ export class ChatController {
       const llmClient = await this.getLLMClient();
       const models = await llmClient.getAllModels();
 
-      ok(res, {
+      sendOk(res, {
         object: "list",
         data: models.map((m) => ({
           id: m.id,
@@ -153,7 +153,7 @@ export class ChatController {
         };
 
         logger.info(`Request interrupted: ${requestId}`);
-        ok(res, response);
+        sendOk(res, response);
       } else {
         const response: InterruptResponse = {
           success: false,
@@ -192,7 +192,7 @@ export class ChatController {
 
       await this.chatService.endSession(conversationId);
 
-      ok(res, {
+      sendOk(res, {
         success: true,
         message: "Session deleted successfully",
       });
@@ -235,7 +235,7 @@ export class ChatController {
         },
       };
 
-      ok(res, {
+      sendOk(res, {
         success: true,
         data: sessionState,
       });
@@ -279,7 +279,7 @@ export class ChatController {
 
       const activeSessions = sessions.filter((s) => s !== null);
 
-      ok(res, {
+      sendOk(res, {
         success: true,
         data: {
           sessions: activeSessions,
@@ -328,7 +328,7 @@ export class ChatController {
         };
       }
 
-      ok(res, {
+      sendOk(res, {
         success: true,
         data: history,
       });
@@ -360,7 +360,7 @@ export class ChatController {
 
       const total = await this.chatService.getConversationMessageCount(conversationId);
 
-      ok(res, {
+      sendOk(res, {
         success: true,
         data: {
           messages,
