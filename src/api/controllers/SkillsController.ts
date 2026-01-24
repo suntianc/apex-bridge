@@ -10,7 +10,7 @@
 
 import { Request, Response } from "express";
 import multer from "multer";
-import { SkillManager } from "../../services/skill/SkillManager";
+import { SkillManager } from "../../services/skill";
 import { logger } from "../../utils/logger";
 import { ToolError, ToolErrorCode } from "../../types/tool-system";
 import {

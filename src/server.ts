@@ -152,7 +152,7 @@ export class ABPIntelliCore {
         { mcpIntegration },
       ] = await Promise.all([
         import("./services/LLMConfigService"),
-        import("./services/skill/SkillManager"),
+        import("./services/skill"),
         import("./services/tool-retrieval/ToolRetrievalService"),
         import("./services/MCPIntegrationService"),
       ]);

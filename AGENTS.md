@@ -66,7 +66,7 @@ ApexBridge is an enterprise-grade AI Agent framework with multi-model support (O
 - `as any`, `@ts-ignore` → Forbidden, use explicit types
 - **No `src/index.ts`** → Entry is `src/server.ts`
 - **Config in two places** → `config/` AND `src/config/` (confusing)
-- **Legacy SkillManager wrapper** → `services/SkillManager.ts` wrapper re-exports from `services/skill/SkillManager.ts`
+- **Legacy SkillManager wrapper** → ✅ RESOLVED - 统一通过 barrel 文件导入
 - **Mixed TS/JS scripts** → ✅ RESOLVED (5 .ts files in `scripts/`)
 - **Duplicate ChatController** → ✅ RESOLVED - 已通过模块化架构拆分解决
 
@@ -89,7 +89,7 @@ ApexBridge is an enterprise-grade AI Agent framework with multi-model support (O
 | ------------------------------ | ---------- | -------------------------------------------------------------------------------- | ----------------------------------- |
 | Configuration duplication      | 🔴PENDING  | `config/` + `src/config/`                                                        | Maintenance burden, inconsistencies |
 | Duplicate ChatController       | ✅RESOLVED | 通过模块化架构拆分解决 (`controllers/chat/` 目录包含 ChatController + 3个处理器) | ✅ 已解决                           |
-| Legacy SkillManager wrapper    | 🔴PENDING  | `services/SkillManager.ts` re-exports from `services/skill/SkillManager.ts`      | Unnecessary indirection             |
+| Legacy SkillManager wrapper    | ✅RESOLVED | 统一通过 barrel 文件导入 (8个导入路径已更新)                                     | ✅ 已解决                           |
 | TODO comments                  | 🟡PENDING  | 27 items across 13 files                                                         | Technical debt tracking             |
 | String-matching error handling | 🟡PENDING  | `ProviderController.ts`, `ModelController.ts`                                    | Brittle error handling, i18n issues |
 

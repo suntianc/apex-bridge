@@ -15,7 +15,7 @@ import {
 import type { BuiltInTool, SkillTool, ToolResult } from "../../types/tool-system";
 import { BuiltInToolsRegistry, getBuiltInToolsRegistry } from "../../services/BuiltInToolsRegistry";
 import { SkillsSandboxExecutor } from "../../services/executors/SkillsSandboxExecutor";
-import { getSkillManager } from "../../services/skill/SkillManager";
+import { getSkillManager } from "../../services/skill";
 import { mcpIntegration } from "../../services/MCPIntegrationService";
 import { toolRegistry, ToolStatus } from "../tool/registry";
 import type { Tool } from "../tool/tool";

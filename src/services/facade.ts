@@ -18,7 +18,7 @@ import type { LLMManager } from "../core/LLMManager";
 import type { ProtocolEngine } from "../core/ProtocolEngine";
 import type { AdminConfig } from "./ConfigService";
 import type { ChatService } from "./ChatService";
-import type { SkillManager } from "./skill/SkillManager";
+import type { SkillManager } from "./skill";
 import type { ToolRetrievalService } from "./tool-retrieval/ToolRetrievalService";
 import type { ContextCompressionService } from "./context-compression/ContextCompressionService";
 import type { MCPIntegrationService } from "./MCPIntegrationService";

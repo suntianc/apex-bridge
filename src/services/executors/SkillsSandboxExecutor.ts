@@ -20,7 +20,7 @@ import {
   ToolErrorCode,
 } from "../../types/tool-system";
 import { logger } from "../../utils/logger";
-import { getSkillManager } from "../skill/SkillManager";
+import { getSkillManager } from "../skill";
 import { getPermissionValidator, PermissionValidationConfig } from "../compat/PermissionValidator";
 import { ProcessPool } from "./ProcessPool";
 

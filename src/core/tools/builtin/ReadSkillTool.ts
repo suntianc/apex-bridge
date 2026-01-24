@@ -4,7 +4,7 @@
  */
 
 import { ToolResult, BuiltInTool, ToolType } from "../../../types/tool-system";
-import { getSkillManager } from "../../../services/skill/SkillManager";
+import { getSkillManager } from "../../../services/skill";
 import { logger } from "../../../utils/logger";
 import * as fs from "fs/promises";
 import * as path from "path";
