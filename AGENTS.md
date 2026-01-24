@@ -87,7 +87,7 @@ ApexBridge is an enterprise-grade AI Agent framework with multi-model support (O
 
 | Issue                          | Status     | Files                                                                            | Impact                               |
 | ------------------------------ | ---------- | -------------------------------------------------------------------------------- | ------------------------------------ |
-| Configuration duplication      | 🔴PENDING  | `config/` + `src/config/`                                                        | Maintenance burden, inconsistencies  |
+| Configuration duplication      | ✅RESOLVED | 明确职责划分: `config/`=运行时配置, `src/config/`=构建时代码                     | ✅ 已解决 - 删除冗余 index.ts        |
 | Duplicate ChatController       | ✅RESOLVED | 通过模块化架构拆分解决 (`controllers/chat/` 目录包含 ChatController + 3个处理器) | ✅ 已解决                            |
 | Legacy SkillManager wrapper    | ✅RESOLVED | 统一通过 barrel 文件导入 (8个导入路径已更新)                                     | ✅ 已解决                            |
 | TODO comments                  | 🟢ACCEPTED | 1 item (`BuiltInToolsRegistry.ts:68`)                                            | ✅ 可接受 - Future enhancement       |

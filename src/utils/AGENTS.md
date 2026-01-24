@@ -23,5 +23,7 @@ Same as root (2-space indent, single quotes, semicolons required).
 
 ## ANTI-PATTERNS
 
-- **Config split**: `config/` AND `src/config/` directories both exist (confusing, prefer consolidating to `config/`)
-- **Config split**: `src/utils/config/` also exists (additional confusion)
+- ~~**Config split**: `config/` AND `src/config/` directories both exist~~ - ✅ 已解决：明确职责划分
+  - `config/` = 运行时数据配置 (JSON/YAML/MD)
+  - `src/config/` = 构建时 TypeScript 配置代码
+- ~~**Config split**: `src/utils/config/` also exists~~ - 已验证：这是配置工具模块
