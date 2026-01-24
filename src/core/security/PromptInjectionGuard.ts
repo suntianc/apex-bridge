@@ -148,7 +148,7 @@ export class PromptInjectionGuard {
   }> = [
     // eslint-disable-next-line no-control-regex
     { regex: /\u0000/g, severity: "critical" as const },
-     
+
     { regex: /%00/g, severity: "critical" as const }, // URL-encoded null byte
     // eslint-disable-next-line no-control-regex
     { regex: /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, severity: "high" as const },
