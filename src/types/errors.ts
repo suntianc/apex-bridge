@@ -393,3 +393,91 @@ export function getStatusCodeForErrorCode(code: ErrorCode): number {
       return 500;
   }
 }
+
+/**
+ * 从错误对象提取错误码
+ */
+export function getErrorCode(error: unknown): ErrorCode | null {
+  if (error && typeof error === "object" && "code" in error) {
+    const code = (error as { code: unknown }).code;
+    if (typeof code === "string" && Object.values(ErrorCode).includes(code as ErrorCode)) {
+      return code as ErrorCode;
+    }
+  }
+  return null;
+}
+
+/**
+ * 从错误对象提取 HTTP 状态码
+ */
+export function getHttpStatus(error: unknown): number | null {
+  if (error && typeof error === "object") {
+    const status =
+      (error as { status?: unknown; statusCode?: unknown }).status ??
+      (error as { statusCode?: unknown }).statusCode;
+    if (typeof status === "number" && status >= 100 && status < 600) {
+      return status;
+    }
+  }
+  return null;
+}
+
+/**
+ * 从错误码推断错误类型字符串
+ */
+export function getErrorTypeString(code: ErrorCode): string {
+  if (code.includes("NOT_FOUND")) return "not_found";
+  if (code.includes("ALREADY_EXISTS")) return "conflict";
+  if (code.includes("VALIDATION") || code.includes("INVALID")) return "invalid_request";
+  if (code.includes("UNAUTHORIZED")) return "authentication_error";
+  if (code.includes("FORBIDDEN")) return "permission_denied";
+  if (code.includes("RATE_LIMIT")) return "rate_limit_error";
+  return "server_error";
+}
+
+/**
+ * 从 HTTP 状态码推断错误类型字符串
+ */
+export function getErrorTypeFromStatus(status: number): string {
+  switch (status) {
+    case 400:
+      return "invalid_request";
+    case 401:
+      return "authentication_error";
+    case 403:
+      return "permission_denied";
+    case 404:
+      return "not_found";
+    case 409:
+      return "conflict";
+    case 422:
+      return "invalid_request";
+    case 429:
+      return "rate_limit_error";
+    case 500:
+      return "server_error";
+    default:
+      return "server_error";
+  }
+}
+
+/**
+ * 检查错误是否为"未找到"类型
+ */
+export function isNotFoundError(error: unknown): boolean {
+  if (isAppError(error)) {
+    return (
+      error.code === ErrorCode.ERR_TOOL_NOT_FOUND ||
+      error.code === ErrorCode.ERR_INTERNAL_STATE_ERROR
+    );
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  const lowerMessage = message.toLowerCase();
+
+  return (
+    lowerMessage.includes("not found") ||
+    lowerMessage.includes("does not exist") ||
+    lowerMessage.includes("no such")
+  );
+}

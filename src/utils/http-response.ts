@@ -12,6 +12,14 @@
 import { Response } from "express";
 import { logger } from "./logger";
 import { formatErrorMessage } from "./error-utils";
+import {
+  isAppError,
+  getErrorCode,
+  getHttpStatus,
+  getStatusCodeForErrorCode,
+  getErrorTypeString,
+  getErrorTypeFromStatus,
+} from "../types/errors";
 
 // ============================================================================
 // v2.0 API Response Functions (Recommended)
@@ -260,10 +268,67 @@ export function noContent(res: Response): void {
 }
 
 /**
- * Handle error with automatic status code detection based on error message
- * Returns true if error was handled, false if it should be handled by caller
+ * Enhanced error handler with type-safe error detection
+ * Priority: AppError > ErrorCode > HTTP Status > String matching (fallback)
+ *
+ * @param res - Express Response object
+ * @param error - The error to handle
+ * @param action - Context for logging
+ * @returns true if error was handled, false if caller should handle
  */
 export function handleErrorWithAutoDetection(
+  res: Response,
+  error: unknown,
+  action: string
+): boolean {
+  // Priority 1: AppError type check (most reliable)
+  if (isAppError(error)) {
+    const statusCode = error.getStatusCode();
+    res.status(statusCode).json({
+      error: {
+        message: error.message,
+        type: getErrorTypeString(error.code),
+        code: error.code,
+      },
+    });
+    return true;
+  }
+
+  // Priority 2: Extract ErrorCode
+  const errorCode = getErrorCode(error);
+  if (errorCode) {
+    const statusCode = getStatusCodeForErrorCode(errorCode);
+    res.status(statusCode).json({
+      error: {
+        message: error instanceof Error ? error.message : String(error),
+        type: getErrorTypeString(errorCode),
+        code: errorCode,
+      },
+    });
+    return true;
+  }
+
+  // Priority 3: Extract HTTP status code directly
+  const httpStatus = getHttpStatus(error);
+  if (httpStatus !== null) {
+    res.status(httpStatus).json({
+      error: {
+        message: error instanceof Error ? error.message : String(error),
+        type: getErrorTypeFromStatus(httpStatus),
+        code: `HTTP_${httpStatus}`,
+      },
+    });
+    return true;
+  }
+
+  // Priority 4: String matching (legacy fallback)
+  return legacyHandleErrorWithAutoDetection(res, error, action);
+}
+
+/**
+ * Legacy string-matching error detection (kept as fallback)
+ */
+function legacyHandleErrorWithAutoDetection(
   res: Response,
   error: unknown,
   action: string
