@@ -76,31 +76,37 @@ ApexBridge is an enterprise-grade AI Agent framework with multi-model support (O
 
 ### Critical Issues (Should Fix Immediately)
 
-| Issue                       | Count | Files | Priority | Notes                                        |
-| --------------------------- | ----- | ----- | -------- | -------------------------------------------- |
-| Empty catch blocks          | 411   | 112   | Critical | ✅ All critical/high fixed, 30+ medium fixed |
-| `as any` type assertions    | 0     | 0     | Critical | ✅ RESOLVED - No as any assertions in src    |
-| Direct HTTP responses       | 53    | 15    | High     | DRY violations, inconsistent error responses |
-| Console statements (source) | 17    | 12    | Medium   | Debug code in production                     |
+| Issue                       | Count | Files | Priority | Notes                                          |
+| --------------------------- | ----- | ----- | -------- | ---------------------------------------------- |
+| Empty catch blocks          | 411   | 112   | Critical | ✅ All critical/high fixed, 30+ medium fixed   |
+| `as any` type assertions    | 0     | 0     | Critical | ✅ RESOLVED - No as any assertions in src      |
+| Direct HTTP responses       | 0     | 0     | High     | ✅ RESOLVED - ESLint rule + migration complete |
+| Console statements (source) | 2     | 2     | Medium   | ✅ Acceptable - Legitimate usage (debug, test) |
 
 ### Technical Debt (Should Refactor)
 
-| Issue                          | Status     | Files                                                                            | Impact                              |
-| ------------------------------ | ---------- | -------------------------------------------------------------------------------- | ----------------------------------- |
-| Configuration duplication      | 🔴PENDING  | `config/` + `src/config/`                                                        | Maintenance burden, inconsistencies |
-| Duplicate ChatController       | ✅RESOLVED | 通过模块化架构拆分解决 (`controllers/chat/` 目录包含 ChatController + 3个处理器) | ✅ 已解决                           |
-| Legacy SkillManager wrapper    | ✅RESOLVED | 统一通过 barrel 文件导入 (8个导入路径已更新)                                     | ✅ 已解决                           |
-| TODO comments                  | 🟡PENDING  | 27 items across 13 files                                                         | Technical debt tracking             |
-| String-matching error handling | 🟡PENDING  | `ProviderController.ts`, `ModelController.ts`                                    | Brittle error handling, i18n issues |
+| Issue                          | Status     | Files                                                                            | Impact                               |
+| ------------------------------ | ---------- | -------------------------------------------------------------------------------- | ------------------------------------ |
+| Configuration duplication      | 🔴PENDING  | `config/` + `src/config/`                                                        | Maintenance burden, inconsistencies  |
+| Duplicate ChatController       | ✅RESOLVED | 通过模块化架构拆分解决 (`controllers/chat/` 目录包含 ChatController + 3个处理器) | ✅ 已解决                            |
+| Legacy SkillManager wrapper    | ✅RESOLVED | 统一通过 barrel 文件导入 (8个导入路径已更新)                                     | ✅ 已解决                            |
+| TODO comments                  | 🟢ACCEPTED | 1 item (`BuiltInToolsRegistry.ts:68`)                                            | ✅ 可接受 - Future enhancement       |
+| String-matching error handling | ✅RESOLVED | `ProviderController.ts`, `ModelController.ts`                                    | ✅ 已解决 - Type-safe error handling |
 
 ### Resolved Issues
 
-| Issue                    | Status     | Notes                                          |
-| ------------------------ | ---------- | ---------------------------------------------- |
-| Empty catch blocks       | ✅RESOLVED | 5 critical + 4 high + 30+ medium fixed         |
-| `as any` type assertions | ✅RESOLVED | No as any, @ts-ignore, @ts-expect-error in src |
-| Mixed TS/JS scripts      | ✅RESOLVED | 5 .ts files, 1 .sh file                        |
-| Nested opencode project  | ✅RESOLVED | Directory does not exist                       |
+| Issue                          | Status     | Notes                                                     |
+| ------------------------------ | ---------- | --------------------------------------------------------- |
+| Empty catch blocks             | ✅RESOLVED | 5 critical + 4 high + 30+ medium fixed                    |
+| `as any` type assertions       | ✅RESOLVED | No as any, @ts-ignore, @ts-expect-error in src            |
+| Mixed TS/JS scripts            | ✅RESOLVED | 5 .ts files, 1 .sh file                                   |
+| Nested opencode project        | ✅RESOLVED | Directory does not exist                                  |
+| Direct HTTP responses          | ✅RESOLVED | ESLint rule + 53+ violations migrated to http-response.ts |
+| Console statements (source)    | ✅RESOLVED | Reduced to 2 (legitimate usage)                           |
+| String-matching error handling | ✅RESOLVED | Type-safe AppError + ErrorClassifier implementation       |
+| TODO comments                  | ✅RESOLVED | Reduced from 27 to 1 (acceptable for future enhancement)  |
+| Duplicate ChatController       | ✅RESOLVED | Module refactor to `controllers/chat/` with handlers      |
+| Legacy SkillManager wrapper    | ✅RESOLVED | Unified imports via barrel file                           |
 
 ### Empty Catch Block Details
 
